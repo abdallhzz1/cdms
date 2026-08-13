@@ -135,6 +135,28 @@ Start the API:
 php artisan serve
 ```
 
+**Windows + Laravel Herd:** if that fails with `Failed to listen on
+127.0.0.1:8000 (reason: ?)` — retrying every port up to 8010 — the port is
+not actually in use. Use this instead:
+
+```bash
+php artisan serve --no-reload
+```
+
+Herd's `php.ini` sets `variables_order=EGPCS`, which populates PHP's `$_ENV`.
+Laravel's `serve` command then strips every `$_ENV` variable that is not in
+its passthrough allow-list before spawning the underlying `php -S` process.
+That list contains `SYSTEMROOT`, but Windows actually names the variable
+`SystemRoot`, and the comparison is case-sensitive — so it gets stripped, and
+without it Winsock cannot initialize in the child process, leaving `php -S`
+unable to open a socket and reporting an empty `reason: ?`. Passing
+`--no-reload` makes Laravel forward the environment unmodified.
+
+The only thing given up is the automatic server restart when `.env` changes;
+restart it by hand after editing `.env`. This is a Laravel-on-Windows
+interaction, not a defect in this project — it affects any Laravel 11/12
+project on a Herd machine.
+
 Verify the health check:
 
 ```bash

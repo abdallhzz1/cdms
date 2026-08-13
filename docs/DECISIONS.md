@@ -331,3 +331,47 @@ be deleted when it happens.
 `npm run typecheck` and `npm run test` (19 tests) remain green.
 
 **Status:** Adopted 2026-08-14.
+## ADR-023 — `php artisan serve` needs `--no-reload` on Windows + Herd
+
+**Symptom:** `php artisan serve` fails on every port it tries:
+`Failed to listen on 127.0.0.1:8000 (reason: ?)`, 8001, ... 8010. The ports
+are genuinely free — `netsh interface ipv4 show excludedportrange` shows no
+reservation covering them, nothing is listening, and both PHP's own
+`stream_socket_server()` and .NET's `TcpListener` bind 127.0.0.1:8000
+without complaint. Running the underlying `php -S 127.0.0.1:8000 -t public`
+by hand also works.
+
+**Root cause:** Laravel's `ServeCommand::startProcess()` rebuilds the child
+environment before spawning `php -S`, mapping every `$_ENV` key that is not
+in `ServeCommand::$passthroughVariables` to `false` — which Symfony's
+`Process` treats as "remove this variable". That allow-list includes
+`SYSTEMROOT`, but Windows names the variable `SystemRoot`, and `in_array()`
+is case-sensitive, so it does not match and the variable is dropped. Winsock
+cannot initialize in a process without `SystemRoot`, so the built-in server
+fails to create its socket and reports an errno it has no string for —
+hence the empty `reason: ?`.
+
+Two conditions have to coincide, which is why this is not universal: Herd's
+`php.ini` sets `variables_order=EGPCS` (so `$_ENV` is populated at all — 97
+entries here; with the PHP default of `GPCS` it is empty and the stripping
+is a no-op), and the platform has to be Windows (case-mismatched variable
+name). Confirmed by reproducing it directly: spawning `php -S` with only
+`SystemRoot` removed from an otherwise complete environment reproduces the
+exact message, and restoring it fixes it.
+
+**Resolution:** use `php artisan serve --no-reload`, documented in
+`README.md`. `--no-reload` takes the `return [$key => $value]` branch in
+`startProcess()`, forwarding the environment unmodified. Verified: server
+starts, and `GET /api/v1/health` answers over real HTTP.
+
+**Not done:** patching `vendor/`, or changing `variables_order` globally.
+The first is overwritten by the next `composer install`; the second is a
+machine-wide PHP change with unrelated side effects. Neither is warranted
+for a documented one-flag workaround.
+
+**Scope:** not a defect in this project — it affects any Laravel 11/12
+project on this machine, including both phase snapshots. Recorded here
+because `README.md` instructs developers to run `php artisan serve`, and
+that instruction fails as written on a Windows + Herd setup.
+
+**Status:** Adopted 2026-08-14.
