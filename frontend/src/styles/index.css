@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/*
+ * Calm, professional, light, practical — the approved design direction
+ * (PROJECT_RULES.md §8 / ARCHITECTURE.md). Neutral base, one restrained
+ * accent, no gradients, no decorative motion.
+ */
+@theme {
+  --font-sans: "Segoe UI", "Tahoma", "Noto Sans Arabic", ui-sans-serif, system-ui, sans-serif;
+  --color-brand-50: #eef3f8;
+  --color-brand-100: #d7e3ee;
+  --color-brand-600: #2f5a86;
+  --color-brand-700: #1e3a5f;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+/* Arabic (RTL) uses the same neutral type scale; no mirrored icons or
+   direction-specific visual tricks are needed yet at Foundation scope. */

@@ -1,0 +1,43 @@
+# This root .gitignore only catches things that could land outside
+# /backend or /frontend (each has its own, more specific .gitignore).
+
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+node_modules/
+vendor/
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — key/certificate material should never be committed. Broader
+# "looks like a secret" globs are deliberately avoided here: they'd also
+# hide legitimate source files (e.g. a SecretController.php) from git
+# instead of just warning about them.
+*.pem
+*.key
+credentials.json
