@@ -54,11 +54,13 @@ return Application::configure(basePath: dirname(__DIR__))
             }
 
             return match (true) {
-                $e instanceof ValidationException => ApiResponse::error(
-                    message: 'The given data was invalid.',
+                $e instanceof ValidationException => tap(ApiResponse::error(
+                    message: 'Validation Error: ' . collect($e->errors())->flatten()->first(),
                     errors: $e->errors(),
                     status: 422,
-                ),
+                ), function() use ($e) {
+                    \Log::error('Validation Error: ' . json_encode($e->errors()));
+                }),
                 $e instanceof AuthenticationException => ApiResponse::error(
                     message: 'Unauthenticated.',
                     status: 401,

@@ -1,0 +1,699 @@
+{
+  "Roles": [
+    {
+      "Role Code": "SYS_ADMIN",
+      "Role Arabic": "مدير النظام",
+      "Role English": "System Administrator",
+      "Purpose": "Technical administration",
+      "Scope": "System-wide",
+      "Notes": "No academic approval by default"
+    },
+    {
+      "Role Code": "DEAN",
+      "Role Arabic": "العميد",
+      "Role English": "Dean",
+      "Purpose": "College leadership and final approvals",
+      "Scope": "College-wide",
+      "Notes": "Approval actor"
+    },
+    {
+      "Role Code": "VICE_DEAN",
+      "Role Arabic": "نائب العميد",
+      "Role English": "Vice Dean",
+      "Purpose": "Academic/administrative review and approvals",
+      "Scope": "College-wide / assigned scope",
+      "Notes": "Independent actor and permissions"
+    },
+    {
+      "Role Code": "CLINICAL_DIRECTOR",
+      "Role Arabic": "مدير الدائرة السريرية",
+      "Role English": "Clinical Department Director",
+      "Purpose": "Manage clinical department and approve processes",
+      "Scope": "Clinical department",
+      "Notes": "Primary operational owner"
+    },
+    {
+      "Role Code": "ADMIN_ASSISTANT",
+      "Role Arabic": "المساعد الإداري",
+      "Role English": "Administrative Assistant",
+      "Purpose": "Data entry, correspondence, documents, operational support",
+      "Scope": "Clinical department",
+      "Notes": "No final approval unless explicitly granted"
+    },
+    {
+      "Role Code": "DEPARTMENT_HEAD",
+      "Role Arabic": "رئيس القسم",
+      "Role English": "Department Head",
+      "Purpose": "Manage department staff, supervisors and evaluations",
+      "Scope": "Own department",
+      "Notes": "Can evaluate supervisors"
+    },
+    {
+      "Role Code": "RTA",
+      "Role Arabic": "مساعد البحث والتدريس",
+      "Role English": "Research & Teaching Assistant",
+      "Purpose": "Academic/research support and assigned data",
+      "Scope": "Assigned scope",
+      "Notes": "Permissions from Excel role definition"
+    },
+    {
+      "Role Code": "CLINICAL_SUPERVISOR",
+      "Role Arabic": "المشرف السريري",
+      "Role English": "Clinical Supervisor",
+      "Purpose": "Clinical supervision, attendance and student evaluation",
+      "Scope": "Assigned students/rotations",
+      "Notes": "Cannot access unrelated students"
+    },
+    {
+      "Role Code": "ACADEMIC_ADVISOR",
+      "Role Arabic": "المرشد الأكاديمي",
+      "Role English": "Academic Advisor",
+      "Purpose": "Advising and at-risk cases",
+      "Scope": "Assigned advisees",
+      "Notes": "Confidential advising data"
+    },
+    {
+      "Role Code": "QUALITY",
+      "Role Arabic": "دائرة الجودة",
+      "Role English": "Quality Unit",
+      "Purpose": "Quality surveys, KPIs, reports and improvement",
+      "Scope": "College/assigned quality scope",
+      "Notes": "Read/analyze + manage quality records"
+    }
+  ],
+  "Permissions": [
+    {
+      "Permission Code": "students.view",
+      "Module": "Students",
+      "Action": "VIEW",
+      "Arabic": "عرض",
+      "Description": "View student records within scope"
+    },
+    {
+      "Permission Code": "students.create",
+      "Module": "Students",
+      "Action": "CREATE",
+      "Arabic": "إضافة",
+      "Description": "Create student record"
+    },
+    {
+      "Permission Code": "students.update",
+      "Module": "Students",
+      "Action": "UPDATE",
+      "Arabic": "تعديل",
+      "Description": "Update permitted student data"
+    },
+    {
+      "Permission Code": "students.delete",
+      "Module": "Students",
+      "Action": "DELETE",
+      "Arabic": "حذف",
+      "Description": "Archive/remove according to policy"
+    },
+    {
+      "Permission Code": "students.export",
+      "Module": "Students",
+      "Action": "EXPORT",
+      "Arabic": "تصدير",
+      "Description": "Export permitted student data"
+    },
+    {
+      "Permission Code": "grades.view",
+      "Module": "Grades",
+      "Action": "VIEW",
+      "Arabic": "عرض العلامات",
+      "Description": "View grades"
+    },
+    {
+      "Permission Code": "grades.create",
+      "Module": "Grades",
+      "Action": "CREATE",
+      "Arabic": "إدخال العلامات",
+      "Description": "Enter grades"
+    },
+    {
+      "Permission Code": "grades.update",
+      "Module": "Grades",
+      "Action": "UPDATE",
+      "Arabic": "تعديل العلامات",
+      "Description": "Modify grades before lock"
+    },
+    {
+      "Permission Code": "grades.lock",
+      "Module": "Grades",
+      "Action": "LOCK",
+      "Arabic": "قفل العلامات",
+      "Description": "Lock grade period"
+    },
+    {
+      "Permission Code": "grades.approve",
+      "Module": "Grades",
+      "Action": "APPROVE",
+      "Arabic": "اعتماد العلامات",
+      "Description": "Approve grades"
+    },
+    {
+      "Permission Code": "grades.publish",
+      "Module": "Grades",
+      "Action": "PUBLISH",
+      "Arabic": "نشر العلامات",
+      "Description": "Publish approved grades"
+    },
+    {
+      "Permission Code": "distribution.view",
+      "Module": "Distribution",
+      "Action": "VIEW",
+      "Arabic": "عرض التوزيع",
+      "Description": "View distributions"
+    },
+    {
+      "Permission Code": "distribution.create",
+      "Module": "Distribution",
+      "Action": "CREATE",
+      "Arabic": "إنشاء التوزيع",
+      "Description": "Create draft distribution"
+    },
+    {
+      "Permission Code": "distribution.generate",
+      "Module": "Distribution",
+      "Action": "GENERATE",
+      "Arabic": "اقتراح توزيع",
+      "Description": "Run suggested distribution"
+    },
+    {
+      "Permission Code": "distribution.update",
+      "Module": "Distribution",
+      "Action": "UPDATE",
+      "Arabic": "تعديل التوزيع",
+      "Description": "Manual adjustment"
+    },
+    {
+      "Permission Code": "distribution.validate",
+      "Module": "Distribution",
+      "Action": "VALIDATE",
+      "Arabic": "فحص التعارضات",
+      "Description": "Validate capacity/conflicts"
+    },
+    {
+      "Permission Code": "distribution.approve",
+      "Module": "Distribution",
+      "Action": "APPROVE",
+      "Arabic": "اعتماد التوزيع",
+      "Description": "Approve distribution"
+    },
+    {
+      "Permission Code": "distribution.publish",
+      "Module": "Distribution",
+      "Action": "PUBLISH",
+      "Arabic": "نشر التوزيع",
+      "Description": "Publish immutable version"
+    },
+    {
+      "Permission Code": "attendance.view",
+      "Module": "Attendance",
+      "Action": "VIEW",
+      "Arabic": "عرض الحضور",
+      "Description": "View attendance within scope"
+    },
+    {
+      "Permission Code": "attendance.record",
+      "Module": "Attendance",
+      "Action": "RECORD",
+      "Arabic": "تسجيل الحضور",
+      "Description": "Record attendance"
+    },
+    {
+      "Permission Code": "attendance.excuse",
+      "Module": "Attendance",
+      "Action": "EXCUSE",
+      "Arabic": "إدارة الأعذار",
+      "Description": "Submit/review excuses"
+    },
+    {
+      "Permission Code": "assessment.view",
+      "Module": "Assessment",
+      "Action": "VIEW",
+      "Arabic": "عرض التقييم",
+      "Description": "View evaluations"
+    },
+    {
+      "Permission Code": "assessment.create",
+      "Module": "Assessment",
+      "Action": "CREATE",
+      "Arabic": "إنشاء تقييم",
+      "Description": "Create evaluation"
+    },
+    {
+      "Permission Code": "assessment.submit",
+      "Module": "Assessment",
+      "Action": "SUBMIT",
+      "Arabic": "إرسال التقييم",
+      "Description": "Submit completed evaluation"
+    },
+    {
+      "Permission Code": "assessment.approve",
+      "Module": "Assessment",
+      "Action": "APPROVE",
+      "Arabic": "اعتماد التقييم",
+      "Description": "Approve when applicable"
+    },
+    {
+      "Permission Code": "courses.view",
+      "Module": "Courses",
+      "Action": "VIEW",
+      "Arabic": "عرض المساقات",
+      "Description": "View course data"
+    },
+    {
+      "Permission Code": "courses.manage",
+      "Module": "Courses",
+      "Action": "MANAGE",
+      "Arabic": "إدارة المساقات",
+      "Description": "Create/update course data"
+    },
+    {
+      "Permission Code": "course_report.manage",
+      "Module": "Course Reports",
+      "Action": "MANAGE",
+      "Arabic": "إدارة تقرير المساق",
+      "Description": "Create/update report"
+    },
+    {
+      "Permission Code": "course_report.approve",
+      "Module": "Course Reports",
+      "Action": "APPROVE",
+      "Arabic": "اعتماد تقرير المساق",
+      "Description": "Approve report"
+    },
+    {
+      "Permission Code": "advising.view",
+      "Module": "Advising",
+      "Action": "VIEW",
+      "Arabic": "عرض الإرشاد",
+      "Description": "View advising within scope"
+    },
+    {
+      "Permission Code": "advising.manage",
+      "Module": "Advising",
+      "Action": "MANAGE",
+      "Arabic": "إدارة الإرشاد",
+      "Description": "Create/update advising"
+    },
+    {
+      "Permission Code": "advising.export_pdf",
+      "Module": "Advising",
+      "Action": "EXPORT_PDF",
+      "Arabic": "طباعة PDF",
+      "Description": "Generate official advising PDF"
+    },
+    {
+      "Permission Code": "quality.manage",
+      "Module": "Quality",
+      "Action": "MANAGE",
+      "Arabic": "إدارة الجودة",
+      "Description": "Manage surveys/KPIs/improvement"
+    },
+    {
+      "Permission Code": "quality.view",
+      "Module": "Quality",
+      "Action": "VIEW",
+      "Arabic": "عرض الجودة",
+      "Description": "View quality data"
+    },
+    {
+      "Permission Code": "kpi.manage",
+      "Module": "KPIs",
+      "Action": "MANAGE",
+      "Arabic": "إدارة المؤشرات",
+      "Description": "Manage KPI definitions/results"
+    },
+    {
+      "Permission Code": "performance.view",
+      "Module": "Performance",
+      "Action": "VIEW",
+      "Arabic": "عرض الأداء",
+      "Description": "View performance scores"
+    },
+    {
+      "Permission Code": "correspondence.view",
+      "Module": "Correspondence",
+      "Action": "VIEW",
+      "Arabic": "عرض المراسلات",
+      "Description": "View correspondence in scope"
+    },
+    {
+      "Permission Code": "correspondence.create",
+      "Module": "Correspondence",
+      "Action": "CREATE",
+      "Arabic": "إنشاء مراسلة",
+      "Description": "Create incoming/outgoing"
+    },
+    {
+      "Permission Code": "correspondence.update",
+      "Module": "Correspondence",
+      "Action": "UPDATE",
+      "Arabic": "تعديل المراسلة",
+      "Description": "Edit before submission"
+    },
+    {
+      "Permission Code": "correspondence.submit",
+      "Module": "Correspondence",
+      "Action": "SUBMIT",
+      "Arabic": "إرسال",
+      "Description": "Submit into workflow"
+    },
+    {
+      "Permission Code": "correspondence.forward",
+      "Module": "Correspondence",
+      "Action": "FORWARD",
+      "Arabic": "تحويل",
+      "Description": "Forward/assign"
+    },
+    {
+      "Permission Code": "correspondence.approve",
+      "Module": "Correspondence",
+      "Action": "APPROVE",
+      "Arabic": "اعتماد",
+      "Description": "Approve/review correspondence"
+    },
+    {
+      "Permission Code": "correspondence.close",
+      "Module": "Correspondence",
+      "Action": "CLOSE",
+      "Arabic": "إغلاق",
+      "Description": "Close completed correspondence"
+    },
+    {
+      "Permission Code": "meetings.manage",
+      "Module": "Meetings",
+      "Action": "MANAGE",
+      "Arabic": "إدارة الاجتماعات",
+      "Description": "Create meeting/minutes"
+    },
+    {
+      "Permission Code": "meetings.approve_minutes",
+      "Module": "Meetings",
+      "Action": "APPROVE",
+      "Arabic": "اعتماد المحضر",
+      "Description": "Finalize minutes"
+    },
+    {
+      "Permission Code": "tasks.view",
+      "Module": "Tasks",
+      "Action": "VIEW",
+      "Arabic": "عرض المهام",
+      "Description": "View assigned/in-scope tasks"
+    },
+    {
+      "Permission Code": "tasks.manage",
+      "Module": "Tasks",
+      "Action": "MANAGE",
+      "Arabic": "إدارة المهام",
+      "Description": "Create/update tasks"
+    },
+    {
+      "Permission Code": "reports.view",
+      "Module": "Reports",
+      "Action": "VIEW",
+      "Arabic": "عرض التقارير",
+      "Description": "View reports"
+    },
+    {
+      "Permission Code": "reports.export",
+      "Module": "Reports",
+      "Action": "EXPORT",
+      "Arabic": "تصدير التقارير",
+      "Description": "Export PDF/Excel"
+    },
+    {
+      "Permission Code": "users.manage",
+      "Module": "Security",
+      "Action": "MANAGE_USERS",
+      "Arabic": "إدارة المستخدمين",
+      "Description": "Manage accounts"
+    },
+    {
+      "Permission Code": "roles.manage",
+      "Module": "Security",
+      "Action": "MANAGE_ROLES",
+      "Arabic": "إدارة الأدوار",
+      "Description": "Manage roles/permissions"
+    },
+    {
+      "Permission Code": "audit.view",
+      "Module": "Security",
+      "Action": "VIEW_AUDIT",
+      "Arabic": "عرض التدقيق",
+      "Description": "View audit log"
+    },
+    {
+      "Permission Code": "settings.manage",
+      "Module": "System",
+      "Action": "MANAGE_SETTINGS",
+      "Arabic": "إعدادات النظام",
+      "Description": "Manage configuration"
+    }
+  ],
+  "Role_Permission_Matrix": [
+    {
+      "Students": "Grades",
+      "✓": "✓",
+      "✓.1": "✓",
+      "✓.2": "✓",
+      "—": "—",
+      "—.1": "✓",
+      "—.2": "✓",
+      "✓.3": "✓",
+      "—.3": "—",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "Entry by authorized academic staff; approval by configured approval chain"
+    },
+    {
+      "Students": "Distribution",
+      "✓": "✓",
+      "✓.1": "✓",
+      "✓.2": "✓",
+      "—": "—",
+      "—.1": "✓",
+      "—.2": "✓",
+      "✓.3": "✓",
+      "—.3": "✓",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "Director manages; suggested engine; approval chain; supervisors only assigned view"
+    },
+    {
+      "Students": "Attendance",
+      "✓": "✓",
+      "✓.1": "✓",
+      "✓.2": "✓",
+      "—": "—",
+      "—.1": "—",
+      "—.2": "—",
+      "✓.3": "✓",
+      "—.3": "—",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "Supervisor assigned students; Director/Admin oversight"
+    },
+    {
+      "Students": "Assessment",
+      "✓": "✓",
+      "✓.1": "✓",
+      "✓.2": "✓",
+      "—": "—",
+      "—.1": "✓",
+      "—.2": "—",
+      "✓.3": "✓",
+      "—.3": "—",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "Supervisor assigned students; Head evaluates/oversees"
+    },
+    {
+      "Students": "Courses",
+      "✓": "✓",
+      "✓.1": "✓",
+      "✓.2": "✓",
+      "—": "—",
+      "—.1": "✓",
+      "—.2": "—",
+      "✓.3": "✓",
+      "—.3": "—",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "Course coordinator/department scope; Director oversight"
+    },
+    {
+      "Students": "Advising",
+      "✓": "✓",
+      "✓.1": "✓",
+      "✓.2": "✓",
+      "—": "—",
+      "—.1": "—",
+      "—.2": "—",
+      "✓.3": "✓",
+      "—.3": "—",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "Advisor assigned advisees; Director/Admin per scope"
+    },
+    {
+      "Students": "Quality",
+      "✓": "✓",
+      "✓.1": "✓",
+      "✓.2": "✓",
+      "—": "—",
+      "—.1": "✓",
+      "—.2": "—",
+      "✓.3": "✓",
+      "—.3": "—",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "Quality + authorized leadership"
+    },
+    {
+      "Students": "KPIs",
+      "✓": "✓",
+      "✓.1": "✓",
+      "✓.2": "✓",
+      "—": "—",
+      "—.1": "✓",
+      "—.2": "—",
+      "✓.3": "✓",
+      "—.3": "—",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "Quality/Director; performance subject visibility restricted"
+    },
+    {
+      "Students": "Correspondence",
+      "✓": "✓",
+      "✓.1": "✓",
+      "✓.2": "✓",
+      "—": "—",
+      "—.1": "✓",
+      "—.2": "✓",
+      "✓.3": "✓",
+      "—.3": "✓",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "Workflow participants only; leadership approvals"
+    },
+    {
+      "Students": "Meetings",
+      "✓": "✓",
+      "✓.1": "✓",
+      "✓.2": "✓",
+      "—": "—",
+      "—.1": "✓",
+      "—.2": "—",
+      "✓.3": "✓",
+      "—.3": "—",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "Organizer/Director/authorized leadership"
+    },
+    {
+      "Students": "Tasks",
+      "✓": "✓",
+      "✓.1": "✓",
+      "✓.2": "✓",
+      "—": "—",
+      "—.1": "—",
+      "—.2": "—",
+      "✓.3": "✓",
+      "—.3": "—",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "Assignee + creator + leadership scope"
+    },
+    {
+      "Students": "Reports",
+      "✓": "✓",
+      "✓.1": "—",
+      "✓.2": "—",
+      "—": "—",
+      "—.1": "—",
+      "—.2": "—",
+      "✓.3": "✓",
+      "—.3": "—",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "Scope-based; sensitive reports restricted"
+    },
+    {
+      "Students": "Users/Roles",
+      "✓": "✓",
+      "✓.1": "✓",
+      "✓.2": "✓",
+      "—": "✓",
+      "—.1": "—",
+      "—.2": "—",
+      "✓.3": "—",
+      "—.3": "✓",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "System Admin only; role grants must be auditable"
+    },
+    {
+      "Students": "Audit",
+      "✓": "✓",
+      "✓.1": "—",
+      "✓.2": "—",
+      "—": "—",
+      "—.1": "—",
+      "—.2": "—",
+      "✓.3": "—",
+      "—.3": "—",
+      "Director/Admin/authorized staff; Head own dept where applicable; supervisors assigned students": "System Admin + explicitly authorized leadership"
+    }
+  ],
+  "Role_Scope": [
+    {
+      "Role": "DEAN",
+      "Can See": "College-wide relevant records",
+      "Can Manage": "Leadership-level records",
+      "Can Approve": "Final configured approvals",
+      "Cannot/Restricted": "No direct technical administration unless separately granted"
+    },
+    {
+      "Role": "VICE_DEAN",
+      "Can See": "College-wide / assigned",
+      "Can Manage": "Academic/administrative records in scope",
+      "Can Approve": "Configured approval steps",
+      "Cannot/Restricted": "No unrestricted system administration"
+    },
+    {
+      "Role": "CLINICAL_DIRECTOR",
+      "Can See": "Clinical department-wide",
+      "Can Manage": "Students, rotations, distribution, correspondence, meetings, reports",
+      "Can Approve": "Department-level approvals + configured chains",
+      "Cannot/Restricted": "Cannot bypass workflow without audited emergency permission"
+    },
+    {
+      "Role": "ADMIN_ASSISTANT",
+      "Can See": "Operational records in department",
+      "Can Manage": "Data entry, files, correspondence preparation, meetings/tasks",
+      "Can Approve": "Only explicitly assigned approvals",
+      "Cannot/Restricted": "No final academic approval by default"
+    },
+    {
+      "Role": "DEPARTMENT_HEAD",
+      "Can See": "Own department",
+      "Can Manage": "Department staff/supervisor data, evaluations, assigned academic data",
+      "Can Approve": "Supervisor evaluations/department approvals where configured",
+      "Cannot/Restricted": "No college-wide unrelated data"
+    },
+    {
+      "Role": "RTA",
+      "Can See": "Assigned academic/research scope",
+      "Can Manage": "Assigned research/teaching records",
+      "Can Approve": "Only if explicitly configured",
+      "Cannot/Restricted": "No leadership records by default"
+    },
+    {
+      "Role": "CLINICAL_SUPERVISOR",
+      "Can See": "Assigned students/rotations",
+      "Can Manage": "Attendance, assigned evaluations",
+      "Can Approve": "Submit evaluation; approval only if configured",
+      "Cannot/Restricted": "No unrelated student/rotation access"
+    },
+    {
+      "Role": "ACADEMIC_ADVISOR",
+      "Can See": "Assigned advisees",
+      "Can Manage": "Advising, risk cases, followups",
+      "Can Approve": "Only assigned advising workflow steps",
+      "Cannot/Restricted": "No unrelated clinical records"
+    },
+    {
+      "Role": "QUALITY",
+      "Can See": "Quality scope",
+      "Can Manage": "Surveys, KPIs, improvement plans, quality reports",
+      "Can Approve": "Quality approvals where configured",
+      "Cannot/Restricted": "No editing clinical source data unless granted"
+    },
+    {
+      "Role": "SYS_ADMIN",
+      "Can See": "System-wide technical metadata",
+      "Can Manage": "Users, roles, settings, technical maintenance",
+      "Can Approve": "No academic approval by default",
+      "Cannot/Restricted": "Business approvals separated from technical role"
+    }
+  ]
+}

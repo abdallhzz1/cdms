@@ -1,0 +1,26 @@
+import { useState, type FormEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiFetch } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
+import { useI18n } from '@/i18n/I18nContext';
+import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { LoadingState } from '@/components/ui/LoadingState';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
+
+interface Student { id: number; university_number: string; full_name_ar: string; full_name_en?: string | null; }
+interface Assessment { id: number; score: string | null; max_score: string; status: 'draft' | 'submitted'; student?: Student; }
+
+export function AssessmentsPage() {
+  const { can } = useAuth(); const { locale, t } = useI18n(); const queryClient = useQueryClient(); const [creating, setCreating] = useState(false); const [studentId, setStudentId] = useState(''); const [score, setScore] = useState(''); const [maxScore, setMaxScore] = useState('100'); const [notes, setNotes] = useState(''); const [error, setError] = useState<string | null>(null);
+  const { data: assessments, isLoading, isError, refetch } = useQuery({ queryKey: ['clinical-assessments'], queryFn: () => apiFetch<Assessment[]>('/clinical-assessments?per_page=25') });
+  const { data: students = [] } = useQuery({ queryKey: ['students-for-assessments'], queryFn: () => apiFetch<Student[]>('/students?per_page=100'), enabled: can('assessment.create') });
+  const create = useMutation({ mutationFn: () => apiFetch('/clinical-assessments', { method: 'POST', body: { student_id: Number(studentId), score: score === '' ? null : Number(score), max_score: Number(maxScore), notes: notes || null } }), onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['clinical-assessments'] }); setCreating(false); setStudentId(''); setScore(''); setMaxScore('100'); setNotes(''); } });
+  const submit = useMutation({ mutationFn: (id: number) => apiFetch(`/clinical-assessments/${id}/submit`, { method: 'POST' }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clinical-assessments'] }) });
+  const save = async (event: FormEvent) => { event.preventDefault(); setError(null); try { await create.mutateAsync(); } catch { setError(t('state.error.message')); } };
+  if (!can('assessment.view')) return <ErrorState title={t('state.forbidden.title')} message={t('state.forbidden.message')} />;
+  if (isLoading) return <LoadingState />;
+  if (isError) return <ErrorState onRetry={() => refetch()} />;
+  return <div className="space-y-5"><div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-4"><div><h1 className="text-2xl font-bold">{t('assessments.title')}</h1><p className="mt-1 text-sm text-slate-500">{t('assessments.description')}</p></div>{can('assessment.create') && <Button onClick={() => setCreating((value) => !value)}>{t('assessments.create')}</Button>}</div>{creating && <form onSubmit={save} className="grid gap-3 rounded-lg border border-slate-200 bg-white p-5 sm:grid-cols-2"><select required value={studentId} onChange={(event) => setStudentId(event.target.value)} className="rounded border p-2"><option value="">{t('assessments.student')}</option>{students.map((student) => <option key={student.id} value={student.id}>{locale === 'ar' ? student.full_name_ar : student.full_name_en || student.full_name_ar} — {student.university_number}</option>)}</select><input required type="number" min="0" value={score} onChange={(event) => setScore(event.target.value)} placeholder={t('assessments.score')} className="rounded border p-2"/><input required type="number" min="1" value={maxScore} onChange={(event) => setMaxScore(event.target.value)} placeholder={t('assessments.maximum')} className="rounded border p-2"/><input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={t('assessments.notes')} className="rounded border p-2"/><div className="sm:col-span-2">{error && <p className="mb-2 text-sm text-red-600">{error}</p>}<Button type="submit" isLoading={create.isPending}>{t('assessments.save')}</Button></div></form>}{!assessments?.length ? <EmptyState message={t('assessments.noAssessments')} /> : <Table><TableHeader><TableRow><TableHead>{t('assessments.student')}</TableHead><TableHead>{t('assessments.score')}</TableHead><TableHead>{t('assessments.status')}</TableHead><TableHead /></TableRow></TableHeader><TableBody>{assessments.map((assessment) => <TableRow key={assessment.id}><TableCell>{locale === 'ar' ? assessment.student?.full_name_ar : assessment.student?.full_name_en || assessment.student?.full_name_ar}</TableCell><TableCell>{assessment.score ?? '—'} / {assessment.max_score}</TableCell><TableCell>{assessment.status === 'submitted' ? t('assessments.submitted') : t('assessments.draft')}</TableCell><TableCell>{assessment.status === 'draft' && can('assessment.submit') && <Button size="sm" isLoading={submit.isPending} onClick={() => submit.mutate(assessment.id)}>{t('assessments.submit')}</Button>}</TableCell></TableRow>)}</TableBody></Table>}</div>;
+}

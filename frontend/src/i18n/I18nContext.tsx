@@ -19,7 +19,7 @@ type DotPaths<T, Prefix extends string = ''> = T extends Record<string, unknown>
     }[keyof T & string]
   : never;
 
-export type TranslationKey = DotPaths<typeof en>;
+export type TranslationKey = string;
 
 function resolve(dictionary: unknown, key: string): string {
   const value = key.split('.').reduce<unknown>((node, segment) => {
@@ -52,7 +52,7 @@ interface I18nContextValue {
   locale: Locale;
   direction: 'ltr' | 'rtl';
   setLocale: (locale: Locale) => void;
-  t: (key: TranslationKey) => string;
+  t: (key: TranslationKey, fallback?: string) => string;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -75,7 +75,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const t = useCallback(
-    (key: TranslationKey) => resolve(dictionaries[locale], key),
+    (key: TranslationKey, fallback?: string) => {
+      const val = resolve(dictionaries[locale], key);
+      if (val !== key) return val;
+      if (fallback !== undefined) return fallback;
+      return val;
+    },
     [locale],
   );
 

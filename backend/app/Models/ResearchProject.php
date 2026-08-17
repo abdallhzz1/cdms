@@ -1,0 +1,2 @@
+<?php
+namespace App\Models; use Illuminate\Database\Eloquent\Model; use Illuminate\Database\Eloquent\Relations\BelongsTo; class ResearchProject extends Model { protected $fillable=['academic_year','course_id','title','student_identifiers','supervisor','department_id','ethical_approval_status','project_stage','submission_date','score','publication_status','notes','archived_at']; public function course(): BelongsTo { return $this->belongsTo(Course::class); } public function department(): BelongsTo { return $this->belongsTo(Department::class); } }

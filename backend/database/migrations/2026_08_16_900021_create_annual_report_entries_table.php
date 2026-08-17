@@ -1,0 +1,3 @@
+<?php
+use Illuminate\Database\Migrations\Migration; use Illuminate\Database\Schema\Blueprint; use Illuminate\Support\Facades\Schema;
+return new class extends Migration { public function up():void{Schema::create('annual_report_entries',function(Blueprint $table){$table->id();$table->string('category');$table->string('item');$table->text('value_text')->nullable();$table->string('reporting_period')->nullable();$table->string('data_source')->nullable();$table->timestamps();$table->unique(['category','item','reporting_period'],'annual_report_entry_unique');});} public function down():void{Schema::dropIfExists('annual_report_entries');} };

@@ -1,0 +1,9 @@
+import { useQuery } from '@tanstack/react-query';
+import { apiFetch, apiUrl } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
+import { useI18n } from '@/i18n/I18nContext';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { LoadingState } from '@/components/ui/LoadingState';
+type Entry={id:number;category:string;item:string;value_text?:string|null;reporting_period?:string|null;data_source?:string|null};
+export function AnnualReportPage(){const{t}=useI18n();const{can}=useAuth();const{data,isLoading,isError,refetch}=useQuery({queryKey:['annual-report-entries'],queryFn:()=>apiFetch<Entry[]>('/annual-report-entries')});if(isLoading)return <LoadingState/>;if(isError)return <ErrorState onRetry={()=>refetch()}/>;const groups=(data??[]).reduce<Record<string,Entry[]>>((all,item)=>({...all,[item.category]:[...(all[item.category]??[]),item]}),{});return <div className="space-y-6"><div className="flex justify-between border-b border-slate-200 pb-4"><div><h1 className="text-2xl font-bold">{t('annualReport.title')}</h1><p className="mt-1 text-sm text-slate-500">{t('annualReport.description')}</p></div>{can('reports.export')&&<a href={apiUrl('/annual-report-entries/export')} className="rounded bg-indigo-600 px-3 py-2 text-sm text-white">{t('common.export')}</a>}</div>{Object.keys(groups).length===0?<EmptyState message={t('annualReport.none')}/>:Object.entries(groups).map(([category,entries])=><section key={category}><h2 className="mb-3 text-lg font-semibold">{category}</h2><div className="divide-y rounded border bg-white">{entries.map(entry=><div key={entry.id} className="p-4"><p className="font-medium">{entry.item}</p><p className="mt-1 text-sm text-slate-700">{entry.value_text||'—'}</p><p className="mt-2 text-xs text-slate-500">{entry.reporting_period||'—'} · {entry.data_source||'—'}</p></div>)}</div></section>)}</div>}

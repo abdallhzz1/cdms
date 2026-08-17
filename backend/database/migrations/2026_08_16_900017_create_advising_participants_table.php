@@ -1,0 +1,3 @@
+<?php
+use Illuminate\Database\Migrations\Migration; use Illuminate\Database\Schema\Blueprint; use Illuminate\Support\Facades\Schema;
+return new class extends Migration { public function up():void { Schema::create('advising_participants',function(Blueprint $t){$t->id();$t->foreignId('advising_record_id')->nullable()->constrained()->nullOnDelete();$t->foreignId('student_id')->nullable()->constrained()->nullOnDelete();$t->string('participation_role')->nullable();$t->string('attendance_status')->nullable();$t->text('student_note')->nullable();$t->text('required_action')->nullable();$t->string('action_status')->nullable();$t->date('follow_up_date')->nullable();$t->timestamps();});} public function down():void{Schema::dropIfExists('advising_participants');} };

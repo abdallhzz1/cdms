@@ -1,41 +1,142 @@
 import type en from './en';
 
-/**
- * Arabic translation dictionary. Structurally identical to `en.ts` — the
- * `TranslationDictionary` type (see `../types.ts`) enforces this at compile
- * time so a key can never exist in one language and not the other.
- *
- * `roles.*` and `permissions.*` Arabic text is sourced from the approved
- * Clinical_Department_Permission_Matrix_Workflows_v1.xlsx document
- * (`Roles`/`Permissions` sheets) wherever that document supplies it
- * (role names; permission short labels) — not freely invented. Role
- * *descriptions* have no Arabic source column (the sheet's "Purpose"
- * column is English-only), so those are ordinary UI-copy localization,
- * the same category as translating "Loading…" — not a business rule.
- */
 const ar: typeof en = {
+
+  calendar: {
+    title: 'التقويم الأكاديمي',
+    description: 'إدارة الفصول الدراسية والمواعيد الهامة.',
+    create: 'إضافة فصل دراسي',
+  },
+  quality: {
+    title: 'استبيانات الجودة',
+    description: 'إدارة استبيانات التقييم وخطط التحسين المستمر.',
+    create: 'إنشاء استبيان',
+    improvementPlans: 'خطط التحسين',
+    questions: 'الأسئلة',
+    targetGroup: 'الفئة المستهدفة',
+    surveyTitle: 'عنوان الاستبيان',
+    code: 'الرمز',
+
+    save: 'حفظ الاستبيان',
+    purpose: 'الهدف',
+    frequency: 'التكرار',
+    responsible: 'المسؤول',
+    mandatory: 'إجباري',
+    noSurveys: 'لا توجد استبيانات مسجلة.',
+
+  },
+  meetings: {
+    title: 'الاجتماعات',
+    description: 'إدارة وتوثيق محاضر الاجتماعات السريرية والأكاديمية.',
+    create: 'تسجيل اجتماع جديد',
+    actions: 'الإجراءات',
+    date: 'تاريخ الاجتماع',
+    type: 'نوع الاجتماع',
+    minutes: 'رقم المحضر',
+  },
+  assessments: {
+    title: 'التقييمات السريرية',
+    description: 'نماذج وسجلات تقييم أداء الطلبة في التدريب السريري.',
+    create: 'إنشاء تقييم',
+    noAssessments: 'لا توجد تقييمات مسجلة حالياً.',
+  },
+  attendance: {
+    title: 'الحضور والغياب',
+    description: 'سجلات حضور الطلبة في المستشفيات والجولات السريرية.',
+    createSession: 'تسجيل جلسة حضور',
+    site: 'موقع التدريب',
+    session: 'نوع الجلسة',
+    date: 'التاريخ',
+  },
+
+    supervisorPortal: {
+      title: 'بوابة المشرف',
+      description: 'إدارة الطلبة الموكلين إليك في فترة التدريب الحالية.',
+      current: 'الفترة الحالية',
+      noProfile: 'ملف المشرف غير موجود',
+      noProfileHint: 'حسابك الحالي غير مرتبط بملف مشرف سريري. يرجى مراجعة إدارة النظام.',
+      loading: 'جاري تحميل البوابة...',
+      loadError: 'حدث خطأ أثناء تحميل البوابة',
+      none: 'لا يوجد طلبة',
+      noneHint: 'لم يتم تعيين أي طلبة لك في الفترة الحالية.',
+      assignedCount: 'طالب معين'
+    },
+  state: {
+    empty: {
+      title: 'لا يوجد بيانات',
+      message: 'لم يتم العثور على أي بيانات حالياً.'
+    },
+    error: {
+      title: 'حدث خطأ',
+      message: 'تعذر تحميل البيانات، يرجى المحاولة لاحقاً.'
+    },
+    not_found: {
+      title: 'غير موجود',
+      message: 'لم يتم العثور على العنصر المطلوب.'
+    },
+    forbidden: {
+      title: 'صلاحية مرفوضة',
+      message: 'ليس لديك الصلاحية الكافية لعرض هذه الصفحة.'
+    },
+  },
   common: {
-    appName: 'نظام إدارة الدائرة السريرية',
+    appName: 'نظام إدارة الدائرة السريرية — كلية الطب',
     appShortName: 'CDMS',
     organization: 'جامعة الخليل — كلية الطب',
-    loading: 'جارٍ التحميل…',
+    loading: 'جاري التحميل...',
     retry: 'إعادة المحاولة',
     language: 'اللغة',
   },
   nav: {
     dashboard: 'لوحة التحكم',
+    study_plans: 'الخطط الدراسية',
+    grades: 'العلامات',
+    inbox: 'صندوق الوارد',
+    outbox: 'الطلبات الصادرة',
+    tasks: 'المهام',
+    meetings: 'الاجتماعات',
+    reports: 'التقارير التشغيلية',
+    directory: 'الدليل',
+    section: {
+      academic: 'الشؤون الأكاديمية',
+      reports: 'المراسلات والتقارير',
+    },
+  },
+  studyPlans: {
+    title: 'الخطط الدراسية',
+    description: 'إدارة الخطط الدراسية والمساقات',
+    newPlan: 'إضافة خطة',
+    searchPlaceholder: 'ابحث برمز أو اسم الخطة...',
+    active: 'فعالة',
+    coursesIncluded: 'مساقات مدرجة',
+  },
+  correspondence: {
+    inbox: 'صندوق الوارد',
+    outbox: 'الطلبات الصادرة',
+    new: 'طلب جديد',
+    approve: 'اعتماد',
+    forward: 'تحويل',
+    return: 'إرجاع',
+  },
+  grades: {
+    title: 'العلامات',
+    description: 'إدارة علامات المساقات',
+  },
+  directory: {
+    title: 'الدليل',
+    description: 'دليل النظام',
   },
   foundation: {
     title: 'الأساس التقني',
     subtitle: 'فحص الأساس التقني — المرحلة الأولى',
     apiStatusHeading: 'حالة واجهة البرمجة الخلفية',
-    apiStatusChecking: 'جارٍ التحقق من الاتصال بالخادم…',
+    apiStatusChecking: 'جاري التحقق من الاتصال بالخلفية...',
     applicationLabel: 'التطبيق',
     databaseLabel: 'قاعدة البيانات',
     statusOk: 'تعمل',
     statusUnreachable: 'غير متاحة',
-    apiStatusError: 'تعذّر الوصول إلى واجهة البرمجة الخلفية.',
-    apiStatusErrorHint: 'تأكد من تشغيل الخادم الخلفي وصحة قيمة VITE_API_BASE_URL.',
+    apiStatusError: 'تعذر الوصول إلى واجهة البرمجة الخلفية.',
+    apiStatusErrorHint: 'تأكد من تشغيل الخادم الخلفي وتكوين VITE_API_BASE_URL.',
   },
   notFound: {
     title: 'الصفحة غير موجودة',
@@ -44,32 +145,32 @@ const ar: typeof en = {
   },
   auth: {
     title: 'تسجيل الدخول',
-    subtitle: 'سجّل الدخول باستخدام حساب الدائرة السريرية الخاص بك.',
+    subtitle: 'سجل الدخول باستخدام حساب الجامعة السريري الخاص بك.',
     emailLabel: 'البريد الإلكتروني',
     passwordLabel: 'كلمة المرور',
     submit: 'تسجيل الدخول',
-    submitting: 'جارٍ تسجيل الدخول…',
+    submitting: 'جاري تسجيل الدخول...',
     invalidCredentials: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
-    unknownError: 'حدث خطأ ما. يرجى المحاولة مرة أخرى.',
-    signedInAs: 'مسجَّل الدخول باسم',
+    unknownError: 'حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.',
+    signedInAs: 'مُسجل الدخول باسم',
     logout: 'تسجيل الخروج',
-    loggingOut: 'جارٍ تسجيل الخروج…',
+    loggingOut: 'جاري تسجيل الخروج...',
   },
   validation: {
     required: 'هذا الحقل مطلوب.',
-    email: 'أدخل بريدًا إلكترونيًا صحيحًا.',
+    email: 'أدخل بريداً إلكترونياً صحيحاً.',
   },
   roles: {
     sys_admin: { name: 'مدير النظام', description: 'الإدارة التقنية للنظام' },
     dean: { name: 'العميد', description: 'قيادة الكلية والاعتمادات النهائية' },
-    vice_dean: { name: 'نائب العميد', description: 'المراجعة والاعتمادات الأكاديمية والإدارية' },
-    clinical_director: { name: 'مدير الدائرة السريرية', description: 'إدارة الدائرة السريرية واعتماد العمليات' },
-    admin_assistant: { name: 'المساعد الإداري', description: 'إدخال البيانات والمراسلات والمستندات والدعم التشغيلي' },
-    department_head: { name: 'رئيس القسم', description: 'إدارة طاقم القسم والمشرفين والتقييمات' },
-    rta: { name: 'مساعد البحث والتدريس', description: 'الدعم الأكاديمي والبحثي والبيانات المكلَّف بها' },
-    clinical_supervisor: { name: 'المشرف السريري', description: 'الإشراف السريري والحضور وتقييم الطلبة' },
-    academic_advisor: { name: 'المرشد الأكاديمي', description: 'الإرشاد الأكاديمي ومتابعة الحالات المعرضة للخطر' },
-    quality: { name: 'دائرة الجودة', description: 'استبيانات الجودة ومؤشرات الأداء والتقارير والتحسين' },
+    vice_dean: { name: 'نائب العميد', description: 'المتابعة الأكاديمية والإدارية' },
+    clinical_director: { name: 'مدير الدائرة السريرية', description: 'إدارة الدائرة السريرية' },
+    admin_assistant: { name: 'المساعد الإداري', description: 'إدارة البيانات والجداول' },
+    department_head: { name: 'رئيس قسم', description: 'إدارة القسم والأطباء' },
+    rta: { name: 'مساعد بحث وتدريس', description: 'الدعم الأكاديمي والبيانات' },
+    clinical_supervisor: { name: 'المشرف السريري', description: 'الإشراف على الطلبة' },
+    academic_advisor: { name: 'المرشد الأكاديمي', description: 'التوجيه الأكاديمي' },
+    quality: { name: 'دائرة الجودة', description: 'الاستبيانات والجودة' },
   },
   permissions: {
     students_view: { description: 'عرض' },
@@ -85,7 +186,7 @@ const ar: typeof en = {
     grades_publish: { description: 'نشر العلامات' },
     distribution_view: { description: 'عرض التوزيع' },
     distribution_create: { description: 'إنشاء التوزيع' },
-    distribution_generate: { description: 'اقتراح توزيع' },
+    distribution_generate: { description: 'توليد تلقائي' },
     distribution_update: { description: 'تعديل التوزيع' },
     distribution_validate: { description: 'فحص التعارضات' },
     distribution_approve: { description: 'اعتماد التوزيع' },
@@ -95,15 +196,15 @@ const ar: typeof en = {
     attendance_excuse: { description: 'إدارة الأعذار' },
     assessment_view: { description: 'عرض التقييم' },
     assessment_create: { description: 'إنشاء تقييم' },
-    assessment_submit: { description: 'إرسال التقييم' },
+    assessment_submit: { description: 'تسليم التقييم' },
     assessment_approve: { description: 'اعتماد التقييم' },
     courses_view: { description: 'عرض المساقات' },
     courses_manage: { description: 'إدارة المساقات' },
-    course_report_manage: { description: 'إدارة تقرير المساق' },
-    course_report_approve: { description: 'اعتماد تقرير المساق' },
+    course_report_manage: { description: 'إدارة تقارير المساق' },
+    course_report_approve: { description: 'اعتماد تقارير المساق' },
     advising_view: { description: 'عرض الإرشاد' },
     advising_manage: { description: 'إدارة الإرشاد' },
-    advising_export_pdf: { description: 'طباعة PDF' },
+    advising_export_pdf: { description: 'تصدير PDF' },
     quality_manage: { description: 'إدارة الجودة' },
     quality_view: { description: 'عرض الجودة' },
     kpi_manage: { description: 'إدارة المؤشرات' },
@@ -123,7 +224,7 @@ const ar: typeof en = {
     reports_export: { description: 'تصدير التقارير' },
     users_manage: { description: 'إدارة المستخدمين' },
     roles_manage: { description: 'إدارة الأدوار' },
-    audit_view: { description: 'عرض التدقيق' },
+    audit_view: { description: 'عرض السجل' },
     settings_manage: { description: 'إعدادات النظام' },
   },
 };

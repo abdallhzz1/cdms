@@ -1,0 +1,2 @@
+<?php
+namespace App\Models; use Illuminate\Database\Eloquent\Model; use Illuminate\Database\Eloquent\Relations\BelongsTo; class ExternalElective extends Model { protected $fillable=['academic_year','student_id','course_id','organization','country','specialty','start_date','end_date','external_supervisor','approval_status','student_report','external_evaluation','score','recognition_status','notes','archived_at']; public function student():BelongsTo{return $this->belongsTo(Student::class);} public function course():BelongsTo{return $this->belongsTo(Course::class);} }

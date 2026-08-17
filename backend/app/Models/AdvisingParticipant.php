@@ -1,0 +1,2 @@
+<?php
+namespace App\Models; use Illuminate\Database\Eloquent\Model; use Illuminate\Database\Eloquent\Relations\BelongsTo; class AdvisingParticipant extends Model { protected $fillable=['advising_record_id','student_id','participation_role','attendance_status','student_note','required_action','action_status','follow_up_date']; public function student():BelongsTo{return $this->belongsTo(Student::class);} }

@@ -1,0 +1,650 @@
+{
+  "Screen_Map": [
+    {
+      "ID": "SCR-01",
+      "Module": "Dashboard",
+      "Screen": "Main Dashboard",
+      "Arabic Label": "لوحة التحكم",
+      "Main Purpose": "Operational overview",
+      "Primary Users": "All roles",
+      "Key Components": "KPIs, pending approvals, tasks, alerts, today's sessions",
+      "Primary Actions": "Filter; open item; export"
+    },
+    {
+      "ID": "SCR-02",
+      "Module": "Students",
+      "Screen": "Student Cohorts",
+      "Arabic Label": "الطلاب",
+      "Main Purpose": "Browse students by 4/5/6",
+      "Primary Users": "Director, Admin, Head, Advisor, authorized staff",
+      "Key Components": "Cohort tabs, search, filters, table",
+      "Primary Actions": "View; add; edit; export"
+    },
+    {
+      "ID": "SCR-03",
+      "Module": "Students",
+      "Screen": "Student Profile",
+      "Arabic Label": "ملف الطالب",
+      "Main Purpose": "Complete student 360 profile",
+      "Primary Users": "Authorized staff",
+      "Key Components": "Personal, academic, attendance, grades, evaluations, advising, risk, documents",
+      "Primary Actions": "Edit; print; PDF; upload"
+    },
+    {
+      "ID": "SCR-04",
+      "Module": "Students",
+      "Screen": "Student Documents",
+      "Arabic Label": "وثائق الطالب",
+      "Main Purpose": "Manage student files",
+      "Primary Users": "Authorized staff",
+      "Key Components": "Document list, type, expiry, uploader",
+      "Primary Actions": "Upload; download; archive"
+    },
+    {
+      "ID": "SCR-05",
+      "Module": "Grades",
+      "Screen": "Grades Dashboard",
+      "Arabic Label": "العلامات",
+      "Main Purpose": "Grades by cohort/course",
+      "Primary Users": "Director, Admin, Head, authorized academic roles",
+      "Key Components": "Cohort/course/semester filters, grade table",
+      "Primary Actions": "Add; edit; import; lock; export"
+    },
+    {
+      "ID": "SCR-06",
+      "Module": "Grades",
+      "Screen": "Grade Entry",
+      "Arabic Label": "إدخال العلامات",
+      "Main Purpose": "Enter component/final grades",
+      "Primary Users": "Authorized academic staff",
+      "Key Components": "Scheme, components, validation, totals",
+      "Primary Actions": "Save draft; submit"
+    },
+    {
+      "ID": "SCR-07",
+      "Module": "Grades",
+      "Screen": "Grade Approval",
+      "Arabic Label": "اعتماد العلامات",
+      "Main Purpose": "Review/approve grades",
+      "Primary Users": "Configured approvers",
+      "Key Components": "Diff, validation, comments, history",
+      "Primary Actions": "Approve; return; reject; lock"
+    },
+    {
+      "ID": "SCR-08",
+      "Module": "Advising",
+      "Screen": "Advising Dashboard",
+      "Arabic Label": "الإرشاد",
+      "Main Purpose": "Advising overview",
+      "Primary Users": "Advisor, Director, Admin, authorized",
+      "Key Components": "Cases, upcoming, overdue followups",
+      "Primary Actions": "Open; create"
+    },
+    {
+      "ID": "SCR-09",
+      "Module": "Advising",
+      "Screen": "Individual Advising",
+      "Arabic Label": "إرشاد فردي",
+      "Main Purpose": "Fill official individual form",
+      "Primary Users": "Advisor",
+      "Key Components": "Student, topics, recommendations, followup, attachments, signatures",
+      "Primary Actions": "Save; PDF; submit"
+    },
+    {
+      "ID": "SCR-10",
+      "Module": "Advising",
+      "Screen": "Group Advising",
+      "Arabic Label": "إرشاد جماعي",
+      "Main Purpose": "Fill group advising form",
+      "Primary Users": "Advisor",
+      "Key Components": "Group, participants, topics, recommendations",
+      "Primary Actions": "Save; PDF; submit"
+    },
+    {
+      "ID": "SCR-11",
+      "Module": "Advising",
+      "Screen": "At-Risk Cases",
+      "Arabic Label": "الطلبة المتعثرون",
+      "Main Purpose": "Manage academic risk cases",
+      "Primary Users": "Advisor, Director",
+      "Key Components": "Risk reason, failed courses, plan, followups",
+      "Primary Actions": "Open; update; close"
+    },
+    {
+      "ID": "SCR-12",
+      "Module": "Quality",
+      "Screen": "Surveys",
+      "Arabic Label": "الاستبيانات",
+      "Main Purpose": "Create/run surveys",
+      "Primary Users": "Quality, Director",
+      "Key Components": "Survey versions, questions, response stats",
+      "Primary Actions": "Create; publish; close; export"
+    },
+    {
+      "ID": "SCR-13",
+      "Module": "Quality",
+      "Screen": "Evaluation Forms",
+      "Arabic Label": "نماذج التقييم",
+      "Main Purpose": "Manage evaluation templates",
+      "Primary Users": "Quality, Director, Head",
+      "Key Components": "Versions, criteria, weights",
+      "Primary Actions": "Create; version; publish"
+    },
+    {
+      "ID": "SCR-14",
+      "Module": "Quality",
+      "Screen": "Quality Dashboard",
+      "Arabic Label": "لوحة الجودة",
+      "Main Purpose": "Quality metrics",
+      "Primary Users": "Quality, leadership",
+      "Key Components": "KPIs, survey results, action plans",
+      "Primary Actions": "Filter; drill down; export"
+    },
+    {
+      "ID": "SCR-15",
+      "Module": "Courses",
+      "Screen": "Clinical Courses",
+      "Arabic Label": "المساقات السريرية",
+      "Main Purpose": "All clinical courses by department",
+      "Primary Users": "Director, Head, Coordinator, Quality",
+      "Key Components": "Course cards/table, department filter",
+      "Primary Actions": "View; add; edit"
+    },
+    {
+      "ID": "SCR-16",
+      "Module": "Courses",
+      "Screen": "Course Profile",
+      "Arabic Label": "ملف المساق",
+      "Main Purpose": "Complete course information",
+      "Primary Users": "Authorized academic staff",
+      "Key Components": "Syllabus, ILO, PLO map, reports, assessments, plan",
+      "Primary Actions": "Edit; upload; export"
+    },
+    {
+      "ID": "SCR-17",
+      "Module": "Courses",
+      "Screen": "Course Report",
+      "Arabic Label": "تقرير المساق",
+      "Main Purpose": "Prepare/review annual course report",
+      "Primary Users": "Coordinator, Head, Director, Quality",
+      "Key Components": "Form, evidence, workflow",
+      "Primary Actions": "Save; submit; approve"
+    },
+    {
+      "ID": "SCR-18",
+      "Module": "Curriculum",
+      "Screen": "Study Plans",
+      "Arabic Label": "الخطة الاسترشادية",
+      "Main Purpose": "View plan versions",
+      "Primary Users": "Director, Head, Admin, Quality",
+      "Key Components": "Year/version, semester, course map",
+      "Primary Actions": "Create; publish; export"
+    },
+    {
+      "ID": "SCR-19",
+      "Module": "Staff",
+      "Screen": "Department Heads",
+      "Arabic Label": "رؤساء الأقسام",
+      "Main Purpose": "Browse heads",
+      "Primary Users": "Director, Dean, Vice Dean, Admin",
+      "Key Components": "Head list, department filter",
+      "Primary Actions": "Open profile"
+    },
+    {
+      "ID": "SCR-20",
+      "Module": "Staff",
+      "Screen": "Head Profile",
+      "Arabic Label": "ملف رئيس القسم",
+      "Main Purpose": "Performance profile",
+      "Primary Users": "Authorized leadership",
+      "Key Components": "CV, contract, activities, research, conferences, workshops, KPIs, score",
+      "Primary Actions": "Edit; evaluate; export"
+    },
+    {
+      "ID": "SCR-21",
+      "Module": "Staff",
+      "Screen": "Clinical Supervisors",
+      "Arabic Label": "المشرفون السريريين",
+      "Main Purpose": "Browse supervisors",
+      "Primary Users": "Director, Head, Admin, Quality",
+      "Key Components": "List, department/site/filter",
+      "Primary Actions": "Open profile"
+    },
+    {
+      "ID": "SCR-22",
+      "Module": "Staff",
+      "Screen": "Supervisor Profile",
+      "Arabic Label": "ملف المشرف السريري",
+      "Main Purpose": "Supervisor 360 profile",
+      "Primary Users": "Authorized roles",
+      "Key Components": "CV, contract, activities, assignments, evaluations, score",
+      "Primary Actions": "Edit; evaluate; export"
+    },
+    {
+      "ID": "SCR-23",
+      "Module": "Staff",
+      "Screen": "Supervisor Evaluation",
+      "Arabic Label": "تقييم المشرف",
+      "Main Purpose": "Evaluate supervisor",
+      "Primary Users": "Department Head / Director",
+      "Key Components": "Criteria, comments, evidence",
+      "Primary Actions": "Save; submit; finalize"
+    },
+    {
+      "ID": "SCR-24",
+      "Module": "Distribution",
+      "Screen": "Distribution Board",
+      "Arabic Label": "جداول التوزيع السريري",
+      "Main Purpose": "View/manage published and draft schedules",
+      "Primary Users": "Director, Admin, Head",
+      "Key Components": "Academic year, rotation, week, group, site, supervisor",
+      "Primary Actions": "Create; edit; generate; validate; approve; publish"
+    },
+    {
+      "ID": "SCR-25",
+      "Module": "Distribution",
+      "Screen": "Suggested Distribution",
+      "Arabic Label": "التوزيع المقترح",
+      "Main Purpose": "Generate optimized distribution",
+      "Primary Users": "Director/authorized",
+      "Key Components": "Constraints, score, conflicts, preview",
+      "Primary Actions": "Generate; compare; accept"
+    },
+    {
+      "ID": "SCR-26",
+      "Module": "Distribution",
+      "Screen": "Distribution Revision",
+      "Arabic Label": "نسخة التوزيع",
+      "Main Purpose": "Revision history",
+      "Primary Users": "Director, Admin, authorized",
+      "Key Components": "Versions, diff, audit",
+      "Primary Actions": "Compare; restore as new draft"
+    },
+    {
+      "ID": "SCR-27",
+      "Module": "Clinical",
+      "Screen": "Clinical Sessions",
+      "Arabic Label": "الجلسات السريرية",
+      "Main Purpose": "Manage actual sessions",
+      "Primary Users": "Supervisor, Admin, Director",
+      "Key Components": "Calendar/list, site, supervisor, subgroup",
+      "Primary Actions": "Create; update; cancel"
+    },
+    {
+      "ID": "SCR-28",
+      "Module": "Clinical",
+      "Screen": "Attendance",
+      "Arabic Label": "الحضور والغياب",
+      "Main Purpose": "Record attendance",
+      "Primary Users": "Supervisor",
+      "Key Components": "Session roster, status, excuse",
+      "Primary Actions": "Mark; submit; review"
+    },
+    {
+      "ID": "SCR-29",
+      "Module": "Correspondence",
+      "Screen": "Correspondence Inbox",
+      "Arabic Label": "المراسلات الواردة",
+      "Main Purpose": "Incoming correspondence workflow",
+      "Primary Users": "Admin, Director, leadership",
+      "Key Components": "Inbox, status, deadlines, sender",
+      "Primary Actions": "Register; assign; reply; close"
+    },
+    {
+      "ID": "SCR-30",
+      "Module": "Correspondence",
+      "Screen": "Correspondence Outbox",
+      "Arabic Label": "المراسلات الصادرة",
+      "Main Purpose": "Outgoing correspondence workflow",
+      "Primary Users": "Admin, Director, leadership",
+      "Key Components": "Drafts, approvals, sent, tracking",
+      "Primary Actions": "Create; submit; approve; send"
+    },
+    {
+      "ID": "SCR-31",
+      "Module": "Correspondence",
+      "Screen": "Correspondence Profile",
+      "Arabic Label": "ملف المراسلة",
+      "Main Purpose": "Full correspondence history",
+      "Primary Users": "Workflow participants",
+      "Key Components": "Metadata, attachments, actions, approvals",
+      "Primary Actions": "Forward; approve; comment; close"
+    },
+    {
+      "ID": "SCR-32",
+      "Module": "Meetings",
+      "Screen": "Meetings",
+      "Arabic Label": "الاجتماعات",
+      "Main Purpose": "Meeting management",
+      "Primary Users": "Director, Admin, leadership",
+      "Key Components": "Calendar, agenda, attendees",
+      "Primary Actions": "Create; record"
+    },
+    {
+      "ID": "SCR-33",
+      "Module": "Meetings",
+      "Screen": "Minutes",
+      "Arabic Label": "محاضر الاجتماعات",
+      "Main Purpose": "Prepare/finalize minutes",
+      "Primary Users": "Admin, Chair, Director",
+      "Key Components": "Agenda, discussions, decisions, attachments",
+      "Primary Actions": "Edit; approve; export PDF"
+    },
+    {
+      "ID": "SCR-34",
+      "Module": "Meetings",
+      "Screen": "Tasks & Decisions",
+      "Arabic Label": "المهام والقرارات",
+      "Main Purpose": "Track actions",
+      "Primary Users": "All assigned users, leadership",
+      "Key Components": "Status, priority, due date, evidence",
+      "Primary Actions": "Assign; update; verify; close"
+    },
+    {
+      "ID": "SCR-35",
+      "Module": "Calendar",
+      "Screen": "Annual Calendar",
+      "Arabic Label": "التقويم السنوي",
+      "Main Purpose": "College/clinical calendar",
+      "Primary Users": "All relevant users",
+      "Key Components": "Month/year, event types, affected levels",
+      "Primary Actions": "Create; edit; publish; export"
+    },
+    {
+      "ID": "SCR-36",
+      "Module": "Reports",
+      "Screen": "Annual Reports",
+      "Arabic Label": "التقارير السنوية",
+      "Main Purpose": "Generate annual reports",
+      "Primary Users": "Director, Quality, leadership",
+      "Key Components": "Year, modules, indicators, attachments",
+      "Primary Actions": "Generate; review; PDF"
+    },
+    {
+      "ID": "SCR-37",
+      "Module": "Reports",
+      "Screen": "Operational Reports",
+      "Arabic Label": "التقارير التشغيلية",
+      "Main Purpose": "Ad hoc operational reporting",
+      "Primary Users": "Authorized users",
+      "Key Components": "Report builder/templates",
+      "Primary Actions": "Filter; export"
+    },
+    {
+      "ID": "SCR-38",
+      "Module": "Security",
+      "Screen": "Users & Roles",
+      "Arabic Label": "المستخدمون والأدوار",
+      "Main Purpose": "Manage accounts/roles",
+      "Primary Users": "System Admin",
+      "Key Components": "Users, roles, permissions, status",
+      "Primary Actions": "Create; disable; assign"
+    },
+    {
+      "ID": "SCR-39",
+      "Module": "Security",
+      "Screen": "Audit Log",
+      "Arabic Label": "سجل التدقيق",
+      "Main Purpose": "Review system actions",
+      "Primary Users": "System Admin, authorized leadership",
+      "Key Components": "Actor, action, entity, date, diff",
+      "Primary Actions": "Search; export"
+    },
+    {
+      "ID": "SCR-40",
+      "Module": "System",
+      "Screen": "Settings",
+      "Arabic Label": "الإعدادات",
+      "Main Purpose": "System configuration",
+      "Primary Users": "System Admin",
+      "Key Components": "Academic year, enums, templates, notifications",
+      "Primary Actions": "Configure"
+    }
+  ],
+  "Navigation": [
+    {
+      "Level": 1,
+      "Arabic": "لوحة التحكم",
+      "English": "Dashboard",
+      "Parent": "—",
+      "Visible To": "All authenticated users",
+      "Notes": "Landing page"
+    },
+    {
+      "Level": 1,
+      "Arabic": "الطلاب",
+      "English": "Students",
+      "Parent": "—",
+      "Visible To": "Scoped roles",
+      "Notes": "Cohort 4/5/6"
+    },
+    {
+      "Level": 2,
+      "Arabic": "الدفعة الرابعة",
+      "English": "Fourth Year",
+      "Parent": "Students",
+      "Visible To": "Scoped",
+      "Notes": ""
+    },
+    {
+      "Level": 2,
+      "Arabic": "الدفعة الخامسة",
+      "English": "Fifth Year",
+      "Parent": "Students",
+      "Visible To": "Scoped",
+      "Notes": ""
+    },
+    {
+      "Level": 2,
+      "Arabic": "الدفعة السادسة",
+      "English": "Sixth Year",
+      "Parent": "Students",
+      "Visible To": "Scoped",
+      "Notes": ""
+    },
+    {
+      "Level": 2,
+      "Arabic": "ملف الطالب",
+      "English": "Student Profile",
+      "Parent": "Students",
+      "Visible To": "Scoped",
+      "Notes": "Contextual route"
+    },
+    {
+      "Level": 1,
+      "Arabic": "العلامات",
+      "English": "Grades",
+      "Parent": "—",
+      "Visible To": "Authorized academic roles",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "الإرشاد",
+      "English": "Advising",
+      "Parent": "—",
+      "Visible To": "Advisor/Director/Admin",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "الجودة",
+      "English": "Quality",
+      "Parent": "—",
+      "Visible To": "Quality/leadership",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "المساقات",
+      "English": "Courses",
+      "Parent": "—",
+      "Visible To": "Academic roles",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "الخطة الدراسية",
+      "English": "Curriculum",
+      "Parent": "—",
+      "Visible To": "Academic roles",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "رؤساء الأقسام",
+      "English": "Department Heads",
+      "Parent": "—",
+      "Visible To": "Leadership/Director/Admin",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "المشرفون السريريين",
+      "English": "Clinical Supervisors",
+      "Parent": "—",
+      "Visible To": "Leadership/Head/Director/Admin",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "التوزيع السريري",
+      "English": "Clinical Distribution",
+      "Parent": "—",
+      "Visible To": "Director/Admin/authorized",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "الجلسات والحضور",
+      "English": "Clinical Sessions & Attendance",
+      "Parent": "—",
+      "Visible To": "Supervisors/Director/Admin",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "المراسلات",
+      "English": "Correspondence",
+      "Parent": "—",
+      "Visible To": "Workflow scope",
+      "Notes": ""
+    },
+    {
+      "Level": 2,
+      "Arabic": "الواردة",
+      "English": "Inbox",
+      "Parent": "Correspondence",
+      "Visible To": "Workflow scope",
+      "Notes": ""
+    },
+    {
+      "Level": 2,
+      "Arabic": "الصادرة",
+      "English": "Outbox",
+      "Parent": "Correspondence",
+      "Visible To": "Workflow scope",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "الاجتماعات والمحاضر",
+      "English": "Meetings & Minutes",
+      "Parent": "—",
+      "Visible To": "Director/Admin/leadership",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "التقويم السنوي",
+      "English": "Annual Calendar",
+      "Parent": "—",
+      "Visible To": "Relevant users",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "التقارير",
+      "English": "Reports",
+      "Parent": "—",
+      "Visible To": "Authorized",
+      "Notes": ""
+    },
+    {
+      "Level": 2,
+      "Arabic": "التقارير السنوية",
+      "English": "Annual Reports",
+      "Parent": "Reports",
+      "Visible To": "Director/Quality/leadership",
+      "Notes": ""
+    },
+    {
+      "Level": 2,
+      "Arabic": "التقارير التشغيلية",
+      "English": "Operational Reports",
+      "Parent": "Reports",
+      "Visible To": "Authorized",
+      "Notes": ""
+    },
+    {
+      "Level": 1,
+      "Arabic": "الإدارة",
+      "English": "Administration",
+      "Parent": "—",
+      "Visible To": "System Admin",
+      "Notes": "Users/roles/settings/audit"
+    }
+  ],
+  "Dashboards": [
+    {
+      "Role": "Clinical Director",
+      "Dashboard Widgets": "Pending approvals; today's sessions; attendance alerts; distribution conflicts; correspondence deadlines; at-risk students; KPI progress; tasks",
+      "Priority": "High"
+    },
+    {
+      "Role": "Vice Dean",
+      "Dashboard Widgets": "College-level approvals; academic alerts; reports awaiting review; KPI/quality summary",
+      "Priority": "High"
+    },
+    {
+      "Role": "Dean",
+      "Dashboard Widgets": "Final approvals; annual indicators; major alerts; executive reports",
+      "Priority": "High"
+    },
+    {
+      "Role": "Administrative Assistant",
+      "Dashboard Widgets": "Today's tasks; correspondence inbox/outbox; pending data entry; upcoming meetings; missing documents",
+      "Priority": "High"
+    },
+    {
+      "Role": "Department Head",
+      "Dashboard Widgets": "Department students; supervisors; evaluations due; course reports; tasks; distribution",
+      "Priority": "High"
+    },
+    {
+      "Role": "RTA",
+      "Dashboard Widgets": "Assigned research/teaching tasks; reports; documents; deadlines",
+      "Priority": "Medium"
+    },
+    {
+      "Role": "Clinical Supervisor",
+      "Dashboard Widgets": "Today's sessions; assigned students; attendance pending; evaluations due; notifications",
+      "Priority": "High"
+    },
+    {
+      "Role": "Academic Advisor",
+      "Dashboard Widgets": "Advisee list; risk cases; upcoming advising; overdue followups",
+      "Priority": "High"
+    },
+    {
+      "Role": "Quality",
+      "Dashboard Widgets": "Survey response rate; KPI status; improvement plans; course reports; evidence gaps",
+      "Priority": "High"
+    },
+    {
+      "Role": "System Admin",
+      "Dashboard Widgets": "System health; users; failed jobs; backups; audit alerts",
+      "Priority": "High"
+    }
+  ]
+}

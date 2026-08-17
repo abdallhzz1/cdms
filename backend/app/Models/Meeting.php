@@ -1,0 +1,2 @@
+<?php
+namespace App\Models; use Illuminate\Database\Eloquent\Model; class Meeting extends Model { protected $fillable=['minutes_number','meeting_type','meeting_date','meeting_time','location','chairperson','attendees','absentees','agenda','discussion_summary','decisions_summary','implementation_owner']; protected $casts=['meeting_date'=>'date']; public function actionItems(){return $this->hasMany(MeetingActionItem::class);} }
