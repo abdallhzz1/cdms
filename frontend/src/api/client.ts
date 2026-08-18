@@ -41,9 +41,11 @@ export class ApiError extends Error {
   }
 }
 
-// Never hardcode http://localhost/... in business code (Prompt 01 §20) — the
-// base URL always comes from the environment.
-const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
+
+export function apiUrl(path: string): string {
+  return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+}
 
 // Sanctum's /sanctum/csrf-cookie route is registered at the backend's root,
 // not under /api/v1 — derive that root by stripping the API path off

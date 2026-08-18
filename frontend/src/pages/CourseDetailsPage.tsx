@@ -1,12 +1,11 @@
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useI18n } from '@/i18n/I18nContext';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { LoadingState } from '@/components/ui/LoadingState';
-import { Card, CardContent } from '@/components/ui/Card';
-import { ChevronRight, BookOpen, Target, Settings, GraduationCap, CheckCircle } from 'lucide-react';
+import { ChevronRight, BookOpen, Target, Settings, CheckCircle } from 'lucide-react';
 
 type Course = {
   id: number;
@@ -20,7 +19,6 @@ type Course = {
 };
 
 export function CourseDetailsPage() {
-  const navigate = useNavigate();
   const { courseId } = useParams<{ courseId: string }>();
   const { locale, t } = useI18n();
 

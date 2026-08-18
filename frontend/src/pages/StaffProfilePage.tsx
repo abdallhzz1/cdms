@@ -42,8 +42,7 @@ export function StaffProfilePage() {
   const name = locale === 'ar' ? person.full_name_ar : person.full_name_en || person.full_name_ar;
   const relationName = (value: { name_ar?: string; name_en?: string } | undefined) =>
     locale === 'ar' ? value?.name_ar : value?.name_en || value?.name_ar;
-  
-  const initials = name.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase();
+
   return (
     <div className="mx-auto max-w-[1200px] space-y-6 pb-12">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">

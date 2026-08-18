@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -7,12 +7,12 @@ import { useI18n } from '@/i18n/I18nContext';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { Button } from '@/components/ui/Button';
-import { ArrowRight, CheckCircle2, CornerUpLeft, Forward, Check, XCircle } from 'lucide-react';
+import { ArrowRight, CheckCircle2, CornerUpLeft, Forward } from 'lucide-react';
 
 export function CorrespondenceDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user, can } = useAuth();
+  const { user } = useAuth();
   const { locale } = useI18n();
   const queryClient = useQueryClient();
 
@@ -29,7 +29,6 @@ export function CorrespondenceDetailsPage() {
   });
 
   const [forwardUserId, setForwardUserId] = useState('');
-  const [returnReason, setReturnReason] = useState('');
 
   const forwardMutation = useMutation({
     mutationFn: (userId: string) => apiFetch(`/correspondence/${id}/forward`, { method: 'POST', body: { assigned_to: userId } }),
@@ -152,7 +151,7 @@ export function CorrespondenceDetailsPage() {
         )}
 
         {/* Actions for Sender (Draft) */}
-        {isDraft && item.sender_id === user?.id && (
+        {isDraft && isSender && (
           <div className="px-8 py-6 border-t border-slate-100 bg-amber-50/50 flex flex-col sm:flex-row gap-4 items-end">
              <div className="flex-1 w-full">
               <label className="block text-sm font-bold text-slate-700 mb-2">{locale === 'ar' ? 'إرسال إلى (المستلم):' : 'Send To:'}</label>

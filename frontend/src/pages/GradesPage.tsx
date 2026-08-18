@@ -6,11 +6,10 @@ import { useI18n } from '@/i18n/I18nContext';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingState } from '@/components/ui/LoadingState';
-import { Check, X, FileText, Send, Save, ArrowLeft } from 'lucide-react';
-
+import { Check, Send, Save, ArrowLeft } from 'lucide-react';
 
 export function GradesPage() {
-  const { can, user } = useAuth();
+  const { can } = useAuth();
   const { locale, t } = useI18n();
   const queryClient = useQueryClient();
 

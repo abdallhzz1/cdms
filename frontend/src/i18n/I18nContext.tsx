@@ -7,18 +7,6 @@ const dictionaries: Record<Locale, typeof en> = { en, ar };
 
 const STORAGE_KEY = 'cdms.locale';
 
-// Builds a union of every dotted key path in the translation dictionary
-// (e.g. "common.appName" | "foundation.title" | ...) so `t()` calls are
-// checked at compile time against the *actual* set of translation keys —
-// a typo or a key that only exists in one language fails to build.
-type DotPaths<T, Prefix extends string = ''> = T extends Record<string, unknown>
-  ? {
-      [K in keyof T & string]: T[K] extends Record<string, unknown>
-        ? DotPaths<T[K], `${Prefix}${K}.`>
-        : `${Prefix}${K}`;
-    }[keyof T & string]
-  : never;
-
 export type TranslationKey = string;
 
 function resolve(dictionary: unknown, key: string): string {

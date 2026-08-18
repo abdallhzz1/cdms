@@ -8,11 +8,11 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { Link } from 'react-router-dom';
-import { Send, Clock, Plus, ArrowRight } from 'lucide-react';
+import { Clock, Plus, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
 export function OutboxPage() {
-  const { can, user } = useAuth();
+  const { can } = useAuth();
   const { locale, t } = useI18n();
   const queryClient = useQueryClient();
 
