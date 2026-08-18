@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TrainingSiteRoster } from './TrainingSiteRoster';
+import { I18nProvider } from '../i18n/I18nContext';
 import * as api from '../api/distribution';
 
 vi.mock('../api/distribution');
@@ -16,11 +17,13 @@ describe('TrainingSiteRoster', () => {
     (api.getTrainingSiteSummary as any).mockReturnValue(new Promise(() => {}));
     
     render(
-      <MemoryRouter initialEntries={['/operational/training-sites/1/roster']}>
-        <Routes>
-          <Route path="/operational/training-sites/:siteId/roster" element={<TrainingSiteRoster />} />
-        </Routes>
-      </MemoryRouter>
+      <I18nProvider>
+        <MemoryRouter initialEntries={['/operational/training-sites/1/roster']}>
+          <Routes>
+            <Route path="/operational/training-sites/:siteId/roster" element={<TrainingSiteRoster />} />
+          </Routes>
+        </MemoryRouter>
+      </I18nProvider>
     );
 
     expect(screen.getByText('جاري التحميل...')).toBeInTheDocument();
@@ -37,11 +40,13 @@ describe('TrainingSiteRoster', () => {
     });
 
     render(
-      <MemoryRouter initialEntries={['/operational/training-sites/1/roster']}>
-        <Routes>
-          <Route path="/operational/training-sites/:siteId/roster" element={<TrainingSiteRoster />} />
-        </Routes>
-      </MemoryRouter>
+      <I18nProvider>
+        <MemoryRouter initialEntries={['/operational/training-sites/1/roster']}>
+          <Routes>
+            <Route path="/operational/training-sites/:siteId/roster" element={<TrainingSiteRoster />} />
+          </Routes>
+        </MemoryRouter>
+      </I18nProvider>
     );
 
     expect(await screen.findByText(/Al-Ahli Hospital/i)).toBeInTheDocument();
@@ -61,11 +66,13 @@ describe('TrainingSiteRoster', () => {
     });
 
     render(
-      <MemoryRouter initialEntries={['/operational/training-sites/1/roster']}>
-        <Routes>
-          <Route path="/operational/training-sites/:siteId/roster" element={<TrainingSiteRoster />} />
-        </Routes>
-      </MemoryRouter>
+      <I18nProvider>
+        <MemoryRouter initialEntries={['/operational/training-sites/1/roster']}>
+          <Routes>
+            <Route path="/operational/training-sites/:siteId/roster" element={<TrainingSiteRoster />} />
+          </Routes>
+        </MemoryRouter>
+      </I18nProvider>
     );
 
     expect(await screen.findByText(/Over capacity detected/i)).toBeInTheDocument();

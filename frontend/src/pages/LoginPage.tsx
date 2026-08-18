@@ -1,27 +1,18 @@
 import { useState } from 'react';
-import { useNavigate, useLocation, type Location } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useI18n, type TranslationKey } from '@/i18n/I18nContext';
 import { useZodForm } from '@/lib/form/useZodForm';
 import { loginSchema, type LoginFormValues } from '@/auth/loginSchema';
 import { useAuth } from '@/auth/AuthContext';
 import { ApiError } from '@/api/client';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { Mail, Lock, AlertCircle, ArrowRight, ArrowLeft, ShieldCheck } from 'lucide-react';
+import hebronLogo from '@/assets/hebron.png';
 
-interface LocationState {
-  from?: Location;
-}
-
-/**
- * Bilingual/RTL-LTR login screen — Prompt 02 §14: professional, calm,
- * minimal, responsive. No animation, no illustration, no fabricated
- * statistics; matches the rest of the app's plain/neutral visual language
- * (src/styles/index.css).
- */
 export function LoginPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { login } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
   const [formError, setFormError] = useState<string | null>(null);
 
   const {
@@ -34,12 +25,8 @@ export function LoginPage() {
     setFormError(null);
     try {
       await login(values.email, values.password);
-      const state = location.state as LocationState | null;
-      navigate(state?.from?.pathname ?? '/', { replace: true });
+      navigate('/', { replace: true });
     } catch (error) {
-      // Deliberately generic — mirrors the backend's own refusal to
-      // disclose whether the email exists or which field was wrong
-      // (Prompt 02 §11).
       if (error instanceof ApiError) {
         setFormError(t('auth.invalidCredentials'));
       } else {
@@ -49,67 +36,137 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex justify-end">
-          <LanguageSwitcher />
-        </div>
+    <div className="min-h-screen flex items-center justify-center bg-[#edf2f7] bg-[radial-gradient(#cbd5e1_1.2px,transparent_1.2px)] [background-size:24px_24px] px-4 py-10 relative overflow-hidden">
+      {/* Rich Ambient Glowing Background Orbs */}
+      <div className="absolute -top-24 -right-24 w-[450px] sm:w-[550px] h-[450px] sm:h-[550px] bg-teal-400/20 rounded-full blur-[110px] pointer-events-none" />
+      <div className="absolute -bottom-24 -left-24 w-[450px] sm:w-[550px] h-[450px] sm:h-[550px] bg-emerald-400/15 rounded-full blur-[110px] pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] sm:w-[750px] h-[550px] sm:h-[750px] bg-teal-200/10 rounded-full blur-[140px] pointer-events-none" />
 
-        <div className="mb-6 text-center">
-          <p className="text-sm font-semibold text-slate-800">{t('common.appName')}</p>
-          <p className="text-xs text-slate-500">{t('common.organization')}</p>
-        </div>
+      {/* Floating Centered Card Container */}
+      <div className="w-full max-w-md relative z-10">
+        <div className="bg-white rounded-3xl p-7 sm:p-9 shadow-2xl border border-slate-100 space-y-6">
+          
+          {/* Top Bar: Brand Logo & Language Switcher */}
+          <div className="flex items-center justify-between gap-3 pb-4 border-b border-slate-100">
+            <div className="flex items-center gap-3 min-w-0">
+              <img 
+                src={hebronLogo} 
+                alt={locale === 'ar' ? 'جامعة الخليل' : 'Hebron University'} 
+                className="h-11 w-11 object-contain shrink-0 drop-shadow-xs" 
+              />
+              <div className="min-w-0">
+                <div className="text-xs sm:text-sm font-bold text-slate-800 leading-tight truncate">
+                  {locale === 'ar' ? 'جامعة الخليل' : 'Hebron University'}
+                </div>
+                <div className="text-[11px] sm:text-xs font-semibold text-teal-600 truncate mt-0.5">
+                  {locale === 'ar' ? 'كلية الطب والعلوم الصحية' : 'Faculty of Medicine & Health Sciences'}
+                </div>
+              </div>
+            </div>
 
-        <h1 className="mb-1 text-lg font-semibold text-slate-900">{t('auth.title')}</h1>
-        <p className="mb-5 text-sm text-slate-500">{t('auth.subtitle')}</p>
-
-        <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
-          <div>
-            <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
-              {t('auth.emailLabel')}
-            </label>
-            <input
-              id="email"
-              type="email"
-              autoComplete="username"
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-              {...register('email')}
-            />
-            {errors.email && (
-              <p className="mt-1 text-xs text-red-700">{t(errors.email.message as TranslationKey)}</p>
-            )}
+            <LanguageSwitcher />
           </div>
 
-          <div>
-            <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700">
-              {t('auth.passwordLabel')}
-            </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-              {...register('password')}
-            />
-            {errors.password && (
-              <p className="mt-1 text-xs text-red-700">{t(errors.password.message as TranslationKey)}</p>
-            )}
-          </div>
-
-          {formError && (
-            <p role="alert" className="text-sm text-red-700">
-              {formError}
+          {/* Title & Subtitle */}
+          <div className="space-y-1">
+            <h1 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
+              {t('auth.title')}
+            </h1>
+            <p className="text-xs text-slate-500 font-medium leading-relaxed">
+              {locale === 'ar' 
+                ? 'بوابة تسجيل الدخول لنظام إدارة الدائرة السريرية (CDMS)' 
+                : 'Clinical Department Management System (CDMS) Portal'}
             </p>
-          )}
+          </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full rounded-md bg-brand-700 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-600 disabled:opacity-50"
-          >
-            {isSubmitting ? t('auth.submitting') : t('auth.submit')}
-          </button>
-        </form>
+          {/* Form */}
+          <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
+            {/* Email Field */}
+            <div className="space-y-1.5">
+              <label htmlFor="email" className="block text-xs font-bold text-slate-700">
+                {t('auth.emailLabel')}
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 right-0 rtl:right-0 rtl:left-auto ltr:left-0 ltr:right-auto flex items-center px-3.5 pointer-events-none text-slate-400">
+                  <Mail className="w-4 h-4" />
+                </div>
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="username"
+                  placeholder="example@hebron.edu"
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50/60 py-3 px-4 rtl:pr-10 ltr:pl-10 text-sm text-slate-800 focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 transition-all"
+                  {...register('email')}
+                />
+              </div>
+              {errors.email && (
+                <p className="text-xs font-semibold text-red-600 flex items-center gap-1 mt-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{t(errors.email.message as TranslationKey)}</span>
+                </p>
+              )}
+            </div>
+
+            {/* Password Field */}
+            <div className="space-y-1.5">
+              <label htmlFor="password" className="block text-xs font-bold text-slate-700">
+                {t('auth.passwordLabel')}
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 right-0 rtl:right-0 rtl:left-auto ltr:left-0 ltr:right-auto flex items-center px-3.5 pointer-events-none text-slate-400">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50/60 py-3 px-4 rtl:pr-10 ltr:pl-10 text-sm text-slate-800 focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 transition-all"
+                  {...register('password')}
+                />
+              </div>
+              {errors.password && (
+                <p className="text-xs font-semibold text-red-600 flex items-center gap-1 mt-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{t(errors.password.message as TranslationKey)}</span>
+                </p>
+              )}
+            </div>
+
+            {/* Form Error Alert */}
+            {formError && (
+              <div role="alert" className="p-3.5 rounded-2xl bg-red-50 border border-red-100 text-xs font-bold text-red-700 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full mt-2 min-h-[46px] rounded-2xl bg-gradient-to-tr from-teal-500 to-teal-400 py-3.5 px-4 text-sm font-bold text-white shadow-lg shadow-teal-500/30 hover:opacity-95 active:scale-[0.99] disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>{isSubmitting ? t('auth.submitting') : t('auth.submit')}</span>
+              {locale === 'ar' ? <ArrowLeft className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
+            </button>
+          </form>
+
+          {/* Footer Inside Card */}
+          <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400 font-medium">
+            <span>{locale === 'ar' ? 'جامعة الخليل © 2026' : 'Hebron University © 2026'}</span>
+            <div className="flex items-center gap-1.5 text-teal-600 font-semibold">
+              <ShieldCheck className="w-4 h-4" />
+              <span>{locale === 'ar' ? 'نظام آمن ومشفر' : 'Secure CDMS Portal'}</span>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Subtle Copyright below card */}
+        <p className="text-center text-xs text-slate-400 font-medium mt-6">
+          {locale === 'ar' ? 'كلية الطب والعلوم الصحية — جامعة الخليل' : 'Faculty of Medicine & Health Sciences — Hebron University'}
+        </p>
       </div>
     </div>
   );

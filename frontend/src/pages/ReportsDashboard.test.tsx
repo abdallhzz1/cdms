@@ -7,10 +7,9 @@ import { renderWithProviders } from '@/test/renderWithProviders';
 describe('ReportsDashboard', () => {
   it('renders report dashboard and options', () => {
     renderWithProviders(<ReportsDashboard />);
-    // The page title uses translations, but our default fallback for nav.reports is "التقارير التشغيلية"
-    expect(screen.getByText('Operational Reports')).toBeInTheDocument();
-    expect(screen.getByText('reports.master_students')).toBeInTheDocument();
-    expect(screen.getByText('reports.export_excel')).toBeInTheDocument();
+    expect(screen.getByText(/Reports & Data Export Center/i)).toBeInTheDocument();
+    expect(screen.getByText(/Export Students/i)).toBeInTheDocument();
+    expect(screen.getByText(/Export Excel/i)).toBeInTheDocument();
   });
 
   it('triggers window.open on export click', async () => {
@@ -19,7 +18,7 @@ describe('ReportsDashboard', () => {
 
     renderWithProviders(<ReportsDashboard />);
 
-    const excelBtn = screen.getByText('reports.export_excel');
+    const excelBtn = screen.getByText(/Export Excel/i);
     await user.click(excelBtn);
 
     expect(windowOpenSpy).toHaveBeenCalledWith(

@@ -104,7 +104,84 @@ class StudentController extends Controller
         $student->update($request->validated());
 
         return ApiResponse::success(
-            new StudentResource($student->fresh()->load('academicYear', 'academicAdvisor'))
+            new StudentResource($student->fresh()->load('academicYear', 'academicAdvisor')),
+            'Student updated successfully.'
         );
+    }
+
+    /**
+     * DELETE /api/v1/students/{student}
+     * Permission: students.delete
+     */
+    public function destroy(Student $student): JsonResponse
+    {
+        $student->delete();
+
+        return ApiResponse::success(
+            null,
+            'Student deleted successfully.'
+        );
+    }
+
+    /**
+     * POST /api/v1/students/bulk-import
+     * Permission: students.create
+     */
+    public function bulkImport(Request $request): JsonResponse
+    {
+        $request->validate([
+            'students' => ['required', 'array', 'min:1'],
+            'students.*.university_number' => ['required', 'string'],
+            'students.*.full_name_ar' => ['required', 'string'],
+            'students.*.academic_level' => ['required', 'string'],
+        ]);
+
+        $imported = 0;
+        $updated = 0;
+        $errors = [];
+
+        foreach ($request->input('students') as $index => $row) {
+            try {
+                $univNumber = trim((string)$row['university_number']);
+                $level = strtolower(trim((string)$row['academic_level']));
+                if (!in_array($level, ['fourth', 'fifth', 'sixth'])) {
+                    if (str_contains($level, '4') || str_contains($level, 'رابع')) $level = 'fourth';
+                    elseif (str_contains($level, '5') || str_contains($level, 'خامس')) $level = 'fifth';
+                    elseif (str_contains($level, '6') || str_contains($level, 'سادس') || str_contains($level, 'امتياز')) $level = 'sixth';
+                    else $level = 'fourth';
+                }
+
+                $data = [
+                    'full_name_ar'        => trim((string)$row['full_name_ar']),
+                    'full_name_en'        => !empty($row['full_name_en']) ? trim((string)$row['full_name_en']) : null,
+                    'national_id'         => !empty($row['national_id']) ? trim((string)$row['national_id']) : null,
+                    'gender'              => in_array(strtolower((string)($row['gender'] ?? '')), ['male', 'female']) ? strtolower((string)$row['gender']) : (str_contains((string)($row['gender'] ?? ''), 'أنثى') ? 'female' : 'male'),
+                    'city'                => !empty($row['city']) ? trim((string)$row['city']) : 'الخليل',
+                    'phone'               => !empty($row['phone']) ? trim((string)$row['phone']) : null,
+                    'university_email'    => !empty($row['university_email']) ? trim((string)$row['university_email']) : "{$univNumber}@hebron.edu",
+                    'batch_year'          => !empty($row['batch_year']) ? (int)$row['batch_year'] : date('Y') - 3,
+                    'academic_level'      => $level,
+                    'registration_status' => !empty($row['registration_status']) ? strtolower((string)$row['registration_status']) : 'active',
+                ];
+
+                $student = Student::where('university_number', $univNumber)->first();
+                if ($student) {
+                    $student->update($data);
+                    $updated++;
+                } else {
+                    $data['university_number'] = $univNumber;
+                    Student::create($data);
+                    $imported++;
+                }
+            } catch (\Throwable $e) {
+                $errors[] = "Row " . ($index + 1) . ": " . $e->getMessage();
+            }
+        }
+
+        return ApiResponse::success([
+            'imported' => $imported,
+            'updated'  => $updated,
+            'errors'   => $errors,
+        ], "تمت معالجة " . ($imported + $updated) . " طالب بنجاح.");
     }
 }

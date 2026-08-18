@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DepartmentRoster } from './DepartmentRoster';
+import { I18nProvider } from '../i18n/I18nContext';
 import * as api from '../api/distribution';
 
 vi.mock('../api/distribution');
@@ -16,11 +17,13 @@ describe('DepartmentRoster', () => {
     (api.getDepartmentSummary as any).mockReturnValue(new Promise(() => {}));
     
     render(
-      <MemoryRouter initialEntries={['/operational/departments/1/roster']}>
-        <Routes>
-          <Route path="/operational/departments/:departmentId/roster" element={<DepartmentRoster />} />
-        </Routes>
-      </MemoryRouter>
+      <I18nProvider>
+        <MemoryRouter initialEntries={['/operational/departments/1/roster']}>
+          <Routes>
+            <Route path="/operational/departments/:departmentId/roster" element={<DepartmentRoster />} />
+          </Routes>
+        </MemoryRouter>
+      </I18nProvider>
     );
 
     expect(screen.getByText('جاري التحميل...')).toBeInTheDocument();
@@ -36,11 +39,13 @@ describe('DepartmentRoster', () => {
     });
 
     render(
-      <MemoryRouter initialEntries={['/operational/departments/1/roster']}>
-        <Routes>
-          <Route path="/operational/departments/:departmentId/roster" element={<DepartmentRoster />} />
-        </Routes>
-      </MemoryRouter>
+      <I18nProvider>
+        <MemoryRouter initialEntries={['/operational/departments/1/roster']}>
+          <Routes>
+            <Route path="/operational/departments/:departmentId/roster" element={<DepartmentRoster />} />
+          </Routes>
+        </MemoryRouter>
+      </I18nProvider>
     );
 
     expect(await screen.findByText(/Internal Medicine/i)).toBeInTheDocument();
@@ -56,13 +61,15 @@ describe('DepartmentRoster', () => {
     });
 
     render(
-      <MemoryRouter initialEntries={['/operational/departments/1/roster']}>
-        <Routes>
-          <Route path="/operational/departments/:departmentId/roster" element={<DepartmentRoster />} />
-        </Routes>
-      </MemoryRouter>
+      <I18nProvider>
+        <MemoryRouter initialEntries={['/operational/departments/1/roster']}>
+          <Routes>
+            <Route path="/operational/departments/:departmentId/roster" element={<DepartmentRoster />} />
+          </Routes>
+        </MemoryRouter>
+      </I18nProvider>
     );
 
-    expect(await screen.findByText('No Current Distribution')).toBeInTheDocument();
+    expect(await screen.findByText(/No active rotation/i)).toBeInTheDocument();
   });
 });

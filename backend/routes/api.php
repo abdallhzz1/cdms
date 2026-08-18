@@ -81,10 +81,14 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 ->middleware('permission:students.view')->name('index');
             Route::post('/', [\App\Http\Controllers\Api\V1\StudentController::class, 'store'])
                 ->middleware('permission:students.create')->name('store');
+            Route::post('/bulk-import', [\App\Http\Controllers\Api\V1\StudentController::class, 'bulkImport'])
+                ->middleware('permission:students.create')->name('bulk-import');
             Route::get('/{student}', [\App\Http\Controllers\Api\V1\StudentController::class, 'show'])
                 ->middleware('permission:students.view')->name('show');
             Route::put('/{student}', [\App\Http\Controllers\Api\V1\StudentController::class, 'update'])
                 ->middleware('permission:students.update')->name('update');
+            Route::delete('/{student}', [\App\Http\Controllers\Api\V1\StudentController::class, 'destroy'])
+                ->middleware('permission:students.delete')->name('destroy');
         });
 
         // Student Groups

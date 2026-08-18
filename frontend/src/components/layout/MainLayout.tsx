@@ -1,20 +1,22 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 
-/**
- * Basic application shell: header + sidebar + main content area, per
- * Prompt 01 §10. Calm/light/professional per the approved design direction —
- * no animation, no decorative illustration, no gradients.
- */
 export function MainLayout({ children }: { children: ReactNode }) {
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+
   return (
     <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
-      <Header />
-      <div className="flex flex-1">
-        <Sidebar />
-        <main className="flex-1 p-4 sm:p-6">
-          <div className="mx-auto max-w-4xl">{children}</div>
+      <Header onToggleMobileNav={() => setIsMobileNavOpen(prev => !prev)} />
+      <div className="flex flex-1 relative">
+        <Sidebar 
+          isOpenMobile={isMobileNavOpen} 
+          onCloseMobile={() => setIsMobileNavOpen(false)} 
+        />
+        <main className="flex-1 w-full min-w-0 p-4 sm:p-6 lg:p-8">
+          <div className="mx-auto max-w-7xl w-full">
+            {children}
+          </div>
         </main>
       </div>
     </div>

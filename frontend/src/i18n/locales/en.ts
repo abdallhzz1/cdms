@@ -164,8 +164,8 @@ const en = {
     invalidCredentials: 'Email or password is incorrect.',
     unknownError: 'An unexpected error occurred. Please try again.',
     signedInAs: 'Signed in as',
-    logout: 'Sign out',
-    loggingOut: 'Signing out...',
+    logout: 'Log out',
+    loggingOut: 'Logging out...',
   },
   validation: {
     required: 'This field is required.',

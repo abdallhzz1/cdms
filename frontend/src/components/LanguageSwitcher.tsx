@@ -1,29 +1,24 @@
 import { useI18n } from '@/i18n/I18nContext';
-import { SUPPORTED_LOCALES, LOCALE_LABEL } from '@/i18n/types';
+import { Globe } from 'lucide-react';
 
-/**
- * Minimal language switcher used to verify (and, later, to actually drive)
- * the i18n foundation. Switching language here also switches document
- * direction — see I18nContext.
- */
 export function LanguageSwitcher() {
-  const { locale, setLocale, t } = useI18n();
+  const { locale, setLocale } = useI18n();
+
+  const toggleLanguage = () => {
+    setLocale(locale === 'ar' ? 'en' : 'ar');
+  };
 
   return (
-    <label className="flex items-center gap-2 text-sm text-slate-600">
-      <span className="sr-only">{t('common.language')}</span>
-      <select
-        aria-label={t('common.language')}
-        value={locale}
-        onChange={(event) => setLocale(event.target.value as typeof locale)}
-        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-      >
-        {SUPPORTED_LOCALES.map((code) => (
-          <option key={code} value={code}>
-            {LOCALE_LABEL[code]}
-          </option>
-        ))}
-      </select>
-    </label>
+    <button
+      type="button"
+      onClick={toggleLanguage}
+      title={locale === 'ar' ? 'Switch to English (EN)' : 'التحويل إلى العربية (AR)'}
+      className="flex items-center gap-1.5 p-2 sm:px-2.5 sm:py-1.5 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-600 hover:text-teal-600 text-xs font-bold transition-all shadow-2xs"
+    >
+      <Globe className="w-4 h-4 text-teal-600 shrink-0" />
+      <span className="hidden sm:inline">
+        {locale === 'ar' ? 'العربية' : 'English'}
+      </span>
+    </button>
   );
 }
