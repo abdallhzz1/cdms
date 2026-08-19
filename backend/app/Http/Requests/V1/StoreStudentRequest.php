@@ -25,7 +25,7 @@ class StoreStudentRequest extends FormRequest
             'phone'                   => ['nullable', 'string', 'max:30'],
             'guardian_phone'          => ['nullable', 'string', 'max:30'],
             'university_email'        => ['nullable', 'email', 'max:255', 'unique:students,university_email'],
-            'photo_url'               => ['nullable', 'string', 'max:500'],
+            'photo_url'               => ['nullable', 'string'],
             'batch_year'              => ['nullable', 'integer', 'min:2000', 'max:2100'],
             'academic_level'          => ['required', 'in:fourth,fifth,sixth'],
             'academic_year_id'        => ['nullable', 'exists:academic_years,id'],

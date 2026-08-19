@@ -516,8 +516,16 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                   {/* 1. Student Name & Avatar */}
                   <TableCell>
                     <div className="font-bold text-slate-800 flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-full bg-teal-50 text-teal-700 flex items-center justify-center text-xs font-black shrink-0 border border-teal-100">
-                        {name(row).substring(0, 1)}
+                      <div className="w-8 h-8 rounded-full bg-teal-50 text-teal-700 flex items-center justify-center text-xs font-black shrink-0 border border-teal-100 overflow-hidden">
+                        {(row.photo_url || (kind === 'students' && localStorage.getItem(`student_photo_${row.id}`))) ? (
+                          <img 
+                            src={row.photo_url || localStorage.getItem(`student_photo_${row.id}`)!} 
+                            alt={name(row)} 
+                            className="w-full h-full object-cover rounded-full" 
+                          />
+                        ) : (
+                          name(row).substring(0, 1)
+                        )}
                       </div>
                       <div>
                         <span className="hover:text-teal-600 transition-colors block">{name(row)}</span>

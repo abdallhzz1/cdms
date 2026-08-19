@@ -31,7 +31,7 @@ class StorePersonRequest extends FormRequest
             'teaching_hours_per_week'  => ['nullable', 'integer', 'min:0', 'max:40'],
             'available_days'           => ['nullable', 'string', 'max:255'],
             'max_students'             => ['nullable', 'integer', 'min:1', 'max:50'],
-            'photo_url'                => ['nullable', 'string', 'max:500'],
+            'photo_url'                => ['nullable', 'string'],
             'cv_url'                   => ['nullable', 'string', 'max:500'],
             'is_active'                => ['boolean'],
             'user_id'                  => ['nullable', 'exists:users,id', 'unique:people,user_id'],

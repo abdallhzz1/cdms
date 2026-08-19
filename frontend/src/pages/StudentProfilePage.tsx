@@ -117,26 +117,81 @@ export function StudentProfilePage() {
     enabled: Boolean(studentId)
   });
 
+  // Local optimistic student photo state
+  const [localPhoto, setLocalPhoto] = useState<string | null>(() => {
+    return studentId ? localStorage.getItem(`student_photo_${studentId}`) : null;
+  });
+
+  useEffect(() => {
+    if (studentId) {
+      const cached = localStorage.getItem(`student_photo_${studentId}`);
+      if (cached) setLocalPhoto(cached);
+    }
+  }, [studentId]);
+
   // Upload Photo Mutation
   const updatePhotoMutation = useMutation({
     mutationFn: (photoUrl: string) => apiFetch(`/students/${studentId}`, { 
       method: 'PUT', 
       body: { photo_url: photoUrl } 
     }),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ['student', studentId] });
       queryClient.invalidateQueries({ queryKey: ['directory', 'students'] });
+      if (res?.data?.photo_url) {
+        setLocalPhoto(res.data.photo_url);
+        if (studentId) localStorage.setItem(`student_photo_${studentId}`, res.data.photo_url);
+      }
+    },
+    onError: (err: any) => {
+      console.error('Photo upload failed:', err);
     }
   });
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const compressImage = (file: File, maxSize: number = 400): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxSize) {
+              height = Math.round((height * maxSize) / width);
+              width = maxSize;
+            }
+          } else {
+            if (height > maxSize) {
+              width = Math.round((width * maxSize) / height);
+              height = maxSize;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        };
+        img.src = e.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      updatePhotoMutation.mutate(event.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    if (!file || !studentId) return;
+
+    try {
+      const compressed = await compressImage(file, 400);
+      setLocalPhoto(compressed);
+      localStorage.setItem(`student_photo_${studentId}`, compressed);
+      updatePhotoMutation.mutate(compressed);
+    } catch (err) {
+      console.error('Error compressing image:', err);
+    }
   };
 
   const handleAddDocument = (e: React.FormEvent) => {
@@ -286,9 +341,9 @@ export function StudentProfilePage() {
             />
 
             <div className="h-24 w-24 sm:h-28 sm:w-28 rounded-full border-2 border-slate-100 bg-teal-50 text-teal-700 shadow-sm flex items-center justify-center overflow-hidden">
-              {student.photo_url ? (
+              {(localPhoto || student.photo_url) ? (
                 <img 
-                  src={student.photo_url} 
+                  src={localPhoto || student.photo_url} 
                   alt={name} 
                   className="h-full w-full object-cover rounded-full" 
                 />

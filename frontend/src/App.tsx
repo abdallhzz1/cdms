@@ -50,11 +50,14 @@ import { AuditLogsPage } from '@/pages/AuditLogsPage';
 import { InboxPage } from '@/pages/InboxPage';
 import { OutboxPage } from '@/pages/OutboxPage';
 import { CorrespondenceDetailsPage } from '@/pages/CorrespondenceDetailsPage';
+import { PublicClinicalSchedulePage } from '@/pages/public/PublicClinicalSchedulePage';
 
 export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/portal/clinical-schedule" element={<PublicClinicalSchedulePage />} />
+      <Route path="/portal/student-lookup" element={<PublicClinicalSchedulePage />} />
       <Route
         path="/*"
         element={
@@ -79,6 +82,8 @@ export function App() {
                 {/* Clinical Training Module */}
                 <Route path="/distribution" element={<DistributionPage />} />
                 <Route path="/distribution/workbench" element={<DistributionWorkbench />} />
+                <Route path="/distribution/workbench/:versionId" element={<DistributionWorkbench />} />
+                <Route path="/distribution/:siteId" element={<TrainingSiteRoster />} />
                 <Route path="/clinical/schedule" element={<ClinicalSchedulePage />} />
                 <Route path="/supervisor/portal" element={<SupervisorPortalPage />} />
                 <Route path="/departments/:id/roster" element={<DepartmentRoster />} />
