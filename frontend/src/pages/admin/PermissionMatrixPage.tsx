@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -6,7 +6,7 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { Card } from '@/components/ui/Card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
-import { Shield, Check, X, Lock, CheckCircle2, Sparkles } from 'lucide-react';
+import { Check, X, Lock, CheckCircle2, Search, Filter } from 'lucide-react';
 
 const ROLE_LABELS: Record<string, { ar: string; en: string }> = {
   SYS_ADMIN: { ar: 'مدير النظام الفني', en: 'System Admin' },
@@ -38,7 +38,7 @@ const MODULE_LABELS: Record<string, { ar: string; en: string }> = {
   Security: { ar: 'الأمان والمستخدمين', en: 'Security' },
   AcademicYears: { ar: 'التقويم والأعوام', en: 'Academic Years' },
   Departments: { ar: 'الأقسام الأكاديمية', en: 'Departments' },
-  People: { ar: 'الكادر والموظفون', en: 'People' },
+  People: { ar: 'الكادر والمستشفيات', en: 'People' },
   Groups: { ar: 'المجموعات والشعب', en: 'Groups' },
   KPIs: { ar: 'مؤشرات الأداء', en: 'KPIs' },
   Performance: { ar: 'مراقبة الأداء', en: 'Performance' },
@@ -125,6 +125,8 @@ const PERMISSION_LABELS: Record<string, { ar: string; en: string }> = {
 export function PermissionMatrixPage() {
   const qc = useQueryClient();
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [selectedModule, setSelectedModule] = useState<string>('ALL');
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin-permission-matrix'],
@@ -141,18 +143,39 @@ export function PermissionMatrixPage() {
     },
   });
 
-  if (isLoading) return <LoadingState />;
-  if (isError) return <ErrorState onRetry={() => refetch()} />;
-
   const roles = data?.roles || [];
   const permissions = data?.permissions || [];
   const matrix = data?.matrix || [];
+
+  // Extract unique modules
+  const modules = useMemo<string[]>(() => {
+    const mods = Array.from(new Set(permissions.map((p: any) => p.module as string))) as string[];
+    return ['ALL', ...mods];
+  }, [permissions]);
+
+  // Filter permissions by search and selected module
+  const filteredPermissions = useMemo(() => {
+    return permissions.filter((perm: any) => {
+      const permLabel = PERMISSION_LABELS[perm.code] || { ar: perm.code, en: perm.code };
+      const matchesSearch =
+        search.trim() === '' ||
+        perm.code.toLowerCase().includes(search.toLowerCase()) ||
+        permLabel.ar.includes(search) ||
+        permLabel.en.toLowerCase().includes(search.toLowerCase());
+      const matchesModule = selectedModule === 'ALL' || perm.module === selectedModule;
+
+      return matchesSearch && matchesModule;
+    });
+  }, [permissions, search, selectedModule]);
+
+  if (isLoading) return <LoadingState />;
+  if (isError) return <ErrorState onRetry={() => refetch()} />;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="مصفوفة الأدوار والصلاحيات المعتمدة (Bilingual Permission Matrix)"
-        description="عرض وتحديد الصلاحيات الفعلية الممنوحة لكل دور تقني بالنظام باللغتين العربية والإنجليزية في الوقت الفعلي."
+        description="عرض وتعديل مصفوفة الصلاحيات الفعلية بالنظام مع ثبات رؤوس الجدول والبحث السريع."
       />
 
       {successMessage && (
@@ -162,84 +185,132 @@ export function PermissionMatrixPage() {
         </div>
       )}
 
-      <Card className="overflow-x-auto border-slate-100 shadow-xs">
-        <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-          <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-            <Shield className="w-4 h-4 text-indigo-600" />
-            جدول توزيع الصلاحيات الفعلي للنظام (Real System Permission Grants)
-          </h3>
-          <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            تعديل وتحديث فوري ومباشر على قاعدة البيانات
-          </span>
+      {/* Controls: Search & Module Selector Pills */}
+      <Card className="p-4 border-slate-100 shadow-xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          {/* Search Input */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
+            <input
+              type="text"
+              placeholder="ابحث عن أي صلاحية (مثال: علامات، حضور، طلاب)..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pr-10 pl-4 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-hidden font-medium bg-slate-50/50"
+            />
+          </div>
+
+          <div className="text-xs font-bold text-slate-500 flex items-center gap-2">
+            <Filter className="w-4 h-4 text-teal-600" />
+            <span>عرض {filteredPermissions.length} من أصل {permissions.length} صلاحية</span>
+          </div>
         </div>
 
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="min-w-[260px] text-right">الصلاحية والرمز / Permission</TableHead>
-              {roles.map((r: any) => {
-                const label = ROLE_LABELS[r.code] || { ar: r.code, en: r.code };
-                return (
-                  <TableHead key={r.id} className="text-center min-w-[130px] p-3">
-                    <div className="font-bold text-slate-900 text-xs">{label.ar}</div>
-                    <div className="text-[10px] text-indigo-600 font-mono font-semibold">{label.en}</div>
-                  </TableHead>
-                );
-              })}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {permissions.map((perm: any) => {
-              const permLabel = PERMISSION_LABELS[perm.code] || { ar: perm.code, en: perm.code };
-              const modLabel = MODULE_LABELS[perm.module] || { ar: perm.module, en: perm.module };
+        {/* Module Filter Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {modules.map((mod: string) => {
+            const isAll = mod === 'ALL';
+            const modLabel = isAll ? { ar: 'جميع الوحدات', en: 'All Modules' } : (MODULE_LABELS[mod] || { ar: mod, en: mod });
+            const isSelected = selectedModule === mod;
 
-              return (
-                <TableRow key={perm.id} className="hover:bg-slate-50/80 transition-colors">
-                  <TableCell className="py-3">
-                    <div className="font-bold text-slate-900 text-xs">{permLabel.ar}</div>
-                    <div className="text-[10px] text-slate-500 font-mono flex items-center gap-2 mt-0.5">
-                      <span className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-100 font-semibold">
-                        {modLabel.ar} ({modLabel.en})
-                      </span>
-                      <span className="text-slate-400">{perm.code}</span>
-                    </div>
+            return (
+              <button
+                key={mod}
+                onClick={() => setSelectedModule(mod)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                  isSelected
+                    ? 'bg-teal-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {modLabel.ar}
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* Sticky Table with Internal Vertical & Horizontal Scrollbar */}
+      <Card className="border-slate-100 shadow-xs overflow-hidden">
+        <div className="max-h-[68vh] overflow-auto relative rounded-2xl">
+          <Table>
+            <TableHeader className="sticky top-0 z-30 bg-slate-100 shadow-xs">
+              <TableRow className="bg-slate-100 border-b border-slate-200">
+                <TableHead className="sticky right-0 z-40 bg-slate-100 min-w-[260px] text-right font-bold text-slate-900 shadow-xs p-3">
+                  الصلاحية والرمز / Permission
+                </TableHead>
+                {roles.map((r: any) => {
+                  const label = ROLE_LABELS[r.code] || { ar: r.code, en: r.code };
+                  return (
+                    <TableHead key={r.id} className="text-center min-w-[135px] p-3 border-l border-slate-200/60">
+                      <div className="font-bold text-slate-900 text-xs">{label.ar}</div>
+                      <div className="text-[10px] text-indigo-600 font-mono font-semibold">{label.en}</div>
+                    </TableHead>
+                  );
+                })}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredPermissions.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={roles.length + 1} className="text-center py-12 text-slate-400 text-xs">
+                    لا توجد صلاحيات مطابقة للبحث المحدد.
                   </TableCell>
-
-                  {roles.map((role: any) => {
-                    const roleMatrix = matrix.find((m: any) => m.role_id === role.id);
-                    const permState = roleMatrix?.permissions?.find((p: any) => p.permission_id === perm.id);
-                    const isGranted = permState?.granted ?? false;
-                    const isSysAdmin = role.code === 'SYS_ADMIN';
-
-                    return (
-                      <TableCell key={role.id} className="text-center py-3">
-                        {isSysAdmin ? (
-                          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-100 text-slate-400" title="صلاحية مطلقة للمسؤول الفني">
-                            <Lock className="w-3.5 h-3.5" />
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => toggleMutation.mutate({ role_id: role.id, permission_id: perm.id })}
-                            disabled={toggleMutation.isPending}
-                            title={`${role.code} -> ${perm.code}`}
-                            className={`inline-flex items-center justify-center w-7 h-7 rounded-xl transition-all ${
-                              isGranted
-                                ? 'bg-emerald-500 text-white shadow-xs hover:bg-emerald-600 hover:scale-105'
-                                : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
-                            }`}
-                          >
-                            {isGranted ? <Check className="w-4 h-4 stroke-[3]" /> : <X className="w-3.5 h-3.5" />}
-                          </button>
-                        )}
-                      </TableCell>
-                    );
-                  })}
                 </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+              ) : (
+                filteredPermissions.map((perm: any) => {
+                  const permLabel = PERMISSION_LABELS[perm.code] || { ar: perm.code, en: perm.code };
+                  const modLabel = MODULE_LABELS[perm.module] || { ar: perm.module, en: perm.module };
+
+                  return (
+                    <TableRow key={perm.id} className="group hover:bg-teal-50/40 transition-colors border-b border-slate-100">
+                      {/* Sticky Right First Column */}
+                      <TableCell className="sticky right-0 z-20 bg-white group-hover:bg-teal-50/90 py-3 shadow-xs border-l border-slate-100">
+                        <div className="font-bold text-slate-900 text-xs">{permLabel.ar}</div>
+                        <div className="text-[10px] text-slate-500 font-mono flex items-center gap-2 mt-0.5">
+                          <span className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-100 font-semibold">
+                            {modLabel.ar}
+                          </span>
+                          <span className="text-slate-400">{perm.code}</span>
+                        </div>
+                      </TableCell>
+
+                      {roles.map((role: any) => {
+                        const roleMatrix = matrix.find((m: any) => m.role_id === role.id);
+                        const permState = roleMatrix?.permissions?.find((p: any) => p.permission_id === perm.id);
+                        const isGranted = permState?.granted ?? false;
+                        const isSysAdmin = role.code === 'SYS_ADMIN';
+
+                        return (
+                          <TableCell key={role.id} className="text-center py-3 border-l border-slate-100/60">
+                            {isSysAdmin ? (
+                              <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-100 text-slate-400" title="صلاحية مطلقة للمسؤول الفني">
+                                <Lock className="w-3.5 h-3.5" />
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => toggleMutation.mutate({ role_id: role.id, permission_id: perm.id })}
+                                disabled={toggleMutation.isPending}
+                                title={`${role.code} -> ${perm.code}`}
+                                className={`inline-flex items-center justify-center w-7 h-7 rounded-xl transition-all ${
+                                  isGranted
+                                    ? 'bg-emerald-500 text-white shadow-xs hover:bg-emerald-600 hover:scale-105'
+                                    : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                                }`}
+                              >
+                                {isGranted ? <Check className="w-4 h-4 stroke-[3]" /> : <X className="w-3.5 h-3.5" />}
+                              </button>
+                            )}
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </Card>
     </div>
   );
