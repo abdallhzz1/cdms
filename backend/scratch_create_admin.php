@@ -28,6 +28,8 @@ if (!$user) {
 
 $sysAdmin = Role::where('code', 'SYS_ADMIN')->first();
 if ($sysAdmin) {
+    $allPerms = \App\Models\Permission::all();
+    $sysAdmin->permissions()->sync($allPerms->pluck('id'));
     if (!$user->roles()->where('roles.id', $sysAdmin->id)->exists()) {
         $user->roles()->attach($sysAdmin->id);
         echo "ATTACHED SYS_ADMIN ROLE TO: {$email}\n";
