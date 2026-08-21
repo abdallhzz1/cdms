@@ -180,7 +180,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
             { path: '/admin/permissions', label: locale === 'ar' ? 'مصفوفة الصلاحيات' : 'Permission Matrix', icon: ShieldCheck },
             { path: '/admin/health', label: locale === 'ar' ? 'مراقبة صحة السيرفر' : 'System Health Monitor', icon: Activity },
             { path: '/admin/settings', label: locale === 'ar' ? 'إعدادات النظام والنسخ الاحتياطي' : 'System Settings & Backup', icon: Settings },
-            { path: '/academic/calendar', label: locale === 'ar' ? 'التقويم الأكاديمي' : 'Academic Calendar', icon: Calendar },
             { path: '/audit-logs', label: locale === 'ar' ? 'سجل العمليات والتدقيق' : 'Audit Logs', icon: ShieldCheck },
             { path: '/operational/reports', label: locale === 'ar' ? 'مركز التقارير' : 'Reports Hub', icon: FileText },
           ]

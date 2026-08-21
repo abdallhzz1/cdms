@@ -50,7 +50,7 @@ class UserController extends Controller
 
     public function index(Request $request)
     {
-        $query = User::with(['roles', 'person.department']);
+        $query = User::with('roles:id,code,name_key');
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -60,7 +60,7 @@ class UserController extends Controller
             });
         }
 
-        $users = $query->orderBy('name')->paginate($request->get('per_page', 25));
+        $users = $query->orderBy('name')->paginate($request->get('per_page', 100));
 
         return response()->json([
             'data' => [
