@@ -41,21 +41,28 @@ export class ApiError extends Error {
   }
 }
 
-export const API_BASE_URL: string =
-  (import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.trim() !== '')
-    ? import.meta.env.VITE_API_BASE_URL
-    : (typeof window !== 'undefined' && window.location.origin
-        ? `${window.location.origin}/api/v1`
-        : 'http://localhost:8000/api/v1');
-
-export function apiUrl(path: string): string {
-  return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+export function getApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '' && !envUrl.includes('VITE_API_BASE_URL')) {
+    return envUrl;
+  }
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return `${window.location.origin}/api/v1`;
+  }
+  return 'http://localhost:8000/api/v1';
 }
 
-// Sanctum's /sanctum/csrf-cookie route is registered at the backend's root,
-// not under /api/v1 — derive that root by stripping the API path off
-// API_BASE_URL rather than hardcoding a second URL.
-const API_ORIGIN: string = API_BASE_URL.replace(/\/api(\/v\d+)?\/?$/, '');
+export const API_BASE_URL: string = getApiBaseUrl();
+
+export function apiUrl(path: string): string {
+  const base = getApiBaseUrl();
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+export function getApiOrigin(): string {
+  const base = getApiBaseUrl();
+  return base.replace(/\/api(\/v\d+)?\/?$/, '');
+}
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -64,18 +71,11 @@ function readCookie(name: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-/**
- * Sanctum SPA authentication (Prompt 02 §5) requires the frontend to fetch
- * a CSRF cookie once before any state-changing request (login, in
- * particular, since there is no authenticated session yet to have set one
- * already). Safe to call repeatedly — it's a cheap no-op once the cookie
- * exists, and cookies do expire/rotate so re-checking is deliberate rather
- * than caching "already fetched" in a module-level flag.
- */
 export async function ensureCsrfCookie(): Promise<void> {
   if (readCookie('XSRF-TOKEN')) return;
+  const origin = getApiOrigin();
 
-  await fetch(`${API_ORIGIN}/sanctum/csrf-cookie`, {
+  await fetch(`${origin}/sanctum/csrf-cookie`, {
     method: 'GET',
     credentials: 'include',
     headers: { Accept: 'application/json' },
