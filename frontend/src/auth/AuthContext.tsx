@@ -16,6 +16,7 @@ interface AuthContextValue {
    * request regardless (Prompt 01/02: frontend authorization is UX-only).
    */
   can: (permissionCode: string) => boolean;
+  hasRole: (roleCode: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -52,9 +53,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await logoutRequest();
     } catch (error) {
-      // A logout call that fails because the session was already gone
-      // (e.g. expired server-side) shouldn't block the client from
-      // clearing its own state — any other failure still surfaces.
       if (!(error instanceof ApiError && error.status === 401)) {
         throw error;
       }
@@ -65,13 +63,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const can = useCallback(
     (permissionCode: string) =>
-      user?.permissions.some((permission: Permission) => permission.code === permissionCode) ?? false,
+      user?.permissions?.some((permission: Permission) => permission.code === permissionCode) ?? false,
+    [user],
+  );
+
+  const hasRole = useCallback(
+    (roleCode: string) =>
+      user?.roles?.includes(roleCode) ?? false,
     [user],
   );
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, isAuthenticated: user !== null, isLoading, login, logout, can }),
-    [user, isLoading, login, logout, can],
+    () => ({ user, isAuthenticated: user !== null, isLoading, login, logout, can, hasRole }),
+    [user, isLoading, login, logout, can, hasRole],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

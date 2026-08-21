@@ -81,7 +81,22 @@ export function App() {
                 <Route path="/students/:id" element={<StudentProfilePage />} />
                 <Route path="/students/groups" element={<StudentGroupsPage />} />
                 <Route path="/staff/:id" element={<StaffProfilePage />} />
-                <Route path="/users" element={<UsersPage />} />
+                <Route 
+                  path="/users" 
+                  element={
+                    <ProtectedRoute requiredPermission="users.view" requiredRole="SYS_ADMIN">
+                      <UsersPage />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/audit-logs" 
+                  element={
+                    <ProtectedRoute requiredPermission="audit.view" requiredRole="SYS_ADMIN">
+                      <AuditLogsPage />
+                    </ProtectedRoute>
+                  } 
+                />
 
                 {/* Clinical Training Module */}
                 <Route path="/distribution" element={<DistributionPage />} />
@@ -111,7 +126,7 @@ export function App() {
                 <Route path="/meetings" element={<MeetingsPage />} />
                 <Route path="/meetings/:id" element={<MeetingDetailsPage />} />
                 <Route path="/academic/calendar" element={<AcademicCalendarPage />} />
-                <Route path="/audit-logs" element={<AuditLogsPage />} />
+
                 <Route path="/evaluations" element={<EvaluationFormsPage />} />
                 <Route path="/operational/reports" element={<ReportsDashboard />} />
                 
