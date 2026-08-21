@@ -24,7 +24,7 @@ class DevAdminUserSeeder extends Seeder
 {
     public function run(): void
     {
-        $email = (string) env('DEV_ADMIN_EMAIL', 'admin@cdms.local');
+        $email = (string) env('DEV_ADMIN_EMAIL', 'admin1@hebron.edu');
         $existing = User::where('email', $email)->first();
 
         if ($existing) {

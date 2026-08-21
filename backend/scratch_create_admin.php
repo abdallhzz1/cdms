@@ -7,23 +7,23 @@ $kernel->bootstrap();
 use App\Models\User;
 use App\Models\Role;
 
-$email = 'admin@cdms.local';
+$email = 'admin1@hebron.edu';
 $password = 'password123';
 
 $user = User::where('email', $email)->first();
 if (!$user) {
     $user = User::create([
-        'name' => 'CDMS System Admin',
+        'name' => 'مدير النظام (System Admin)',
         'email' => $email,
         'password' => $password,
         'is_active' => true,
     ]);
-    echo "CREATED ADMIN USER: {$email}\n";
+    echo "CREATED SYSTEM ADMIN USER: {$email}\n";
 } else {
     $user->password = $password;
     $user->is_active = true;
     $user->save();
-    echo "UPDATED ADMIN USER PASSWORD: {$email}\n";
+    echo "UPDATED SYSTEM ADMIN USER PASSWORD: {$email}\n";
 }
 
 $sysAdmin = Role::where('code', 'SYS_ADMIN')->first();
@@ -34,4 +34,4 @@ if ($sysAdmin) {
     }
 }
 
-echo "ADMIN READY TO LOGIN WITH: {$email} / {$password}\n";
+echo "SYSTEM ADMIN READY: {$email} / {$password}\n";
