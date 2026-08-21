@@ -345,12 +345,21 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         Route::get('users/lookup', [\App\Http\Controllers\Api\V1\UserController::class, 'lookup']);
 
-        // User Management (SYS_ADMIN only) — supports both /admin/users and /users
+        // User Management & System Administration (SYS_ADMIN only)
         Route::prefix('admin')->middleware(['permission:users.manage'])->group(function () {
             Route::get('users/roles', [\App\Http\Controllers\Api\V1\UserController::class, 'getRoles']);
             Route::get('users/available-people', [\App\Http\Controllers\Api\V1\UserController::class, 'getAvailablePeople']);
             Route::post('users/{user}/toggle', [\App\Http\Controllers\Api\V1\UserController::class, 'toggleActive']);
             Route::apiResource('users', \App\Http\Controllers\Api\V1\UserController::class);
+
+            // New Technical Admin APIs
+            Route::get('health', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'health']);
+            Route::get('sessions', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'sessions']);
+            Route::post('sessions/{user}/revoke', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'revokeSession']);
+            Route::get('permissions/matrix', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'permissionMatrix']);
+            Route::post('permissions/toggle', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'togglePermission']);
+            Route::get('settings', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'getSettings']);
+            Route::post('settings', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'updateSettings']);
         });
 
         Route::middleware(['permission:users.manage'])->group(function () {
@@ -358,6 +367,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('users/available-people', [\App\Http\Controllers\Api\V1\UserController::class, 'getAvailablePeople']);
             Route::post('users/{user}/toggle', [\App\Http\Controllers\Api\V1\UserController::class, 'toggleActive']);
             Route::apiResource('users', \App\Http\Controllers\Api\V1\UserController::class, ['as' => 'direct']);
+
+            // Direct route aliases
+            Route::get('system-health', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'health']);
+            Route::get('system-sessions', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'sessions']);
+            Route::get('system-permissions-matrix', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'permissionMatrix']);
+            Route::get('system-settings', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'getSettings']);
         });
 
         // RTA Level Assignment — accessible by department_head / admin_assistant (students.view)

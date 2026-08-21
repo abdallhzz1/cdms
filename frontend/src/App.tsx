@@ -49,6 +49,10 @@ import { SupervisorWorkloadsPage } from '@/pages/SupervisorWorkloadsPage';
 import { PartnershipsPage } from '@/pages/PartnershipsPage';
 import { UsersPage } from '@/pages/UsersPage';
 import { AuditLogsPage } from '@/pages/AuditLogsPage';
+import { ActiveSessionsPage } from '@/pages/admin/ActiveSessionsPage';
+import { PermissionMatrixPage } from '@/pages/admin/PermissionMatrixPage';
+import { SystemHealthPage } from '@/pages/admin/SystemHealthPage';
+import { SystemSettingsPage } from '@/pages/admin/SystemSettingsPage';
 import { InboxPage } from '@/pages/InboxPage';
 import { OutboxPage } from '@/pages/OutboxPage';
 import { CorrespondenceDetailsPage } from '@/pages/CorrespondenceDetailsPage';
@@ -81,6 +85,8 @@ export function App() {
                 <Route path="/students/:id" element={<StudentProfilePage />} />
                 <Route path="/students/groups" element={<StudentGroupsPage />} />
                 <Route path="/staff/:id" element={<StaffProfilePage />} />
+
+                {/* System Admin Routes (SYS_ADMIN Only) */}
                 <Route 
                   path="/users" 
                   element={
@@ -94,6 +100,38 @@ export function App() {
                   element={
                     <ProtectedRoute requiredPermission="audit.view" requiredRole="SYS_ADMIN">
                       <AuditLogsPage />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin/sessions" 
+                  element={
+                    <ProtectedRoute requiredRole="SYS_ADMIN">
+                      <ActiveSessionsPage />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin/permissions" 
+                  element={
+                    <ProtectedRoute requiredRole="SYS_ADMIN">
+                      <PermissionMatrixPage />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin/health" 
+                  element={
+                    <ProtectedRoute requiredRole="SYS_ADMIN">
+                      <SystemHealthPage />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin/settings" 
+                  element={
+                    <ProtectedRoute requiredRole="SYS_ADMIN">
+                      <SystemSettingsPage />
                     </ProtectedRoute>
                   } 
                 />

@@ -5,7 +5,7 @@ import {
   Users, Calendar, LayoutDashboard, 
   Map, FileText, ClipboardCheck, BookOpen, Clock, ShieldCheck,
   MessagesSquare, FolderGit2, BarChart3, Send, AlertTriangle, TrendingUp, Target,
-  GraduationCap, X
+  GraduationCap, X, Monitor, Settings, Activity
 } from 'lucide-react';
 
 interface NavItem {
@@ -175,8 +175,11 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           title: locale === 'ar' ? 'إدارة النظام والأمان' : 'System Administration',
           items: [
             { path: '/', label: locale === 'ar' ? 'لوحة العمليات' : 'Dashboard', icon: LayoutDashboard },
-            { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: GraduationCap },
             { path: '/users', label: locale === 'ar' ? 'المستخدمون والأدوار' : 'Users & Roles', icon: Users },
+            { path: '/admin/sessions', label: locale === 'ar' ? 'الجلسات والأمان الحية' : 'Active Sessions & Security', icon: Monitor },
+            { path: '/admin/permissions', label: locale === 'ar' ? 'مصفوفة الصلاحيات' : 'Permission Matrix', icon: ShieldCheck },
+            { path: '/admin/health', label: locale === 'ar' ? 'مراقبة صحة السيرفر' : 'System Health Monitor', icon: Activity },
+            { path: '/admin/settings', label: locale === 'ar' ? 'إعدادات النظام والنسخ الاحتياطي' : 'System Settings & Backup', icon: Settings },
             { path: '/academic/calendar', label: locale === 'ar' ? 'التقويم الأكاديمي' : 'Academic Calendar', icon: Calendar },
             { path: '/audit-logs', label: locale === 'ar' ? 'سجل العمليات والتدقيق' : 'Audit Logs', icon: ShieldCheck },
             { path: '/operational/reports', label: locale === 'ar' ? 'مركز التقارير' : 'Reports Hub', icon: FileText },
