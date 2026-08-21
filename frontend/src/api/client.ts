@@ -43,25 +43,29 @@ export class ApiError extends Error {
 
 export function getApiBaseUrl(): string {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '' && !envUrl.includes('VITE_API_BASE_URL')) {
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
     return envUrl;
   }
-  if (typeof window !== 'undefined' && window.location && window.location.origin) {
-    return `${window.location.origin}/api/v1`;
-  }
-  return 'http://localhost:8000/api/v1';
+  return '/api/v1';
 }
 
 export const API_BASE_URL: string = getApiBaseUrl();
 
 export function apiUrl(path: string): string {
   const base = getApiBaseUrl();
-  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  if (base.startsWith('/')) {
+    return `/api/v1${cleanPath}`;
+  }
+  return `${base}${cleanPath}`;
 }
 
 export function getApiOrigin(): string {
-  const base = getApiBaseUrl();
-  return base.replace(/\/api(\/v\d+)?\/?$/, '');
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+    return envUrl.replace(/\/api(\/v\d+)?\/?$/, '');
+  }
+  return '';
 }
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -74,8 +78,9 @@ function readCookie(name: string): string | null {
 export async function ensureCsrfCookie(): Promise<void> {
   if (readCookie('XSRF-TOKEN')) return;
   const origin = getApiOrigin();
+  const csrfUrl = origin ? `${origin}/sanctum/csrf-cookie` : '/sanctum/csrf-cookie';
 
-  await fetch(`${origin}/sanctum/csrf-cookie`, {
+  await fetch(csrfUrl, {
     method: 'GET',
     credentials: 'include',
     headers: { Accept: 'application/json' },
