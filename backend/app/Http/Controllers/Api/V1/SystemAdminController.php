@@ -128,20 +128,20 @@ class SystemAdminController extends Controller
      */
     public function permissionMatrix()
     {
-        $roles = Role::with('permissions:id,code')->get(['id', 'code', 'name', 'name_key']);
-        $permissions = Permission::get(['id', 'code', 'name', 'module']);
+        $roles = Role::with('permissions:id,code')->get(['id', 'code', 'name_key']);
+        $permissions = Permission::all(['id', 'code', 'module', 'action']);
 
         $matrix = $roles->map(function ($role) use ($permissions) {
             $rolePermIds = $role->permissions->pluck('id')->toArray();
             return [
                 'role_id' => $role->id,
                 'role_code' => $role->code,
-                'role_name' => $role->name,
+                'role_name' => $role->code,
                 'permissions' => $permissions->map(function ($p) use ($rolePermIds) {
                     return [
                         'permission_id' => $p->id,
                         'code' => $p->code,
-                        'name' => $p->name,
+                        'name' => $p->code,
                         'module' => $p->module,
                         'granted' => in_array($p->id, $rolePermIds),
                     ];
@@ -150,7 +150,7 @@ class SystemAdminController extends Controller
         });
 
         return ApiResponse::success([
-            'roles' => $roles,
+            'roles' => $roles->map(fn($r) => ['id' => $r->id, 'code' => $r->code, 'name' => $r->code]),
             'permissions' => $permissions,
             'matrix' => $matrix,
         ]);
@@ -178,7 +178,7 @@ class SystemAdminController extends Controller
             $role->permissions()->detach($permId);
             $granted = false;
         } else {
-            $role->permissions()->attach($permId);
+            $role->permissions()->attach($permId, ['scope_type' => 'global']);
             $granted = true;
         }
 
