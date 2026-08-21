@@ -41,23 +41,23 @@ export class ApiError extends Error {
   }
 }
 
-// CDMS Production Build v2.0 - Relative Domain Agnostic API Path
 export function getApiBaseUrl(): string {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
   if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
     return envUrl;
   }
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return `${window.location.origin}/api/v1`;
+  }
   return '/api/v1';
 }
 
-export const API_BASE_URL: string = getApiBaseUrl();
-
 export function apiUrl(path: string): string {
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
   const base = getApiBaseUrl();
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  if (base.startsWith('/')) {
-    return `/api/v1${cleanPath}`;
-  }
   return `${base}${cleanPath}`;
 }
 
@@ -65,6 +65,9 @@ export function getApiOrigin(): string {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
   if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
     return envUrl.replace(/\/api(\/v\d+)?\/?$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return window.location.origin;
   }
   return '';
 }
@@ -93,10 +96,6 @@ function buildHeaders(init: HeadersInit | undefined, method: string, isFormData 
   if (!headers.has('Accept')) headers.set('Accept', 'application/json');
   if (!isFormData && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
-  // Laravel's CSRF check (applied to stateful/cookie-authenticated requests
-  // by Sanctum's EnsureFrontendRequestsAreStateful) reads this header and
-  // compares it against the encrypted XSRF-TOKEN cookie — fetch(), unlike
-  // axios, does not do this automatically.
   if (MUTATING_METHODS.has(method.toUpperCase())) {
     const token = readCookie('XSRF-TOKEN');
     if (token) headers.set('X-XSRF-TOKEN', token);
@@ -110,7 +109,7 @@ export interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
 }
 
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
-  const url = path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
+  const url = apiUrl(path);
   const method = options.method ?? 'GET';
 
   if (MUTATING_METHODS.has(method.toUpperCase())) {
