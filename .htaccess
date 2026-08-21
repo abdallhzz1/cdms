@@ -1,0 +1,20 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Route API requests to backend/public/api
+    RewriteCond %{REQUEST_URI} ^/api/ [NC]
+    RewriteRule ^api/(.*)$ backend/public/api/$1 [L,QSA]
+
+    # Route Storage requests to backend/public/storage
+    RewriteCond %{REQUEST_URI} ^/storage/ [NC]
+    RewriteRule ^storage/(.*)$ backend/public/storage/$1 [L,QSA]
+
+    # Allow direct access to existing files and directories
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # SPA rewrite to index.html for all frontend routes
+    RewriteRule ^ index.html [L]
+</IfModule>
