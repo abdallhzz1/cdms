@@ -41,6 +41,7 @@ export class ApiError extends Error {
   }
 }
 
+// CDMS Production Build v2.0 - Relative Domain Agnostic API Path
 export function getApiBaseUrl(): string {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
   if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
