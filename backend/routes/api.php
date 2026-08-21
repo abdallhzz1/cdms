@@ -345,12 +345,19 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         Route::get('users/lookup', [\App\Http\Controllers\Api\V1\UserController::class, 'lookup']);
 
-        // User Management (SYS_ADMIN only)
+        // User Management (SYS_ADMIN only) — supports both /admin/users and /users
         Route::prefix('admin')->middleware(['permission:users.manage'])->group(function () {
             Route::get('users/roles', [\App\Http\Controllers\Api\V1\UserController::class, 'getRoles']);
             Route::get('users/available-people', [\App\Http\Controllers\Api\V1\UserController::class, 'getAvailablePeople']);
             Route::post('users/{user}/toggle', [\App\Http\Controllers\Api\V1\UserController::class, 'toggleActive']);
             Route::apiResource('users', \App\Http\Controllers\Api\V1\UserController::class);
+        });
+
+        Route::middleware(['permission:users.manage'])->group(function () {
+            Route::get('users/roles', [\App\Http\Controllers\Api\V1\UserController::class, 'getRoles']);
+            Route::get('users/available-people', [\App\Http\Controllers\Api\V1\UserController::class, 'getAvailablePeople']);
+            Route::post('users/{user}/toggle', [\App\Http\Controllers\Api\V1\UserController::class, 'toggleActive']);
+            Route::apiResource('users', \App\Http\Controllers\Api\V1\UserController::class, ['as' => 'direct']);
         });
 
         // RTA Level Assignment — accessible by department_head / admin_assistant (students.view)

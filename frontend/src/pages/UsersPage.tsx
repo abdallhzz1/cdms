@@ -29,22 +29,22 @@ export function UsersPage() {
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['users', page, search],
-    queryFn: () => apiFetch<any>(`/users?${query.toString()}`),
+    queryFn: () => apiFetch<any>(`/admin/users?${query.toString()}`),
   });
 
   const { data: roles = [] } = useQuery({
     queryKey: ['roles'],
-    queryFn: () => apiFetch<any[]>('/users/roles'),
+    queryFn: () => apiFetch<any[]>('/admin/users/roles'),
   });
 
   const { data: availablePeople = [] } = useQuery({
     queryKey: ['available-people', editingUser?.id],
-    queryFn: () => apiFetch<any[]>(`/users/available-people${editingUser ? `?current_user_id=${editingUser.id}` : ''}`),
+    queryFn: () => apiFetch<any[]>(`/admin/users/available-people${editingUser ? `?current_user_id=${editingUser.id}` : ''}`),
   });
 
   const saveMutation = useMutation({
     mutationFn: (data: any) => {
-      const url = editingUser ? `/users/${editingUser.id}` : '/users';
+      const url = editingUser ? `/admin/users/${editingUser.id}` : '/admin/users';
       const method = editingUser ? 'PUT' : 'POST';
       return apiFetch(url, { method, body: data });
     },
@@ -56,7 +56,7 @@ export function UsersPage() {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: (userId: number) => apiFetch(`/users/${userId}/toggle`, { method: 'POST' }),
+    mutationFn: (userId: number) => apiFetch(`/admin/users/${userId}/toggle`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] })
   });
 
