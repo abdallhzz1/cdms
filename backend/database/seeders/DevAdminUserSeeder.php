@@ -45,14 +45,7 @@ class DevAdminUserSeeder extends Seeder
 
         $this->ensureHasSysAdminRole($user);
 
-        if ($generated) {
-            $this->command?->warn(
-                "DevAdminUserSeeder: created {$email} with a RANDOMLY GENERATED password — ".
-                "shown once, not stored anywhere: {$password}"
-            );
-        } else {
-            $this->command?->info("DevAdminUserSeeder: created {$email} using DEV_ADMIN_PASSWORD from .env.");
-        }
+        $this->command?->info("DevAdminUserSeeder: created {$email} successfully.");
     }
 
     private function ensureHasSysAdminRole(User $user): void
