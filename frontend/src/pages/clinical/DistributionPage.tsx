@@ -1,10 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
-import { LoadingState } from '@/components/ui/LoadingState';
-import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
 import ExcelJS from 'exceljs';
@@ -238,8 +236,15 @@ const defaultHospitalGroups: HospitalGroup[] = [
 ];
 
 export function DistributionPage() {
-  const { can } = useAuth();
+  const { user } = useAuth();
   const { locale } = useI18n();
+  const queryClient = useQueryClient();
+
+  const isSupervisorOnly = useMemo(() => {
+    if (!user?.roles) return false;
+    const roles = user.roles.map(r => r.toUpperCase());
+    return roles.includes('CLINICAL_SUPERVISOR') && !roles.some(r => ['DEPARTMENT_HEAD', 'CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN', 'RTA'].includes(r));
+  }, [user]);
 
   // Navigation View: 'rotation_matrix' (جدول الأطباء) vs 'partition' (مجموعات الطلاب) vs 'hospitals' (المستشفيات)
   const [activeMainView, setActiveMainView] = useState<'rotation_matrix' | 'partition' | 'hospitals'>('rotation_matrix');
@@ -249,6 +254,35 @@ export function DistributionPage() {
     const saved = localStorage.getItem('cdms_hospital_doctors');
     return saved ? JSON.parse(saved) : defaultHospitalGroups;
   });
+
+  // Fetch hospital directory payload from MySQL Database
+  const { data: dbHospitalGroupsPayload } = useQuery({
+    queryKey: ['db-hospital-groups'],
+    queryFn: () => apiFetch<any>(`/operational/distribution-payload?key=${encodeURIComponent('cdms_hospital_doctors')}`),
+  });
+
+  useEffect(() => {
+    const data = Array.isArray(dbHospitalGroupsPayload) ? dbHospitalGroupsPayload : dbHospitalGroupsPayload?.data;
+    if (Array.isArray(data) && data.length > 0) {
+      setHospitalGroups(data);
+      try { localStorage.setItem('cdms_hospital_doctors', JSON.stringify(data)); } catch (e) {}
+    }
+  }, [dbHospitalGroupsPayload]);
+
+  // Fetch Group Letters Configuration from DB
+  const { data: dbGroupLettersPayload } = useQuery({
+    queryKey: ['db-group-letters'],
+    queryFn: () => apiFetch<any>(`/operational/distribution-payload?key=${encodeURIComponent('cdms_group_letters')}`),
+  });
+
+  useEffect(() => {
+    const data = Array.isArray(dbGroupLettersPayload) ? dbGroupLettersPayload : dbGroupLettersPayload?.data;
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      setGroupLetters(data);
+      try { localStorage.setItem('cdms_group_letters', JSON.stringify(data)); } catch (e) {}
+    }
+  }, [dbGroupLettersPayload]);
+
   const [hospitalSearch, setHospitalSearch] = useState('');
   const [isAddHospitalModalOpen, setIsAddHospitalModalOpen] = useState(false);
   const [newHospitalName, setNewHospitalName] = useState('');
@@ -259,6 +293,8 @@ export function DistributionPage() {
   const [newHospDocNameEn, setNewHospDocNameEn] = useState('');
   const [newHospDocSpecialty, setNewHospDocSpecialty] = useState('');
   const [newHospDocSpecialtyEn, setNewHospDocSpecialtyEn] = useState('');
+  const [newHospDocEmail, setNewHospDocEmail] = useState('');
+  const [newHospDocPassword, setNewHospDocPassword] = useState('password123');
 
   // Academic Year State (defaults to current year 2026/2027 or user customized)
   const [academicYears, setAcademicYears] = useState<string[]>(() => {
@@ -279,10 +315,19 @@ export function DistributionPage() {
   const [levelFilter, setLevelFilter] = useState<string>('fourth');
   
   // 2. Custom Group Letters Configuration
-  const [groupLetters, setGroupLetters] = useState<{ [level: string]: [string, string, string] }>({
-    fourth: ['A', 'B', 'C'],
-    fifth: ['A', 'B', 'C'],
-    sixth: ['Q', 'R', 'S'],
+  const [groupLetters, setGroupLetters] = useState<{ [level: string]: [string, string, string] }>(() => {
+    const saved = localStorage.getItem('cdms_group_letters');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch (e) {}
+    }
+    return {
+      fourth: ['A', 'B', 'C'],
+      fifth: ['A', 'B', 'C'],
+      sixth: ['Q', 'R', 'S'],
+    };
   });
 
   // 3. Subgroup Target Capacity (5 or 6)
@@ -320,6 +365,7 @@ export function DistributionPage() {
   // Course Modals
   const [isAddCourseModalOpen, setIsAddCourseModalOpen] = useState(false);
   const [isEditCourseModalOpen, setIsEditCourseModalOpen] = useState(false);
+  const [selectedDbCourseId, setSelectedDbCourseId] = useState('');
   const [courseFormCode, setCourseFormCode] = useState('');
   const [courseFormName, setCourseFormName] = useState('');
   const [courseFormNameEn, setCourseFormNameEn] = useState('');
@@ -350,7 +396,6 @@ export function DistributionPage() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
 
-  // Default Course Schedules per Cohort matching real university curriculum
   const getDefaultCoursesForLevel = (level: string): CourseSchedule[] => {
     if (level === 'fourth') {
       return [
@@ -360,15 +405,7 @@ export function DistributionPage() {
           courseName_en: 'Internal Medicine (Junior) — 4th Year',
           weeksCount: 12,
           weekDates: ['29/8-5/9', '5/9-12/9', '12/9-19/9', '19/9-26/9', '26/9-3/10', '3/10-10/10', '10/10-17/10', '17/10-24/10', '24/10-31/10', '31/10-7/11', '7/11-14/11', '14/11-21/11'],
-          doctors: [
-            { id: '1', doctorName: 'د. عبدالله', doctorName_en: 'Dr. Abdallah', weeks: { 1: 'Lectures', 2: 'Lectures', 3: 'G1', 4: '', 5: 'G5', 6: '', 7: 'G3', 8: '', 9: 'G4', 10: '', 11: '', 12: 'G2' } },
-            { id: '2', doctorName: 'د. مجد', doctorName_en: 'Dr. Majd', weeks: { 1: 'Lectures', 2: 'Lectures', 3: 'G3', 4: 'G2', 5: 'G2', 6: 'G1', 7: 'G1', 8: 'G5', 9: '', 10: 'G4', 11: '', 12: '' } },
-            { id: '3', doctorName: 'د. رامي', doctorName_en: 'Dr. Rami', weeks: { 1: 'Lectures', 2: 'Lectures', 3: 'G4', 4: '', 5: '', 6: 'G5', 7: 'G5', 8: '', 9: 'G3', 10: 'G3', 11: 'G2', 12: 'G1' } },
-            { id: '4', doctorName: 'د. زيدان', doctorName_en: 'Dr. Zeidan', weeks: { 1: 'Lectures', 2: 'Lectures', 3: 'G5', 4: 'G5', 5: '', 6: 'G4', 7: 'G4', 8: 'G3', 9: '', 10: 'G2', 11: 'G1', 12: '' } },
-            { id: '5', doctorName: 'د. أشرف', doctorName_en: 'Dr. Ashraf', weeks: { 1: 'Lectures', 2: 'Lectures', 3: 'G2', 4: 'G1', 5: 'G1', 6: '', 7: '', 8: 'G4', 9: 'G5', 10: 'G5', 11: 'G3', 12: 'G3' } },
-            { id: '6', doctorName: 'د. بدوي', doctorName_en: 'Dr. Badawi', weeks: { 1: 'Lectures', 2: 'Lectures', 3: '', 4: 'G3', 5: 'G3', 6: 'G2', 7: 'G2', 8: 'G1', 9: 'G1', 10: '', 11: 'G4', 12: 'G4' } },
-            { id: '7', doctorName: 'د. حمزة', doctorName_en: 'Dr. Hamza', weeks: { 1: 'Lectures', 2: 'Lectures', 3: '', 4: 'G4', 5: 'G4', 6: 'G3', 7: '', 8: 'G2', 9: 'G2', 10: 'G1', 11: 'G5', 12: 'G5' } },
-          ]
+          doctors: []
         },
         {
           courseCode: 'M1470',
@@ -376,15 +413,7 @@ export function DistributionPage() {
           courseName_en: 'General Surgery (Junior) — 4th Year',
           weeksCount: 12,
           weekDates: ['29-8', '5-9', '12-9', '19-9', '26-9', '3-10', '10-10', '17-10', '24-10', '31-10', '7-11', '14-11'],
-          doctors: [
-            { id: '1', doctorName: 'د. احمد ابو يوسف', doctorName_en: 'Dr. Ahmad Abu Yousef', weeks: { 1: 'N1', 2: 'N1', 3: 'N2', 4: 'N3', 5: 'N4', 6: 'N4', 7: 'N5', 8: 'N3', 9: '', 10: 'N5', 11: '', 12: '' } },
-            { id: '2', doctorName: 'د. خليل ابو زينة', doctorName_en: 'Dr. Khalil Abu Zeina', weeks: { 1: 'N2', 2: 'N2', 3: 'N1', 4: 'N4', 5: 'N3', 6: 'N3', 7: 'N1', 8: '', 9: 'N5', 10: '', 11: '', 12: '' } },
-            { id: '3', doctorName: 'د. اسماعيل ارزيقات', doctorName_en: 'Dr. Ismail Rzeigat', weeks: { 1: 'N3', 2: 'N3', 3: 'N4', 4: 'N1', 5: '', 6: '', 7: 'N2', 8: 'N4', 9: 'N1', 10: '', 11: 'N5', 12: 'N5' } },
-            { id: '4', doctorName: 'د. قيصر عوض', doctorName_en: 'Dr. Qaisar Awad', weeks: { 1: 'N5', 2: 'N5', 3: '', 4: 'N2', 5: 'N2', 6: 'N1', 7: '', 8: 'N1', 9: 'N2', 10: 'N3', 11: 'N4', 12: 'N4' } },
-            { id: '5', doctorName: 'طبيب شاغر (1)', doctorName_en: 'Vacant Doctor (1)', weeks: { 1: '', 2: '', 3: 'N5', 4: '', 5: 'N1', 6: 'N2', 7: '', 8: '', 9: '', 10: 'N4', 11: 'N3', 12: 'N3' } },
-            { id: '6', doctorName: 'د. رائد شواورة', doctorName_en: 'Dr. Raed Shawawreh', weeks: { 1: '', 2: '', 3: 'N3', 4: 'N5', 5: 'N5', 6: 'N3', 7: 'N3', 8: 'N4', 9: 'N4', 10: 'N1', 11: 'N2', 12: 'N2' } },
-            { id: '7', doctorName: 'طبيب شاغر (2)', doctorName_en: 'Vacant Doctor (2)', weeks: { 1: 'N4', 2: 'N4', 3: '', 4: '', 5: '', 6: '', 7: 'N4', 8: 'N5', 9: '', 10: 'N2', 11: 'N1', 12: 'N1' } },
-          ]
+          doctors: []
         },
         {
           courseCode: 'M1462',
@@ -392,15 +421,7 @@ export function DistributionPage() {
           courseName_en: 'Sub-specialties of Internal Medicine — 4th Year',
           weeksCount: 12,
           weekDates: ['Week 1 29/8', 'Week 2 05/9', 'Week 3 12/9', 'Week 4 19/9', 'Week 5 26/9', 'Week 6 03/10', 'Week 7 10/10', 'Week 8 17/10', 'Week 9 24/10', 'Week 10 31/10', 'Week 11 07/11', 'Week 12 14/11'],
-          doctors: [
-            { id: '1', doctorName: 'د. خالد الجبور', doctorName_en: 'Dr. Khaled Jabour', weeks: { 1: 'G2', 2: 'G2', 3: 'G3', 4: 'G3', 5: '', 6: '', 7: 'G5', 8: 'G5', 9: 'G1', 10: 'G1', 11: 'G4', 12: 'G4' } },
-            { id: '2', doctorName: 'د. اياد العزة', doctorName_en: 'Dr. Iyad Azzeh', weeks: { 1: 'G5', 2: 'G5', 3: '', 4: '', 5: 'G1', 6: 'G1', 7: 'G4', 8: 'G4', 9: 'G2', 10: 'G2+G3', 11: 'G2+G3', 12: 'G3' } },
-            { id: '3', doctorName: 'د. عمار العطار', doctorName_en: 'Dr. Ammar Attar', weeks: { 1: '', 2: '', 3: 'G5', 4: 'G5', 5: 'G4', 6: 'G4', 7: 'G1', 8: 'G1', 9: 'G3', 10: '', 11: '', 12: 'G2' } },
-            { id: '4', doctorName: 'د. انس دويك', doctorName_en: 'Dr. Anas Dweik', weeks: { 1: '', 2: 'G3', 3: '', 4: 'G2', 5: 'G5', 6: '', 7: '', 8: '', 9: 'G4', 10: '', 11: 'G1', 12: '' } },
-            { id: '5', doctorName: 'د. وائل الجعبري', doctorName_en: 'Dr. Wael Jaabari', weeks: { 1: 'G3', 2: '', 3: 'G2', 4: '', 5: '', 6: 'G5', 7: '', 8: '', 9: '', 10: 'G4', 11: '', 12: 'G1' } },
-            { id: '6', doctorName: 'د. معتز التميمي', doctorName_en: 'Dr. Moataz Tamimi', weeks: { 1: 'G1', 2: 'G1', 3: 'G4', 4: 'G4', 5: 'G2', 6: 'G2', 7: 'G3', 8: 'G3', 9: 'G5', 10: 'G5', 11: '', 12: '' } },
-            { id: '7', doctorName: 'د. بسام البشيتي', doctorName_en: 'Dr. Bassam Bsheiti', weeks: { 1: 'G4', 2: 'G4', 3: 'G1', 4: 'G1', 5: 'G3', 6: 'G3', 7: 'G2', 8: 'G2', 9: '', 10: '', 11: 'G5', 12: 'G5' } },
-          ]
+          doctors: []
         }
       ];
     } else if (levelFilter === 'fifth') {
@@ -410,51 +431,21 @@ export function DistributionPage() {
           courseName: 'مساق النسائية والتوليد وطب الأسرة — First Trimester — مجموعة (A)',
           courseName_en: 'Obstetrics & Gynecology + Family Medicine (A) — 5th Year',
           weeksCount: 12,
-          doctors: [
-            { id: '1', doctorName: 'د. اياد عفانة', doctorName_en: 'Dr. Iyad Afaneh', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'A7', 2: '', 3: 'A8', 4: 'A7', 5: 'A2', 6: 'A4', 7: 'A3', 8: 'A1', 9: 'A5', 10: '', 11: 'A6', 12: '' } },
-            { id: '2', doctorName: 'د. عبد السلام حداد', doctorName_en: 'Dr. Abdulsalam Haddad', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'A8', 2: 'A8', 3: 'A7', 4: '', 5: 'A1', 6: 'A1', 7: 'A2', 8: 'A3', 9: 'A4', 10: 'A4', 11: 'A5', 12: 'A6' } },
-            { id: '3', doctorName: 'د. بشار رشماوي', doctorName_en: 'Dr. Bashar Rashmawi', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: '', 2: 'A7', 3: 'A3', 4: 'A8', 5: 'A3', 6: 'A5', 7: 'A1', 8: 'A2', 9: 'A6', 10: 'A6', 11: 'A4', 12: 'A7' } },
-            { id: '4', doctorName: 'د. بسام ناصر الدين', doctorName_en: 'Dr. Bassam Naser Al-Din', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'A1', 2: 'A1', 3: 'A2', 4: 'A3', 5: 'A4', 6: 'A2', 7: 'A5', 8: 'A6', 9: 'A7', 10: 'A8', 11: '', 12: 'A5' } },
-            { id: '5', doctorName: 'د. سعيد الزعتري', doctorName_en: 'Dr. Saeed Zaatari', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'A2', 2: 'A2', 3: '', 4: 'A1', 5: 'A5', 6: 'A3', 7: 'A6', 8: 'A4', 9: 'A8', 10: 'A5', 11: 'A7', 12: 'A8' } },
-            { id: '6', doctorName: 'د. نضال بحيص', doctorName_en: 'Dr. Nidal Buhais', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'A3', 2: 'A3', 3: 'A1', 4: 'A2', 5: 'A6', 6: 'A6', 7: 'A4', 8: 'A5', 9: '', 10: 'A7', 11: 'A8', 12: 'A4' } },
-            { id: '7', doctorName: 'د. رامي القواسمة', doctorName_en: 'Dr. Rami Qawasmeh', department: 'طب الأسرة', department_en: 'Family Medicine', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'A5', 2: 'A4', 3: 'A6', 4: 'A5', 5: 'A7', 6: 'A7', 7: '', 8: 'A8', 9: 'A2', 10: 'A1', 11: 'A3', 12: 'A1' } },
-            { id: '8', doctorName: 'د. اسماعيل الحروب', doctorName_en: 'Dr. Ismail Haroub', department: 'طب الأسرة', department_en: 'Family Medicine', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'A6', 2: 'A6', 3: 'A5', 4: 'A4', 5: 'A8', 6: 'A8', 7: 'A7', 8: '', 9: 'A1', 10: 'A3', 11: 'A2', 12: 'A2' } },
-            { id: '9', doctorName: 'د. همام طميزي', doctorName_en: 'Dr. Homam Tmeizi', department: 'طب الأسرة', department_en: 'Family Medicine', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'A4', 2: 'A5', 3: 'A4', 4: 'A6', 5: '', 6: '', 7: 'A8', 8: 'A7', 9: 'A3', 10: 'A2', 11: 'A1', 12: 'A3' } },
-          ]
+          doctors: []
         },
         {
           courseCode: 'M1582-B',
           courseName: 'مساق النسائية والتوليد وطب الأسرة — Second Trimester — مجموعة (B)',
           courseName_en: 'Obstetrics & Gynecology + Family Medicine (B) — 5th Year',
           weeksCount: 12,
-          doctors: [
-            { id: '1', doctorName: 'د. اياد عفانة', doctorName_en: 'Dr. Iyad Afaneh', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'B7', 2: '', 3: 'B8', 4: 'B7', 5: 'B2', 6: 'B4', 7: 'B3', 8: 'B1', 9: 'B5', 10: '', 11: 'B6', 12: '' } },
-            { id: '2', doctorName: 'د. عبد السلام حداد', doctorName_en: 'Dr. Abdulsalam Haddad', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'B8', 2: 'B8', 3: 'B7', 4: '', 5: 'B1', 6: 'B1', 7: 'B2', 8: 'B3', 9: 'B4', 10: 'B4', 11: 'B5', 12: 'B6' } },
-            { id: '3', doctorName: 'د. بشار رشماوي', doctorName_en: 'Dr. Bashar Rashmawi', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: '', 2: 'B7', 3: 'B3', 4: 'B8', 5: 'B3', 6: 'B5', 7: 'B1', 8: 'B2', 9: 'B6', 10: 'B6', 11: 'B4', 12: 'B7' } },
-            { id: '4', doctorName: 'د. بسام ناصر الدين', doctorName_en: 'Dr. Bassam Naser Al-Din', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'B1', 2: 'B1', 3: 'B2', 4: 'B3', 5: 'B4', 6: 'B2', 7: 'B5', 8: 'B6', 9: 'B7', 10: 'B8', 11: '', 12: 'B5' } },
-            { id: '5', doctorName: 'د. سعيد الزعتري', doctorName_en: 'Dr. Saeed Zaatari', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'B2', 2: 'B2', 3: '', 4: 'B1', 5: 'B5', 6: 'B3', 7: 'B6', 8: 'B4', 9: 'B8', 10: 'B5', 11: 'B7', 12: 'B8' } },
-            { id: '6', doctorName: 'د. نضال بحيص', doctorName_en: 'Dr. Nidal Buhais', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'B3', 2: 'B3', 3: 'B1', 4: 'B2', 5: 'B6', 6: 'B6', 7: 'B4', 8: 'B5', 9: '', 10: 'B7', 11: 'B8', 12: 'B4' } },
-            { id: '7', doctorName: 'د. رامي القواسمة', doctorName_en: 'Dr. Rami Qawasmeh', department: 'طب الأسرة', department_en: 'Family Medicine', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'B5', 2: 'B4', 3: 'B6', 4: 'B5', 5: 'B7', 6: 'B7', 7: '', 8: 'B8', 9: 'B2', 10: 'B1', 11: 'B3', 12: 'B1' } },
-            { id: '8', doctorName: 'د. اسماعيل الحروب', doctorName_en: 'Dr. Ismail Haroub', department: 'طب الأسرة', department_en: 'Family Medicine', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'B6', 2: 'B6', 3: 'B5', 4: 'B4', 5: 'B8', 6: 'B8', 7: 'B7', 8: '', 9: 'B1', 10: 'B3', 11: 'B2', 12: 'B2' } },
-            { id: '9', doctorName: 'د. همام طميزي', doctorName_en: 'Dr. Homam Tmeizi', department: 'طب الأسرة', department_en: 'Family Medicine', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'B4', 2: 'B5', 3: 'B4', 4: 'B6', 5: '', 6: '', 7: 'B8', 8: 'B7', 9: 'B3', 10: 'B2', 11: 'B1', 12: 'B3' } },
-          ]
+          doctors: []
         },
         {
           courseCode: 'M1582-C',
           courseName: 'مساق النسائية والتوليد وطب الأسرة — Third Trimester — مجموعة (C)',
           courseName_en: 'Obstetrics & Gynecology + Family Medicine (C) — 5th Year',
           weeksCount: 12,
-          doctors: [
-            { id: '1', doctorName: 'د. اياد عفانة', doctorName_en: 'Dr. Iyad Afaneh', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'C7', 2: '', 3: 'C8', 4: 'C7', 5: 'C2', 6: 'C4', 7: 'C3', 8: 'C1', 9: 'C5', 10: '', 11: 'C6', 12: '' } },
-            { id: '2', doctorName: 'د. عبد السلام حداد', doctorName_en: 'Dr. Abdulsalam Haddad', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'C8', 2: 'C8', 3: 'C7', 4: '', 5: 'C1', 6: 'C1', 7: 'C2', 8: 'C3', 9: 'C4', 10: 'C4', 11: 'C5', 12: 'C6' } },
-            { id: '3', doctorName: 'د. بشار رشماوي', doctorName_en: 'Dr. Bashar Rashmawi', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: '', 2: 'C7', 3: 'C3', 4: 'C8', 5: 'C3', 6: 'C5', 7: 'C1', 8: 'C2', 9: 'C6', 10: 'C6', 11: 'C4', 12: 'C7' } },
-            { id: '4', doctorName: 'د. بسام ناصر الدين', doctorName_en: 'Dr. Bassam Naser Al-Din', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'C1', 2: 'C1', 3: 'C2', 4: 'C3', 5: 'C4', 6: 'C2', 7: 'C5', 8: 'C6', 9: 'C7', 10: 'C8', 11: '', 12: 'C5' } },
-            { id: '5', doctorName: 'د. سعيد الزعتري', doctorName_en: 'Dr. Saeed Zaatari', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'C2', 2: 'C2', 3: '', 4: 'C1', 5: 'C5', 6: 'C3', 7: 'C6', 8: 'C4', 9: 'C8', 10: 'C5', 11: 'C7', 12: 'C8' } },
-            { id: '6', doctorName: 'د. نضال بحيص', doctorName_en: 'Dr. Nidal Buhais', department: 'نسائية و توليد', department_en: 'Obs & Gynecology', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'C3', 2: 'C3', 3: 'C1', 4: 'C2', 5: 'C6', 6: 'C6', 7: 'C4', 8: 'C5', 9: '', 10: 'C7', 11: 'C8', 12: 'C4' } },
-            { id: '7', doctorName: 'د. رامي القواسمة', doctorName_en: 'Dr. Rami Qawasmeh', department: 'طب الأسرة', department_en: 'Family Medicine', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'C5', 2: 'C4', 3: 'C6', 4: 'C5', 5: 'C7', 6: 'C7', 7: '', 8: 'C8', 9: 'C2', 10: 'C1', 11: 'C3', 12: 'C1' } },
-            { id: '8', doctorName: 'د. اسماعيل الحروب', doctorName_en: 'Dr. Ismail Haroub', department: 'طب الأسرة', department_en: 'Family Medicine', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'C6', 2: 'C6', 3: 'C5', 4: 'C4', 5: 'C8', 6: 'C8', 7: 'C7', 8: '', 9: 'C1', 10: 'C3', 11: 'C2', 12: 'C2' } },
-            { id: '9', doctorName: 'د. همام طميزي', doctorName_en: 'Dr. Homam Tmeizi', department: 'طب الأسرة', department_en: 'Family Medicine', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'C4', 2: 'C5', 3: 'C4', 4: 'C6', 5: '', 6: '', 7: 'C8', 8: 'C7', 9: 'C3', 10: 'C2', 11: 'C1', 12: 'C3' } },
-          ]
+          doctors: []
         }
       ];
     } else {
@@ -465,17 +456,7 @@ export function DistributionPage() {
           courseName_en: 'General Surgery & Emergency (Q) — 6th Year',
           weeksCount: 12,
           weekDates: ['1 (8-Jan)', '2 (8-Aug)', '3 (15-8)', '4 (22-8)', '5 (29-8)', '6 (9-May)', '7 (9-Dec)', '8 (19-9)', '9 (26-9)', '10 (10-Mar)', '11 (10-Oct)', '12 (17-10)'],
-          doctors: [
-            { id: '1', doctorName: 'د. اياد الجدع (رئيس قسم)', doctorName_en: 'Dr. Iyad Jadaa (Dept Head)', department: 'جراحة - 1', department_en: 'Surgery - 1', weeksTrimester: 'رئيس قسم', weeksYear: 'رئيس قسم', weeks: { 1: 'Q8', 2: 'Q8', 3: 'Q3', 4: 'Q4', 5: 'Q7', 6: 'Q2', 7: 'Q6', 8: 'Q8', 9: '', 10: 'Q3', 11: 'Q5', 12: 'Q1' } },
-            { id: '2', doctorName: 'د. عمار شاهين', doctorName_en: 'Dr. Ammar Shaheen', department: 'جراحة - 1', department_en: 'Surgery - 1', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'Q3', 2: 'Q3', 3: 'Q4', 4: 'Q8', 5: '', 6: 'Q7', 7: 'Q7', 8: 'Q6', 9: 'Q1', 10: 'Q1', 11: 'Q2', 12: 'Q5' } },
-            { id: '3', doctorName: 'د. طلب العجلوني', doctorName_en: 'Dr. Talab Ajlouni', department: 'جراحة - 1', department_en: 'Surgery - 1', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'Q6', 2: 'Q6', 3: 'Q7', 4: 'Q3', 5: 'Q1', 6: 'Q1', 7: 'Q8', 8: 'Q5', 9: 'Q5', 10: 'Q5', 11: 'Q4', 12: 'Q2' } },
-            { id: '4', doctorName: 'د. عامر ابو رميلة', doctorName_en: 'Dr. Amer Abu Rmeileh', department: 'جراحة - 1', department_en: 'Surgery - 1', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'Q7', 2: 'Q7', 3: 'Q8', 4: 'Q5', 5: 'Q6', 6: 'Q6', 7: 'Q2', 8: 'Q2', 9: 'Q3', 10: '', 11: 'Q1', 12: 'Q4' } },
-            { id: '5', doctorName: 'د. رضوان ابو كرش', doctorName_en: 'Dr. Radwan Abu Karsh', department: 'جراحة - 2', department_en: 'Surgery - 2', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'Q4', 2: 'Q4', 3: 'Q5', 4: 'Q6', 5: 'Q8', 6: '', 7: 'Q1', 8: 'Q7', 9: 'Q2', 10: 'Q2', 11: 'Q3', 12: '' } },
-            { id: '6', doctorName: 'د. عبد الناصر الجنيدي', doctorName_en: 'Dr. Abd Al-Nasser Junaidi', department: 'جراحة - 2', department_en: 'Surgery - 2', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'Q5', 2: 'Q5', 3: 'Q6', 4: 'Q7', 5: 'Q2', 6: 'Q8', 7: '', 8: 'Q1', 9: 'Q4', 10: 'Q4', 11: '', 12: 'Q3' } },
-            { id: '7', doctorName: 'د. عمار الحداد', doctorName_en: 'Dr. Ammar Haddad', department: 'طوارئ', department_en: 'Emergency', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'Q1', 2: 'Q1', 3: 'Q2', 4: '', 5: 'Q4', 6: 'Q3', 7: 'Q3', 8: 'Q5', 9: 'Q6', 10: 'Q8', 11: 'Q8', 12: 'Q7' } },
-            { id: '8', doctorName: 'د. عبيدالله أبي سنينة', doctorName_en: 'Dr. Obaidallah Abu Sneineh', department: 'طوارئ', department_en: 'Emergency', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'Q2', 2: 'Q2', 3: '', 4: 'Q1', 5: 'Q5', 6: 'Q5', 7: 'Q4', 8: 'Q3', 9: 'Q7', 10: 'Q7', 11: 'Q6', 12: 'Q8' } },
-            { id: '9', doctorName: 'د. تامر شاور', doctorName_en: 'Dr. Tamer Shawar', department: 'طوارئ', department_en: 'Emergency', weeksTrimester: '10', weeksYear: '30', weeks: { 1: '', 2: '', 3: 'Q1', 4: 'Q2', 5: 'Q3', 6: 'Q4', 7: 'Q5', 8: 'Q3', 9: 'Q8', 10: 'Q6', 11: 'Q7', 12: 'Q6' } },
-          ]
+          doctors: []
         },
         {
           courseCode: 'M1673-R',
@@ -483,17 +464,7 @@ export function DistributionPage() {
           courseName_en: 'General Surgery & Emergency (R) — 6th Year',
           weeksCount: 12,
           weekDates: ['1 (8-Jan)', '2 (8-Aug)', '3 (15-8)', '4 (22-8)', '5 (29-8)', '6 (9-May)', '7 (9-Dec)', '8 (19-9)', '9 (26-9)', '10 (10-Mar)', '11 (10-Oct)', '12 (17-10)'],
-          doctors: [
-            { id: '1', doctorName: 'د. اياد الجدع (رئيس قسم)', doctorName_en: 'Dr. Iyad Jadaa (Dept Head)', department: 'جراحة - 1', department_en: 'Surgery - 1', weeksTrimester: 'رئيس قسم', weeksYear: 'رئيس قسم', weeks: { 1: 'R8', 2: 'R8', 3: 'R3', 4: 'R4', 5: 'R7', 6: 'R2', 7: 'R6', 8: 'R8', 9: '', 10: 'R3', 11: 'R5', 12: 'R1' } },
-            { id: '2', doctorName: 'د. عمار شاهين', doctorName_en: 'Dr. Ammar Shaheen', department: 'جراحة - 1', department_en: 'Surgery - 1', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'R3', 2: 'R3', 3: 'R4', 4: 'R8', 5: '', 6: 'R7', 7: 'R7', 8: 'R6', 9: 'R1', 10: 'R1', 11: 'R2', 12: 'R5' } },
-            { id: '3', doctorName: 'د. طلب العجلوني', doctorName_en: 'Dr. Talab Ajlouni', department: 'جراحة - 1', department_en: 'Surgery - 1', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'R6', 2: 'R6', 3: 'R7', 4: 'R3', 5: 'R1', 6: 'R1', 7: 'R8', 8: 'R5', 9: 'R5', 10: 'R5', 11: 'R4', 12: 'R2' } },
-            { id: '4', doctorName: 'د. عامر ابو رميلة', doctorName_en: 'Dr. Amer Abu Rmeileh', department: 'جراحة - 1', department_en: 'Surgery - 1', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'R7', 2: 'R7', 3: 'R8', 4: 'R5', 5: 'R6', 6: 'R6', 7: 'R2', 8: 'R2', 9: 'R3', 10: '', 11: 'R1', 12: 'R4' } },
-            { id: '5', doctorName: 'د. رضوان ابو كرش', doctorName_en: 'Dr. Radwan Abu Karsh', department: 'جراحة - 2', department_en: 'Surgery - 2', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'R4', 2: 'R4', 3: 'R5', 4: 'R6', 5: 'R8', 6: '', 7: 'R1', 8: 'R7', 9: 'R2', 10: 'R2', 11: 'R3', 12: '' } },
-            { id: '6', doctorName: 'د. عبد الناصر الجنيدي', doctorName_en: 'Dr. Abd Al-Nasser Junaidi', department: 'جراحة - 2', department_en: 'Surgery - 2', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'R5', 2: 'R5', 3: 'R6', 4: 'R7', 5: 'R2', 6: 'R8', 7: '', 8: 'R1', 9: 'R4', 10: 'R4', 11: '', 12: 'R3' } },
-            { id: '7', doctorName: 'د. عمار الحداد', doctorName_en: 'Dr. Ammar Haddad', department: 'طوارئ', department_en: 'Emergency', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'R1', 2: 'R1', 3: 'R2', 4: '', 5: 'R4', 6: 'R3', 7: 'R3', 8: 'R5', 9: 'R6', 10: 'R8', 11: 'R8', 12: 'R7' } },
-            { id: '8', doctorName: 'د. عبيدالله أبي سنينة', doctorName_en: 'Dr. Obaidallah Abu Sneineh', department: 'طوارئ', department_en: 'Emergency', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'R2', 2: 'R2', 3: '', 4: 'R1', 5: 'R5', 6: 'R5', 7: 'R4', 8: 'R3', 9: 'R7', 10: 'R7', 11: 'R6', 12: 'R8' } },
-            { id: '9', doctorName: 'د. تامر شاور', doctorName_en: 'Dr. Tamer Shawar', department: 'طوارئ', department_en: 'Emergency', weeksTrimester: '10', weeksYear: '30', weeks: { 1: '', 2: '', 3: 'R1', 4: 'R2', 5: 'R3', 6: 'R4', 7: 'R5', 8: 'R3', 9: 'R8', 10: 'R6', 11: 'R7', 12: 'R6' } },
-          ]
+          doctors: []
         },
         {
           courseCode: 'M1673-S',
@@ -501,36 +472,14 @@ export function DistributionPage() {
           courseName_en: 'General Surgery & Emergency (S) — 6th Year',
           weeksCount: 12,
           weekDates: ['1 (8-Jan)', '2 (8-Aug)', '3 (15-8)', '4 (22-8)', '5 (29-8)', '6 (9-May)', '7 (9-Dec)', '8 (19-9)', '9 (26-9)', '10 (10-Mar)', '11 (10-Oct)', '12 (17-10)'],
-          doctors: [
-            { id: '1', doctorName: 'د. اياد الجدع (رئيس قسم)', doctorName_en: 'Dr. Iyad Jadaa (Dept Head)', department: 'جراحة - 1', department_en: 'Surgery - 1', weeksTrimester: 'رئيس قسم', weeksYear: 'رئيس قسم', weeks: { 1: 'S8', 2: 'S8', 3: 'S3', 4: 'S4', 5: 'S7', 6: 'S2', 7: 'S6', 8: 'S8', 9: '', 10: 'S3', 11: 'S5', 12: 'S1' } },
-            { id: '2', doctorName: 'د. عمار شاهين', doctorName_en: 'Dr. Ammar Shaheen', department: 'جراحة - 1', department_en: 'Surgery - 1', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'S3', 2: 'S3', 3: 'S4', 4: 'S8', 5: '', 6: 'S7', 7: 'S7', 8: 'S6', 9: 'S1', 10: 'S1', 11: 'S2', 12: 'S5' } },
-            { id: '3', doctorName: 'د. طلب العجلوني', doctorName_en: 'Dr. Talab Ajlouni', department: 'جراحة - 1', department_en: 'Surgery - 1', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'S6', 2: 'S6', 3: 'S7', 4: 'S3', 5: 'S1', 6: 'S1', 7: 'S8', 8: 'S5', 9: 'S5', 10: 'S5', 11: 'S4', 12: 'S2' } },
-            { id: '4', doctorName: 'د. عامر ابو رميلة', doctorName_en: 'Dr. Amer Abu Rmeileh', department: 'جراحة - 1', department_en: 'Surgery - 1', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'S7', 2: 'S7', 3: 'S8', 4: 'S5', 5: 'S6', 6: 'S6', 7: 'S2', 8: 'S2', 9: 'S3', 10: '', 11: 'S1', 12: 'S4' } },
-            { id: '5', doctorName: 'د. رضوان ابو كرش', doctorName_en: 'Dr. Radwan Abu Karsh', department: 'جراحة - 2', department_en: 'Surgery - 2', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'S4', 2: 'S4', 3: 'S5', 4: 'S6', 5: 'S8', 6: '', 7: 'S1', 8: 'S7', 9: 'S2', 10: 'S2', 11: 'S3', 12: '' } },
-            { id: '6', doctorName: 'د. عبد الناصر الجنيدي', doctorName_en: 'Dr. Abd Al-Nasser Junaidi', department: 'جراحة - 2', department_en: 'Surgery - 2', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'S5', 2: 'S5', 3: 'S6', 4: 'S7', 5: 'S2', 6: 'S8', 7: '', 8: 'S1', 9: 'S4', 10: 'S4', 11: '', 12: 'S3' } },
-            { id: '7', doctorName: 'د. عمار الحداد', doctorName_en: 'Dr. Ammar Haddad', department: 'طوارئ', department_en: 'Emergency', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'S1', 2: 'S1', 3: 'S2', 4: '', 5: 'S4', 6: 'S3', 7: 'S3', 8: 'S5', 9: 'S6', 10: 'S8', 11: 'S8', 12: 'S7' } },
-            { id: '8', doctorName: 'د. عبيدالله أبي سنينة', doctorName_en: 'Dr. Obaidallah Abu Sneineh', department: 'طوارئ', department_en: 'Emergency', weeksTrimester: '11', weeksYear: '33', weeks: { 1: 'S2', 2: 'S2', 3: '', 4: 'S1', 5: 'S5', 6: 'S5', 7: 'S4', 8: 'S3', 9: 'S7', 10: 'S7', 11: 'S6', 12: 'S8' } },
-            { id: '9', doctorName: 'د. تامر شاور', doctorName_en: 'Dr. Tamer Shawar', department: 'طوارئ', department_en: 'Emergency', weeksTrimester: '10', weeksYear: '30', weeks: { 1: '', 2: '', 3: 'S1', 4: 'S2', 5: 'S3', 6: 'S4', 7: 'S5', 8: 'S3', 9: 'S8', 10: 'S6', 11: 'S7', 12: 'S6' } },
-          ]
+          doctors: []
         },
         {
           courseCode: 'M1661-Q',
           courseName: 'مساق الباطني والجراحات التخصصية الفرعية — مجموعة (Q) — سنة سادسة',
           courseName_en: 'Internal Medicine & Sub-specialties (Q) — 6th Year',
           weeksCount: 12,
-          doctors: [
-            { id: '1', doctorName: 'د. صفوت زيدات', doctorName_en: 'Dr. Safwat Zeidat', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'Q5', 2: 'Q5', 3: '', 4: 'Q6', 5: 'Q2', 6: 'Q3', 7: 'Q1', 8: '', 9: 'Q8', 10: 'Q7', 11: '', 12: 'Q4' } },
-            { id: '2', doctorName: 'د. عمر ابو عليان', doctorName_en: 'Dr. Omar Olayan', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'Q4', 2: 'Q4', 3: 'Q6', 4: 'Q3', 5: '', 6: 'Q1', 7: 'Q2', 8: '', 9: 'Q7', 10: '', 11: 'Q8', 12: 'Q5' } },
-            { id: '3', doctorName: 'د. روند العارضة', doctorName_en: 'Dr. Rawad Arda', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'Q3', 2: 'Q3', 3: 'Q1', 4: 'Q5', 5: '', 6: 'Q2', 7: 'Q8', 8: 'Q7', 9: '', 10: 'Q6', 11: 'Q4', 12: '' } },
-            { id: '4', doctorName: 'د. انس ابو رميلة', doctorName_en: 'Dr. Anas Abu Rmeileh', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'Q6', 2: 'Q2', 3: 'Q2', 4: '', 5: 'Q1', 6: '', 7: 'Q3', 8: 'Q8', 9: '', 10: 'Q4', 11: 'Q5', 12: 'Q7' } },
-            { id: '5', doctorName: 'د. حسن الحروب', doctorName_en: 'Dr. Hassan Haroub', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '9', weeksYear: '27', weeks: { 1: '', 2: '', 3: 'Q5', 4: 'Q2', 5: 'Q3', 6: '', 7: 'Q7', 8: 'Q1', 9: 'Q4', 10: 'Q8', 11: 'Q6', 12: 'Q6' } },
-            { id: '6', doctorName: 'د. محمود الهور', doctorName_en: 'Dr. Mahmoud Al-Hoor', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'Q1', 2: 'Q1', 3: 'Q3', 4: 'Q4', 5: 'Q8', 6: 'Q8', 7: '', 8: 'Q2', 9: 'Q6', 10: 'Q5', 11: 'Q7', 12: '' } },
-            { id: '7', doctorName: 'د. احمد عطاونة', doctorName_en: 'Dr. Ahmad Atawneh', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'Q2', 2: 'Q6', 3: 'Q4', 4: 'Q1', 5: 'Q7', 6: 'Q7', 7: '', 8: 'Q3', 9: 'Q5', 10: '', 11: '', 12: 'Q8' } },
-            { id: '8', doctorName: 'د. هشام نصار', doctorName_en: 'Dr. Hisham Nassar', department: 'جراحات تخصصية فرعية', department_en: 'Sub-specialty Surgeries', weeksTrimester: '4', weeksYear: '12', weeks: { 1: '', 2: '', 3: '', 4: '', 5: '', 6: '', 7: 'Q5', 8: 'Q4', 9: '', 10: '', 11: 'Q2', 12: 'Q1' } },
-            { id: '9', doctorName: 'د. انس شاور', doctorName_en: 'Dr. Anas Shawar', department: 'جراحات تخصصية فرعية', department_en: 'Sub-specialty Surgeries', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'Q8', 2: 'Q8', 3: 'Q7', 4: 'Q7', 5: 'Q6', 6: 'Q6', 7: 'Q4', 8: 'Q5', 9: 'Q3', 10: 'Q3', 11: 'Q1', 12: 'Q2' } },
-            { id: '10', doctorName: 'د. رشاد الزرو', doctorName_en: 'Dr. Rashad Zaro', department: 'جراحات تخصصية فرعية', department_en: 'Sub-specialty Surgeries', weeksTrimester: '3 days', weeksYear: '29', weeks: { 1: '', 2: 'Q7', 3: 'Q8', 4: '', 5: 'Q5', 6: 'Q4', 7: 'Q6', 8: '', 9: 'Q2', 10: 'Q1', 11: '', 12: 'Q3' } },
-            { id: '11', doctorName: 'د. نزار حجة', doctorName_en: 'Dr. Nizar Hijjeh', department: 'جراحات تخصصية فرعية', department_en: 'Sub-specialty Surgeries', weeksTrimester: '2 days', weeksYear: '19', weeks: { 1: 'Q7', 2: '', 3: '', 4: 'Q8', 5: 'Q5', 6: 'Q4', 7: 'Q6', 8: '', 9: 'Q2', 10: 'Q1', 11: 'Q3', 12: '' } },
-          ]
+          doctors: []
         },
         {
           courseCode: 'M1661-S',
@@ -538,19 +487,7 @@ export function DistributionPage() {
           courseName_en: 'Internal Medicine & Sub-specialties (S) — 6th Year',
           weeksCount: 12,
           weekDates: ['1 (01.08-06.08)', '2 (08.08-13.08)', '3 (15.08-20.08)', '4 (22.08-27.08)', '5 (29.08-03.09)', '6 (05.09-10.09)', '7 (12.09-17.09)', '8 (19.09-24.09)', '9 (26.09-01.10)', '10 (03.10-08.10)', '11 (10.10-15.10)', '12 (17.10-22.10)'],
-          doctors: [
-            { id: '1', doctorName: 'د. صفوت زيدات', doctorName_en: 'Dr. Safwat Zeidat', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'G4', 2: '', 3: 'G7', 4: 'G8', 5: '', 6: 'G1', 7: 'G3', 8: 'G2', 9: '', 10: 'G6', 11: 'G5', 12: 'G5' } },
-            { id: '2', doctorName: 'د. عمر ابو عليان', doctorName_en: 'Dr. Omar Olayan', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'G5', 2: 'G8', 3: '', 4: 'G7', 5: '', 6: 'G2', 7: 'G1', 8: '', 9: 'G3', 10: 'G6', 11: 'G4', 12: 'G4' } },
-            { id: '3', doctorName: 'د. روند العارضة', doctorName_en: 'Dr. Rawad Arda', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '9', weeksYear: '27', weeks: { 1: '', 2: 'G4', 3: 'G6', 4: '', 5: 'G7', 6: 'G8', 7: 'G2', 8: '', 9: 'G5', 10: 'G1', 11: 'G3', 12: 'G3' } },
-            { id: '4', doctorName: 'د. انس ابو رميلة', doctorName_en: 'Dr. Anas Abu Rmeileh', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'G7', 2: 'G5', 3: 'G4', 4: '', 5: 'G8', 6: 'G3', 7: '', 8: 'G1', 9: '', 10: 'G2', 11: 'G2', 12: 'G6' } },
-            { id: '5', doctorName: 'د. حسن الحروب', doctorName_en: 'Dr. Hassan Haroub', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'G6', 2: 'G6', 3: 'G8', 4: 'G4', 5: 'G1', 6: 'G7', 7: '', 8: 'G3', 9: '', 10: 'G2', 11: 'G5', 12: '' } },
-            { id: '6', doctorName: 'د. محمود الهور', doctorName_en: 'Dr. Mahmoud Al-Hoor', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '10', weeksYear: '30', weeks: { 1: '', 2: 'G7', 3: 'G5', 4: 'G6', 5: 'G2', 6: '', 7: 'G8', 8: 'G8', 9: 'G4', 10: 'G3', 11: 'G1', 12: 'G1' } },
-            { id: '7', doctorName: 'د. احمد عطاونة', doctorName_en: 'Dr. Ahmad Atawneh', department: 'الباطني', department_en: 'Internal Medicine', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'G8', 2: '', 3: '', 4: 'G5', 5: 'G3', 6: '', 7: 'G7', 8: 'G7', 9: 'G1', 10: 'G4', 11: 'G6', 12: 'G2' } },
-            { id: '8', doctorName: 'د. هشام نصار', doctorName_en: 'Dr. Hisham Nassar', department: 'جراحات تخصصية فرعية', department_en: 'Sub-specialty Surgeries', weeksTrimester: '4', weeksYear: '12', weeks: { 1: 'G1', 2: 'G2', 3: '', 4: '', 5: 'G4', 6: 'G5', 7: '', 8: '', 9: '', 10: '', 11: '', 12: '' } },
-            { id: '9', doctorName: 'د. انس شاور', doctorName_en: 'Dr. Anas Shawar', department: 'جراحات تخصصية فرعية', department_en: 'Sub-specialty Surgeries', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'G2', 2: 'G1', 3: 'G3', 4: 'G3', 5: 'G5', 6: 'G4', 7: 'G6', 8: 'G6', 9: 'G7', 10: 'G7', 11: 'G8', 12: 'G8' } },
-            { id: '10', doctorName: 'د. رشاد الزرو', doctorName_en: 'Dr. Rashad Zaro', department: 'جراحات تخصصية فرعية', department_en: 'Sub-specialty Surgeries', weeksTrimester: '8', weeksYear: '24', weeks: { 1: 'G3', 2: '', 3: 'G1', 4: 'G2', 5: '', 6: 'G6', 7: 'G4', 8: 'G5', 9: '', 10: 'G8', 11: 'G7', 12: '' } },
-            { id: '11', doctorName: 'د. نزار حجة', doctorName_en: 'Dr. Nizar Hijjeh', department: 'جراحات تخصصية فرعية', department_en: 'Sub-specialty Surgeries', weeksTrimester: '8', weeksYear: '24', weeks: { 1: '', 2: 'G3', 3: 'G1', 4: 'G2', 5: 'G6', 6: '', 7: 'G4', 8: 'G5', 9: 'G8', 10: '', 11: '', 12: 'G7' } },
-          ]
+          doctors: []
         },
         {
           courseCode: 'M1688-Q',
@@ -558,51 +495,21 @@ export function DistributionPage() {
           courseName_en: 'Pediatrics & Obs/Gyne (Q) — 6th Year',
           weeksCount: 12,
           weekDates: ['1 (1/8-6/8)', '2 (8/8-13/8)', '3 (15/8-20/8)', '4 (22/8-27/8)', '5 (29/8-3/9)', '6 (5/9-10/9)', '7 (12/9-17/9)', '8 (19/9-24/9)', '9 (26/9-1/10)', '10 (1/10-8/10)', '11 (10/10-15/10)', '12 (17/10-22/10)'],
-          doctors: [
-            { id: '1', doctorName: 'د. هيام مرزوقة', doctorName_en: 'Dr. Hiyam Marzouqa', department: 'الأطفال', department_en: 'Pediatrics', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'Q1', 2: 'Q1', 3: 'Q3', 4: 'Q3', 5: 'Q2', 6: 'Q4', 7: 'Q5', 8: 'Q5', 9: 'Q7', 10: 'Q7', 11: 'Q6', 12: 'Q8' } },
-            { id: '2', doctorName: 'د. مهند أبوساكور', doctorName_en: 'Dr. Mohannad Abu Sakour', department: 'الأطفال', department_en: 'Pediatrics', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'Q4', 2: 'Q4', 3: 'Q2', 4: 'Q2', 5: 'Q3', 6: 'Q1', 7: 'Q6', 8: 'Q6', 9: 'Q8', 10: 'Q8', 11: 'Q5', 12: 'Q7' } },
-            { id: '3', doctorName: 'د. شريف حسان', doctorName_en: 'Dr. Sharif Hassan', department: 'الأطفال', department_en: 'Pediatrics', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'Q2', 2: 'Q2', 3: 'Q4', 4: 'Q4', 5: 'Q1', 6: 'Q3', 7: 'Q7', 8: 'Q7', 9: 'Q5', 10: 'Q5', 11: 'Q8', 12: 'Q6' } },
-            { id: '4', doctorName: 'د. أسامة كرجة', doctorName_en: 'Dr. Osama Karjeh', department: 'الأطفال', department_en: 'Pediatrics', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'Q3', 2: 'Q3', 3: 'Q1', 4: 'Q1', 5: 'Q4', 6: 'Q2', 7: 'Q8', 8: 'Q8', 9: 'Q6', 10: 'Q6', 11: 'Q7', 12: 'Q5' } },
-            { id: '5', doctorName: 'د. آلاء عباس', doctorName_en: 'Dr. Alaa Abbas', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'Q5', 2: 'Q6', 3: '', 4: 'Q5', 5: 'Q8', 6: 'Q7', 7: 'Q2', 8: 'Q3', 9: '', 10: 'Q4', 11: 'Q1', 12: 'Q1' } },
-            { id: '6', doctorName: 'د. تامر مصلح', doctorName_en: 'Dr. Tamer Musleh', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'Q6', 2: 'Q7', 3: 'Q8', 4: 'Q8', 5: '', 6: 'Q5', 7: 'Q3', 8: 'Q1', 9: 'Q4', 10: '', 11: 'Q2', 12: '' } },
-            { id: '7', doctorName: 'د. ممدوح دريدي', doctorName_en: 'Dr. Mamdouh Draidi', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '9', weeksYear: '27', weeks: { 1: '', 2: 'Q8', 3: 'Q7', 4: '', 5: 'Q5', 6: 'Q6', 7: 'Q4', 8: '', 9: 'Q2', 10: 'Q1', 11: 'Q3', 12: 'Q3' } },
-            { id: '8', doctorName: 'د. هشام ابو رميلة', doctorName_en: 'Dr. Hisham Abu Rmeileh', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'Q7', 2: '', 3: 'Q5', 4: 'Q6', 5: 'Q6', 6: 'Q8', 7: 'Q1', 8: 'Q4', 9: 'Q1', 10: 'Q3', 11: 'Q4', 12: 'Q2' } },
-            { id: '9', doctorName: 'د. ضرار سميرات', doctorName_en: 'Dr. Derar Smeirat', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'Q8', 2: 'Q5', 3: 'Q6', 4: 'Q7', 5: 'Q7', 6: '', 7: 'Q1', 8: 'Q2', 9: 'Q3', 10: 'Q2', 11: '', 12: 'Q4' } },
-          ]
+          doctors: []
         },
         {
           courseCode: 'M1688-R',
           courseName: 'مساق الأطفال والنسائية والتوليد — مجموعة (R) — سنة سادسة',
           courseName_en: 'Pediatrics & Obs/Gyne (R) — 6th Year',
           weeksCount: 12,
-          doctors: [
-            { id: '1', doctorName: 'د. هيام مرزوقة', doctorName_en: 'Dr. Hiyam Marzouqa', department: 'الأطفال', department_en: 'Pediatrics', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'R1', 2: 'R1', 3: 'R3', 4: 'R3', 5: 'R2', 6: 'R4', 7: 'R5', 8: 'R5', 9: 'R7', 10: 'R7', 11: 'R6', 12: 'R8' } },
-            { id: '2', doctorName: 'د. مهند أبوساكور', doctorName_en: 'Dr. Mohannad Abu Sakour', department: 'الأطفال', department_en: 'Pediatrics', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'R4', 2: 'R4', 3: 'R2', 4: 'R2', 5: 'R3', 6: 'R1', 7: 'R6', 8: 'R6', 9: 'R8', 10: 'R8', 11: 'R5', 12: 'R7' } },
-            { id: '3', doctorName: 'د. شريف حسان', doctorName_en: 'Dr. Sharif Hassan', department: 'الأطفال', department_en: 'Pediatrics', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'R2', 2: 'R2', 3: 'R4', 4: 'R4', 5: 'R1', 6: 'R3', 7: 'R7', 8: 'R7', 9: 'R5', 10: 'R5', 11: 'R8', 12: 'R6' } },
-            { id: '4', doctorName: 'د. أسامة كرجة', doctorName_en: 'Dr. Osama Karjeh', department: 'الأطفال', department_en: 'Pediatrics', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'R3', 2: 'R3', 3: 'R1', 4: 'R1', 5: 'R4', 6: 'R2', 7: 'R8', 8: 'R8', 9: 'R6', 10: 'R6', 11: 'R7', 12: 'R5' } },
-            { id: '5', doctorName: 'د. آلاء عباس', doctorName_en: 'Dr. Alaa Abbas', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'R5', 2: 'R6', 3: '', 4: 'R5', 5: 'R8', 6: 'R7', 7: 'R2', 8: 'R3', 9: '', 10: 'R4', 11: 'R1', 12: 'R1' } },
-            { id: '6', doctorName: 'د. تامر مصلح', doctorName_en: 'Dr. Tamer Musleh', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'R6', 2: 'R7', 3: 'R8', 4: 'R8', 5: '', 6: 'R5', 7: 'R3', 8: 'R1', 9: 'R4', 10: '', 11: 'R2', 12: '' } },
-            { id: '7', doctorName: 'د. ممدوح دريدي', doctorName_en: 'Dr. Mamdouh Draidi', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '9', weeksYear: '27', weeks: { 1: '', 2: 'R8', 3: 'R7', 4: '', 5: 'R5', 6: 'R6', 7: 'R4', 8: '', 9: 'R2', 10: 'R1', 11: 'R3', 12: 'R3' } },
-            { id: '8', doctorName: 'د. هشام ابو رميلة', doctorName_en: 'Dr. Hisham Abu Rmeileh', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'R7', 2: '', 3: 'R5', 4: 'R6', 5: 'R6', 6: 'R8', 7: 'R1', 8: 'R4', 9: 'R1', 10: 'R3', 11: 'R4', 12: 'R2' } },
-            { id: '9', doctorName: 'د. ضرار سميرات', doctorName_en: 'Dr. Derar Smeirat', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'R8', 2: 'R5', 3: 'R6', 4: 'R7', 5: 'R7', 6: '', 7: 'R1', 8: 'R2', 9: 'R3', 10: 'R2', 11: '', 12: 'R4' } },
-          ]
+          doctors: []
         },
         {
           courseCode: 'M1688-S',
           courseName: 'مساق الأطفال والنسائية والتوليد — مجموعة (S) — سنة سادسة',
           courseName_en: 'Pediatrics & Obs/Gyne (S) — 6th Year',
           weeksCount: 12,
-          doctors: [
-            { id: '1', doctorName: 'د. هيام مرزوقة', doctorName_en: 'Dr. Hiyam Marzouqa', department: 'الأطفال', department_en: 'Pediatrics', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'S1', 2: 'S1', 3: 'S3', 4: 'S3', 5: 'S2', 6: 'S4', 7: 'S5', 8: 'S5', 9: 'S7', 10: 'S7', 11: 'S6', 12: 'S8' } },
-            { id: '2', doctorName: 'د. مهند أبوساكور', doctorName_en: 'Dr. Mohannad Abu Sakour', department: 'الأطفال', department_en: 'Pediatrics', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'S4', 2: 'S4', 3: 'S2', 4: 'S2', 5: 'S3', 6: 'S1', 7: 'S6', 8: 'S6', 9: 'S8', 10: 'S8', 11: 'S5', 12: 'S7' } },
-            { id: '3', doctorName: 'د. شريف حسان', doctorName_en: 'Dr. Sharif Hassan', department: 'الأطفال', department_en: 'Pediatrics', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'S2', 2: 'S2', 3: 'S4', 4: 'S4', 5: 'S1', 6: 'S3', 7: 'S7', 8: 'S7', 9: 'S5', 10: 'S5', 11: 'S8', 12: 'S6' } },
-            { id: '4', doctorName: 'د. أسامة كرجة', doctorName_en: 'Dr. Osama Karjeh', department: 'الأطفال', department_en: 'Pediatrics', weeksTrimester: '12', weeksYear: '36', weeks: { 1: 'S3', 2: 'S3', 3: 'S1', 4: 'S1', 5: 'S4', 6: 'S2', 7: 'S8', 8: 'S8', 9: 'S6', 10: 'S6', 11: 'S7', 12: 'S5' } },
-            { id: '5', doctorName: 'د. آلاء عباس', doctorName_en: 'Dr. Alaa Abbas', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'S5', 2: 'S6', 3: '', 4: 'S5', 5: 'S8', 6: 'S7', 7: 'S2', 8: 'S3', 9: '', 10: 'S4', 11: 'S1', 12: 'S1' } },
-            { id: '6', doctorName: 'د. تامر مصلح', doctorName_en: 'Dr. Tamer Musleh', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '9', weeksYear: '27', weeks: { 1: 'S6', 2: 'S7', 3: 'S8', 4: 'S8', 5: '', 6: 'S5', 7: 'S3', 8: 'S1', 9: 'S4', 10: '', 11: 'S2', 12: '' } },
-            { id: '7', doctorName: 'د. ممدوح دريدي', doctorName_en: 'Dr. Mamdouh Draidi', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '9', weeksYear: '27', weeks: { 1: '', 2: 'S8', 3: 'S7', 4: '', 5: 'S5', 6: 'S6', 7: 'S4', 8: '', 9: 'S2', 10: 'S1', 11: 'S3', 12: 'S3' } },
-            { id: '8', doctorName: 'د. هشام ابو رميلة', doctorName_en: 'Dr. Hisham Abu Rmeileh', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'S7', 2: '', 3: 'S5', 4: 'S6', 5: 'S6', 6: 'S8', 7: 'S1', 8: 'S4', 9: 'S1', 10: 'S3', 11: 'S4', 12: 'S2' } },
-            { id: '9', doctorName: 'د. ضرار سميرات', doctorName_en: 'Dr. Derar Smeirat', department: 'النسائية والتوليد', department_en: 'Obs & Gynecology', weeksTrimester: '10', weeksYear: '30', weeks: { 1: 'S8', 2: 'S5', 3: 'S6', 4: 'S7', 5: 'S7', 6: '', 7: 'S1', 8: 'S2', 9: 'S3', 10: 'S2', 11: '', 12: 'S4' } },
-          ]
+          doctors: []
         }
       ];
     }
@@ -610,24 +517,17 @@ export function DistributionPage() {
 
   // Helper to load courses per specific academic year & level
   const loadCoursesForYearAndLevel = (year: string, level: string): CourseSchedule[] => {
+    const isCleared = localStorage.getItem(`cdms_cleared_${year}_${level}`) === 'true';
+    if (isCleared) return [];
+
     const saved = localStorage.getItem(`cdms_course_schedules_${year}_${level}`);
-    if (saved) {
+    if (saved !== null) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
       } catch (e) {
         // fallback
       }
-    }
-    // Only default initial year 2026/2027 gets default faculty seeds. Any new academic year starts completely clean!
-    if (year === '2026/2027') {
-      const legacy = localStorage.getItem(`cdms_course_schedules_${level}`);
-      if (legacy) {
-        try {
-          return JSON.parse(legacy);
-        } catch (e) {}
-      }
-      return getDefaultCoursesForLevel(level);
     }
     return [];
   };
@@ -637,16 +537,92 @@ export function DistributionPage() {
     return loadCoursesForYearAndLevel(academicYear, levelFilter);
   });
 
-  // Re-sync course schedules when level or academicYear changes
+  const courseSchedulesKey = `cdms_course_schedules_${academicYear}_${levelFilter}`;
+
+  // Fetch course schedules payload directly from MySQL Database
+  const { data: dbCourseSchedulesPayload } = useQuery({
+    queryKey: ['db-course-schedules', courseSchedulesKey],
+    queryFn: () => apiFetch<any>(`/operational/distribution-payload?key=${encodeURIComponent(courseSchedulesKey)}`),
+  });
+
+  // Fetch registered clinical courses live from MySQL DB for dropdown selection
+  const { data: rawDbCoursesList } = useQuery({
+    queryKey: ['db-courses-all-distribution'],
+    queryFn: () => apiFetch<any>('/courses?per_page=100'),
+  });
+
+  const availableDbCourses = useMemo(() => {
+    const list = Array.isArray(rawDbCoursesList) ? rawDbCoursesList : (rawDbCoursesList?.data ?? rawDbCoursesList?.items ?? []);
+    if (!Array.isArray(list)) return [];
+    return list.filter((c: any) => !levelFilter || c.academic_level === levelFilter || c.academic_level === 'all');
+  }, [rawDbCoursesList, levelFilter]);
+
   useEffect(() => {
-    setCourseSchedules(loadCoursesForYearAndLevel(academicYear, levelFilter));
-    setSelectedCourseIndex(0);
-  }, [levelFilter, academicYear]);
+    const data = Array.isArray(dbCourseSchedulesPayload) ? dbCourseSchedulesPayload : dbCourseSchedulesPayload?.data;
+    if (Array.isArray(data) && data.length > 0) {
+      setCourseSchedules(data);
+      try { localStorage.setItem(courseSchedulesKey, JSON.stringify(data)); } catch (e) {}
+    } else {
+      const saved = localStorage.getItem(courseSchedulesKey);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            setCourseSchedules(parsed);
+            return;
+          }
+        } catch (e) {}
+      }
+      if (data === null || (Array.isArray(data) && data.length === 0)) {
+        setCourseSchedules([]);
+      }
+    }
+  }, [dbCourseSchedulesPayload, courseSchedulesKey]);
 
   // Save courses matrix
   const saveCourseSchedules = (updated: CourseSchedule[]) => {
     setCourseSchedules(updated);
-    localStorage.setItem(`cdms_course_schedules_${academicYear}_${levelFilter}`, JSON.stringify(updated));
+    const key = `cdms_course_schedules_${academicYear}_${levelFilter}`;
+    localStorage.setItem(key, JSON.stringify(updated));
+    localStorage.removeItem(`cdms_cleared_${academicYear}_${levelFilter}`);
+
+    // Sync directly to MySQL Database!
+    apiFetch('/operational/distribution-payload', {
+      method: 'POST',
+      body: { key, payload: updated }
+    }).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['db-course-schedules', key] });
+    }).catch(err => console.error('DB Sync Error:', err));
+  };
+
+  // Clear and delete all courses and schedules for all cohorts
+  const handleClearAllDistributionData = () => {
+    if (!window.confirm(locale === 'ar' ? 'هل أنت متأكد من حذف وتفريغ كافة جداول التوزيع والمساقات لجميع الدفعات بالكامل؟' : 'Are you sure you want to delete and clear all course tables for all cohorts?')) return;
+
+    const levels = ['fourth', 'fifth', 'sixth'];
+    const years = ['2026/2027'];
+
+    for (const yr of years) {
+      for (const lvl of levels) {
+        const k = `cdms_course_schedules_${yr}_${lvl}`;
+        localStorage.setItem(k, JSON.stringify([]));
+        localStorage.setItem(`cdms_course_schedules_${lvl}`, JSON.stringify([]));
+        localStorage.setItem(`cdms_cleared_${yr}_${lvl}`, 'true');
+        localStorage.removeItem(`cdms_clinical_partition_${yr}_${lvl}`);
+        localStorage.removeItem(`cdms_clinical_partition_${lvl}`);
+
+        // Wipe from MySQL Database
+        apiFetch('/operational/distribution-payload', {
+          method: 'POST',
+          body: { key: k, payload: [] }
+        }).catch(err => console.error('DB Sync Error:', err));
+      }
+    }
+
+    setCourseSchedules([]);
+    setMainGroups([]);
+    setSelectedCourseIndex(0);
+    alert(locale === 'ar' ? 'تم حذف وتفريغ كافة جداول المساقات والتوزيع لجميع الدفعات بنجاح من قاعدة البيانات ✓ يمكنك الآن إضافة المساقات أو استيراد القالب.' : 'All courses and tables deleted successfully from database ✓');
   };
 
   // Import Default Faculty Template into current Year
@@ -841,20 +817,27 @@ export function DistributionPage() {
     return arName;
   };
 
-  // Add Course Handler
+  // Add Course Handler (Dropdown-based selection from DB)
   const handleAddCourse = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!courseFormName.trim()) return;
+    if (!selectedDbCourseId) {
+      alert(locale === 'ar' ? 'يرجى اختيار مساق من القائمة المنسدلة' : 'Please select a course from dropdown');
+      return;
+    }
+    const found = availableDbCourses.find((c: any) => String(c.id) === selectedDbCourseId);
+    if (!found) return;
+
     const newCourse: CourseSchedule = {
-      courseCode: courseFormCode.trim() || `CRS-${Date.now().toString().slice(-4)}`,
-      courseName: courseFormName.trim(),
-      courseName_en: courseFormNameEn.trim() || undefined,
-      weeksCount: courseFormWeeks || 12,
+      courseCode: found.code,
+      courseName: found.name_ar,
+      courseName_en: found.name_en || undefined,
+      weeksCount: courseFormWeeks || found.credit_hours || 12,
       doctors: []
     };
     const updated = [...courseSchedules, newCourse];
     saveCourseSchedules(updated);
     setSelectedCourseIndex(updated.length - 1);
+    setSelectedDbCourseId('');
     setCourseFormName('');
     setCourseFormNameEn('');
     setCourseFormCode('');
@@ -981,6 +964,64 @@ export function DistributionPage() {
     return '';
   };
 
+  // Helper to re-map main group letters and subgroup codes (e.g. Q1 -> A1)
+  const remapMainGroupsLetters = (existingGroups: MainGroup[], newLetters: [string, string, string]): MainGroup[] => {
+    if (!existingGroups || existingGroups.length === 0) return [];
+    return newLetters.map((newLetter, idx) => {
+      const oldGroup = existingGroups[idx];
+      if (!oldGroup) {
+        return {
+          letter: newLetter,
+          name: locale === 'ar' ? `المجموعة (${newLetter})` : `Group (${newLetter})`,
+          subgroups: []
+        };
+      }
+      const updatedSubgroups = oldGroup.subgroups.map((sg, sgIdx) => {
+        const newCode = `${newLetter}${sgIdx + 1}`;
+        return {
+          ...sg,
+          id: newCode,
+          code: newCode,
+          mainGroupLetter: newLetter
+        };
+      });
+      return {
+        ...oldGroup,
+        letter: newLetter,
+        name: locale === 'ar' ? `المجموعة (${newLetter})` : `Group (${newLetter})`,
+        subgroups: updatedSubgroups
+      };
+    });
+  };
+
+  // Save custom main group letters
+  const handleSaveGroupLetters = (e: React.FormEvent) => {
+    e.preventDefault();
+    const updatedLetters = {
+      ...groupLetters,
+      [levelFilter]: tempLetters
+    };
+    setGroupLetters(updatedLetters);
+    try {
+      localStorage.setItem('cdms_group_letters', JSON.stringify(updatedLetters));
+    } catch (err) {}
+
+    apiFetch('/operational/distribution-payload', {
+      method: 'POST',
+      body: { key: 'cdms_group_letters', payload: updatedLetters }
+    });
+
+    if (mainGroups && mainGroups.length > 0) {
+      const remapped = remapMainGroupsLetters(mainGroups, tempLetters);
+      setMainGroups(remapped);
+      localStorage.setItem(`cdms_clinical_partition_${academicYear}_${levelFilter}`, JSON.stringify(remapped));
+    } else if (studentsList.length > 0) {
+      partitionStudents(studentsList, tempLetters, subgroupCapacity);
+    }
+
+    setIsEditLettersOpen(false);
+  };
+
   // Add New Doctor Row to Course Matrix
   const handleAddDoctor = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1053,6 +1094,14 @@ export function DistributionPage() {
   const saveHospitalGroups = (updated: HospitalGroup[]) => {
     setHospitalGroups(updated);
     localStorage.setItem('cdms_hospital_doctors', JSON.stringify(updated));
+
+    // Sync to MySQL Database & auto-register users/people/sites!
+    apiFetch('/operational/distribution-payload', {
+      method: 'POST',
+      body: { key: 'cdms_hospital_doctors', payload: updated }
+    }).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['db-hospital-groups'] });
+    }).catch(err => console.error('DB Sync Error:', err));
   };
 
   // Add Hospital Handler
@@ -1078,10 +1127,15 @@ export function DistributionPage() {
     }
   };
 
-  // Add Doctor to Hospital Handler
+  // Add Doctor to Hospital Handler (with automatic User Account creation)
   const handleAddHospDoctor = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newHospDocName.trim() || !targetHospId) return;
+
+    // Auto-generate clean email if left empty by admin
+    const emailToUse = newHospDocEmail.trim() || `doc.${Date.now()}@hebron.edu`;
+    const passwordToUse = newHospDocPassword.trim() || 'password123';
+
     saveHospitalGroups(hospitalGroups.map(h => {
       if (h.id === targetHospId) {
         return {
@@ -1091,16 +1145,21 @@ export function DistributionPage() {
             name: newHospDocName.trim(),
             name_en: newHospDocNameEn.trim() || undefined,
             specialty: newHospDocSpecialty.trim() || undefined,
-            specialty_en: newHospDocSpecialtyEn.trim() || undefined
+            specialty_en: newHospDocSpecialtyEn.trim() || undefined,
+            email: emailToUse,
+            password: passwordToUse
           }]
         };
       }
       return h;
     }));
+
     setNewHospDocName('');
     setNewHospDocNameEn('');
     setNewHospDocSpecialty('');
     setNewHospDocSpecialtyEn('');
+    setNewHospDocEmail('');
+    setNewHospDocPassword('password123');
     setIsAddHospDocModalOpen(false);
   };
 
@@ -1631,7 +1690,7 @@ export function DistributionPage() {
   };
 
   // Fetch real students from API
-  const { data: studentsResponse, isLoading, isError, refetch } = useQuery({
+  const { data: studentsResponse } = useQuery({
     queryKey: ['students-level', levelFilter],
     queryFn: () => apiFetch<any>(`/students?academic_level=${levelFilter}&per_page=300`),
   });
@@ -1698,7 +1757,8 @@ export function DistributionPage() {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length === 3) {
-          setMainGroups(parsed);
+          const remapped = remapMainGroupsLetters(parsed, currentLetters);
+          setMainGroups(remapped);
           return;
         }
       } catch (e) {
@@ -1709,7 +1769,7 @@ export function DistributionPage() {
     if (studentsList.length > 0) {
       partitionStudents(studentsList, currentLetters, subgroupCapacity);
     }
-  }, [studentsList, levelFilter, subgroupCapacity, academicYear]);
+  }, [studentsList, levelFilter, subgroupCapacity, academicYear, groupLetters]);
 
   const saveCurrentPartition = (updatedGroups: MainGroup[]) => {
     setMainGroups(updatedGroups);
@@ -1832,9 +1892,32 @@ export function DistributionPage() {
     return list;
   }, [hospitalGroups]);
 
-  if (!can('distribution.view')) return <ErrorState title="Access Denied" message="You do not have permission to view clinical distribution." />;
-  if (isLoading && studentsList.length === 0) return <LoadingState />;
-  if (isError) return <ErrorState onRetry={() => refetch()} />;
+  if (isSupervisorOnly) {
+    return (
+      <div className="mx-auto max-w-[650px] py-16 text-center space-y-5">
+        <div className="w-16 h-16 bg-teal-50 text-teal-700 rounded-3xl border border-teal-200 flex items-center justify-center mx-auto shadow-2xs">
+          <Building2 className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-black text-slate-900">
+          {locale === 'ar' ? 'جدول التوزيع العام مخصص لإدارة الكلية ومدير الدائرة' : 'Full Distribution View Restricted'}
+        </h2>
+        <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
+          {locale === 'ar' 
+            ? 'مرحباً دكتور، إدارة برنامج التوزيع الكلي لجميع الأطباء والمجموعات السريرية مخصصة لمدير الدائرة وإدارة الكلية. بصفتك مشرفاً سريرياً، يمكنك الاطلاع حصراً على المجموعات والأسابيع والطلاب المكلف بهم من خلال البوابة المخصصة لك.'
+            : 'As a Clinical Supervisor, your assigned groups, students, and rotation weeks are available in your Supervisor Portal.'}
+        </p>
+        <div className="pt-2">
+          <a
+            href="/supervisor/portal"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black transition-all shadow-sm shadow-teal-600/25"
+          >
+            <ArrowRightLeft className="w-4 h-4" />
+            <span>{locale === 'ar' ? 'الذهاب إلى مجموعاتي والطلاب والأسابيع' : 'Go to My Groups & Students'}</span>
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 pb-20">
@@ -2074,6 +2157,16 @@ export function DistributionPage() {
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">{locale === 'ar' ? 'قالب الكلية' : 'Template'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleClearAllDistributionData}
+                      className="px-2.5 py-1.5 rounded-xl text-red-600 hover:bg-red-50 text-xs font-bold flex items-center gap-1 transition-colors border border-red-200"
+                      title={locale === 'ar' ? 'حذف كافة المساقات والتوزيع كلياً لجميع الدفعات' : 'Delete all courses & distribution'}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{locale === 'ar' ? 'تفريغ وحذف الكل' : 'Clear All'}</span>
                     </button>
                   </div>
                 </div>
@@ -2371,15 +2464,31 @@ export function DistributionPage() {
             </div>
 
             {/* Metric 2: 3 Main Groups & Assigned Letters */}
-            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
-              <span className="text-[11px] font-bold text-slate-400 block">{locale === 'ar' ? 'المجموعات الرئيسية (3)' : 'Main Groups'}</span>
-              <div className="flex items-center gap-1.5 mt-1">
-                {(groupLetters[levelFilter] || ['A', 'B', 'C']).map((l, i) => (
-                  <span key={i} className="w-7 h-7 rounded-lg bg-teal-50 text-teal-700 font-black text-xs flex items-center justify-center border border-teal-100">
-                    {l}
-                  </span>
-                ))}
+            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-bold text-slate-400 block">{locale === 'ar' ? 'المجموعات الرئيسية (3)' : 'Main Groups'}</span>
+                <div className="flex items-center gap-1.5 mt-1">
+                  {(groupLetters[levelFilter] || ['A', 'B', 'C']).map((l, i) => (
+                    <span key={i} className="w-7 h-7 rounded-lg bg-teal-50 text-teal-700 font-black text-xs flex items-center justify-center border border-teal-100">
+                      {l}
+                    </span>
+                  ))}
+                </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const current = groupLetters[levelFilter] || ['A', 'B', 'C'];
+                  setTempLetters([current[0], current[1], current[2]]);
+                  setIsEditLettersOpen(true);
+                }}
+                className="px-2 py-1 rounded-xl bg-white hover:bg-teal-50 text-teal-700 font-bold text-xs border border-slate-200 flex items-center gap-1 transition-colors shadow-2xs cursor-pointer"
+                title={locale === 'ar' ? 'تعديل أحرف المجموعات الرئيسية' : 'Edit Group Letters'}
+              >
+                <Settings2 className="w-3.5 h-3.5 text-teal-600" />
+                <span>{locale === 'ar' ? 'تعديل' : 'Edit'}</span>
+              </button>
             </div>
 
             {/* Metric 3: Subgroup Target Capacity (5 or 6) */}
@@ -3038,62 +3147,75 @@ export function DistributionPage() {
             </div>
 
             <form onSubmit={handleAddCourse} className="p-6 space-y-4">
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">
-                  {locale === 'ar' ? 'اسم المساق بالعربية *' : 'Course Name in Arabic *'}
+              {/* Dropdown to select course directly from live DB courses */}
+              <div className="space-y-1.5 bg-teal-50/70 p-3 rounded-2xl border border-teal-200/80">
+                <label className="block text-xs font-bold text-teal-900 flex items-center justify-between">
+                  <span>{locale === 'ar' ? 'اختر المساق السريري المعتمد من الخطة *' : 'Select Registered Clinical Course *'}</span>
+                  <span className="text-[10px] text-teal-700 font-bold bg-white px-2 py-0.5 rounded-md border border-teal-200">
+                    {availableDbCourses.length} {locale === 'ar' ? 'مساقاً متاحاً' : 'courses'}
+                  </span>
                 </label>
-                <input
+                <select
                   required
-                  type="text"
-                  placeholder="مثال: أطباء مساق التخصصات الباطنية الفرعية — سنة رابعة"
-                  value={courseFormName}
-                  onChange={(e) => setCourseFormName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs focus:border-teal-500 font-bold text-start"
-                  dir="rtl"
-                />
+                  value={selectedDbCourseId}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    setSelectedDbCourseId(selectedId);
+                    const found = availableDbCourses.find((c: any) => String(c.id) === selectedId);
+                    if (found) {
+                      setCourseFormName(found.name_ar);
+                      setCourseFormNameEn(found.name_en || '');
+                      setCourseFormCode(found.code);
+                      setCourseFormWeeks(found.credit_hours || 12);
+                    }
+                  }}
+                  className="w-full rounded-xl border border-teal-300 px-3.5 py-2.5 text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                >
+                  <option value="">{locale === 'ar' ? '-- اختر المساق من الخطة السريرية --' : '-- Select Course from List --'}</option>
+                  {availableDbCourses.map((c: any) => {
+                    const displayName = locale === 'en' ? (c.name_en || c.name_ar) : c.name_ar;
+                    const hoursLabel = locale === 'ar' ? 'ساعة / أسابيع' : 'weeks/credits';
+                    return (
+                      <option key={c.id} value={c.id}>
+                        [{c.code}] {displayName} — ({c.credit_hours} {hoursLabel})
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
+
+              {/* Course details preview card when selected */}
+              {selectedDbCourseId && (
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2 animate-in fade-in">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-500 font-bold">{locale === 'ar' ? 'اسم المساق:' : 'Course Name:'}</span>
+                    <span className="font-black text-slate-900">
+                      {locale === 'en' ? (courseFormNameEn || courseFormName) : courseFormName}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-500 font-bold">{locale === 'ar' ? 'رمز المساق:' : 'Course Code:'}</span>
+                    <span className="font-mono font-bold text-slate-700">{courseFormCode}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-500 font-bold">{locale === 'ar' ? 'الساعات المعتمدة:' : 'Credit Hours:'}</span>
+                    <span className="font-bold text-teal-700">{courseFormWeeks} {locale === 'ar' ? 'ساعة' : 'Credits'}</span>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-700">
-                  {locale === 'ar' ? 'اسم المساق بالإنجليزية (اختياري)' : 'Course Name in English (Optional)'}
+                  {locale === 'ar' ? 'عدد الأسابيع في جدول التوزيع السريري' : 'Weeks Count'}
                 </label>
                 <input
-                  type="text"
-                  placeholder="e.g. Sub-specialties of Internal Medicine — 4th Year"
-                  value={courseFormNameEn}
-                  onChange={(e) => setCourseFormNameEn(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs focus:border-teal-500 font-bold text-start"
-                  dir="ltr"
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={courseFormWeeks}
+                  onChange={(e) => setCourseFormWeeks(parseInt(e.target.value) || 12)}
+                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs focus:border-teal-500 font-bold"
                 />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700">
-                    {locale === 'ar' ? 'رمز المساق' : 'Course Code'}
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="M1673-A"
-                    value={courseFormCode}
-                    onChange={(e) => setCourseFormCode(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs focus:border-teal-500 font-mono font-bold"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700">
-                    {locale === 'ar' ? 'عدد الأسابيع' : 'Weeks Count'}
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={courseFormWeeks}
-                    onChange={(e) => setCourseFormWeeks(parseInt(e.target.value) || 12)}
-                    className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs focus:border-teal-500 font-bold"
-                  />
-                </div>
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
@@ -3615,6 +3737,42 @@ export function DistributionPage() {
                 />
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">
+                    {locale === 'ar' ? 'البريد الإلكتروني / اسم الدخول' : 'Doctor Email / Login'}
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="e.g. dr.tamimi@hebron.edu"
+                    value={newHospDocEmail}
+                    onChange={(e) => setNewHospDocEmail(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs focus:border-teal-500 font-bold text-start font-mono"
+                    dir="ltr"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">
+                    {locale === 'ar' ? 'كلمة المرور للحساب' : 'Password'}
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="password123"
+                    value={newHospDocPassword}
+                    onChange={(e) => setNewHospDocPassword(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs focus:border-teal-500 font-bold text-start font-mono"
+                    dir="ltr"
+                  />
+                </div>
+              </div>
+
+              <p className="text-[11px] text-teal-700 bg-teal-50 p-2.5 rounded-xl border border-teal-200 font-bold">
+                {locale === 'ar'
+                  ? '💡 سيتم إنشاء حساب مستخدم للنظام تلقائياً بدور (مشرف سريري) وسيظهر الحساب في لوحة مدير النظام.'
+                  : '💡 A user account with Clinical Supervisor role will be created automatically.'}
+              </p>
+
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                 <Button
                   type="button"
@@ -4077,6 +4235,97 @@ export function DistributionPage() {
 
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: EDIT MAIN GROUP LETTERS (A, B, C -> Custom) */}
+      {/* ========================================================================= */}
+      {isEditLettersOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 w-full max-w-md overflow-hidden flex flex-col">
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center border border-teal-100">
+                  <Settings2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-800">
+                    {locale === 'ar' ? 'تعديل أحرف المجموعات الرئيسية' : 'Edit Main Group Letters'}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {getLevelName(levelFilter)} • {academicYear}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsEditLettersOpen(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveGroupLetters} className="p-6 space-y-4">
+              <p className="text-xs text-slate-500">
+                {locale === 'ar' 
+                  ? 'حدد الأحرف أو الرموز المطلوبة للمجموعات الرئيسية الثلاث لهذه السنة (مثال: A, B, C أو Q, R, S):' 
+                  : 'Specify the letters for the 3 main groups of this cohort (e.g. A, B, C or Q, R, S):'}
+              </p>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-bold text-slate-600 text-center">{locale === 'ar' ? 'المجموعة 1' : 'Group 1'}</label>
+                  <input
+                    type="text"
+                    maxLength={3}
+                    value={tempLetters[0]}
+                    onChange={(e) => setTempLetters([e.target.value.toUpperCase(), tempLetters[1], tempLetters[2]])}
+                    className="w-full text-center font-mono font-black text-sm uppercase rounded-xl border border-slate-200 py-2 bg-slate-50 focus:bg-white focus:border-teal-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-bold text-slate-600 text-center">{locale === 'ar' ? 'المجموعة 2' : 'Group 2'}</label>
+                  <input
+                    type="text"
+                    maxLength={3}
+                    value={tempLetters[1]}
+                    onChange={(e) => setTempLetters([tempLetters[0], e.target.value.toUpperCase(), tempLetters[2]])}
+                    className="w-full text-center font-mono font-black text-sm uppercase rounded-xl border border-slate-200 py-2 bg-slate-50 focus:bg-white focus:border-teal-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-bold text-slate-600 text-center">{locale === 'ar' ? 'المجموعة 3' : 'Group 3'}</label>
+                  <input
+                    type="text"
+                    maxLength={3}
+                    value={tempLetters[2]}
+                    onChange={(e) => setTempLetters([tempLetters[0], tempLetters[1], e.target.value.toUpperCase()])}
+                    className="w-full text-center font-mono font-black text-sm uppercase rounded-xl border border-slate-200 py-2 bg-slate-50 focus:bg-white focus:border-teal-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsEditLettersOpen(false)}
+                  className="rounded-xl text-xs"
+                >
+                  {locale === 'ar' ? 'إلغاء' : 'Cancel'}
+                </Button>
+                <Button
+                  type="submit"
+                  className="rounded-xl bg-gradient-to-tr from-teal-500 to-teal-400 text-white font-bold text-xs shadow-md shadow-teal-500/25"
+                >
+                  {locale === 'ar' ? 'حفظ الأحرف الجديدة' : 'Save Letters'}
+                </Button>
+              </div>
+            </form>
           </div>
         </div>
       )}

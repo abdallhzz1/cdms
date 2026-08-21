@@ -14,20 +14,22 @@ import { DirectoryPage } from '@/pages/DirectoryPage';
 import { StudentProfilePage } from '@/pages/StudentProfilePage';
 import { StudentGroupsPage } from '@/pages/StudentGroupsPage';
 import { StaffProfilePage } from '@/pages/StaffProfilePage';
-import { StudyPlansPage } from '@/pages/StudyPlansPage';
+import { CoursesPage } from '@/pages/CoursesPage';
 import { StudyPlanDetailsPage } from '@/pages/StudyPlanDetailsPage';
 import { CourseDetailsPage } from '@/pages/CourseDetailsPage';
 import { GradesPage } from '@/pages/GradesPage';
+import { RtaAssignmentsPage } from '@/pages/RtaAssignmentsPage';
 // New Clinical Module
 import { DistributionPage } from '@/pages/clinical/DistributionPage';
 import { ClinicalSchedulePage } from '@/pages/clinical/ClinicalSchedulePage';
 import { AttendanceMasterPage } from '@/pages/clinical/AttendanceMasterPage';
 import { AssessmentsMasterPage } from '@/pages/clinical/AssessmentsMasterPage';
 import { SupervisorPortalPage } from '@/pages/clinical/SupervisorPortalPage';
+import { DeptHeadProfilePage } from '@/pages/department/DeptHeadProfilePage';
 import { AdvisingDashboardPage } from '@/pages/advising/AdvisingDashboardPage';
 import { AdvisingAssignmentsPage } from '@/pages/advising/AdvisingAssignmentsPage';
-import { AdvisingLogsPage } from '@/pages/advising/AdvisingLogsPage';
 import { EarlyWarningPage } from '@/pages/advising/EarlyWarningPage';
+import { AdvisingFormsPage } from '@/pages/advising/AdvisingFormsPage';
 import { TasksPage } from '@/pages/TasksPage';
 // New Quality Module
 import { QualityDashboardPage } from '@/pages/quality/QualityDashboardPage';
@@ -67,10 +69,12 @@ export function App() {
                 <Route path="/" element={<FoundationHome />} />
                 
                 {/* Academic Affairs & Plans */}
-                <Route path="/study-plans" element={<StudyPlansPage />} />
+                <Route path="/courses" element={<CoursesPage />} />
+                <Route path="/study-plans" element={<CoursesPage />} />
                 <Route path="/study-plans/:planId" element={<StudyPlanDetailsPage />} />
                 <Route path="/courses/:courseId" element={<CourseDetailsPage />} />
                 <Route path="/grades" element={<GradesPage />} />
+                <Route path="/rta-assignments" element={<RtaAssignmentsPage />} />
                 
                 {/* Students & Staff */}
                 <Route path="/directory" element={<DirectoryPage kind="students" />} />
@@ -115,12 +119,15 @@ export function App() {
                 {/* Advising */}
                 <Route path="/advising" element={<AdvisingDashboardPage />} />
                 <Route path="/advising/assignments" element={<AdvisingAssignmentsPage />} />
-                <Route path="/advising/logs" element={<AdvisingLogsPage />} />
+                <Route path="/advising/forms" element={<AdvisingFormsPage />} />
+                <Route path="/advising/logs" element={<AdvisingFormsPage />} />
                 <Route path="/advising/early-warning" element={<EarlyWarningPage />} />
                 <Route path="/external-electives" element={<ExternalElectivesPage />} />
                 <Route path="/research-projects" element={<ResearchProjectsPage />} />
                 <Route path="/skill-logbook" element={<SkillLogbookPage />} />
                 <Route path="/staff-allocations" element={<StaffAllocationsPage />} />
+                <Route path="/dept-heads/:id" element={<DeptHeadProfilePage />} />
+                <Route path="/dept-heads/me" element={<DeptHeadProfilePage />} />
                 <Route path="/supervisor-workloads" element={<SupervisorWorkloadsPage />} />
                 <Route path="/partnerships" element={<PartnershipsPage />} />
                 

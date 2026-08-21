@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -10,7 +10,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Building2, Search, User } from 'lucide-react';
 
 export function ClinicalSchedulePage() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const { locale } = useI18n();
   const [search, setSearch] = useState('');
   const [siteFilter, setSiteFilter] = useState('');
@@ -27,7 +27,24 @@ export function ClinicalSchedulePage() {
     queryFn: () => apiFetch<any>('/training-sites?per_page=100'),
   });
 
-  if (!can('distribution.view')) return <ErrorState title="Access Denied" />;
+  const hasAccess = useMemo(() => {
+    if (!user) return false;
+    const roles = user.roles ? user.roles.map(r => (typeof r === 'string' ? r : (r as any).name || '').toUpperCase()) : [];
+    const isAcademicUser = roles.some(r => [
+      'RTA', 
+      'CLINICAL_SUPERVISOR', 
+      'ACADEMIC_ADVISOR', 
+      'DEPARTMENT_HEAD', 
+      'CLINICAL_DIRECTOR', 
+      'ADMIN_ASSISTANT', 
+      'SYS_ADMIN', 
+      'DEAN', 
+      'VICE_DEAN'
+    ].includes(r));
+    return can('distribution.view') || can('students.view') || can('courses.view') || isAcademicUser;
+  }, [user, can]);
+
+  if (!hasAccess) return <ErrorState title="Access Denied" message={locale === 'ar' ? 'غير مصرح للوصول لهذه الصفحة' : 'Access Denied'} />;
   if (isLoading) return <LoadingState />;
   if (isError) return <ErrorState onRetry={refetch} />;
 

@@ -5,7 +5,7 @@ import {
   Users, Calendar, LayoutDashboard, 
   Map, FileText, ClipboardCheck, BookOpen, Clock, ShieldCheck,
   MessagesSquare, FolderGit2, BarChart3, Send, AlertTriangle, TrendingUp, Target,
-  X
+  GraduationCap, X
 } from 'lucide-react';
 
 interface NavItem {
@@ -31,31 +31,60 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
   const { can, user } = useAuth();
 
   const userRoles = user?.roles ?? [];
+  const knownHeadEmails = ['iyad.jadaa@hebron.edu', 'raed.shawawreh@hebron.edu', 'rashad.zaro@hebron.edu', 'shatha.afaneh@hebron.edu', 'bassam.nasreddin@hebron.edu'];
+  const isDeptHeadByEmail = user?.email && knownHeadEmails.includes(user.email.toLowerCase());
+  const isDeptHeadByName = user?.name && (user.name.includes('الجدع') || user.name.includes('شواورة') || user.name.includes('الزرو') || user.name.includes('عفانة') || user.name.includes('ناصر الدين'));
+  const hasHeadRole = userRoles.includes('DEPARTMENT_HEAD') || isDeptHeadByEmail || isDeptHeadByName;
+
   const isSuperAdmin = userRoles.includes('SYS_ADMIN');
-  const isSupervisorOnly = userRoles.includes('CLINICAL_SUPERVISOR') && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
-  const isAdvisorOnly = userRoles.includes('ACADEMIC_ADVISOR') && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
-  const isQualityOnly = userRoles.includes('QUALITY') && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
-  const isHeadOnly = userRoles.includes('DEPARTMENT_HEAD') && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
+  const isSupervisorOnly = userRoles.includes('CLINICAL_SUPERVISOR') && !hasHeadRole && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
+  const isAdvisorOnly = userRoles.includes('ACADEMIC_ADVISOR') && !hasHeadRole && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
+  const isQualityOnly = userRoles.includes('QUALITY') && !hasHeadRole && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
+  const isHeadOnly = hasHeadRole && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
+  const isRTAOnly = userRoles.includes('RTA') && !hasHeadRole && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
 
   const getNavigation = (): NavSection[] => {
     // 1. المشرف السريري فقط (Clinical Supervisor Portal View)
     if (isSupervisorOnly) {
       return [
         {
-          title: locale === 'ar' ? 'التدريب السريري' : 'Clinical Training',
+          title: locale === 'ar' ? 'التدريب السريري والتقييم' : 'Clinical Training & Grading',
           items: [
-            { path: '/supervisor/portal', label: locale === 'ar' ? 'بوابة المشرف السريري' : 'Supervisor Portal', icon: BookOpen },
-            { path: '/attendance', label: locale === 'ar' ? 'سجل الحضور' : 'Attendance', icon: Clock, permission: 'attendance.view' },
-            { path: '/assessments', label: locale === 'ar' ? 'التقييمات السريرية' : 'Assessments', icon: ClipboardCheck, permission: 'assessment.view' },
-            { path: '/skill-logbook', label: locale === 'ar' ? 'سجل المهارات' : 'Skill Logbook', icon: FileText, permission: 'assessment.view' },
+            { path: '/supervisor/portal', label: locale === 'ar' ? 'مجموعاتي والطلاب والأسابيع' : 'My Groups, Students & Weeks', icon: Users },
+            { path: '/supervisor/portal?tab=assessments', label: locale === 'ar' ? 'رصد التقييم السريري (20)' : 'Clinical Evaluation (/20)', icon: ClipboardCheck },
+            { path: '/attendance', label: locale === 'ar' ? 'سجل الحضور' : 'Attendance', icon: Clock },
+            { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: GraduationCap },
           ]
         },
         {
           title: locale === 'ar' ? 'المراسلات والمهام' : 'Messages & Tasks',
           items: [
-            { path: '/inbox', label: locale === 'ar' ? 'صندوق الوارد' : 'Inbox', icon: MessagesSquare, permission: 'correspondence.view' },
-            { path: '/outbox', label: locale === 'ar' ? 'الطلبات الصادرة' : 'Outbox', icon: Send, permission: 'correspondence.view' },
-            { path: '/tasks', label: locale === 'ar' ? 'المهام' : 'Tasks', icon: FolderGit2, permission: 'tasks.view' },
+            { path: '/inbox', label: locale === 'ar' ? 'صندوق الوارد' : 'Inbox', icon: MessagesSquare },
+            { path: '/outbox', label: locale === 'ar' ? 'الطلبات الصادرة' : 'Outbox', icon: Send },
+            { path: '/tasks', label: locale === 'ar' ? 'المهام' : 'Tasks', icon: FolderGit2 },
+          ]
+        }
+      ];
+    }
+
+    // 2. مساعد بحث وتدريس (Research & Teaching Assistant View)
+    if (isRTAOnly) {
+      return [
+        {
+          title: locale === 'ar' ? 'المهام الأكاديمية' : 'Academic Tasks',
+          items: [
+            { path: '/', label: locale === 'ar' ? 'لوحة التحكم' : 'Dashboard', icon: LayoutDashboard },
+            { path: '/grades', label: locale === 'ar' ? 'إدخال العلامات' : 'Enter Grades', icon: ClipboardCheck },
+            { path: '/distribution', label: locale === 'ar' ? 'جدول التدريب السريري' : 'Clinical Schedule', icon: Calendar },
+            { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: GraduationCap },
+          ]
+        },
+        {
+          title: locale === 'ar' ? 'المراسلات والمهام' : 'Messages & Tasks',
+          items: [
+            { path: '/inbox', label: locale === 'ar' ? 'صندوق الوارد' : 'Inbox', icon: MessagesSquare },
+            { path: '/outbox', label: locale === 'ar' ? 'الطلبات الصادرة' : 'Outbox', icon: Send },
+            { path: '/tasks', label: locale === 'ar' ? 'المهام' : 'Tasks', icon: FolderGit2 },
           ]
         }
       ];
@@ -67,18 +96,18 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         {
           title: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising',
           items: [
-            { path: '/advising', label: locale === 'ar' ? 'لوحة تحكم الإرشاد' : 'Advising Dashboard', icon: LayoutDashboard, permission: 'advising.view' },
-            { path: '/advising/logs', label: locale === 'ar' ? 'سجل جلسات الإرشاد' : 'Advising Sessions', icon: BookOpen, permission: 'advising.view' },
-            { path: '/advising/early-warning', label: locale === 'ar' ? 'الإنذار المبكر والتعثر' : 'Early Warning', icon: AlertTriangle, permission: 'advising.view' },
-            { path: '/advising/assignments', label: locale === 'ar' ? 'طلبتي المسترشدين' : 'My Advisees', icon: Users, permission: 'advising.view' },
+            { path: '/advising', label: locale === 'ar' ? 'لوحة تحكم الإرشاد' : 'Advising Dashboard', icon: LayoutDashboard },
+            { path: '/advising/logs', label: locale === 'ar' ? 'سجل جلسات الإرشاد' : 'Advising Sessions', icon: BookOpen },
+            { path: '/advising/early-warning', label: locale === 'ar' ? 'الإنذار المبكر والتعثر' : 'Early Warning', icon: AlertTriangle },
+            { path: '/advising/assignments', label: locale === 'ar' ? 'طلبتي المسترشدين' : 'My Advisees', icon: Users },
           ]
         },
         {
           title: locale === 'ar' ? 'المراسلات والمهام' : 'Messages & Tasks',
           items: [
-            { path: '/inbox', label: locale === 'ar' ? 'صندوق الوارد' : 'Inbox', icon: MessagesSquare, permission: 'correspondence.view' },
-            { path: '/outbox', label: locale === 'ar' ? 'الطلبات الصادرة' : 'Outbox', icon: Send, permission: 'correspondence.view' },
-            { path: '/tasks', label: locale === 'ar' ? 'المهام' : 'Tasks', icon: FolderGit2, permission: 'tasks.view' },
+            { path: '/inbox', label: locale === 'ar' ? 'صندوق الوارد' : 'Inbox', icon: MessagesSquare },
+            { path: '/outbox', label: locale === 'ar' ? 'الطلبات الصادرة' : 'Outbox', icon: Send },
+            { path: '/tasks', label: locale === 'ar' ? 'المهام' : 'Tasks', icon: FolderGit2 },
           ]
         }
       ];
@@ -90,20 +119,20 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         {
           title: locale === 'ar' ? 'الجودة والتقييم' : 'Quality & Evaluation',
           items: [
-            { path: '/quality', label: locale === 'ar' ? 'لوحة تحكم الجودة' : 'Quality Dashboard', icon: BarChart3, permission: 'quality.view' },
-            { path: '/quality/surveys', label: locale === 'ar' ? 'إدارة الاستبيانات' : 'Surveys', icon: ClipboardCheck, permission: 'quality.view' },
-            { path: '/quality/improvement', label: locale === 'ar' ? 'خطط التحسين' : 'Improvement Plans', icon: TrendingUp, permission: 'quality.view' },
-            { path: '/quality/kpis', label: locale === 'ar' ? 'مؤشرات الأداء (KPIs)' : 'Quality KPIs', icon: Target, permission: 'quality.view' },
-            { path: '/evaluations', label: locale === 'ar' ? 'نماذج تقييم المشرفين' : 'Evaluation Forms', icon: FileText, permission: 'assessment.create' },
-            { path: '/operational/reports', label: locale === 'ar' ? 'تقارير الجودة' : 'Quality Reports', icon: FileText, permission: 'reports.view' },
+            { path: '/quality', label: locale === 'ar' ? 'لوحة تحكم الجودة' : 'Quality Dashboard', icon: BarChart3 },
+            { path: '/quality/surveys', label: locale === 'ar' ? 'إدارة الاستبيانات' : 'Surveys', icon: ClipboardCheck },
+            { path: '/quality/improvement', label: locale === 'ar' ? 'خطط التحسين' : 'Improvement Plans', icon: TrendingUp },
+            { path: '/quality/kpis', label: locale === 'ar' ? 'مؤشرات الأداء (KPIs)' : 'Quality KPIs', icon: Target },
+            { path: '/evaluations', label: locale === 'ar' ? 'نماذج تقييم المشرفين' : 'Evaluation Forms', icon: FileText },
+            { path: '/operational/reports', label: locale === 'ar' ? 'تقارير الجودة' : 'Quality Reports', icon: FileText },
           ]
         },
         {
           title: locale === 'ar' ? 'المراسلات والمهام' : 'Messages & Tasks',
           items: [
-            { path: '/inbox', label: locale === 'ar' ? 'صندوق الوارد' : 'Inbox', icon: MessagesSquare, permission: 'correspondence.view' },
-            { path: '/outbox', label: locale === 'ar' ? 'الطلبات الصادرة' : 'Outbox', icon: Send, permission: 'correspondence.view' },
-            { path: '/tasks', label: locale === 'ar' ? 'المهام' : 'Tasks', icon: FolderGit2, permission: 'tasks.view' },
+            { path: '/inbox', label: locale === 'ar' ? 'صندوق الوارد' : 'Inbox', icon: MessagesSquare },
+            { path: '/outbox', label: locale === 'ar' ? 'الطلبات الصادرة' : 'Outbox', icon: Send },
+            { path: '/tasks', label: locale === 'ar' ? 'المهام' : 'Tasks', icon: FolderGit2 },
           ]
         }
       ];
@@ -116,20 +145,24 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           title: locale === 'ar' ? 'إدارة القسم' : 'Department Management',
           items: [
             { path: '/', label: locale === 'ar' ? 'لوحة تحكم القسم' : 'Department Dashboard', icon: LayoutDashboard },
-            { path: '/study-plans', label: locale === 'ar' ? 'مساقات القسم والخطط' : 'Courses & Plans', icon: BookOpen, permission: 'courses.view' },
-            { path: '/grades', label: locale === 'ar' ? 'العلامات والاعتماد' : 'Grades & Approvals', icon: ClipboardCheck, permission: 'grades.view' },
-            { path: '/clinical/schedule', label: locale === 'ar' ? 'جدول التدريب السريري' : 'Clinical Schedule', icon: Calendar, permission: 'clinical.schedule.view' },
-            { path: '/directory', label: locale === 'ar' ? 'طلبة ومشرفو القسم' : 'Staff & Students', icon: Users, permission: 'students.view' },
+            { path: '/dept-heads/me', label: locale === 'ar' ? 'بروفايلي الأكاديمي والـ Score' : 'My Academic Profile', icon: GraduationCap },
+            { path: '/courses', label: locale === 'ar' ? 'مساقات الدائرة السريرية' : 'Clinical Courses', icon: BookOpen },
+            { path: '/grades', label: locale === 'ar' ? 'العلامات والاعتماد' : 'Grades & Approvals', icon: ClipboardCheck },
+            { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: GraduationCap },
+            { path: '/supervisor/portal', label: locale === 'ar' ? 'بوابة الإشراف السريري والتقييم' : 'Supervisor Portal', icon: ClipboardCheck },
+            { path: '/rta-assignments', label: locale === 'ar' ? 'تخصيص دفعات المساعدين' : 'Assign RTA Cohorts', icon: Users },
+            { path: '/clinical/schedule', label: locale === 'ar' ? 'جدول التدريب السريري' : 'Clinical Schedule', icon: Calendar },
+            { path: '/directory', label: locale === 'ar' ? 'طلبة ومشرفو القسم' : 'Staff & Students', icon: Users },
           ]
         },
         {
           title: locale === 'ar' ? 'الاجتماعات والمراسلات' : 'Meetings & Ops',
           items: [
-            { path: '/meetings', label: locale === 'ar' ? 'مجلس القسم والاجتماعات' : 'Department Meetings', icon: Calendar, permission: 'meetings.manage' },
-            { path: '/inbox', label: locale === 'ar' ? 'صندوق الوارد' : 'Inbox', icon: MessagesSquare, permission: 'correspondence.view' },
-            { path: '/outbox', label: locale === 'ar' ? 'الطلبات الصادرة' : 'Outbox', icon: Send, permission: 'correspondence.view' },
-            { path: '/tasks', label: locale === 'ar' ? 'المهام' : 'Tasks', icon: FolderGit2, permission: 'tasks.view' },
-            { path: '/operational/reports', label: locale === 'ar' ? 'تقارير القسم' : 'Reports', icon: FileText, permission: 'reports.view' },
+            { path: '/meetings', label: locale === 'ar' ? 'مجلس القسم والاجتماعات' : 'Department Meetings', icon: Calendar },
+            { path: '/inbox', label: locale === 'ar' ? 'صندوق الوارد' : 'Inbox', icon: MessagesSquare },
+            { path: '/outbox', label: locale === 'ar' ? 'الطلبات الصادرة' : 'Outbox', icon: Send },
+            { path: '/tasks', label: locale === 'ar' ? 'المهام' : 'Tasks', icon: FolderGit2 },
+            { path: '/operational/reports', label: locale === 'ar' ? 'تقارير القسم' : 'Reports', icon: FileText },
           ]
         }
       ];
@@ -142,10 +175,11 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           title: locale === 'ar' ? 'إدارة النظام والأمان' : 'System Administration',
           items: [
             { path: '/', label: locale === 'ar' ? 'لوحة العمليات' : 'Dashboard', icon: LayoutDashboard },
-            { path: '/users', label: locale === 'ar' ? 'المستخدمون والأدوار' : 'Users & Roles', icon: Users, permission: 'users.manage' },
-            { path: '/academic/calendar', label: locale === 'ar' ? 'التقويم الأكاديمي' : 'Academic Calendar', icon: Calendar, permission: 'academic_years.manage' },
-            { path: '/audit-logs', label: locale === 'ar' ? 'سجل العمليات والتدقيق' : 'Audit Logs', icon: ShieldCheck, permission: 'users.manage' },
-            { path: '/operational/reports', label: locale === 'ar' ? 'مركز التقارير' : 'Reports Hub', icon: FileText, permission: 'reports.view' },
+            { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: GraduationCap },
+            { path: '/users', label: locale === 'ar' ? 'المستخدمون والأدوار' : 'Users & Roles', icon: Users },
+            { path: '/academic/calendar', label: locale === 'ar' ? 'التقويم الأكاديمي' : 'Academic Calendar', icon: Calendar },
+            { path: '/audit-logs', label: locale === 'ar' ? 'سجل العمليات والتدقيق' : 'Audit Logs', icon: ShieldCheck },
+            { path: '/operational/reports', label: locale === 'ar' ? 'مركز التقارير' : 'Reports Hub', icon: FileText },
           ]
         }
       ];
@@ -166,15 +200,17 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         title: locale === 'ar' ? 'الشؤون الأكاديمية' : 'Academic Affairs',
         items: [
           { path: '/grades', label: locale === 'ar' ? 'سجل العلامات' : 'Grades Log', icon: ClipboardCheck, permission: 'grades.view' },
-          { path: '/study-plans', label: locale === 'ar' ? 'المساقات والخطط' : 'Courses & Plans', icon: BookOpen, permission: 'courses.view' },
+          { path: '/courses', label: locale === 'ar' ? 'مساقات الدائرة السريرية' : 'Clinical Courses', icon: BookOpen, permission: 'courses.view' },
           { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: Users, permission: 'advising.view' },
         ]
       },
       {
         title: locale === 'ar' ? 'الكادر ورؤساء الأقسام' : 'Staff & Department Heads',
         items: [
-          { path: '/staff-allocations', label: locale === 'ar' ? 'رؤساء الأقسام' : 'Department Heads', icon: Users, permission: 'students.view' },
+          { path: '/dept-heads/me', label: locale === 'ar' ? 'بروفايلي الأكاديمي والـ Score' : 'My Academic Profile', icon: GraduationCap },
+          { path: '/staff-allocations', label: locale === 'ar' ? 'دليل رؤساء الأقسام' : 'Department Heads Directory', icon: Users, permission: 'people.manage' },
           { path: '/supervisor-workloads', label: locale === 'ar' ? 'المشرفون السريريون' : 'Clinical Supervisors', icon: ShieldCheck, permission: 'students.view' },
+          { path: '/rta-assignments', label: locale === 'ar' ? 'تخصيص دفعات المساعدين' : 'Assign RTA Cohorts', icon: Users, permission: 'students.view' },
         ]
       },
       {

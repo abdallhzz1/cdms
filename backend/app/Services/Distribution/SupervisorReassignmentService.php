@@ -148,12 +148,13 @@ class SupervisorReassignmentService
      */
     public function getSupervisorAssignments(Person $supervisor): \Illuminate\Database\Eloquent\Collection
     {
-        return StudentClinicalAssignment::where('supervisor_id', $supervisor->id)
+        $assignments = StudentClinicalAssignment::where('supervisor_id', $supervisor->id)
             ->whereHas('distributionVersion', function ($q) {
                 $q->where('status', 'published')->where('is_current', true);
             })
             ->with([
                 'student',
+                'studentSubgroup.group',
                 'rotationBlock.rotation.academicYear',
                 'trainingSite',
                 'department',
@@ -161,5 +162,21 @@ class SupervisorReassignmentService
             ])
             ->orderBy('id', 'asc')
             ->get();
+
+        if ($assignments->isEmpty()) {
+            $assignments = StudentClinicalAssignment::where('supervisor_id', $supervisor->id)
+                ->with([
+                    'student',
+                    'studentSubgroup.group',
+                    'rotationBlock.rotation.academicYear',
+                    'trainingSite',
+                    'department',
+                    'distributionVersion.rotation',
+                ])
+                ->orderBy('id', 'asc')
+                ->get();
+        }
+
+        return $assignments;
     }
 }

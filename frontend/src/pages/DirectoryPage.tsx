@@ -82,7 +82,28 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     phone: '',
     city: 'الخليل',
     notes: '',
+    gpa: '',
+    warning_count: 0,
   });
+
+  const resetStudentForm = () => {
+    setStudentForm({
+      university_number: '',
+      full_name_ar: '',
+      full_name_en: '',
+      national_id: '',
+      academic_level: 'fourth',
+      batch_year: 2022,
+      registration_status: 'active',
+      gender: 'male',
+      university_email: '',
+      phone: '',
+      city: 'الخليل',
+      notes: '',
+      gpa: '',
+      warning_count: 0,
+    });
+  };
 
   const query = new URLSearchParams({ per_page: perPage, page: String(page) });
   if (debouncedSearch.trim()) query.set('search', debouncedSearch.trim());
@@ -158,23 +179,6 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     }
   });
 
-  const resetStudentForm = () => {
-    setStudentForm({
-      university_number: '',
-      full_name_ar: '',
-      full_name_en: '',
-      national_id: '',
-      academic_level: 'fourth',
-      batch_year: 2022,
-      registration_status: 'active',
-      gender: 'male',
-      university_email: '',
-      phone: '',
-      city: 'الخليل',
-      notes: '',
-    });
-  };
-
   const handleOpenAdd = () => {
     setEditingStudent(null);
     resetStudentForm();
@@ -197,6 +201,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       phone: student.phone || '',
       city: student.city || 'الخليل',
       notes: student.notes || '',
+      gpa: student.gpa !== null && student.gpa !== undefined ? String(student.gpa) : '',
+      warning_count: student.warning_count ?? 0,
     });
     setIsAddModalOpen(true);
   };
@@ -216,6 +222,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       ...studentForm,
       batch_year: studentForm.batch_year ? Number(studentForm.batch_year) : undefined,
       university_email: studentForm.university_email || `${studentForm.university_number}@hebron.edu`,
+      gpa: studentForm.gpa !== '' ? Number(studentForm.gpa) : null,
+      warning_count: Number(studentForm.warning_count || 0),
     };
 
     if (editingStudent) {
@@ -225,13 +233,13 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     }
   };
 
-  // Download CSV Template
+  // Download CSV Template with GPA and Warning Count
   const handleDownloadTemplate = () => {
     const csvContent = "\uFEFF" + 
-      "الرقم_الجامعي,الاسم_بالعربية,الاسم_بالانجليزية,السنة_السريرية,سنة_الدفعة,الجنس,رقم_الهاتف,المدينة,الحالة\n" +
-      "22011001,محمد أحمد إبراهيم القواسمي,Mohammad A. Qawasmi,fourth,2022,male,0599111222,الخليل,active\n" +
-      "22011002,سارة محمود علي التميمي,Sara M. Tamimi,fifth,2021,female,0599222333,الخليل,active\n" +
-      "22011003,خالد عمر حسن النتشة,Khaled O. Natsheh,sixth,2020,male,0599333444,يطا,active\n";
+      "الرقم_الجامعي,الاسم_بالعربية,الاسم_بالانجليزية,السنة_السريرية,المعدل_التراكمي,عدد_الإنذارات,سنة_الدفعة,الجنس,رقم_الهاتف,المدينة,الحالة\n" +
+      "22011001,محمد أحمد إبراهيم القواسمي,Mohammad A. Qawasmi,fourth,2.45,0,2022,male,0599111222,الخليل,active\n" +
+      "22011002,سارة محمود علي التميمي,Sara M. Tamimi,fifth,1.85,1,2021,female,0599222333,الخليل,active\n" +
+      "22011003,خالد عمر حسن النتشة,Khaled O. Natsheh,sixth,3.10,0,2020,male,0599333444,يطا,active\n";
     
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -265,17 +273,39 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
         for (let i = 1; i < lines.length; i++) {
           const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
           if (cols.length >= 2 && cols[0] && cols[1]) {
-            parsed.push({
-              university_number: cols[0],
-              full_name_ar: cols[1],
-              full_name_en: cols[2] || '',
-              academic_level: cols[3] || 'fourth',
-              batch_year: cols[4] || '2022',
-              gender: cols[5] || 'male',
-              phone: cols[6] || '',
-              city: cols[7] || 'الخليل',
-              registration_status: cols[8] || 'active',
-            });
+            // Check if column 4 is GPA (numeric or decimal) or batch_year
+            const col4 = cols[4] || '';
+            const col5 = cols[5] || '';
+            
+            // Default template with 11 cols: 0:UnivNum, 1:NameAr, 2:NameEn, 3:Level, 4:GPA, 5:Warnings, 6:Batch, 7:Gender, 8:Phone, 9:City, 10:Status
+            if (cols.length >= 10) {
+              parsed.push({
+                university_number: cols[0],
+                full_name_ar: cols[1],
+                full_name_en: cols[2] || '',
+                academic_level: cols[3] || 'fourth',
+                gpa: col4 ? Number(col4) : undefined,
+                warning_count: col5 ? Number(col5) : 0,
+                batch_year: cols[6] || '2022',
+                gender: cols[7] || 'male',
+                phone: cols[8] || '',
+                city: cols[9] || 'الخليل',
+                registration_status: cols[10] || 'active',
+              });
+            } else {
+              // Legacy 9 cols support
+              parsed.push({
+                university_number: cols[0],
+                full_name_ar: cols[1],
+                full_name_en: cols[2] || '',
+                academic_level: cols[3] || 'fourth',
+                batch_year: cols[4] || '2022',
+                gender: cols[5] || 'male',
+                phone: cols[6] || '',
+                city: cols[7] || 'الخليل',
+                registration_status: cols[8] || 'active',
+              });
+            }
           }
         }
 
@@ -810,6 +840,40 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                     value={studentForm.city}
                     onChange={(e) => setStudentForm({ ...studentForm, city: e.target.value })}
                     className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
+                  />
+                </div>
+              </div>
+
+              {/* Row 5: Baseline GPA (Out of 100%) & Academic Warning Count */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-teal-50/50 p-3.5 rounded-2xl border border-teal-100/80">
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-teal-900">
+                    {locale === 'ar' ? 'المعدل التراكمي السابق (من %100)' : 'Cumulative GPA (out of 100%)'}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    placeholder="مثال: 78.50"
+                    value={studentForm.gpa}
+                    onChange={(e) => setStudentForm({ ...studentForm, gpa: e.target.value })}
+                    className="w-full rounded-xl border border-teal-200 px-3.5 py-2 text-sm bg-white font-bold text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-500/20"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-amber-900">
+                    {locale === 'ar' ? 'عدد الإنذارات الأكاديمية التراكمية' : 'Warning Count'}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="10"
+                    placeholder="0"
+                    value={studentForm.warning_count}
+                    onChange={(e) => setStudentForm({ ...studentForm, warning_count: Number(e.target.value) })}
+                    className="w-full rounded-xl border border-amber-200 px-3.5 py-2 text-sm bg-white font-bold text-slate-800 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
                   />
                 </div>
               </div>

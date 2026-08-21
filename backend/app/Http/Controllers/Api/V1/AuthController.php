@@ -106,6 +106,7 @@ class AuthController extends Controller
             'email' => $user->email,
             'roles' => $user->roles->pluck('code')->values()->all(),
             'permissions' => $permissions,
+            'assigned_levels' => $user->assigned_levels ?? null,
         ];
     }
 }

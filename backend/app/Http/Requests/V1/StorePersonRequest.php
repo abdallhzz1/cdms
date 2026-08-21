@@ -35,6 +35,7 @@ class StorePersonRequest extends FormRequest
             'cv_url'                   => ['nullable', 'string', 'max:500'],
             'is_active'                => ['boolean'],
             'user_id'                  => ['nullable', 'exists:users,id', 'unique:people,user_id'],
+            'password'                 => ['nullable', 'string', 'min:6'],
             'notes'                    => ['nullable', 'string', 'max:2000'],
         ];
     }

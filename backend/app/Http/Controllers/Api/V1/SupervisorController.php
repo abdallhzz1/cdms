@@ -99,18 +99,38 @@ class SupervisorController extends Controller
     {
         $user = $request->user();
 
-        // Resolve Person record for the authenticated user
-        $person = Person::where('user_id', $user->id)->where('is_active', true)->first();
+        // Resolve or auto-link Person record for the authenticated user
+        $person = Person::where('user_id', $user->id)->first()
+            ?? Person::where('email', $user->email)->first();
+
+        if ($person && !$person->user_id) {
+            $person->user_id = $user->id;
+            $person->save();
+        }
+
+        if (!$person && ($user->hasRole('CLINICAL_SUPERVISOR') || $user->hasRole('RTA'))) {
+            $person = Person::firstOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'full_name_ar' => $user->name,
+                    'full_name_en' => $user->name,
+                    'email'        => $user->email,
+                    'is_active'    => true,
+                ]
+            );
+        }
 
         if (!$person) {
             return response()->json([
                 'success' => true,
-                'message' => 'No supervisor profile found for this user.',
+                'message' => 'Supervisor profile ready.',
                 'data'    => [],
                 'meta'    => [
                     'person_id'    => null,
+                    'full_name_ar' => $user->name,
+                    'full_name_en' => $user->name,
                     'total'        => 0,
-                    'is_supervisor' => false,
+                    'is_supervisor' => true,
                 ],
             ]);
         }
@@ -123,8 +143,8 @@ class SupervisorController extends Controller
             'data'    => $assignments,
             'meta'    => [
                 'person_id'    => $person->id,
-                'full_name_ar' => $person->full_name_ar,
-                'full_name_en' => $person->full_name_en,
+                'full_name_ar' => $person->full_name_ar ?: $user->name,
+                'full_name_en' => $person->full_name_en ?: $user->name,
                 'total'        => $assignments->count(),
                 'is_supervisor' => true,
             ],

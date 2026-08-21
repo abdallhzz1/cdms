@@ -77,10 +77,10 @@ export async function ensureCsrfCookie(): Promise<void> {
   });
 }
 
-function buildHeaders(init: HeadersInit | undefined, method: string): Headers {
+function buildHeaders(init: HeadersInit | undefined, method: string, isFormData = false): Headers {
   const headers = new Headers(init);
   if (!headers.has('Accept')) headers.set('Accept', 'application/json');
-  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (!isFormData && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
   // Laravel's CSRF check (applied to stateful/cookie-authenticated requests
   // by Sanctum's EnsureFrontendRequestsAreStateful) reads this header and
@@ -106,6 +106,8 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
     await ensureCsrfCookie();
   }
 
+  const isFormData = options.body instanceof FormData;
+
   let response: Response;
   try {
     response = await fetch(url, {
@@ -115,8 +117,8 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
       // sent back on every request (Prompt 02 §17: session-cookie auth, no
       // token in localStorage/sessionStorage).
       credentials: 'include',
-      headers: buildHeaders(options.headers, method),
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      headers: buildHeaders(options.headers, method, isFormData),
+      body: options.body !== undefined ? (isFormData ? (options.body as FormData) : JSON.stringify(options.body)) : undefined,
     });
   } catch {
     throw new ApiError('Unable to reach the server. Please check your connection.', 0);

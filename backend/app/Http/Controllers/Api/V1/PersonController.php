@@ -46,11 +46,35 @@ class PersonController extends Controller
      */
     public function store(StorePersonRequest $request): JsonResponse
     {
-        $person = Person::create($request->validated());
+        $data = $request->validated();
+
+        // Automatically create system user account if email is provided
+        if (!empty($data['email'])) {
+            $user = \App\Models\User::where('email', $data['email'])->first();
+            if (!$user) {
+                $plainPassword = $request->input('password', 'password123');
+                $user = \App\Models\User::create([
+                    'name'      => $data['full_name_ar'],
+                    'email'     => $data['email'],
+                    'password'  => \Illuminate\Support\Facades\Hash::make($plainPassword),
+                    'is_active' => true,
+                ]);
+            }
+
+            $supRole = \App\Models\Role::firstOrCreate(
+                ['code' => 'CLINICAL_SUPERVISOR'],
+                ['name_ar' => 'مشرف سريري', 'name_en' => 'Clinical Supervisor']
+            );
+            $user->roles()->syncWithoutDetaching([$supRole->id]);
+
+            $data['user_id'] = $user->id;
+        }
+
+        $person = Person::create($data);
 
         return ApiResponse::success(
             new PersonResource($person->load('department')),
-            'Person created.',
+            'Person created and system user account linked.',
             [],
             201
         );

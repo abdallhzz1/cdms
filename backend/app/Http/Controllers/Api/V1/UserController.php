@@ -14,8 +14,38 @@ class UserController extends Controller
 {
     public function lookup(Request $request)
     {
-        $users = User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'email']);
-        return \App\Http\Responses\ApiResponse::success($users);
+        $users = User::where('is_active', true)
+            ->whereHas('roles', function ($q) {
+                $q->whereIn('code', [
+                    'DEPARTMENT_HEAD', 
+                    'RTA', 
+                    'CLINICAL_SUPERVISOR', 
+                    'ACADEMIC_ADVISOR', 
+                    'CLINICAL_DIRECTOR', 
+                    'DEAN', 
+                    'VICE_DEAN'
+                ]);
+            })
+            ->with(['roles', 'person:id,user_id'])
+            ->orderBy('name')
+            ->get();
+
+        $result = $users->map(function ($u) {
+            return [
+                'id' => $u->id,
+                'name' => $u->name,
+                'email' => $u->email,
+                'person_id' => $u->person?->id,
+                'roles' => $u->roles->map(fn($r) => [
+                    'id' => $r->id,
+                    'code' => $r->code,
+                    'name' => $r->name,
+                    'name_key' => $r->name_key
+                ]),
+            ];
+        });
+
+        return \App\Http\Responses\ApiResponse::success($result);
     }
 
     public function index(Request $request)
@@ -156,5 +186,47 @@ class UserController extends Controller
         $people = $query->orderBy('full_name_ar')->get(['id', 'full_name_ar', 'full_name_en', 'specialty', 'staff_code']);
         
         return response()->json(['data' => $people]);
+    }
+
+    /**
+     * PUT /api/v1/users/{user}/assign-levels
+     * Assigns grade cohort levels to an RTA/Supervisor user.
+     * Only department_head and admin_assistant roles can call this.
+     */
+    public function assignLevels(Request $request, User $user)
+    {
+        $validated = $request->validate([
+            'assigned_levels' => 'nullable|array',
+            'assigned_levels.*' => 'string|in:fourth,fifth,sixth',
+        ]);
+
+        $user->assigned_levels = !empty($validated['assigned_levels']) ? $validated['assigned_levels'] : null;
+        $user->save();
+
+        return response()->json([
+            'data' => $user->only(['id', 'name', 'email', 'assigned_levels']),
+            'message' => 'تم تحديث الدفعات المخصصة بنجاح.'
+        ]);
+    }
+
+    /**
+     * GET /api/v1/users/rta-list
+     * Returns only users with RTA role (Research & Teaching Assistants) with their assigned_levels.
+     * Clinical Supervisors (doctors) are excluded — their student assignments come from distribution.
+     */
+    public function rtaList()
+    {
+        $users = User::with('roles')
+            ->whereHas('roles', fn($q) => $q->where('code', 'RTA'))
+            ->get(['id', 'name', 'email', 'assigned_levels', 'is_active']);
+
+        return response()->json(['data' => $users->map(fn($u) => [
+            'id' => $u->id,
+            'name' => $u->name,
+            'email' => $u->email,
+            'assigned_levels' => $u->assigned_levels,
+            'is_active' => $u->is_active,
+            'roles' => $u->roles->pluck('code'),
+        ])]);
     }
 }

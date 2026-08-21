@@ -37,7 +37,25 @@ class StudentController extends Controller
             )
             ->when(
                 $request->query('academic_advisor_id'),
-                fn ($q, $a) => $q->where('academic_advisor_id', $a)
+                function ($q, $advisorParam) {
+                    $ids = [(int)$advisorParam];
+                    
+                    $user = \App\Models\User::find($advisorParam);
+                    if ($user) {
+                        if ($user->person_id) $ids[] = (int)$user->person_id;
+                        $personFromUser = \App\Models\Person::where('user_id', $user->id)->first();
+                        if ($personFromUser) $ids[] = (int)$personFromUser->id;
+                    }
+
+                    $person = \App\Models\Person::find($advisorParam);
+                    if ($person) {
+                        $ids[] = (int)$person->id;
+                        if ($person->user_id) $ids[] = (int)$person->user_id;
+                    }
+
+                    $ids = array_unique(array_filter($ids));
+                    $q->whereIn('academic_advisor_id', $ids);
+                }
             )
             ->when(
                 $request->integer('warning_count_min'),
@@ -101,12 +119,51 @@ class StudentController extends Controller
      */
     public function update(UpdateStudentRequest $request, Student $student): JsonResponse
     {
-        $student->update($request->validated());
+        $data = $request->validated();
+
+        if (array_key_exists('academic_advisor_id', $data)) {
+            $advisorId = $data['academic_advisor_id'];
+            if ($advisorId) {
+                $student->academic_advisor_id = (int)$advisorId;
+            } else {
+                $student->academic_advisor_id = null;
+            }
+            unset($data['academic_advisor_id']);
+        }
+
+        $student->update($data);
 
         return ApiResponse::success(
             new StudentResource($student->fresh()->load('academicYear', 'academicAdvisor')),
             'Student updated successfully.'
         );
+    }
+
+    /**
+     * POST /api/v1/students/bulk-assign-advisor
+     */
+    public function bulkAssignAdvisor(Request $request): JsonResponse
+    {
+        $request->validate([
+            'assignments' => 'required|array',
+            'assignments.*.student_id' => 'required|integer|exists:students,id',
+            'assignments.*.academic_advisor_id' => 'nullable|integer',
+        ]);
+
+        $assignments = $request->input('assignments', []);
+        
+        // Group by advisor_id for instant SQL batch updates
+        $grouped = [];
+        foreach ($assignments as $item) {
+            $advisorId = $item['academic_advisor_id'] ? (int)$item['academic_advisor_id'] : null;
+            $grouped[$advisorId][] = (int)$item['student_id'];
+        }
+
+        foreach ($grouped as $advisorId => $studentIds) {
+            Student::whereIn('id', $studentIds)->update(['academic_advisor_id' => $advisorId]);
+        }
+
+        return ApiResponse::success(null, 'Advisor assignments saved successfully.');
     }
 
     /**
@@ -163,6 +220,13 @@ class StudentController extends Controller
                     'academic_level'      => $level,
                     'registration_status' => !empty($row['registration_status']) ? strtolower((string)$row['registration_status']) : 'active',
                 ];
+
+                if (isset($row['gpa']) && $row['gpa'] !== '' && $row['gpa'] !== null) {
+                    $data['gpa'] = (float)$row['gpa'];
+                }
+                if (isset($row['warning_count']) && $row['warning_count'] !== '' && $row['warning_count'] !== null) {
+                    $data['warning_count'] = (int)$row['warning_count'];
+                }
 
                 $student = Student::where('university_number', $univNumber)->first();
                 if ($student) {

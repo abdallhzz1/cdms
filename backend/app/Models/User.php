@@ -32,6 +32,7 @@ class User extends Authenticatable
         'email',
         'password',
         'is_active',
+        'assigned_levels',
     ];
 
     protected $hidden = [
@@ -43,6 +44,7 @@ class User extends Authenticatable
         return [
             'is_active' => 'boolean',
             'password' => 'hashed',
+            'assigned_levels' => 'array',
         ];
     }
 
@@ -62,5 +64,10 @@ class User extends Authenticatable
     public function person()
     {
         return $this->hasOne(Person::class);
+    }
+
+    public function departmentHeadProfile()
+    {
+        return $this->hasOne(DepartmentHeadProfile::class);
     }
 }

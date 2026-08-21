@@ -20,6 +20,12 @@ class GradeEntryController extends Controller {
  }
  public function approve(GradeEntry $gradeEntry, WorkflowTransitionService $workflow): JsonResponse {
      $workflow->transition($gradeEntry, 'approved');
+     
+     $student = $gradeEntry->enrollment?->student;
+     if ($student) {
+         $student->recalculateGpa();
+     }
+
      return ApiResponse::success($gradeEntry->fresh(), 'Grade approved.');
  }
 }

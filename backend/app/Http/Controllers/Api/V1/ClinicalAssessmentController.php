@@ -31,9 +31,14 @@ class ClinicalAssessmentController extends Controller
             'max_score' => ['required', 'numeric', 'gt:0'],
             'notes' => ['nullable', 'string', 'max:3000'],
         ]);
-        if (isset($data['score']) && $data['score'] > $data['max_score']) return ApiResponse::error('Score cannot exceed maximum score.', ['score' => ['Score cannot exceed maximum score.']], [], 422);
 
-        return ApiResponse::success(ClinicalAssessment::create($data + ['status' => 'draft']), 'Assessment created.', [], 201);
+        if (isset($data['score']) && $data['score'] > $data['max_score']) {
+            return ApiResponse::error('Score cannot exceed maximum score.', ['score' => ['Score cannot exceed maximum score.']], [], 422);
+        }
+
+        $assessment = ClinicalAssessment::create($data + ['status' => 'submitted']);
+
+        return ApiResponse::success($assessment, 'Clinical assessment submitted successfully.', [], 201);
     }
 
     public function submit(ClinicalAssessment $clinicalAssessment, WorkflowTransitionService $workflow): JsonResponse

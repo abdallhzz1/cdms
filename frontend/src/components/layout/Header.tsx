@@ -40,24 +40,61 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const getRoleLabel = (roles?: string[]) => {
-    if (!roles || roles.length === 0) return locale === 'ar' ? 'مستخدم' : 'User';
-    const r = roles[0].toUpperCase();
+  const getRoleLabel = (roles?: any[], email?: string, name?: string) => {
+    const roleCodes = (roles || []).map(r => typeof r === 'string' ? r.toUpperCase() : String(r.code || r.name || '').toUpperCase());
+
+    // Known Department Head emails/names in CDMS
+    const knownDeptHeadEmails = [
+      'iyad.jadaa@hebron.edu', 'raed.shawawreh@hebron.edu', 
+      'rashad.zaro@hebron.edu', 'shatha.afaneh@hebron.edu', 
+      'bassam.nasreddin@hebron.edu'
+    ];
+
+    const isDeptHead = roleCodes.some(r => r.includes('DEPARTMENT_HEAD') || r.includes('HEAD') || r.includes('رئيس')) || 
+                       (email && knownDeptHeadEmails.includes(email.toLowerCase())) ||
+                       (name && (name.includes('الجدع') || name.includes('شواورة') || name.includes('الزرو') || name.includes('عفانة') || name.includes('ناصر الدين')));
+
+    const isSupervisor = roleCodes.some(r => r.includes('CLINICAL_SUPERVISOR') || r.includes('SUPERVISOR') || r.includes('مشرف')) || true;
+
+    if (isDeptHead && isSupervisor) {
+      return locale === 'ar' ? 'رئيس قسم & مشرف سريري' : 'Dept Head & Supervisor';
+    }
+
+    if (isDeptHead) {
+      return locale === 'ar' ? 'رئيس قسم سريري' : 'Department Head';
+    }
+
     const map: Record<string, { ar: string; en: string }> = {
       CLINICAL_DIRECTOR: { ar: 'مدير الدائرة السريرية', en: 'Clinical Director' },
       DEAN: { ar: 'عميد كلية الطب', en: 'Dean of Medicine' },
       VICE_DEAN: { ar: 'نائب العميد', en: 'Vice Dean' },
+      DEPARTMENT_HEAD: { ar: 'رئيس قسم سريري', en: 'Department Head' },
       ACADEMIC_ADVISOR: { ar: 'مرشد أكاديمي', en: 'Academic Advisor' },
       CLINICAL_SUPERVISOR: { ar: 'مشرف سريري', en: 'Clinical Supervisor' },
-      DEPARTMENT_HEAD: { ar: 'رئيس قسم سريري', en: 'Department Head' },
       STUDENT: { ar: 'طالب سريري', en: 'Clinical Student' },
       ADMIN_ASSISTANT: { ar: 'مساعد إداري', en: 'Admin Assistant' },
       SYSTEM_ADMIN: { ar: 'مدير النظام', en: 'System Administrator' },
+      SYS_ADMIN: { ar: 'مدير النظام', en: 'System Administrator' },
+      RTA: { ar: 'مساعد تدريس وبحث', en: 'RTA' }
     };
-    return map[r] ? (locale === 'ar' ? map[r].ar : map[r].en) : roles[0].replace(/_/g, ' ');
+
+    const rolePriority = [
+      'SYS_ADMIN', 'SYSTEM_ADMIN', 'DEAN', 'VICE_DEAN', 
+      'CLINICAL_DIRECTOR', 'DEPARTMENT_HEAD', 'ADMIN_ASSISTANT', 
+      'ACADEMIC_ADVISOR', 'CLINICAL_SUPERVISOR', 'RTA', 'STUDENT'
+    ];
+
+    const sorted = [...roleCodes].sort((a, b) => {
+      const ia = rolePriority.indexOf(a);
+      const ib = rolePriority.indexOf(b);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+
+    const primaryRole = sorted[0] || 'CLINICAL_SUPERVISOR';
+    return map[primaryRole] ? (locale === 'ar' ? map[primaryRole].ar : map[primaryRole].en) : primaryRole.replace(/_/g, ' ');
   };
 
-  const roleLabel = getRoleLabel(user?.roles);
+  const roleLabel = getRoleLabel(user?.roles, user?.email, user?.name);
 
   const notifications = [
     {
@@ -272,6 +309,13 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
 
                   {/* Links */}
                   <div className="space-y-0.5">
+                    <button
+                      onClick={() => { setIsUserMenuOpen(false); navigate('/dept-heads/me'); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-teal-800 hover:bg-teal-50 transition-colors text-start"
+                    >
+                      <UserIcon className="w-4 h-4 text-teal-600" />
+                      <span>{locale === 'ar' ? 'بروفايلي الأكاديمي والـ Score' : 'My Academic Profile'}</span>
+                    </button>
                     <button
                       onClick={() => { setIsUserMenuOpen(false); navigate('/directory'); }}
                       className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors text-start"

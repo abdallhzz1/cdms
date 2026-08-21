@@ -144,4 +144,40 @@ class Student extends Model
     {
         $query->where('warning_count', '>', 0);
     }
+
+    /**
+     * Recalculate student GPA & Passed Credit Hours dynamically.
+     */
+    public function recalculateGpa(): void
+    {
+        $enrollments = StudentCourseEnrollment::where('student_id', $this->id)
+            ->with(['course', 'gradeEntry'])
+            ->get();
+
+        $initialGpa = $this->gpa ?? 0;
+        $initialHours = $this->credit_hours_passed ?? 0;
+
+        $totalPoints = $initialGpa * $initialHours;
+        $totalHours = $initialHours;
+
+        foreach ($enrollments as $enrollment) {
+            $grade = $enrollment->gradeEntry;
+            $course = $enrollment->course;
+            if ($grade && $grade->status === 'approved' && $grade->score !== null && $course && $course->credit_hours) {
+                $percentage = ($grade->score / $grade->max_score) * 100;
+                $creditHours = (int)$course->credit_hours;
+
+                $totalPoints += ($percentage * $creditHours);
+                $totalHours += $creditHours;
+            }
+        }
+
+        if ($totalHours > 0) {
+            $newGpa = round($totalPoints / $totalHours, 2);
+            $this->update([
+                'gpa' => $newGpa,
+                'credit_hours_passed' => $totalHours,
+            ]);
+        }
+    }
 }

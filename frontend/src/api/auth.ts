@@ -11,6 +11,7 @@ export interface AuthenticatedUser {
   email: string;
   roles: string[];
   permissions: Permission[];
+  assigned_levels?: string[] | null;
 }
 
 export function login(email: string, password: string): Promise<AuthenticatedUser> {

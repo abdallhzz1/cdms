@@ -45,9 +45,30 @@ class StudentResource extends JsonResource
             'academic_year'           => $this->whenLoaded('academicYear', fn () =>
                 new AcademicYearResource($this->academicYear)
             ),
-            'academic_advisor'        => $this->whenLoaded('academicAdvisor', fn () =>
-                new PersonResource($this->academicAdvisor)
-            ),
+            'academic_advisor'        => $this->whenLoaded('academicAdvisor', function () {
+                if ($this->academic_advisor_id) {
+                    $u = \App\Models\User::find($this->academic_advisor_id);
+                    if ($u) {
+                        return [
+                            'id'           => $u->id,
+                            'name'         => $u->name,
+                            'full_name_ar' => $u->name,
+                            'full_name_en' => $u->name,
+                            'email'        => $u->email,
+                        ];
+                    }
+                    if ($this->academicAdvisor) {
+                        return [
+                            'id'           => $this->academicAdvisor->id,
+                            'name'         => $this->academicAdvisor->full_name_ar,
+                            'full_name_ar' => $this->academicAdvisor->full_name_ar,
+                            'full_name_en' => $this->academicAdvisor->full_name_en ?? $this->academicAdvisor->full_name_ar,
+                            'email'        => $this->academicAdvisor->email,
+                        ];
+                    }
+                }
+                return null;
+            }),
             'current_group_name'      => $this->whenLoaded('currentGroupAssignments', fn () =>
                 $this->currentGroupAssignments->first()?->group?->name
             ),

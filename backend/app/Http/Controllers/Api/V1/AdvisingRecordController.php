@@ -22,11 +22,32 @@ class AdvisingRecordController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'student_id' => ['required', 'exists:students,id'], 'advisor_person_id' => ['nullable', 'exists:people,id'],
-            'meeting_date' => ['required', 'date'], 'category' => ['required', Rule::in(['general', 'academic', 'risk'])],
-            'notes' => ['required', 'string', 'max:5000'], 'action_plan' => ['nullable', 'string', 'max:5000'],
+            'student_id' => ['required', 'exists:students,id'],
+            'advisor_person_id' => ['nullable'],
+            'meeting_date' => ['required', 'date'],
+            'category' => ['required', Rule::in(['general', 'academic', 'risk'])],
+            'notes' => ['required', 'string', 'max:5000'],
+            'action_plan' => ['nullable', 'string', 'max:5000'],
         ]);
-        return ApiResponse::success(AdvisingRecord::create($data), 'Advising record created.', [], 201);
+
+        if (!empty($data['advisor_person_id'])) {
+            $val = $data['advisor_person_id'];
+            $person = \App\Models\Person::find($val);
+            if ($person) {
+                $data['advisor_person_id'] = $person->id;
+            } else {
+                $user = \App\Models\User::find($val);
+                if ($user && $user->person_id) {
+                    $data['advisor_person_id'] = $user->person_id;
+                } else {
+                    $personFromUser = \App\Models\Person::where('user_id', $val)->first();
+                    $data['advisor_person_id'] = $personFromUser ? $personFromUser->id : null;
+                }
+            }
+        }
+
+        $record = AdvisingRecord::create($data);
+        return ApiResponse::success($record->load(['student', 'advisor']), 'Advising record created.', [], 201);
     }
 
     public function update(Request $request, AdvisingRecord $advisingRecord): JsonResponse
