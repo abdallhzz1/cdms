@@ -5,13 +5,16 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Role;
-use App\Models\Person;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
+use App\Http\Responses\ApiResponse;
 
 class UserController extends Controller
 {
+    /**
+     * User Lookup for Dropdowns
+     */
     public function lookup(Request $request)
     {
         $users = User::where('is_active', true)
@@ -26,7 +29,7 @@ class UserController extends Controller
                     'VICE_DEAN'
                 ]);
             })
-            ->with(['roles', 'person:id,user_id'])
+            ->with('roles')
             ->orderBy('name')
             ->get();
 
@@ -35,19 +38,20 @@ class UserController extends Controller
                 'id' => $u->id,
                 'name' => $u->name,
                 'email' => $u->email,
-                'person_id' => $u->person?->id,
                 'roles' => $u->roles->map(fn($r) => [
                     'id' => $r->id,
                     'code' => $r->code,
-                    'name' => $r->name,
                     'name_key' => $r->name_key
                 ]),
             ];
         });
 
-        return \App\Http\Responses\ApiResponse::success($result);
+        return ApiResponse::success($result);
     }
 
+    /**
+     * GET /api/v1/users (and /api/v1/admin/users)
+     */
     public function index(Request $request)
     {
         try {
@@ -82,15 +86,17 @@ class UserController extends Controller
         }
     }
 
+    /**
+     * POST /api/v1/users
+     */
     public function store(Request $request)
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
-            'password' => 'required|string|min:8',
+            'password' => 'required|string|min:6',
             'roles' => 'array',
             'roles.*' => 'exists:roles,code',
-            'person_id' => 'nullable|exists:people,id',
             'is_active' => 'boolean',
         ]);
 
@@ -106,102 +112,11 @@ class UserController extends Controller
             $user->roles()->sync($roleIds);
         }
 
-        if (!empty($validated['person_id'])) {
-            Person::where('id', $validated['person_id'])->update(['user_id' => $user->id]);
-        }
-
-        return response()->json(['data' => $user->load(['roles', 'person'])]);
-    }
-
-    public function show(User $user)
-    {
-        return response()->json(['data' => $user->load(['roles', 'person'])]);
-    }
-
-    public function update(Request $request, User $user)
-    {
-        $validated = $request->validate([
-            'name' => 'sometimes|required|string|max:255',
-            'email' => ['sometimes', 'required', 'email', Rule::unique('users')->ignore($user->id)],
-            'password' => 'nullable|string|min:8',
-            'roles' => 'array',
-            'roles.*' => 'exists:roles,code',
-            'person_id' => 'nullable|exists:people,id',
-            'is_active' => 'boolean',
-        ]);
-
-        if (isset($validated['name'])) {
-            $user->name = $validated['name'];
-        }
-
-        if (isset($validated['email'])) {
-            $user->email = $validated['email'];
-        }
-
-        if (!empty($validated['password'])) {
-            $user->password = Hash::make($validated['password']);
-        }
-
-        if (isset($validated['is_active'])) {
-            $user->is_active = $validated['is_active'];
-        }
-
-        $user->save();
-
-        if (isset($validated['roles'])) {
-            $roleIds = Role::whereIn('code', $validated['roles'])->pluck('id');
-            $user->roles()->sync($roleIds);
-        }
-
-        if (array_key_exists('person_id', $validated)) {
-            // Unlink old person if any
-            Person::where('user_id', $user->id)->update(['user_id' => null]);
-            // Link new person
-            if (!empty($validated['person_id'])) {
-                Person::where('id', $validated['person_id'])->update(['user_id' => $user->id]);
-            }
-        }
-
-        return response()->json(['data' => $user->load(['roles', 'person'])]);
-    }
-
-    public function toggleActive(User $user)
-    {
-        // Don't allow a user to disable themselves
-        if (auth()->id() === $user->id) {
-            return response()->json(['message' => 'Cannot disable your own account'], 400);
-        }
-
-        $user->is_active = !$user->is_active;
-        $user->save();
-
-        return response()->json(['data' => $user]);
-    }
-
-    // List all roles for the dropdown
-    public function getRoles()
-    {
-        return response()->json(['data' => Role::all()]);
-    }
-
-    // List available unlinked people for dropdown
-    public function getAvailablePeople(Request $request)
-    {
-        $query = Person::whereNull('user_id');
-        
-        // If editing a user, include their currently linked person
-        if ($request->filled('current_user_id')) {
-            $query->orWhere('user_id', $request->current_user_id);
-        }
-
-        $people = $query->orderBy('full_name_ar')->get(['id', 'full_name_ar', 'full_name_en', 'specialty', 'staff_code']);
-        
-        return response()->json(['data' => $people]);
+        return ApiResponse::success($user->load('roles'), 'تم إنشاء الحساب بنجاح.');
     }
 
     /**
-        /**
-     * Update User
+     * PUT /api/v1/users/{user}
      */
     public function update(Request $request, User $user)
     {
@@ -224,39 +139,35 @@ class UserController extends Controller
             $user->roles()->sync($roleIds);
         }
 
-        return \App\Http\Responses\ApiResponse::success(
+        return ApiResponse::success(
             $user->load('roles'),
             'تم تحديث بيانات الحساب بنجاح.'
         );
     }
 
     /**
-     * Delete User Permanently
+     * DELETE /api/v1/users/{user}
      */
     public function destroy(User $user)
     {
         // Safety Protection: Cannot delete logged in user or primary admin
         if (auth()->id() === $user->id) {
-            return \App\Http\Responses\ApiResponse::error('لا يمكن حذف حسابك الشخصي المتصل حالياً.', 422);
+            return ApiResponse::error('لا يمكن حذف حسابك الشخصي المتصل حالياً.', 422);
         }
 
         if ($user->email === 'admin1@hebron.edu') {
-            return \App\Http\Responses\ApiResponse::error('لا يمكن حذف حساب مدير النظام الرئيسي (admin1@hebron.edu).', 422);
+            return ApiResponse::error('لا يمكن حذف حساب مدير النظام الرئيسي (admin1@hebron.edu).', 422);
         }
 
-        // Detach roles & remove person link
+        // Detach roles
         $user->roles()->detach();
-        if ($user->person) {
-            $user->person->update(['user_id' => null]);
-        }
-
         $user->delete();
 
-        return \App\Http\Responses\ApiResponse::success(null, 'تم حذف الحساب نهائياً من النظام بنجاح.');
+        return ApiResponse::success(null, 'تم حذف الحساب نهائياً من النظام بنجاح.');
     }
 
     /**
-     * Reset User Password
+     * POST /api/v1/users/{user}/reset-password
      */
     public function resetPassword(Request $request, User $user)
     {
@@ -268,29 +179,35 @@ class UserController extends Controller
             'password' => Hash::make($validated['password']),
         ]);
 
-        return \App\Http\Responses\ApiResponse::success(null, 'تم تعيين كلمة المرور الجديدة للحساب بنجاح.');
+        return ApiResponse::success(null, 'تم تعيين كلمة المرور الجديدة للحساب بنجاح.');
     }
 
     /**
-     * Toggle User Active Status
+     * POST /api/v1/users/{user}/toggle
      */
     public function toggleActive(User $user)
     {
         if (auth()->id() === $user->id) {
-            return \App\Http\Responses\ApiResponse::error('لا يمكن تجميد حسابك الشخصي المتصل حالياً.', 422);
+            return ApiResponse::error('لا يمكن تجميد حسابك الشخصي المتصل حالياً.', 422);
         }
 
         $user->is_active = !$user->is_active;
         $user->save();
 
         $status = $user->is_active ? 'تفعيل' : 'تجميد';
-        return \App\Http\Responses\ApiResponse::success($user, "تم {$status} الحساب بنجاح.");
+        return ApiResponse::success($user, "تم {$status} الحساب بنجاح.");
+    }
+
+    /**
+     * GET /api/v1/users/roles
+     */
+    public function getRoles()
+    {
+        return ApiResponse::success(Role::all(['id', 'code', 'name_key']));
     }
 
     /**
      * PUT /api/v1/users/{user}/assign-levels
-     * Assigns grade cohort levels to an RTA/Supervisor user.
-     * Only department_head and admin_assistant roles can call this.
      */
     public function assignLevels(Request $request, User $user)
     {
@@ -302,16 +219,14 @@ class UserController extends Controller
         $user->assigned_levels = !empty($validated['assigned_levels']) ? $validated['assigned_levels'] : null;
         $user->save();
 
-        return response()->json([
-            'data' => $user->only(['id', 'name', 'email', 'assigned_levels']),
-            'message' => 'تم تحديث الدفعات المخصصة بنجاح.'
-        ]);
+        return ApiResponse::success(
+            $user->only(['id', 'name', 'email', 'assigned_levels']),
+            'تم تحديث الدفعات المخصصة بنجاح.'
+        );
     }
 
     /**
      * GET /api/v1/users/rta-list
-     * Returns only users with RTA role (Research & Teaching Assistants) with their assigned_levels.
-     * Clinical Supervisors (doctors) are excluded — their student assignments come from distribution.
      */
     public function rtaList()
     {
@@ -319,13 +234,13 @@ class UserController extends Controller
             ->whereHas('roles', fn($q) => $q->where('code', 'RTA'))
             ->get(['id', 'name', 'email', 'assigned_levels', 'is_active']);
 
-        return response()->json(['data' => $users->map(fn($u) => [
+        return ApiResponse::success($users->map(fn($u) => [
             'id' => $u->id,
             'name' => $u->name,
             'email' => $u->email,
             'assigned_levels' => $u->assigned_levels,
             'is_active' => $u->is_active,
             'roles' => $u->roles->pluck('code'),
-        ])]);
+        ]));
     }
 }
