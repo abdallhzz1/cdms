@@ -3,16 +3,16 @@
     RewriteBase /
 
     # Route /sanctum requests to backend/public/index.php
-    RewriteCond %{REQUEST_URI} ^/sanctum/ [NC]
-    RewriteRule ^sanctum/(.*)$ backend/public/index.php [L,QSA]
+    RewriteCond %{REQUEST_URI} ^/sanctum [NC]
+    RewriteRule ^sanctum(.*)$ backend/public/index.php [L,QSA]
 
-    # Route /api requests to backend/public/api
-    RewriteCond %{REQUEST_URI} ^/api/ [NC]
-    RewriteRule ^api/(.*)$ backend/public/api/$1 [L,QSA]
+    # Route /api requests to backend/public/index.php
+    RewriteCond %{REQUEST_URI} ^/api [NC]
+    RewriteRule ^api(.*)$ backend/public/index.php [L,QSA]
 
     # Route /storage requests to backend/public/storage
-    RewriteCond %{REQUEST_URI} ^/storage/ [NC]
-    RewriteRule ^storage/(.*)$ backend/public/storage/$1 [L,QSA]
+    RewriteCond %{REQUEST_URI} ^/storage [NC]
+    RewriteRule ^storage(.*)$ backend/public/storage$1 [L,QSA]
 
     # Allow direct access to existing files and directories
     RewriteCond %{REQUEST_FILENAME} -f [OR]
