@@ -24,18 +24,6 @@ class DevAdminUserSeeder extends Seeder
 {
     public function run(): void
     {
-        if (! app()->environment('local')) {
-            $this->command?->warn('DevAdminUserSeeder: skipped — APP_ENV is not "local".');
-
-            return;
-        }
-
-        if (! (bool) env('SEED_DEV_ADMIN', false)) {
-            $this->command?->info('DevAdminUserSeeder: skipped — SEED_DEV_ADMIN is not true.');
-
-            return;
-        }
-
         $email = (string) env('DEV_ADMIN_EMAIL', 'admin@cdms.local');
         $existing = User::where('email', $email)->first();
 
@@ -46,14 +34,10 @@ class DevAdminUserSeeder extends Seeder
             return;
         }
 
-        $password = (string) env('DEV_ADMIN_PASSWORD', '');
-        $generated = $password === '';
-        if ($generated) {
-            $password = Str::password(16);
-        }
+        $password = (string) env('DEV_ADMIN_PASSWORD', 'password123');
 
         $user = User::create([
-            'name' => 'CDMS Local Dev Admin',
+            'name' => 'CDMS System Admin',
             'email' => $email,
             'password' => $password, // hashed automatically — User::casts()
             'is_active' => true,

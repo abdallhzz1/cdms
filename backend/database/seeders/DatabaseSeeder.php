@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             PermissionSeeder::class,
             RolePermissionSeeder::class,
             DevAdminUserSeeder::class,
+            DepartmentHeadProfileSeeder::class,
         ]);
     }
 }
