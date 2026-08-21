@@ -42,33 +42,20 @@ export class ApiError extends Error {
 }
 
 export function getApiBaseUrl(): string {
-  const envUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
-    return envUrl;
-  }
-  if (typeof window !== 'undefined' && window.location && window.location.origin) {
-    return `${window.location.origin}/api/v1`;
-  }
   return '/api/v1';
 }
+
+export const API_BASE_URL: string = '/api/v1';
 
 export function apiUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
-  const base = getApiBaseUrl();
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${base}${cleanPath}`;
+  return `/api/v1${cleanPath}`;
 }
 
 export function getApiOrigin(): string {
-  const envUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
-    return envUrl.replace(/\/api(\/v\d+)?\/?$/, '');
-  }
-  if (typeof window !== 'undefined' && window.location && window.location.origin) {
-    return window.location.origin;
-  }
   return '';
 }
 
@@ -81,10 +68,8 @@ function readCookie(name: string): string | null {
 
 export async function ensureCsrfCookie(): Promise<void> {
   if (readCookie('XSRF-TOKEN')) return;
-  const origin = getApiOrigin();
-  const csrfUrl = origin ? `${origin}/sanctum/csrf-cookie` : '/sanctum/csrf-cookie';
 
-  await fetch(csrfUrl, {
+  await fetch('/sanctum/csrf-cookie', {
     method: 'GET',
     credentials: 'include',
     headers: { Accept: 'application/json' },
