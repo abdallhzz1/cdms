@@ -2,11 +2,15 @@
     RewriteEngine On
     RewriteBase /
 
-    # Route API requests to backend/public/api
+    # Route /sanctum requests to backend/public/index.php
+    RewriteCond %{REQUEST_URI} ^/sanctum/ [NC]
+    RewriteRule ^sanctum/(.*)$ backend/public/index.php [L,QSA]
+
+    # Route /api requests to backend/public/api
     RewriteCond %{REQUEST_URI} ^/api/ [NC]
     RewriteRule ^api/(.*)$ backend/public/api/$1 [L,QSA]
 
-    # Route Storage requests to backend/public/storage
+    # Route /storage requests to backend/public/storage
     RewriteCond %{REQUEST_URI} ^/storage/ [NC]
     RewriteRule ^storage/(.*)$ backend/public/storage/$1 [L,QSA]
 

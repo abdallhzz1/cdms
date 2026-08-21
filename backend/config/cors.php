@@ -5,9 +5,12 @@
 // origins (e.g. a staging frontend URL) via FRONTEND_URLS in .env rather than
 // widening this file.
 
-$configuredOrigins = array_filter(array_map(
-    'trim',
-    explode(',', (string) env('FRONTEND_URLS', env('FRONTEND_URL', 'http://localhost:5173')))
+$configuredOrigins = array_unique(array_merge(
+    array_filter(array_map(
+        'trim',
+        explode(',', (string) env('FRONTEND_URLS', env('FRONTEND_URL', 'http://localhost:5173')))
+    )),
+    ['https://cdms.four7.ps', 'http://cdms.four7.ps', 'http://localhost:5173']
 ));
 
 return [

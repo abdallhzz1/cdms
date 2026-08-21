@@ -41,7 +41,12 @@ export class ApiError extends Error {
   }
 }
 
-export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
+export const API_BASE_URL: string =
+  (import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.trim() !== '')
+    ? import.meta.env.VITE_API_BASE_URL
+    : (typeof window !== 'undefined' && window.location.origin
+        ? `${window.location.origin}/api/v1`
+        : 'http://localhost:8000/api/v1');
 
 export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
