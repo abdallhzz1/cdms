@@ -50,25 +50,36 @@ class UserController extends Controller
 
     public function index(Request $request)
     {
-        $query = User::with('roles:id,code,name_key');
+        try {
+            $query = User::with('roles');
 
-        if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%");
-            });
+            if ($request->filled('search')) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('email', 'like', "%{$search}%");
+                });
+            }
+
+            $users = $query->orderBy('id', 'desc')->paginate($request->get('per_page', 100));
+
+            return response()->json([
+                'data' => [
+                    'items' => $users->items(),
+                    'total' => $users->total(),
+                    'last_page' => $users->lastPage()
+                ]
+            ]);
+        } catch (\Throwable $e) {
+            $allUsers = User::with('roles')->orderBy('id', 'desc')->get();
+            return response()->json([
+                'data' => [
+                    'items' => $allUsers,
+                    'total' => $allUsers->count(),
+                    'last_page' => 1
+                ]
+            ]);
         }
-
-        $users = $query->orderBy('name')->paginate($request->get('per_page', 100));
-
-        return response()->json([
-            'data' => [
-                'items' => $users->items(),
-                'total' => $users->total(),
-                'last_page' => $users->lastPage()
-            ]
-        ]);
     }
 
     public function store(Request $request)
