@@ -366,6 +366,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('users/roles', [\App\Http\Controllers\Api\V1\UserController::class, 'getRoles']);
             Route::get('users/available-people', [\App\Http\Controllers\Api\V1\UserController::class, 'getAvailablePeople']);
             Route::post('users/{user}/toggle', [\App\Http\Controllers\Api\V1\UserController::class, 'toggleActive']);
+            Route::post('users/{user}/reset-password', [\App\Http\Controllers\Api\V1\UserController::class, 'resetPassword']);
             Route::apiResource('users', \App\Http\Controllers\Api\V1\UserController::class, ['as' => 'direct']);
 
             // Direct route aliases

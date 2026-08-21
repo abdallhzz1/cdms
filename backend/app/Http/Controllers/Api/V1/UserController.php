@@ -189,6 +189,94 @@ class UserController extends Controller
     }
 
     /**
+        /**
+     * Update User
+     */
+    public function update(Request $request, User $user)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => ['required', 'email', Rule::unique('users')->ignore($user->id)],
+            'roles' => 'array',
+            'roles.*' => 'exists:roles,code',
+            'is_active' => 'boolean',
+        ]);
+
+        $user->update([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'is_active' => $validated['is_active'] ?? $user->is_active,
+        ]);
+
+        if (isset($validated['roles'])) {
+            $roleIds = Role::whereIn('code', $validated['roles'])->pluck('id');
+            $user->roles()->sync($roleIds);
+        }
+
+        return \App\Http\Responses\ApiResponse::success(
+            $user->load('roles'),
+            'تم تحديث بيانات الحساب بنجاح.'
+        );
+    }
+
+    /**
+     * Delete User Permanently
+     */
+    public function destroy(User $user)
+    {
+        // Safety Protection: Cannot delete logged in user or primary admin
+        if (auth()->id() === $user->id) {
+            return \App\Http\Responses\ApiResponse::error('لا يمكن حذف حسابك الشخصي المتصل حالياً.', 422);
+        }
+
+        if ($user->email === 'admin1@hebron.edu') {
+            return \App\Http\Responses\ApiResponse::error('لا يمكن حذف حساب مدير النظام الرئيسي (admin1@hebron.edu).', 422);
+        }
+
+        // Detach roles & remove person link
+        $user->roles()->detach();
+        if ($user->person) {
+            $user->person->update(['user_id' => null]);
+        }
+
+        $user->delete();
+
+        return \App\Http\Responses\ApiResponse::success(null, 'تم حذف الحساب نهائياً من النظام بنجاح.');
+    }
+
+    /**
+     * Reset User Password
+     */
+    public function resetPassword(Request $request, User $user)
+    {
+        $validated = $request->validate([
+            'password' => 'required|string|min:6',
+        ]);
+
+        $user->update([
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        return \App\Http\Responses\ApiResponse::success(null, 'تم تعيين كلمة المرور الجديدة للحساب بنجاح.');
+    }
+
+    /**
+     * Toggle User Active Status
+     */
+    public function toggleActive(User $user)
+    {
+        if (auth()->id() === $user->id) {
+            return \App\Http\Responses\ApiResponse::error('لا يمكن تجميد حسابك الشخصي المتصل حالياً.', 422);
+        }
+
+        $user->is_active = !$user->is_active;
+        $user->save();
+
+        $status = $user->is_active ? 'تفعيل' : 'تجميد';
+        return \App\Http\Responses\ApiResponse::success($user, "تم {$status} الحساب بنجاح.");
+    }
+
+    /**
      * PUT /api/v1/users/{user}/assign-levels
      * Assigns grade cohort levels to an RTA/Supervisor user.
      * Only department_head and admin_assistant roles can call this.
