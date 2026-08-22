@@ -316,6 +316,23 @@ export function DistributionPage() {
   // 1. Cohort Level (4th, 5th, 6th)
   const [levelFilter, setLevelFilter] = useState<string>('fourth');
   
+  // Public Student Registration Enable/Disable State per Cohort
+  const [isPublicRegEnabled, setIsPublicRegEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('cdms_public_reg_enabled_fourth');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+
+  useEffect(() => {
+    const saved = localStorage.getItem(`cdms_public_reg_enabled_${levelFilter}`);
+    setIsPublicRegEnabled(saved !== null ? JSON.parse(saved) : true);
+  }, [levelFilter]);
+
+  const togglePublicRegistration = () => {
+    const nextState = !isPublicRegEnabled;
+    setIsPublicRegEnabled(nextState);
+    localStorage.setItem(`cdms_public_reg_enabled_${levelFilter}`, JSON.stringify(nextState));
+  };
+  
   // 2. Custom Group Letters Configuration
   const [groupLetters, setGroupLetters] = useState<{ [level: string]: [string, string, string] }>(() => {
     const saved = localStorage.getItem('cdms_group_letters');
@@ -2522,6 +2539,116 @@ export function DistributionPage() {
               <span className="w-2.5 h-2.5 rounded-full bg-purple-400"></span>
               <span>{locale === 'ar' ? 'السنة السادسة (Advanced Internship)' : '6th Year (Internship)'}</span>
             </button>
+          </div>
+
+          {/* RTA Cohort Management Control Panel (خياران للإنشاء + مفتاح تفعيل/تعطيل رابط الطلاب) */}
+          <div className="p-4 rounded-3xl bg-slate-900 text-white shadow-lg space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full bg-teal-500/20 text-teal-300 text-[10px] font-bold border border-teal-500/30">
+                    {locale === 'ar' ? 'لوحة تحكم مسؤول الدفعة (RTA Control Panel)' : 'RTA Cohort Control Panel'}
+                  </span>
+
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    isPublicRegEnabled
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                  }`}>
+                    {isPublicRegEnabled 
+                      ? (locale === 'ar' ? '🟢 رابط التسجيل الذاتي للطلاب مفعّل' : '🟢 Student Self-Reg Active')
+                      : (locale === 'ar' ? '🔴 رابط التسجيل الذاتي للطلاب معطّل' : '🔴 Student Self-Reg Disabled')}
+                  </span>
+                </div>
+                <h4 className="text-sm font-bold text-slate-100">
+                  {locale === 'ar' ? 'إعدادات وآلية توزيع المجموعات المتاحة لهذه الدفعة' : 'Cohort Group Creation & Registration Mode'}
+                </h4>
+              </div>
+
+              {/* Public Registration Link Toggle Switch */}
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={togglePublicRegistration}
+                  className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-xs ${
+                    isPublicRegEnabled
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                      : 'bg-red-600 hover:bg-red-700 text-white'
+                  }`}
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>
+                    {isPublicRegEnabled
+                      ? (locale === 'ar' ? 'تعطيل رابط الطلاب' : 'Disable Student Link')
+                      : (locale === 'ar' ? 'تفعيل رابط الطلاب' : 'Enable Student Link')}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText('https://cdms.four7.ps/public/student-registration');
+                    alert(locale === 'ar' ? 'تم نسخ رابط التسجيل المباشر للطلاب بنجاح!' : 'Copied Student Registration Link!');
+                  }}
+                  className="px-3.5 py-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 flex items-center gap-1.5 cursor-pointer"
+                  title="نسخ رابط التسجيل المباشر للطلاب"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-teal-400" />
+                  <span>{locale === 'ar' ? 'نسخ رابط الطلاب' : 'Copy Link'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Two Execution Options for RTA */}
+            <div className="pt-3 border-t border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Option A: Create Empty Subgroups for Student Self-Registration */}
+              <div className="p-3.5 rounded-2xl bg-slate-800/90 border border-slate-700/80 flex items-center justify-between gap-3">
+                <div>
+                  <h5 className="font-bold text-xs text-teal-300 flex items-center gap-1.5">
+                    <span>1. تجهيز شعب فرعية فارغة</span>
+                    <span className="text-[9px] bg-teal-900 text-teal-200 px-1.5 py-0.5 rounded font-mono">الخيار الأول</span>
+                  </h5>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {locale === 'ar' ? 'تجهيز مجموعات فارغة (0/6) تظهر على رابط الطلاب ويسجلوا بها بنفسهم' : 'Prepare empty subgroups for student self-registration'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    prepareEmptySubgroupsForCohort(groupLetters[levelFilter] || ['A', 'B', 'C'], subgroupCapacity);
+                    alert(locale === 'ar' ? 'تم تجهيز الشعب الفرعية الفارغة لهذه الدفعة بنجاح وهي جاهزة لتسجيل الطلاب!' : 'Prepared empty subgroups successfully!');
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shrink-0 cursor-pointer shadow-xs"
+                >
+                  {locale === 'ar' ? 'تجهيز شعب فارغة' : 'Prepare Empty'}
+                </button>
+              </div>
+
+              {/* Option B: Auto Partition All Students Immediately */}
+              <div className="p-3.5 rounded-2xl bg-slate-800/90 border border-slate-700/80 flex items-center justify-between gap-3">
+                <div>
+                  <h5 className="font-bold text-xs text-indigo-300 flex items-center gap-1.5">
+                    <span>2. توزيع تلقائي كلي للطلاب</span>
+                    <span className="text-[9px] bg-indigo-900 text-indigo-200 px-1.5 py-0.5 rounded font-mono">الخيار الثاني</span>
+                  </h5>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {locale === 'ar' ? 'توزيع كافة طلاب الدفعة تلقائياً بالتساوي على المجموعات والشعب' : 'Auto-partition all cohort students evenly'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    partitionStudents(studentsList, groupLetters[levelFilter] || ['A', 'B', 'C'], subgroupCapacity);
+                    alert(locale === 'ar' ? 'تم التوزيع التلقائي الفوري لجميع طلاب هذه الدفعة بنجاح!' : 'Auto-partitioned students!');
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shrink-0 cursor-pointer shadow-xs"
+                >
+                  {locale === 'ar' ? 'توزيع تلقائي كلي' : 'Auto Partition'}
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Metrics & Capacity Controls Row */}

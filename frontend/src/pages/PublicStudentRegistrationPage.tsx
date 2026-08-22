@@ -271,8 +271,22 @@ export function PublicStudentRegistrationPage() {
               </div>
             )}
 
-            {/* Subgroups Selection List for Student's Cohort */}
-            <div className="space-y-4">
+            {/* Registration Closed Banner if Disabled by RTA */}
+            {localStorage.getItem(`cdms_public_reg_enabled_${searchedStudent.academic_level}`) === 'false' ? (
+              <div className="p-6 rounded-3xl bg-amber-50 border-2 border-amber-300 text-amber-900 shadow-md space-y-2 text-center">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white mx-auto flex items-center justify-center shadow-xs">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <h4 className="text-base font-bold text-amber-950">
+                  فترة التسجيل الذاتي للمجموعات السريرية مغلقة حالياً 🔒
+                </h4>
+                <p className="text-xs text-amber-800 max-w-md mx-auto">
+                  قام مسؤول الدفعة (RTA) أو المشرف السريري بتجميد فترة التسجيل الذاتي لدفعة ({searchedStudent.cohortName}) حالياً. يرجى التواصل مع مسؤول المساق للمتابعة.
+                </p>
+              </div>
+            ) : (
+              /* Subgroups Selection List for Student's Cohort */
+              <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <Building2 className="w-4 h-4 text-teal-600" />
@@ -374,6 +388,7 @@ export function PublicStudentRegistrationPage() {
                 })}
               </div>
             </div>
+            )}
           </div>
         )}
 
