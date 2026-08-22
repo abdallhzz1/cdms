@@ -11,7 +11,7 @@ import {
   Settings2, Search, 
   X, MoveRight, Layers,
   Calendar, Stethoscope, Plus, Trash2, Building2,
-  Share2, Copy, Check, ExternalLink
+  Share2, Copy, Check, ExternalLink, GraduationCap
 } from 'lucide-react';
 
 interface StudentItem {
@@ -2453,6 +2453,53 @@ export function DistributionPage() {
               </Button>
             </div>
           )}
+
+          {/* Cohort Selector Tabs (السنة الرابعة / الخامسة / السادسة) */}
+          <div className="flex items-center gap-2 p-2 bg-slate-100/90 rounded-3xl border border-slate-200/80 overflow-x-auto scrollbar-none shadow-2xs">
+            <span className="text-xs font-bold text-slate-600 px-3 flex items-center gap-1.5 shrink-0">
+              <GraduationCap className="w-4 h-4 text-teal-600" />
+              <span>{locale === 'ar' ? 'الدفعة والأقسام السريرية:' : 'Cohort & Level:'}</span>
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setLevelFilter('fourth')}
+              className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                levelFilter === 'fourth'
+                  ? 'bg-teal-600 text-white shadow-xs'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
+              <span>{locale === 'ar' ? 'السنة الرابعة (Clinical Junior)' : '4th Year (Junior)'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setLevelFilter('fifth')}
+              className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                levelFilter === 'fifth'
+                  ? 'bg-teal-600 text-white shadow-xs'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+              <span>{locale === 'ar' ? 'السنة الخامسة (Clinical Senior)' : '5th Year (Senior)'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setLevelFilter('sixth')}
+              className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                levelFilter === 'sixth'
+                  ? 'bg-teal-600 text-white shadow-xs'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-purple-400"></span>
+              <span>{locale === 'ar' ? 'السنة السادسة (Advanced Internship)' : '6th Year (Internship)'}</span>
+            </button>
+          </div>
 
           {/* Metrics & Capacity Controls Row */}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">

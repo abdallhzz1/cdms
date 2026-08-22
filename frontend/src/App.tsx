@@ -19,6 +19,8 @@ import { StudyPlanDetailsPage } from '@/pages/StudyPlanDetailsPage';
 import { CourseDetailsPage } from '@/pages/CourseDetailsPage';
 import { GradesPage } from '@/pages/GradesPage';
 import { RtaAssignmentsPage } from '@/pages/RtaAssignmentsPage';
+import { StudentRegistrationPage } from '@/pages/StudentRegistrationPage';
+
 // New Clinical Module
 import { DistributionPage } from '@/pages/clinical/DistributionPage';
 import { ClinicalSchedulePage } from '@/pages/clinical/ClinicalSchedulePage';
@@ -138,6 +140,7 @@ export function App() {
 
                 {/* Clinical Training Module */}
                 <Route path="/distribution" element={<DistributionPage />} />
+                <Route path="/student/self-registration" element={<StudentRegistrationPage />} />
                 <Route path="/distribution/workbench" element={<DistributionWorkbench />} />
                 <Route path="/distribution/workbench/:versionId" element={<DistributionWorkbench />} />
                 <Route path="/distribution/:siteId" element={<TrainingSiteRoster />} />

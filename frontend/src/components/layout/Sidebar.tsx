@@ -195,6 +195,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           { path: '/', label: locale === 'ar' ? 'لوحة التحكم' : 'Dashboard', icon: LayoutDashboard },
           { path: '/directory', label: locale === 'ar' ? 'دليل الطلاب' : 'Students Directory', icon: Users, permission: 'students.view' },
           { path: '/distribution', label: locale === 'ar' ? 'التوزيع السريري' : 'Distribution', icon: Map, permission: 'distribution.view' },
+          { path: '/student/self-registration', label: locale === 'ar' ? 'التسجيل الذاتي للمجموعات (بورتال)' : 'Student Self-Registration', icon: Users },
           { path: '/clinical/schedule', label: locale === 'ar' ? 'الجدول السريري' : 'Clinical Schedule', icon: Calendar, permission: 'clinical.schedule.view' },
         ]
       },
