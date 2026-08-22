@@ -59,11 +59,14 @@ import { InboxPage } from '@/pages/InboxPage';
 import { OutboxPage } from '@/pages/OutboxPage';
 import { CorrespondenceDetailsPage } from '@/pages/CorrespondenceDetailsPage';
 import { PublicClinicalSchedulePage } from '@/pages/public/PublicClinicalSchedulePage';
+import { PublicStudentRegistrationPage } from '@/pages/PublicStudentRegistrationPage';
 
 export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/public/student-registration" element={<PublicStudentRegistrationPage />} />
+      <Route path="/student-registration" element={<PublicStudentRegistrationPage />} />
       <Route path="/portal/clinical-schedule" element={<PublicClinicalSchedulePage />} />
       <Route path="/portal/student-lookup" element={<PublicClinicalSchedulePage />} />
       <Route

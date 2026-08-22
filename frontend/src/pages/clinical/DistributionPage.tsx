@@ -1748,15 +1748,33 @@ export function DistributionPage() {
     localStorage.setItem(`cdms_clinical_partition_${academicYear}_${levelFilter}`, JSON.stringify(result));
   };
 
+  // Create empty subgroups for RTA cohort preparation
+  const prepareEmptySubgroupsForCohort = (letters: [string, string, string] = groupLetters[levelFilter] || ['A', 'B', 'C'], cap: number = subgroupCapacity) => {
+    const emptyResult: MainGroup[] = letters.map((letter) => ({
+      letter: letter,
+      name: locale === 'ar' ? `المجموعة (${letter})` : `Group (${letter})`,
+      subgroups: [
+        { id: `${letter}1`, code: `${letter}1`, mainGroupLetter: letter, students: [], capacity: cap },
+        { id: `${letter}2`, code: `${letter}2`, mainGroupLetter: letter, students: [], capacity: cap },
+      ]
+    }));
+
+    setMainGroups(emptyResult);
+    localStorage.setItem(`cdms_clinical_partition_${academicYear}_${levelFilter}`, JSON.stringify(emptyResult));
+  };
+
   useEffect(() => {
     const currentLetters = groupLetters[levelFilter] || ['A', 'B', 'C'];
     setTempLetters(currentLetters);
     
+    // Clear old cohort groups first to prevent cross-cohort leakage
+    setMainGroups([]);
+
     const saved = localStorage.getItem(`cdms_clinical_partition_${academicYear}_${levelFilter}`);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length === 3) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           const remapped = remapMainGroupsLetters(parsed, currentLetters);
           setMainGroups(remapped);
           return;
@@ -1768,8 +1786,11 @@ export function DistributionPage() {
 
     if (studentsList.length > 0) {
       partitionStudents(studentsList, currentLetters, subgroupCapacity);
+    } else {
+      // Default RTA prepared empty subgroups for this cohort
+      prepareEmptySubgroupsForCohort(currentLetters, subgroupCapacity);
     }
-  }, [studentsList, levelFilter, subgroupCapacity, academicYear, groupLetters]);
+  }, [levelFilter, subgroupCapacity, academicYear, groupLetters]);
 
   const saveCurrentPartition = (updatedGroups: MainGroup[]) => {
     setMainGroups(updatedGroups);
