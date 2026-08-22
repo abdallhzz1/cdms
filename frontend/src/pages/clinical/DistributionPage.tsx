@@ -16,10 +16,12 @@ import {
 
 interface StudentItem {
   id: number;
-  university_number: string;
-  full_name_ar: string;
+  university_number?: string;
+  university_id?: string;
+  full_name_ar?: string;
   full_name_en?: string;
-  academic_level: string;
+  name?: string;
+  academic_level?: string;
   photo_url?: string;
   city?: string;
 }
@@ -2695,9 +2697,11 @@ export function DistributionPage() {
                           const filteredStudents = sg.students.filter((s) => {
                             if (!searchQuery.trim()) return true;
                             const q = searchQuery.toLowerCase();
+                            const nameAr = s.full_name_ar || s.name || '';
+                            const uNum = s.university_number || s.university_id || '';
                             return (
-                              s.full_name_ar.toLowerCase().includes(q) ||
-                              s.university_number.toLowerCase().includes(q) ||
+                              nameAr.toLowerCase().includes(q) ||
+                              uNum.toLowerCase().includes(q) ||
                               (s.full_name_en && s.full_name_en.toLowerCase().includes(q))
                             );
                           });
@@ -2759,19 +2763,19 @@ export function DistributionPage() {
                                                 className="w-full h-full object-cover"
                                               />
                                             ) : (
-                                              student.full_name_ar.substring(0, 1)
+                                              (student.full_name_ar || student.name || 'ط').substring(0, 1)
                                             )}
                                           </div>
 
                                           <div className="min-w-0">
                                             <p 
                                               className="font-bold text-slate-800 truncate text-[11px]" 
-                                              title={locale === 'en' && student.full_name_en ? student.full_name_en : student.full_name_ar}
+                                              title={locale === 'en' && student.full_name_en ? student.full_name_en : (student.full_name_ar || student.name || 'طالب')}
                                             >
-                                              {locale === 'en' && student.full_name_en ? student.full_name_en : student.full_name_ar}
+                                              {locale === 'en' && student.full_name_en ? student.full_name_en : (student.full_name_ar || student.name || 'طالب')}
                                             </p>
                                             <span className="text-[10px] font-mono text-slate-400 block">
-                                              {student.university_number}
+                                              {student.university_number || student.university_id || student.id}
                                             </span>
                                           </div>
                                         </div>
