@@ -87,11 +87,13 @@ export function DepartmentsManagementPage() {
   });
 
   const headCandidates: any[] = useMemo(() => {
-    return candidatesData?.data?.head_candidates || [];
+    const raw = candidatesData?.head_candidates || candidatesData?.data?.head_candidates;
+    return Array.isArray(raw) ? raw : [];
   }, [candidatesData]);
 
   const rtaCandidates: any[] = useMemo(() => {
-    return candidatesData?.data?.rta_candidates || [];
+    const raw = candidatesData?.rta_candidates || candidatesData?.data?.rta_candidates;
+    return Array.isArray(raw) ? raw : [];
   }, [candidatesData]);
 
   // Instant Filter

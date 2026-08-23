@@ -96,47 +96,43 @@ class AdminDepartmentController extends Controller
     public function candidates()
     {
         // 1. Head candidates: Users with role DEPARTMENT_HEAD
-        $headRole = Role::where('code', 'DEPARTMENT_HEAD')->first();
-        $headUserIds = $headRole ? DB::table('user_roles')->where('role_id', $headRole->id)->pluck('user_id')->toArray() : [];
+        $headUsers = User::whereHas('roles', function ($q) {
+            $q->whereIn('code', ['DEPARTMENT_HEAD', 'department_head']);
+        })->orderBy('name')->get();
 
         $headCandidates = [];
-        if (!empty($headUserIds)) {
-            $headUsers = User::whereIn('id', $headUserIds)->where('is_active', true)->orderBy('name')->get();
-            foreach ($headUsers as $u) {
-                $person = Person::where('user_id', $u->id)->first();
-                $headCandidates[] = [
-                    'id'              => $person ? $person->id : ('user_' . $u->id),
-                    'person_id'       => $person?->id,
-                    'user_id'         => $u->id,
-                    'full_name_ar'    => $person?->full_name_ar ?? $u->name,
-                    'full_name_en'    => $person?->full_name_en,
-                    'email'           => $u->email,
-                    'academic_degree' => $person?->academic_degree ?? 'دكتور',
-                    'specialty'       => $person?->specialty,
-                ];
-            }
+        foreach ($headUsers as $u) {
+            $person = Person::where('user_id', $u->id)->first();
+            $headCandidates[] = [
+                'id'              => $person ? $person->id : ('user_' . $u->id),
+                'person_id'       => $person?->id,
+                'user_id'         => $u->id,
+                'full_name_ar'    => $person?->full_name_ar ?? $u->name,
+                'full_name_en'    => $person?->full_name_en,
+                'email'           => $u->email,
+                'academic_degree' => $person?->academic_degree ?? 'دكتور',
+                'specialty'       => $person?->specialty,
+            ];
         }
 
         // 2. TA candidates: Users with role RTA
-        $rtaRole = Role::where('code', 'RTA')->first();
-        $rtaUserIds = $rtaRole ? DB::table('user_roles')->where('role_id', $rtaRole->id)->pluck('user_id')->toArray() : [];
+        $rtaUsers = User::whereHas('roles', function ($q) {
+            $q->whereIn('code', ['RTA', 'rta']);
+        })->orderBy('name')->get();
 
         $rtaCandidates = [];
-        if (!empty($rtaUserIds)) {
-            $rtaUsers = User::whereIn('id', $rtaUserIds)->where('is_active', true)->orderBy('name')->get();
-            foreach ($rtaUsers as $u) {
-                $person = Person::where('user_id', $u->id)->first();
-                $rtaCandidates[] = [
-                    'id'              => $person ? $person->id : ('user_' . $u->id),
-                    'person_id'       => $person?->id,
-                    'user_id'         => $u->id,
-                    'full_name_ar'    => $person?->full_name_ar ?? $u->name,
-                    'full_name_en'    => $person?->full_name_en,
-                    'email'           => $u->email,
-                    'academic_degree' => $person?->academic_degree ?? 'مساعد بحث وتدريس',
-                    'specialty'       => $person?->specialty,
-                ];
-            }
+        foreach ($rtaUsers as $u) {
+            $person = Person::where('user_id', $u->id)->first();
+            $rtaCandidates[] = [
+                'id'              => $person ? $person->id : ('user_' . $u->id),
+                'person_id'       => $person?->id,
+                'user_id'         => $u->id,
+                'full_name_ar'    => $person?->full_name_ar ?? $u->name,
+                'full_name_en'    => $person?->full_name_en,
+                'email'           => $u->email,
+                'academic_degree' => $person?->academic_degree ?? 'مساعد بحث وتدريس',
+                'specialty'       => $person?->specialty,
+            ];
         }
 
         return ApiResponse::success([
