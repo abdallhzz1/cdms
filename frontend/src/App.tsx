@@ -1,13 +1,10 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { FoundationHome } from '@/pages/FoundationHome';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFound } from '@/pages/NotFound';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 
-import { DistributionWorkbench } from '@/pages/DistributionWorkbench';
-import { DepartmentRoster } from '@/pages/DepartmentRoster';
-import { TrainingSiteRoster } from '@/pages/TrainingSiteRoster';
 import { ClinicalDashboard } from '@/pages/ClinicalDashboard';
 import { ReportsDashboard } from '@/pages/ReportsDashboard';
 import { DirectoryPage } from '@/pages/DirectoryPage';
@@ -152,13 +149,16 @@ export function App() {
 
                 {/* Clinical Training Module */}
                 <Route path="/distribution" element={<DistributionPage />} />
-                <Route path="/distribution/workbench" element={<DistributionWorkbench />} />
-                <Route path="/distribution/workbench/:versionId" element={<DistributionWorkbench />} />
-                <Route path="/distribution/:siteId" element={<TrainingSiteRoster />} />
+                {/* Legacy workbench routes -> redirect to DistributionPage (which has full workbench) */}
+                <Route path="/distribution/workbench" element={<DistributionPage />} />
+                <Route path="/distribution/workbench/:versionId" element={<DistributionPage />} />
+                {/* Legacy roster routes -> redirect to clinical schedule */}
+                <Route path="/distribution/:siteId" element={<Navigate to="/clinical/schedule" replace />} />
                 <Route path="/clinical/schedule" element={<ClinicalSchedulePage />} />
                 <Route path="/supervisor/portal" element={<SupervisorPortalPage />} />
-                <Route path="/departments/:id/roster" element={<DepartmentRoster />} />
-                <Route path="/training-sites/:id/roster" element={<TrainingSiteRoster />} />
+                {/* Legacy roster routes -> redirect to clinical schedule */}
+                <Route path="/departments/:id/roster" element={<Navigate to="/clinical/schedule" replace />} />
+                <Route path="/training-sites/:id/roster" element={<Navigate to="/clinical/schedule" replace />} />
                 <Route path="/clinical/dashboard" element={<ClinicalDashboard />} />
                 <Route path="/attendance" element={<AttendanceMasterPage />} />
                 <Route path="/assessments" element={<AssessmentsMasterPage />} />
