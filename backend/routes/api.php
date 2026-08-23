@@ -130,6 +130,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('student-course-enrollments', [\App\Http\Controllers\Api\V1\StudentCourseEnrollmentController::class, 'store'])->middleware('permission:courses.manage');
         Route::get('grade-entries', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'index'])->middleware('permission:grades.view');
         Route::post('grade-entries', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'store'])->middleware('permission:grades.create');
+        Route::post('grade-entries/batch', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'batchStore'])->middleware('permission:grades.create');
+        Route::post('grade-entries/batch-submit', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'batchSubmit'])->middleware('permission:grades.create');
+        Route::post('grade-entries/batch-approve', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'batchApprove'])->middleware('permission:grades.approve');
+        Route::post('grade-entries/batch-return', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'batchReturn'])->middleware('permission:grades.approve');
         Route::get('clinical-sessions', [\App\Http\Controllers\Api\V1\ClinicalSessionController::class, 'index'])->middleware('permission:attendance.view');
         Route::post('clinical-sessions', [\App\Http\Controllers\Api\V1\ClinicalSessionController::class, 'store'])->middleware('permission:attendance.record');
         Route::get('attendance-records', [\App\Http\Controllers\Api\V1\AttendanceRecordController::class, 'index'])->middleware('permission:attendance.view');
