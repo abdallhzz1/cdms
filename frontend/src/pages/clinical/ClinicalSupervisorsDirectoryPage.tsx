@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "@/api/client";
@@ -8,17 +8,13 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import {
   Search,
   Star,
-  ExternalLink,
   Building2,
   ChevronRight,
   ChevronLeft,
-  Stethoscope,
   Mail,
   Phone,
   Users2,
 } from "lucide-react";
-
-// ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface ClinicalSupervisorSummary {
   id: string;
@@ -35,8 +31,6 @@ export interface ClinicalSupervisorSummary {
   avatar_url?: string;
 }
 
-// ─── KPI Badge helpers ────────────────────────────────────────────────────────
-
 function kpiBadgeColors(rating: string) {
   if (rating === "ممتاز")    return "bg-emerald-50 text-emerald-800 border-emerald-200";
   if (rating === "جيد جداً") return "bg-teal-50 text-teal-800 border-teal-200";
@@ -50,8 +44,6 @@ function scoreBarColor(score: number) {
   if (score >= 70) return "bg-blue-500";
   return "bg-amber-500";
 }
-
-// ─── Avatar component ─────────────────────────────────────────────────────────
 
 function SupervisorAvatar({ name, url }: { name: string; url?: string }) {
   const initials = name
@@ -77,9 +69,7 @@ function SupervisorAvatar({ name, url }: { name: string; url?: string }) {
   );
 }
 
-// ─── Supervisor Card ──────────────────────────────────────────────────────────
-
-function SupervisorCard({
+function SupervisorListItem({
   supervisor,
   index,
   onNavigate,
@@ -91,101 +81,63 @@ function SupervisorCard({
   return (
     <div
       onClick={() => onNavigate(supervisor.id)}
-      className="group bg-white rounded-3xl border border-slate-200 shadow-xs hover:shadow-md hover:border-indigo-200 transition-all duration-200 cursor-pointer overflow-hidden flex flex-col"
+      className="group bg-white rounded-2xl border border-slate-200 shadow-xs hover:shadow-md hover:border-indigo-200 transition-all duration-200 cursor-pointer overflow-hidden flex flex-col sm:flex-row items-center gap-4 p-4"
     >
-      {/* Card header stripe */}
-      <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500" />
+      {/* Avatar & Rank */}
+      <div className="flex items-center gap-4 shrink-0 w-full sm:w-auto">
+         <div className="flex flex-col items-center justify-center w-8">
+           <span className="text-xs font-bold text-slate-400 font-mono">#{index + 1}</span>
+         </div>
+         <SupervisorAvatar name={supervisor.name} url={supervisor.avatar_url} />
+      </div>
 
-      <div className="p-5 flex flex-col gap-4 flex-1">
-        {/* Top row: avatar + name + badge */}
-        <div className="flex items-start gap-3.5">
-          <SupervisorAvatar name={supervisor.name} url={supervisor.avatar_url} />
-
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold text-slate-400 font-mono">
-                #{index + 1}
-              </span>
-              <span
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${kpiBadgeColors(supervisor.kpi_rating)}`}
-              >
-                {supervisor.kpi_rating}
-              </span>
-            </div>
-            <h3 className="font-black text-sm text-slate-900 mt-0.5 leading-snug group-hover:text-indigo-700 transition-colors">
-              {supervisor.name}
-            </h3>
-            <p className="text-[11px] font-semibold text-slate-500 mt-0.5 truncate">
-              {supervisor.title}
-            </p>
-          </div>
+      {/* Main Info */}
+      <div className="flex-1 min-w-0 flex flex-col gap-1 w-full sm:w-auto">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h3 className="font-black text-sm text-slate-900 leading-snug group-hover:text-indigo-700 transition-colors">
+            {supervisor.name}
+          </h3>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${kpiBadgeColors(supervisor.kpi_rating)}`}>
+            {supervisor.kpi_rating}
+          </span>
         </div>
-
-        {/* Divider */}
-        <div className="border-t border-slate-100" />
-
-        {/* Info rows */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-[11.5px] text-slate-600 font-semibold">
-            <Building2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-            <span className="truncate">قسم {supervisor.department_name}</span>
-          </div>
-
-          {supervisor.specialty && (
-            <div className="flex items-center gap-2 text-[11.5px] text-slate-600 font-semibold">
-              <Stethoscope className="w-3.5 h-3.5 text-violet-500 shrink-0" />
-              <span className="truncate">{supervisor.specialty}</span>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
-            <Mail className="w-3 h-3 text-slate-400 shrink-0" />
-            <span className="truncate font-mono">{supervisor.email}</span>
-          </div>
-
-          {supervisor.phone && (
-            <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
-              <Phone className="w-3 h-3 text-slate-400 shrink-0" />
-              <span className="font-mono">{supervisor.phone}</span>
-            </div>
-          )}
+        <p className="text-[11.5px] font-semibold text-slate-500 truncate">
+          {supervisor.title} • قسم {supervisor.department_name}
+        </p>
+        <div className="flex items-center gap-3 text-[11px] text-slate-400 font-medium mt-1">
+          <span className="flex items-center gap-1.5"><Mail className="w-3 h-3" /> {supervisor.email}</span>
+          {supervisor.phone && <span className="flex items-center gap-1.5"><Phone className="w-3 h-3" /> {supervisor.phone}</span>}
         </div>
+      </div>
 
-        {/* KPI score bar */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-[10.5px] font-bold">
-            <span className="text-slate-500 flex items-center gap-1">
-              <Star className="w-3 h-3 text-amber-400 fill-amber-300" />
-              مؤشر الأداء (KPI)
-            </span>
-            <span className="font-mono text-slate-800">{supervisor.kpi_score} / 100</span>
-          </div>
-          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${scoreBarColor(supervisor.kpi_score)}`}
-              style={{ width: `${supervisor.kpi_score}%` }}
-            />
-          </div>
+      {/* KPI Score */}
+      <div className="w-full sm:w-48 shrink-0 space-y-1.5 hidden sm:block">
+        <div className="flex items-center justify-between text-[10.5px] font-bold">
+          <span className="text-slate-500 flex items-center gap-1">
+            <Star className="w-3 h-3 text-amber-400 fill-amber-300" />
+            مؤشر الأداء
+          </span>
+          <span className="font-mono text-slate-800">{supervisor.kpi_score} / 100</span>
         </div>
+        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div className={`h-full rounded-full transition-all ${scoreBarColor(supervisor.kpi_score)}`} style={{ width: `${supervisor.kpi_score}%` }} />
+        </div>
+      </div>
 
-        {/* Footer action */}
+      {/* Action Button */}
+      <div className="shrink-0 w-full sm:w-auto mt-2 sm:mt-0">
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onNavigate(supervisor.id);
-          }}
-          className="mt-auto w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-colors shadow-sm"
+          onClick={(e) => { e.stopPropagation(); onNavigate(supervisor.id); }}
+          className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
         >
-          <ExternalLink className="w-3.5 h-3.5" />
-          <span>فتح البروفايل الكامل</span>
+          <span>فتح البروفايل</span>
+          <ChevronLeft className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
   );
 }
-
-// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function ClinicalSupervisorsDirectoryPage() {
   const navigate = useNavigate();
@@ -195,7 +147,6 @@ export function ClinicalSupervisorsDirectoryPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage]                     = useState(1);
 
-  // Debounce 250ms
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchInput);
@@ -204,7 +155,6 @@ export function ClinicalSupervisorsDirectoryPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // Fetch from real API
   const { data: apiResponse, isLoading } = useQuery({
     queryKey: ["clinical-supervisors-directory-v1"],
     queryFn: async () => {
@@ -231,7 +181,6 @@ export function ClinicalSupervisorsDirectoryPage() {
     }));
   }, [apiResponse]);
 
-  // Client-side search filter
   const filtered = useMemo(() => {
     if (!debouncedSearch.trim()) return supervisorsList;
     const q = debouncedSearch.toLowerCase();
@@ -252,15 +201,12 @@ export function ClinicalSupervisorsDirectoryPage() {
 
   return (
     <div className="space-y-6 pb-20">
-      {/* Page Header */}
       <PageHeader
-        title="دليل المشرفون السريريون"
-        description="جميع المستخدمين المسجلين بدور مشرف سريري في النظام — مباشرة من قاعدة البيانات"
+        title="دليل المشرفين السريريين"
+        description="جميع المستخدمين المسجلين بدور مشرف سريري في النظام"
       />
 
-      {/* Search & Stats bar */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        {/* Search box */}
         <div className="flex items-center gap-2 bg-slate-50 px-3 py-2.5 rounded-2xl border border-slate-200 w-full sm:w-96">
           <Search className="w-4 h-4 text-slate-400 shrink-0" />
           <input
@@ -272,7 +218,6 @@ export function ClinicalSupervisorsDirectoryPage() {
           />
         </div>
 
-        {/* Stats */}
         <div className="flex items-center gap-4 text-xs text-slate-500 font-semibold">
           <div className="flex items-center gap-1.5">
             <Users2 className="w-4 h-4 text-indigo-500" />
@@ -292,7 +237,6 @@ export function ClinicalSupervisorsDirectoryPage() {
         </div>
       </div>
 
-      {/* Content */}
       {isLoading ? (
         <LoadingState />
       ) : filtered.length === 0 ? (
@@ -307,10 +251,9 @@ export function ClinicalSupervisorsDirectoryPage() {
         </div>
       ) : (
         <>
-          {/* Cards Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div className="flex flex-col gap-3">
             {paginated.map((supervisor, idx) => (
-              <SupervisorCard
+              <SupervisorListItem
                 key={supervisor.id}
                 supervisor={supervisor}
                 index={(page - 1) * perPage + idx}
@@ -319,7 +262,6 @@ export function ClinicalSupervisorsDirectoryPage() {
             ))}
           </div>
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="bg-white rounded-3xl border border-slate-200 px-5 py-3.5 flex items-center justify-between shadow-2xs">
               <span className="text-xs text-slate-500 font-medium">

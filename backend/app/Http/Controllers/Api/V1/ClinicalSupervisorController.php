@@ -9,18 +9,8 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-/**
- * ClinicalSupervisorController
- *
- * Manages clinical supervisor profiles by filtering users with
- * CLINICAL_SUPERVISOR role and reusing the department_head_profiles table.
- */
 class ClinicalSupervisorController extends Controller
 {
-    /**
-     * GET /api/v1/clinical-supervisors
-     * List all Clinical Supervisors with their database profile and KPI calculations.
-     */
     public function index(Request $request): JsonResponse
     {
         $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->first();
@@ -35,7 +25,6 @@ class ClinicalSupervisorController extends Controller
 
         $users = $query->where('is_active', true)->get();
 
-        // Deduplicate by email
         $uniqueUsers = $users->unique(function ($u) {
             return strtolower($u->email);
         })->values();
@@ -44,9 +33,9 @@ class ClinicalSupervisorController extends Controller
             $profile = $u->departmentHeadProfile ?: DepartmentHeadProfile::firstOrCreate(
                 ['user_id' => $u->id],
                 [
-                    'academic_title'   => '???? ?????',
-                    'specialty'        => $u->person && $u->person->department ? '??????? ' . $u->person->department->name_ar : '???? ?????',
-                    'contract_type'    => '??? ?????',
+                    'academic_title'   => 'مشرف سريري',
+                    'specialty'        => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'مشرف سريري',
+                    'contract_type'    => 'عقد سريري',
                     'appointment_date' => '2024-09-01',
                     'phone'            => $u->person ? $u->person->primary_phone : null,
                 ]
@@ -61,11 +50,11 @@ class ClinicalSupervisorController extends Controller
                 'name'             => $u->person ? $u->person->full_name_ar : $u->name,
                 'name_en'          => $u->person ? $u->person->full_name_en : $u->name,
                 'email'            => $u->email,
-                'title'            => $profile->academic_title ?: '???? ?????',
+                'title'            => $profile->academic_title ?: 'مشرف سريري',
                 'department_name'  => $deptName,
-                'contract_type'    => $profile->contract_type ?: '??? ?????',
+                'contract_type'    => $profile->contract_type ?: 'عقد سريري',
                 'appointment_date' => $profile->appointment_date ?: '2024-09-01',
-                'specialty'        => $profile->specialty ?: ('???? ' . $deptName),
+                'specialty'        => $profile->specialty ?: ('مشرف ' . $deptName),
                 'phone'            => $profile->phone ?: ($u->person ? $u->person->primary_phone : null),
                 'avatar_url'       => $profile->avatar_url ?: $u->avatar_url,
                 'cv_summary'       => $profile->cv_summary ?: '',
@@ -86,9 +75,6 @@ class ClinicalSupervisorController extends Controller
         ]);
     }
 
-    /**
-     * GET /api/v1/clinical-supervisors/{id}
-     */
     public function show(Request $request, string $id): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
@@ -105,9 +91,9 @@ class ClinicalSupervisorController extends Controller
         $profile = DepartmentHeadProfile::firstOrCreate(
             ['user_id' => $u->id],
             [
-                'academic_title'   => '???? ?????',
-                'specialty'        => $u->person && $u->person->department ? '??????? ' . $u->person->department->name_ar : '???? ?????',
-                'contract_type'    => '??? ?????',
+                'academic_title'   => 'مشرف سريري',
+                'specialty'        => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'مشرف سريري',
+                'contract_type'    => 'عقد سريري',
                 'appointment_date' => '2024-09-01',
                 'phone'            => $u->person ? $u->person->primary_phone : null,
             ]
@@ -124,11 +110,11 @@ class ClinicalSupervisorController extends Controller
                 'name'             => $u->person ? $u->person->full_name_ar : $u->name,
                 'name_en'          => $u->person ? $u->person->full_name_en : $u->name,
                 'email'            => $u->email,
-                'title'            => $profile->academic_title ?: '???? ?????',
+                'title'            => $profile->academic_title ?: 'مشرف سريري',
                 'department_name'  => $deptName,
-                'contract_type'    => $profile->contract_type ?: '??? ?????',
+                'contract_type'    => $profile->contract_type ?: 'عقد سريري',
                 'appointment_date' => $profile->appointment_date ?: '2024-09-01',
-                'specialty'        => $profile->specialty ?: ('???? ' . $deptName),
+                'specialty'        => $profile->specialty ?: ('مشرف ' . $deptName),
                 'phone'            => $profile->phone ?: ($u->person ? $u->person->primary_phone : null),
                 'avatar_url'       => $profile->avatar_url ?: $u->avatar_url,
                 'cv_summary'       => $profile->cv_summary ?: '',
@@ -145,9 +131,6 @@ class ClinicalSupervisorController extends Controller
         ]);
     }
 
-    /**
-     * PUT /api/v1/clinical-supervisors/{id}
-     */
     public function update(Request $request, string $id): JsonResponse
     {
         $userId  = $this->resolveUserId($request, $id);
@@ -170,9 +153,6 @@ class ClinicalSupervisorController extends Controller
         return $this->show($request, (string) $userId);
     }
 
-    /**
-     * POST /api/v1/clinical-supervisors/{id}/evaluation
-     */
     public function saveEvaluation(Request $request, string $id): JsonResponse
     {
         $userId  = $this->resolveUserId($request, $id);
@@ -181,11 +161,11 @@ class ClinicalSupervisorController extends Controller
 
         $profile->update([
             'evaluation' => [
-                'evaluator_name'   => $eval['evaluator_name'] ?? ($request->user() ? $request->user()->name : '?????? ???????'),
-                'evaluator_role'   => $eval['evaluator_role'] ?? '???? ??????? ????????',
+                'evaluator_name'   => $eval['evaluator_name'] ?? ($request->user() ? $request->user()->name : 'المدير السريري'),
+                'evaluator_role'   => $eval['evaluator_role'] ?? 'مدير الدائرة السريرية',
                 'leadership_score' => (float) ($eval['leadership_score'] ?? 7.5),
                 'clinical_score'   => (float) ($eval['clinical_score'] ?? 7.5),
-                'comments'         => $eval['comments'] ?? '?? ??????? ????????? ??????.',
+                'comments'         => $eval['comments'] ?? 'تم التقييم والاعتماد الرسمي.',
                 'evaluation_date'  => $eval['evaluation_date'] ?? now()->format('Y/m/d'),
             ],
         ]);
@@ -193,9 +173,6 @@ class ClinicalSupervisorController extends Controller
         return $this->show($request, (string) $userId);
     }
 
-    /**
-     * POST /api/v1/clinical-supervisors/{id}/avatar
-     */
     public function uploadAvatar(Request $request, string $id): JsonResponse
     {
         $userId  = $this->resolveUserId($request, $id);
@@ -207,28 +184,24 @@ class ClinicalSupervisorController extends Controller
             $path      = $file->storeAs('avatars/supervisors', $filename, 'public');
             $avatarUrl = asset('storage/' . $path);
             $profile->update(['avatar_url' => $avatarUrl]);
-
-            return response()->json(['success' => true, 'avatar_url' => $avatarUrl, 'message' => 'Avatar uploaded successfully.']);
+            return response()->json(['success' => true, 'avatar_url' => $avatarUrl]);
         }
 
         if ($request->has('avatar_base64')) {
             $avatarUrl = $request->input('avatar_base64');
             $profile->update(['avatar_url' => $avatarUrl]);
-            return response()->json(['success' => true, 'avatar_url' => $avatarUrl, 'message' => 'Avatar updated successfully.']);
+            return response()->json(['success' => true, 'avatar_url' => $avatarUrl]);
         }
 
-        return response()->json(['success' => false, 'message' => 'No image file provided.'], 400);
+        return response()->json(['success' => false, 'message' => 'No file provided.'], 400);
     }
 
-    /**
-     * POST /api/v1/clinical-supervisors/{id}/documents
-     */
     public function uploadDocument(Request $request, string $id): JsonResponse
     {
         $userId      = $this->resolveUserId($request, $id);
         $profile     = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
-        $docName     = $request->input('name', '????? ?????');
-        $docCategory = $request->input('category', '????');
+        $docName     = $request->input('name', 'وثيقة رسمية');
+        $docCategory = $request->input('category', 'أخرى');
         $fileUrl     = null;
         $fileType    = 'pdf';
         $fileSize    = '1 MB';
@@ -247,9 +220,7 @@ class ClinicalSupervisorController extends Controller
             $fileSize = $request->input('file_size', '1 MB');
         }
 
-        if (!$fileUrl) {
-            return response()->json(['success' => false, 'message' => 'No file provided.'], 400);
-        }
+        if (!$fileUrl) return response()->json(['success' => false], 400);
 
         $newDoc = [
             'id'         => 'doc_' . time() . '_' . rand(10, 99),
@@ -265,12 +236,9 @@ class ClinicalSupervisorController extends Controller
         $currentDocs[] = $newDoc;
         $profile->update(['documents' => $currentDocs]);
 
-        return response()->json(['success' => true, 'data' => $newDoc, 'documents' => $currentDocs, 'message' => 'Document saved successfully.']);
+        return response()->json(['success' => true, 'data' => $newDoc, 'documents' => $currentDocs]);
     }
 
-    /**
-     * DELETE /api/v1/clinical-supervisors/{id}/documents/{docId}
-     */
     public function deleteDocument(Request $request, string $id, string $docId): JsonResponse
     {
         $userId      = $this->resolveUserId($request, $id);
@@ -283,19 +251,17 @@ class ClinicalSupervisorController extends Controller
 
         $profile->update(['documents' => $filtered]);
 
-        return response()->json(['success' => true, 'documents' => $filtered, 'message' => 'Document deleted successfully.']);
+        return response()->json(['success' => true, 'documents' => $filtered]);
     }
-
-    // --- Private Helpers -----------------------------------------------------
 
     private function resolveDeptName(User $u, DepartmentHeadProfile $profile): string
     {
         $deptName = $u->person && $u->person->department
             ? $u->person->department->name_ar
-            : ($profile->department ? $profile->department->name_ar : '????? ???????');
+            : ($profile->department ? $profile->department->name_ar : 'القسم السريري');
 
-        if (str_starts_with($deptName, '??? ')) {
-            $deptName = preg_replace('/^???\s+/', '', $deptName);
+        if (str_starts_with($deptName, 'قسم ')) {
+            $deptName = preg_replace('/^قسم\s+/', '', $deptName);
         }
 
         return $deptName;
@@ -349,10 +315,10 @@ class ClinicalSupervisorController extends Controller
 
         $totalScore = min(100.0, round($sessionScore + $resScore + $cScore + $eScore + $feedbackScore, 1));
 
-        $rating = '?????';
-        if ($totalScore >= 90)      $rating = '?????';
-        elseif ($totalScore >= 80)  $rating = '??? ????';
-        elseif ($totalScore >= 70)  $rating = '???';
+        $rating = 'مقبول';
+        if ($totalScore >= 90)      $rating = 'ممتاز';
+        elseif ($totalScore >= 80)  $rating = 'جيد جداً';
+        elseif ($totalScore >= 70)  $rating = 'جيد';
 
         return [
             'sessionAttendanceScore' => $sessionScore,
