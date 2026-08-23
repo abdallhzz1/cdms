@@ -13,114 +13,151 @@ import {
   Sliders, Eye, Shield
 } from 'lucide-react';
 
-const ROLE_LABELS: Record<string, { ar: string; en: string; icon?: any; color?: string }> = {
-  SYS_ADMIN: { ar: 'مدير النظام التقني', en: 'System Admin', icon: Monitor, color: 'text-rose-600 bg-rose-50 border-rose-200' },
-  CLINICAL_DIRECTOR: { ar: 'مدير الدائرة السريرية', en: 'Clinical Director', icon: ShieldCheck, color: 'text-teal-600 bg-teal-50 border-teal-200' },
-  DEPARTMENT_HEAD: { ar: 'رئيس القسم الأكاديمي', en: 'Department Head', icon: GraduationCap, color: 'text-blue-600 bg-blue-50 border-blue-200' },
-  CLINICAL_SUPERVISOR: { ar: 'المشرف السريري', en: 'Clinical Supervisor', icon: Users, color: 'text-indigo-600 bg-indigo-50 border-indigo-200' },
-  DEAN: { ar: 'عميد الكلية', en: 'Dean', icon: Shield, color: 'text-purple-600 bg-purple-50 border-purple-200' },
-  VICE_DEAN: { ar: 'نائب العميد', en: 'Vice Dean', icon: Shield, color: 'text-purple-600 bg-purple-50 border-purple-200' },
-  RTA: { ar: 'مساعد التدريب السريري', en: 'RTA', icon: ClipboardCheck, color: 'text-amber-600 bg-amber-50 border-amber-200' },
-  ACADEMIC_ADVISOR: { ar: 'المرشد الأكاديمي', en: 'Academic Advisor', icon: BookOpen, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
-  QUALITY: { ar: 'مسؤول الجودة والاعتماد', en: 'Quality Officer', icon: BarChart3, color: 'text-cyan-600 bg-cyan-50 border-cyan-200' },
-  ADMIN_ASSISTANT: { ar: 'مساعد إداري', en: 'Admin Assistant', icon: FolderGit2, color: 'text-slate-600 bg-slate-50 border-slate-200' },
+const ROLE_LABELS: Record<string, { ar: string; icon?: any; color?: string }> = {
+  SYS_ADMIN: { ar: 'مدير النظام التقني', icon: Monitor, color: 'text-rose-600 bg-rose-50 border-rose-200' },
+  CLINICAL_DIRECTOR: { ar: 'مدير الدائرة السريرية', icon: ShieldCheck, color: 'text-teal-600 bg-teal-50 border-teal-200' },
+  DEPARTMENT_HEAD: { ar: 'رئيس القسم الأكاديمي', icon: GraduationCap, color: 'text-blue-600 bg-blue-50 border-blue-200' },
+  CLINICAL_SUPERVISOR: { ar: 'المشرف السريري', icon: Users, color: 'text-indigo-600 bg-indigo-50 border-indigo-200' },
+  DEAN: { ar: 'عميد الكلية', icon: Shield, color: 'text-purple-600 bg-purple-50 border-purple-200' },
+  VICE_DEAN: { ar: 'نائب العميد', icon: Shield, color: 'text-purple-600 bg-purple-50 border-purple-200' },
+  RTA: { ar: 'مساعد التدريب السريري', icon: ClipboardCheck, color: 'text-amber-600 bg-amber-50 border-amber-200' },
+  ACADEMIC_ADVISOR: { ar: 'المرشد الأكاديمي', icon: BookOpen, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+  QUALITY: { ar: 'مسؤول الجودة والاعتماد', icon: BarChart3, color: 'text-cyan-600 bg-cyan-50 border-cyan-200' },
+  ADMIN_ASSISTANT: { ar: 'مساعد إداري', icon: FolderGit2, color: 'text-slate-600 bg-slate-50 border-slate-200' },
 };
 
-const MODULE_LABELS: Record<string, { ar: string; en: string; icon: any }> = {
-  People: { ar: 'الكادر ورؤساء الأقسام والمشرفين', en: 'Staff & Supervisors', icon: Users },
-  Students: { ar: 'شؤون الطلبة والدليل السريري', en: 'Students Directory', icon: GraduationCap },
-  Grades: { ar: 'العلامات والتقييم الأكاديمي', en: 'Grades & Approvals', icon: ClipboardCheck },
-  Distribution: { ar: 'التوزيع والجدول السريري', en: 'Distribution & Schedule', icon: Calendar },
-  Rotations: { ar: 'الدورات والتناوب السريري', en: 'Clinical Rotations', icon: Sliders },
-  Courses: { ar: 'المساقات والخطط الدراسية', en: 'Courses & Curriculum', icon: BookOpen },
-  Attendance: { ar: 'سجل حضور وغياب التدريب', en: 'Attendance & Excuses', icon: ClipboardCheck },
-  Assessment: { ar: 'بوابة التقييم السريري والإشراف', en: 'Clinical Assessments', icon: ShieldCheck },
-  Correspondence: { ar: 'المراسلات (صندوق الوارد والصادر)', en: 'Inbox & Outbox', icon: FolderGit2 },
-  Meetings: { ar: 'الاجتماعات ومحاضر الجلسات', en: 'Meetings & Minutes', icon: Calendar },
-  Tasks: { ar: 'المهام والتكليفات والمتابعة', en: 'Tasks & Operations', icon: FolderGit2 },
-  Reports: { ar: 'التقارير السنوية والإحصائيات', en: 'Reports Hub', icon: BarChart3 },
-  Quality: { ar: 'الجودة والاعتماد الأكاديمي', en: 'Quality & Surveys', icon: BarChart3 },
-  Advising: { ar: 'الإرشاد الأكاديمي والإنذار المبكر', en: 'Academic Advising', icon: BookOpen },
-  Security: { ar: 'الأمان والمستخدمين والجلسات', en: 'Security & Users', icon: Monitor },
-  AcademicYears: { ar: 'التقويم والأعوام الأكاديمية', en: 'Academic Calendar', icon: Calendar },
-  Departments: { ar: 'الهيكل التنظيمي للأقسام', en: 'Departments Org', icon: LayoutGrid },
-  Groups: { ar: 'المجموعات والشعب الطلابية', en: 'Student Cohorts', icon: Users },
+const MODULE_LABELS: Record<string, { ar: string; icon: any }> = {
+  People: { ar: 'الكادر ورؤساء الأقسام والمشرفين', icon: Users },
+  Students: { ar: 'شؤون الطلبة والدليل السريري', icon: GraduationCap },
+  Grades: { ar: 'العلامات والتقييم الأكاديمي', icon: ClipboardCheck },
+  Distribution: { ar: 'التوزيع والجدول السريري', icon: Calendar },
+  Rotations: { ar: 'الدورات والتناوب السريري', icon: Sliders },
+  Courses: { ar: 'المساقات والخطط الدراسية', icon: BookOpen },
+  'Course Reports': { ar: 'تقارير المساقات السريرية', icon: BookOpen },
+  Attendance: { ar: 'سجل حضور وغياب التدريب', icon: ClipboardCheck },
+  Assessment: { ar: 'بوابة التقييم السريري والإشراف', icon: ShieldCheck },
+  Correspondence: { ar: 'المراسلات (صندوق الوارد والصادر)', icon: FolderGit2 },
+  Meetings: { ar: 'الاجتماعات ومحاضر الجلسات', icon: Calendar },
+  Tasks: { ar: 'المهام والتكليفات والمتابعة', icon: FolderGit2 },
+  Reports: { ar: 'التقارير السنوية والإحصائيات', icon: BarChart3 },
+  Quality: { ar: 'الجودة والاعتماد الأكاديمي', icon: BarChart3 },
+  KPIs: { ar: 'مؤشرات الأداء الرئيسية', icon: BarChart3 },
+  Performance: { ar: 'تقارير الأداء الأكاديمي والسريري', icon: BarChart3 },
+  Advising: { ar: 'الإرشاد الأكاديمي والإنذار المبكر', icon: BookOpen },
+  Security: { ar: 'الأمان والمستخدمين والجلسات', icon: Monitor },
+  System: { ar: 'إعدادات النظام وصحة السيرفر', icon: Monitor },
+  'Academic Years': { ar: 'التقويم والأعوام الأكاديمية', icon: Calendar },
+  AcademicYears: { ar: 'التقويم والأعوام الأكاديمية', icon: Calendar },
+  Departments: { ar: 'الهيكل التنظيمي للأقسام', icon: LayoutGrid },
+  Groups: { ar: 'المجموعات والشعب الطلابية', icon: Users },
+  'Training Sites': { ar: 'المستشفيات ومواقع التدريب', icon: ShieldCheck },
+  Partnerships: { ar: 'الاتفاقيات والشراكات السريرية', icon: ShieldCheck },
 };
 
-const PERMISSION_LABELS: Record<string, { ar: string; en: string; isScreen?: boolean }> = {
-  // People & Staff Screens
-  'people.view': { ar: 'دخول شاشة المشرفين السريريين والكادر', en: 'View Clinical Supervisors & Staff', isScreen: true },
-  'people.manage': { ar: 'دخول وإدارة شاشة دليل رؤساء الأقسام', en: 'Manage & View Dept Heads Directory', isScreen: true },
-  'departments.view': { ar: 'عرض دليل الأقسام الأكاديمية', en: 'View Departments Directory', isScreen: true },
-  'departments.manage': { ar: 'إدارة الهيكل التنظيمي للأقسام', en: 'Manage Departments' },
-
+const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   // Students
-  'students.view': { ar: 'دخول شاشة دليل الطلبة', en: 'View Students Directory', isScreen: true },
-  'students.create': { ar: 'إضافة طالب جديد / استيراد كشوفات', en: 'Create / Import Students' },
-  'students.update': { ar: 'تعديل وتحديث بيانات الطلبة', en: 'Update Student Profile' },
-  'students.delete': { ar: 'حذف سجلات الطلبة', en: 'Delete Students' },
-  'students.export': { ar: 'تصدير كشوفات الطلبة (Excel/PDF)', en: 'Export Students' },
+  'students.view': { ar: 'دخول شاشة دليل الطلبة', isScreen: true },
+  'students.create': { ar: 'إضافة طالب جديد / استيراد كشوفات' },
+  'students.update': { ar: 'تعديل وتحديث بيانات الطلبة' },
+  'students.delete': { ar: 'حذف سجلات الطلبة' },
+  'students.export': { ar: 'تصدير كشوفات الطلبة' },
 
   // Grades
-  'grades.view': { ar: 'دخول شاشة سجل العلامات والاعتماد', en: 'View Grades Log', isScreen: true },
-  'grades.create': { ar: 'رصد وإدخال العلامات للمساقات', en: 'Enter Grades' },
-  'grades.update': { ar: 'تعديل وتحديث مسودات العلامات', en: 'Update Grades' },
-  'grades.approve': { ar: 'اعتماد ونشر العلامات رسمياً', en: 'Approve & Publish Grades' },
+  'grades.view': { ar: 'دخول شاشة سجل العلامات والاعتماد', isScreen: true },
+  'grades.create': { ar: 'رصد وإدخال العلامات للمساقات' },
+  'grades.update': { ar: 'تعديل وتحديث مسودات العلامات' },
+  'grades.lock': { ar: 'قفل العلامات ومنع التعديل' },
+  'grades.approve': { ar: 'اعتماد العلامات رسمياً' },
+  'grades.publish': { ar: 'نشر وإعلان العلامات للطلبة' },
 
-  // Distribution & Rotations
-  'distribution.view': { ar: 'دخول شاشات التوزيع والجدول السريري', en: 'View Distribution & Schedule', isScreen: true },
-  'distribution.create': { ar: 'إنشاء وتوليد توزيع سريري جديد', en: 'Create / Generate Distribution' },
-  'distribution.update': { ar: 'تعديل وتحديث التوزيع السريري', en: 'Update Distribution' },
-  'distribution.publish': { ar: 'نشر الجدول والتوزيع للطلبة', en: 'Publish Distribution' },
-  'rotations.view': { ar: 'عرض الدورات والتناوب السريري', en: 'View Clinical Rotations' },
-  'rotations.create': { ar: 'إضافة دورة سريرية جديدة', en: 'Create Clinical Rotation' },
-  'rotations.update': { ar: 'تعديل بيانات الدورة السريرية', en: 'Update Clinical Rotation' },
-  'rotations.delete': { ar: 'حذف دورة سريرية', en: 'Delete Clinical Rotation' },
+  // Distribution
+  'distribution.view': { ar: 'دخول شاشات التوزيع والجدول السريري', isScreen: true },
+  'distribution.create': { ar: 'إنشاء مخطط توزيع سريري جديد' },
+  'distribution.generate': { ar: 'توليد التوزيع السريري آلياً' },
+  'distribution.update': { ar: 'تعديل وتحديث بيانات التوزيع السريري' },
+  'distribution.validate': { ar: 'التحقق من صحة التوزيع وتفادي التعارض' },
+  'distribution.approve': { ar: 'اعتماد التوزيع السريري رسمياً' },
+  'distribution.publish': { ar: 'نشر وتعميم التوزيع السريري للطلبة' },
+  'distribution.delete': { ar: 'حذف التوزيع السريري' },
+  'distribution.override': { ar: 'تجاوز واستثناء قيود التوزيع السريري' },
 
-  // Courses
-  'courses.view': { ar: 'دخول شاشة مساقات الدائرة السريرية', en: 'View Clinical Courses', isScreen: true },
-  'courses.manage': { ar: 'إدارة وتعديل المساقات والخطط الدراسية', en: 'Manage Courses & Syllabi' },
+  // Rotations
+  'rotations.view': { ar: 'عرض الدورات والتناوب السريري' },
+  'rotations.create': { ar: 'إضافة دورة سريرية جديدة' },
+  'rotations.update': { ar: 'تعديل بيانات الدورة السريرية' },
+  'rotations.delete': { ar: 'حذف دورة سريرية' },
 
-  // Attendance & Assessment
-  'attendance.view': { ar: 'دخول شاشة سجل الحضور والغياب', en: 'View Attendance Log', isScreen: true },
-  'attendance.record': { ar: 'تسجيل وتأكيد حضور الطلبة', en: 'Record Attendance' },
-  'attendance.excuse': { ar: 'قبول وتوثيق الأعذار الطبية', en: 'Process Attendance Excuses' },
-  'assessment.view': { ar: 'دخول بوابة التقييم والإشراف السريري', en: 'View Clinical Assessments Portal', isScreen: true },
-  'assessment.create': { ar: 'إدخال تقييم سريري جديد', en: 'Create Clinical Assessment' },
-  'assessment.submit': { ar: 'رفع وتسليم التقييم السريري', en: 'Submit Clinical Assessment' },
-  'assessment.approve': { ar: 'اعتماد التقييمات السريرية (20)', en: 'Approve Clinical Assessments' },
+  // Attendance
+  'attendance.view': { ar: 'دخول شاشة سجل الحضور والغياب', isScreen: true },
+  'attendance.record': { ar: 'تسجيل وتأكيد حضور الطلبة' },
+  'attendance.excuse': { ar: 'قبول وتوثيق الأعذار الطبية' },
 
-  // Correspondence, Meetings & Tasks
-  'correspondence.view': { ar: 'دخول شاشات المراسلات (الوارد والصادر)', en: 'View Inbox & Outbox', isScreen: true },
-  'correspondence.create': { ar: 'إنشاء وإرسال معاملة جديدة', en: 'Create Correspondence' },
-  'correspondence.update': { ar: 'تعديل بيانات المعاملة', en: 'Update Correspondence' },
-  'correspondence.submit': { ar: 'إرسال المعاملة للموافقة', en: 'Submit Correspondence' },
-  'correspondence.forward': { ar: 'تحويل وتوجيه المعاملات', en: 'Forward Correspondence' },
-  'correspondence.approve': { ar: 'الموافقة على الطلبات والمعاملات', en: 'Approve Correspondence' },
-  'correspondence.close': { ar: 'إغلاق وأرشفة المعاملات', en: 'Close Correspondence' },
-  'meetings.manage': { ar: 'دخول وإدارة شاشة محاضر الاجتماعات', en: 'Manage Meetings & Minutes', isScreen: true },
-  'meetings.approve_minutes': { ar: 'اعتماد محاضر الاجتماعات رسمياً', en: 'Approve Meeting Minutes' },
-  'tasks.view': { ar: 'دخول شاشة المهام والتكليفات', en: 'View Tasks Screen', isScreen: true },
-  'tasks.manage': { ar: 'إشهار وإسناد المهام والمتابعة', en: 'Manage & Assign Tasks' },
+  // Assessment
+  'assessment.view': { ar: 'دخول بوابة التقييم والإشراف السريري', isScreen: true },
+  'assessment.create': { ar: 'إدخال تقييم سريري جديد' },
+  'assessment.submit': { ar: 'رفع وتسليم التقييم السريري' },
+  'assessment.approve': { ar: 'اعتماد التقييمات السريرية (20)' },
 
-  // Quality, Reports & Advising
-  'quality.view': { ar: 'دخول شاشة الجودة والاعتماد', en: 'View Quality & Accreditation', isScreen: true },
-  'quality.manage': { ar: 'إدارة الاستبيانات وخطط التحسين', en: 'Manage Surveys & Improvements' },
-  'reports.view': { ar: 'دخول شاشة التقارير السنوية والإحصائيات', en: 'View Reports Hub', isScreen: true },
-  'reports.export': { ar: 'تصدير التقارير والإحصائيات', en: 'Export Reports' },
-  'advising.view': { ar: 'دخول شاشة الإرشاد الأكاديمي والإنذار', en: 'View Academic Advising', isScreen: true },
-  'advising.manage': { ar: 'إدارة جلسات وسجلات الإرشاد', en: 'Manage Advising Records' },
+  // Courses & Course Reports
+  'courses.view': { ar: 'دخول شاشة مساقات الدائرة السريرية', isScreen: true },
+  'courses.manage': { ar: 'إدارة وتعديل المساقات والخطط الدراسية' },
+  'course_report.manage': { ar: 'إعداد وإدارة تقارير المساقات السريرية' },
+  'course_report.approve': { ar: 'اعتماد تقارير المساقات السريرية' },
 
-  // System & Security
-  'users.view': { ar: 'عرض قائمة المستخدمين والحسابات', en: 'View Users' },
-  'users.manage': { ar: 'دخول وإدارة شاشات المستخدمين والجلسات', en: 'Manage Users & Active Sessions', isScreen: true },
-  'roles.manage': { ar: 'دخول وإدارة شاشة مصفوفة الصلاحيات', en: 'Manage Permission Matrix', isScreen: true },
-  'audit.view': { ar: 'دخول شاشة سجل العمليات والتدقيق', en: 'View Audit Logs', isScreen: true },
-  'settings.manage': { ar: 'دخول شاشات صحة السيرفر والإعدادات', en: 'Manage Health Monitor & Settings', isScreen: true },
-  'academic_years.view': { ar: 'عرض الأعوام والتقويم الأكاديمي', en: 'View Academic Years' },
-  'academic_years.manage': { ar: 'دخول وإدارة شاشة التقويم الأكاديمي', en: 'Manage Academic Calendar', isScreen: true },
-  'groups.view': { ar: 'عرض المجموعات والشعب الطلابية', en: 'View Groups' },
-  'groups.manage': { ar: 'إدارة وتشكيل المجموعات والشعب', en: 'Manage Groups' },
+  // Advising
+  'advising.view': { ar: 'دخول شاشة الإرشاد الأكاديمي والإنذار المبكر', isScreen: true },
+  'advising.manage': { ar: 'إدارة جلسات وسجلات الإرشاد' },
+  'advising.export_pdf': { ar: 'تصدير ملفات وتقارير الإرشاد' },
+
+  // Quality & KPIs & Performance
+  'quality.view': { ar: 'دخول شاشة الجودة والاعتماد الأكاديمي', isScreen: true },
+  'quality.manage': { ar: 'إدارة الاستبيانات وخطط التحسين' },
+  'kpi.manage': { ar: 'إدارة واحتساب مؤشرات الأداء الرئيسية' },
+  'performance.view': { ar: 'مراقبة تقارير الأداء الأكاديمي والسريري' },
+
+  // Correspondence
+  'correspondence.view': { ar: 'دخول شاشات المراسلات (الوارد والصادر)', isScreen: true },
+  'correspondence.create': { ar: 'إنشاء وإرسال معاملة جديدة' },
+  'correspondence.update': { ar: 'تعديل بيانات المعاملة' },
+  'correspondence.submit': { ar: 'إرسال المعاملة للموافقة' },
+  'correspondence.forward': { ar: 'تحويل وتوجيه المعاملات' },
+  'correspondence.approve': { ar: 'الموافقة على الطلبات والمعاملات' },
+  'correspondence.close': { ar: 'إغلاق وأرشفة المعاملات' },
+
+  // Meetings & Tasks
+  'meetings.manage': { ar: 'دخول وإدارة شاشة محاضر الاجتماعات', isScreen: true },
+  'meetings.approve_minutes': { ar: 'اعتماد محاضر الاجتماعات رسمياً' },
+  'tasks.view': { ar: 'دخول شاشة المهام والتكليفات', isScreen: true },
+  'tasks.manage': { ar: 'إشهار وإسناد المهام والمتابعة' },
+
+  // Reports
+  'reports.view': { ar: 'دخول شاشة التقارير السنوية والإحصائيات', isScreen: true },
+  'reports.export': { ar: 'تصدير التقارير والإحصائيات' },
+
+  // Security & Users & System
+  'users.view': { ar: 'عرض قائمة المستخدمين والحسابات' },
+  'users.manage': { ar: 'دخول وإدارة شاشات المستخدمين والجلسات الحية', isScreen: true },
+  'roles.manage': { ar: 'دخول وإدارة شاشة مصفوفة الصلاحيات', isScreen: true },
+  'audit.view': { ar: 'دخول شاشة سجل العمليات والتدقيق', isScreen: true },
+  'settings.manage': { ar: 'دخول شاشات صحة السيرفر والإعدادات والنسخ الاحتياطي', isScreen: true },
+
+  // Academic Years
+  'academic_years.view': { ar: 'عرض الأعوام والتقويم الأكاديمي' },
+  'academic_years.manage': { ar: 'دخول وإدارة شاشة التقويم الأكاديمي', isScreen: true },
+
+  // Departments & People
+  'departments.view': { ar: 'عرض دليل الأقسام الأكاديمية', isScreen: true },
+  'departments.manage': { ar: 'إدارة الهيكل التنظيمي للأقسام' },
+  'people.view': { ar: 'دخول شاشة المشرفين السريريين والكادر', isScreen: true },
+  'people.manage': { ar: 'دخول وإدارة شاشة دليل رؤساء الأقسام', isScreen: true },
+
+  // Groups & Sites & Partnerships
+  'groups.view': { ar: 'عرض المجموعات والشعب الطلابية' },
+  'groups.manage': { ar: 'إدارة وتشكيل المجموعات والشعب' },
+  'training_sites.view': { ar: 'عرض المستشفيات ومواقع التدريب السريري' },
+  'training_sites.manage': { ar: 'إدارة وتخصيص مواقع التدريب والمستشفيات' },
+  'partnerships.view': { ar: 'عرض الاتفاقيات والشراكات السريرية' },
+  'partnerships.manage': { ar: 'إدارة وتوثيق الشراكات السريرية' },
 };
 
 export function PermissionMatrixPage() {
@@ -188,12 +225,11 @@ export function PermissionMatrixPage() {
   // Filter permissions
   const filteredPermissions = useMemo(() => {
     return permissions.filter((perm: any) => {
-      const permLabel = PERMISSION_LABELS[perm.code] || { ar: perm.code, en: perm.code };
+      const permLabel = PERMISSION_LABELS[perm.code] || { ar: perm.code };
       const matchesSearch =
         search.trim() === '' ||
-        perm.code.toLowerCase().includes(search.toLowerCase()) ||
         permLabel.ar.includes(search) ||
-        permLabel.en.toLowerCase().includes(search.toLowerCase());
+        perm.code.toLowerCase().includes(search.toLowerCase());
       const matchesModule = selectedModule === 'ALL' || perm.module === selectedModule;
       const matchesScreensOnly = !screensOnlyFilter || permLabel.isScreen;
 
@@ -223,8 +259,8 @@ export function PermissionMatrixPage() {
       {/* Page Header with Mode Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <PageHeader
-          title="مصفوفة الصلاحيات والشاشات"
-          description="تحديد الشاشات والصلاحيات المتاحة لكل مستخدم ودور في النظام مع حفظ مباشر وفوري."
+          title="مصفوفة الصلاحيات والتحكم بالشاشات"
+          description="تحديد الشاشات والصلاحيات المتاحة لكل مستخدم ودور في النظام مع الحفظ المباشر."
         />
 
         {/* View Mode Switcher */}
@@ -256,7 +292,7 @@ export function PermissionMatrixPage() {
         </div>
       </div>
 
-      {/* Floating Non-Intrusive Toast (Never shifts the page) */}
+      {/* Floating Toast */}
       {toastMessage && (
         <div className="fixed bottom-6 left-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-bold border border-slate-700 animate-in fade-in slide-in-from-bottom-4 duration-200">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -272,7 +308,7 @@ export function PermissionMatrixPage() {
             <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
             <input
               type="text"
-              placeholder="بحث سريع عن شاشة أو صلاحية (مثال: رؤساء الأقسام، المشرفين، علامات)..."
+              placeholder="بحث في الشاشات أو الصلاحيات (مثال: رؤساء الأقسام، المشرفين، علامات)..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pr-10 pl-4 py-2 rounded-2xl border border-slate-200 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-hidden bg-slate-50/60"
@@ -320,7 +356,7 @@ export function PermissionMatrixPage() {
         </div>
       </Card>
 
-      {/* VIEW 1: Role-Centric Cards View (Smooth, Stable, Zero-lag) */}
+      {/* VIEW 1: Role-Centric Cards View (100% Arabic) */}
       {viewMode === 'role_cards' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left Column: Role Selector Tabs */}
@@ -330,11 +366,10 @@ export function PermissionMatrixPage() {
                 اختر الدور لتحديد صلاحياته وشاشاته:
               </span>
               {roles.map((role: any) => {
-                const rInfo = ROLE_LABELS[role.code] || { ar: role.name || role.code, en: role.code };
+                const rInfo = ROLE_LABELS[role.code] || { ar: role.name || role.code };
                 const Icon = rInfo.icon || Users;
                 const isSelected = selectedRole?.id === role.id;
 
-                // Count granted permissions for this role
                 const rMatrix = localMatrix.find((m: any) => m.role_id === role.id);
                 const grantedCount = rMatrix?.permissions?.filter((p: any) => p.granted)?.length || 0;
 
@@ -357,16 +392,13 @@ export function PermissionMatrixPage() {
                       </div>
                       <div className="truncate text-right">
                         <div className="text-xs font-black truncate">{rInfo.ar}</div>
-                        <div className={`text-[10px] font-mono ${isSelected ? 'text-teal-100' : 'text-slate-400'}`}>
-                          {role.code}
-                        </div>
                       </div>
                     </div>
 
-                    <span className={`text-[11px] px-2 py-0.5 rounded-lg font-mono font-bold shrink-0 ${
+                    <span className={`text-[11px] px-2 py-0.5 rounded-lg font-bold shrink-0 ${
                       isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
                     }`}>
-                      {grantedCount} مفعلة
+                      {grantedCount} مفعّل
                     </span>
                   </button>
                 );
@@ -374,7 +406,7 @@ export function PermissionMatrixPage() {
             </div>
           </div>
 
-          {/* Right Column: Permission Groups for the Selected Role */}
+          {/* Right Column: Permission Groups for Selected Role */}
           <div className="lg:col-span-8 space-y-5">
             {selectedRole && (
               <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs flex items-center justify-between gap-4">
@@ -391,16 +423,12 @@ export function PermissionMatrixPage() {
                     </p>
                   </div>
                 </div>
-
-                <span className="text-xs font-mono font-bold bg-slate-100 px-3 py-1.5 rounded-xl text-slate-700 border border-slate-200">
-                  {selectedRole.code}
-                </span>
               </div>
             )}
 
             {/* Permission Cards by Module */}
             {Array.from(permissionsByModule.entries()).map(([moduleName, perms]) => {
-              const modInfo = MODULE_LABELS[moduleName] || { ar: moduleName, en: moduleName, icon: LayoutGrid };
+              const modInfo = MODULE_LABELS[moduleName] || { ar: moduleName, icon: LayoutGrid };
               const ModIcon = modInfo.icon;
 
               return (
@@ -412,14 +440,14 @@ export function PermissionMatrixPage() {
                         <ModIcon className="w-3.5 h-3.5" />
                       </div>
                       <h4 className="text-xs font-black text-slate-800">{modInfo.ar}</h4>
-                      <span className="text-[10.5px] font-mono text-slate-400 font-semibold">({perms.length})</span>
+                      <span className="text-[10.5px] text-slate-400 font-bold">({perms.length})</span>
                     </div>
                   </div>
 
                   {/* List of Permissions in Module */}
                   <div className="divide-y divide-slate-100 p-2">
                     {perms.map((perm: any) => {
-                      const permLabel = PERMISSION_LABELS[perm.code] || { ar: perm.code, en: perm.code };
+                      const permLabel = PERMISSION_LABELS[perm.code] || { ar: perm.code };
                       const isScreen = permLabel.isScreen;
                       const permEntry = selectedRoleMatrix?.permissions?.find((p: any) => p.permission_id === perm.id);
                       const isGranted = permEntry?.granted ?? false;
@@ -434,7 +462,7 @@ export function PermissionMatrixPage() {
                               : 'hover:bg-slate-50 border border-transparent'
                           }`}
                         >
-                          <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className={`text-xs font-bold ${isGranted ? 'text-teal-950 font-black' : 'text-slate-700'}`}>
                                 {permLabel.ar}
@@ -444,9 +472,6 @@ export function PermissionMatrixPage() {
                                   <LayoutGrid className="w-2.5 h-2.5" /> شاشة
                                 </span>
                               )}
-                            </div>
-                            <div className="text-[10px] font-mono text-slate-400 font-medium">
-                              {perm.code}
                             </div>
                           </div>
 
@@ -481,7 +506,7 @@ export function PermissionMatrixPage() {
         </div>
       )}
 
-      {/* VIEW 2: Full Matrix Table View (With Frozen Columns & Zero-Lag Local Updates) */}
+      {/* VIEW 2: Full Matrix Table View (100% Arabic) */}
       {viewMode === 'matrix_table' && (
         <Card className="border-slate-200 shadow-xs overflow-hidden rounded-3xl bg-white">
           <div className="overflow-x-auto max-h-[70vh]">
@@ -500,9 +525,6 @@ export function PermissionMatrixPage() {
                       >
                         <div className="flex flex-col items-center gap-1">
                           <span className="text-slate-800 leading-snug">{rLabel}</span>
-                          <span className="text-[10px] font-mono font-medium text-slate-400">
-                            {role.code}
-                          </span>
                         </div>
                       </TableHead>
                     );
@@ -519,7 +541,7 @@ export function PermissionMatrixPage() {
                   </TableRow>
                 ) : (
                   filteredPermissions.map((perm: any, pIdx: number) => {
-                    const permLabel = PERMISSION_LABELS[perm.code] || { ar: perm.code, en: perm.code };
+                    const permLabel = PERMISSION_LABELS[perm.code] || { ar: perm.code };
                     const isScreen = permLabel.isScreen;
                     return (
                       <TableRow
@@ -528,28 +550,21 @@ export function PermissionMatrixPage() {
                           pIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'
                         }`}
                       >
-                        {/* Permission Title & Info */}
+                        {/* Permission Title */}
                         <TableCell className="p-3.5">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-slate-900 leading-snug">
-                                {permLabel.ar}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-900 leading-snug">
+                              {permLabel.ar}
+                            </span>
+                            {isScreen && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 border border-teal-200 text-[10px] font-bold">
+                                <LayoutGrid className="w-2.5 h-2.5" /> شاشة
                               </span>
-                              {isScreen && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 border border-teal-200 text-[10px] font-bold">
-                                  <LayoutGrid className="w-2.5 h-2.5" /> شاشة
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
-                              <span>{perm.code}</span>
-                              <span>•</span>
-                              <span className="text-slate-500 font-sans">{MODULE_LABELS[perm.module]?.ar || perm.module}</span>
-                            </div>
+                            )}
                           </div>
                         </TableCell>
 
-                        {/* Checkboxes for each Role with zero-lag optimistic updates */}
+                        {/* Checkboxes for each Role */}
                         {roles.map((role: any) => {
                           const roleEntry = localMatrix.find((m: any) => m.role_id === role.id);
                           const permEntry = roleEntry?.permissions?.find((p: any) => p.permission_id === perm.id);
