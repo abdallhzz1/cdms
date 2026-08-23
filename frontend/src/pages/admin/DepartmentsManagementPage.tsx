@@ -16,6 +16,16 @@ import {
 
 const LEVEL_OPTIONS = ['الرابعة', 'الخامسة', 'السادسة'];
 
+const OFFICIAL_ORDER = [
+  'DEP-IM',
+  'DEP-GS',
+  'DEP-PED',
+  'DEP-OBG',
+  'DEP-SSS',
+  'DEP-IMS',
+  'DEP-FCM',
+];
+
 export function DepartmentsManagementPage() {
   const qc = useQueryClient();
 
@@ -56,7 +66,18 @@ export function DepartmentsManagementPage() {
 
   const departments: any[] = useMemo(() => {
     const raw = deptsData?.data || deptsData || [];
-    return Array.isArray(raw) ? raw : [];
+    const list = Array.isArray(raw) ? [...raw] : [];
+    // Sort cleanly: primary departments first in official order, then subspecialties
+    return list.sort((a, b) => {
+      const idxA = OFFICIAL_ORDER.indexOf(a.code);
+      const idxB = OFFICIAL_ORDER.indexOf(b.code);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      if (a.dept_type === 'primary' && b.dept_type !== 'primary') return -1;
+      if (a.dept_type !== 'primary' && b.dept_type === 'primary') return 1;
+      return (a.name_ar || '').localeCompare(b.name_ar || '', 'ar');
+    });
   }, [deptsData]);
 
   // 2. Fetch Candidates
@@ -321,7 +342,7 @@ export function DepartmentsManagementPage() {
               typeFilter === 'ALL' ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            جميع الأنواع ({departments.length})
+            جميع الأقسام ({departments.length})
           </button>
           <button
             onClick={() => setTypeFilter('primary')}
@@ -345,14 +366,14 @@ export function DepartmentsManagementPage() {
       {/* Departments Table */}
       <Card className="overflow-hidden border-slate-100 shadow-xs">
         <Table>
-          <TableHeader className="bg-slate-50">
+          <TableHeader className="bg-slate-50/90">
             <TableRow>
-              <TableHead>القسم الأكاديمي والرمز</TableHead>
-              <TableHead>رئيس القسم المكلف</TableHead>
-              <TableHead>مساعد البحث والتدريس (TA)</TableHead>
-              <TableHead className="text-center">الكادر</TableHead>
-              <TableHead className="text-center">الحالة</TableHead>
-              <TableHead className="text-center">إجراءات وإدارة</TableHead>
+              <TableHead className="min-w-[280px]">القسم الأكاديمي والرمز</TableHead>
+              <TableHead className="min-w-[230px]">رئيس القسم المكلف</TableHead>
+              <TableHead className="min-w-[230px]">مساعد البحث والتدريس (TA)</TableHead>
+              <TableHead className="text-center w-24">الكادر</TableHead>
+              <TableHead className="text-center w-28">الحالة</TableHead>
+              <TableHead className="text-center w-36">إجراءات وإدارة</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -370,40 +391,54 @@ export function DepartmentsManagementPage() {
 
                 return (
                   <TableRow key={d.id} className="hover:bg-slate-50/80 transition-colors">
-                    {/* Dept Name, Code, Type, Levels */}
+                    {/* Dept Name, Code, Type, Levels - Beautifully Arranged */}
                     <TableCell>
-                      <div className="flex items-start gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-700 font-black text-xs shrink-0 mt-0.5">
-                          {d.code}
+                      <div className="space-y-1.5 py-1">
+                        {/* 1. Arabic Name & Type Badge */}
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 text-sm">{d.name_ar}</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                              d.dept_type === 'primary'
+                                ? 'bg-teal-50 text-teal-800 border border-teal-200'
+                                : 'bg-slate-100 text-slate-700 border border-slate-200'
+                            }`}
+                          >
+                            {d.dept_type === 'primary' ? 'قسم رئيسي' : 'قسم فرعي'}
+                          </span>
                         </div>
-                        <div>
-                          <div className="font-bold text-slate-900 text-xs flex items-center gap-2">
-                            {d.name_ar}
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              d.dept_type === 'primary' ? 'bg-teal-50 text-teal-700 border border-teal-200' : 'bg-slate-100 text-slate-700'
-                            }`}>
-                              {d.dept_type === 'primary' ? 'رئيسي' : 'فرعي'}
-                            </span>
+
+                        {/* 2. English Name & Code */}
+                        <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                          <span className="font-sans font-semibold text-slate-600">{d.name_en}</span>
+                          <span className="text-slate-300">•</span>
+                          <span className="px-1.5 py-0.2 rounded bg-slate-100 font-mono text-[11px] font-bold text-slate-700">
+                            {d.code}
+                          </span>
+                        </div>
+
+                        {/* 3. Academic Levels Served */}
+                        {levels.length > 0 && (
+                          <div className="flex items-center gap-1.5 text-[11px] pt-0.5">
+                            <span className="font-bold text-slate-400 text-[10px]">السنوات:</span>
+                            {levels.map((lvl) => (
+                              <span
+                                key={lvl}
+                                className="px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-700 font-bold text-[10px]"
+                              >
+                                السنة {lvl}
+                              </span>
+                            ))}
                           </div>
-                          <div className="text-[11px] text-slate-500 font-mono mt-0.5">{d.name_en}</div>
-                          {levels.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {levels.map((lvl) => (
-                                <span key={lvl} className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 text-[9px] font-bold">
-                                  سنة {lvl}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                        )}
                       </div>
                     </TableCell>
 
                     {/* Department Head */}
                     <TableCell>
                       {head ? (
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
+                        <div className="p-2.5 rounded-xl bg-indigo-50/60 border border-indigo-100 space-y-1">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-900 text-xs">
                             <GraduationCap className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                             <span>{head.full_name_ar}</span>
                           </div>
@@ -412,23 +447,21 @@ export function DepartmentsManagementPage() {
                           )}
                           <button
                             onClick={() => openAssignModal(d)}
-                            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline mr-5 block cursor-pointer"
+                            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold mr-5 block hover:underline cursor-pointer pt-0.5"
                           >
-                            تغيير رئيس القسم
+                            تغيير رئيس القسم ↻
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-1 rounded-lg bg-amber-50 text-amber-700 text-[10px] font-bold border border-amber-200">
-                            غير محدد ⚠️
-                          </span>
+                        <div className="p-2.5 rounded-xl bg-slate-50 border border-dashed border-slate-200 flex items-center justify-between gap-2">
+                          <span className="text-xs font-medium text-slate-400">لم يُعيّن رئيس بعد</span>
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => openAssignModal(d)}
-                            className="text-xs text-teal-600 font-bold p-0 h-auto hover:bg-transparent"
+                            className="text-xs text-teal-700 bg-teal-50 hover:bg-teal-100 font-bold px-2.5 py-1 h-auto rounded-lg"
                           >
-                            تعيين
+                            + تعيين
                           </Button>
                         </div>
                       )}
@@ -437,33 +470,31 @@ export function DepartmentsManagementPage() {
                     {/* RTA / TA */}
                     <TableCell>
                       {rta ? (
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
+                        <div className="p-2.5 rounded-xl bg-amber-50/60 border border-amber-100 space-y-1">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-900 text-xs">
                             <ClipboardCheck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                             <span>{rta.full_name_ar}</span>
                           </div>
                           {rta.email && (
-                            <div className="text-[10px] text-slate-500 font-mono mr-5">{rta.email}</div>
+                            <div className="text-[10px] text-slate-500 font-mono mr-5 truncate max-w-[180px]">{rta.email}</div>
                           )}
                           <button
                             onClick={() => openAssignModal(d)}
-                            className="text-[10px] text-amber-700 hover:text-amber-900 font-bold underline mr-5 block cursor-pointer"
+                            className="text-[10px] text-amber-700 hover:text-amber-900 font-bold mr-5 block hover:underline cursor-pointer pt-0.5"
                           >
-                            تغيير الـ TA
+                            تغيير الـ TA ↻
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 text-[10px] font-bold">
-                            غير محدد
-                          </span>
+                        <div className="p-2.5 rounded-xl bg-slate-50 border border-dashed border-slate-200 flex items-center justify-between gap-2">
+                          <span className="text-xs font-medium text-slate-400">لم يُعيّن TA بعد</span>
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => openAssignModal(d)}
-                            className="text-xs text-teal-600 font-bold p-0 h-auto hover:bg-transparent"
+                            className="text-xs text-teal-700 bg-teal-50 hover:bg-teal-100 font-bold px-2.5 py-1 h-auto rounded-lg"
                           >
-                            تعيين
+                            + تعيين
                           </Button>
                         </div>
                       )}
@@ -472,7 +503,7 @@ export function DepartmentsManagementPage() {
                     {/* Staff Count */}
                     <TableCell className="text-center">
                       <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 text-xs font-bold inline-flex items-center gap-1">
-                        <Users className="w-3 h-3 text-slate-500" />
+                        <Users className="w-3.5 h-3.5 text-slate-500" />
                         {d.people_count}
                       </span>
                     </TableCell>
