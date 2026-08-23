@@ -8,7 +8,6 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import {
   Search,
   Star,
-  Building2,
   ChevronRight,
   ChevronLeft,
   Mail,
