@@ -56,13 +56,13 @@ function SupervisorAvatar({ name, url }: { name: string; url?: string }) {
       <img
         src={url}
         alt={name}
-        className="w-14 h-14 rounded-2xl object-cover border-2 border-indigo-100 shadow-sm"
+        className="w-14 h-14 rounded-2xl object-cover border-2 border-teal-100 shadow-sm"
       />
     );
   }
 
   return (
-    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white font-black text-sm shadow-sm shrink-0">
+    <div className="w-14 h-14 rounded-2xl bg-teal-600 flex items-center justify-center text-white font-black text-sm shadow-sm shrink-0">
       {initials || "م"}
     </div>
   );
@@ -80,7 +80,7 @@ function SupervisorListItem({
   return (
     <div
       onClick={() => onNavigate(supervisor.id)}
-      className="group bg-white rounded-2xl border border-slate-200 shadow-xs hover:shadow-md hover:border-indigo-200 transition-all duration-200 cursor-pointer overflow-hidden flex flex-col sm:flex-row items-center gap-4 p-4"
+      className="group bg-white rounded-2xl border border-slate-200 shadow-xs hover:shadow-md hover:border-teal-200 transition-all duration-200 cursor-pointer overflow-hidden flex flex-col sm:flex-row items-center gap-4 p-4"
     >
       {/* Avatar & Rank */}
       <div className="flex items-center gap-4 shrink-0 w-full sm:w-auto">
@@ -93,7 +93,7 @@ function SupervisorListItem({
       {/* Main Info */}
       <div className="flex-1 min-w-0 flex flex-col gap-1 w-full sm:w-auto">
         <div className="flex items-center gap-2 flex-wrap">
-          <h3 className="font-black text-sm text-slate-900 leading-snug group-hover:text-indigo-700 transition-colors">
+          <h3 className="font-black text-sm text-slate-900 leading-snug group-hover:text-teal-700 transition-colors">
             {supervisor.name}
           </h3>
           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${kpiBadgeColors(supervisor.kpi_rating)}`}>
@@ -128,7 +128,7 @@ function SupervisorListItem({
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onNavigate(supervisor.id); }}
-          className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
+          className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-teal-50 hover:bg-teal-600 text-teal-700 hover:text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
         >
           <span>فتح البروفايل</span>
           <ChevronLeft className="w-3.5 h-3.5" />
@@ -219,10 +219,10 @@ export function ClinicalSupervisorsDirectoryPage() {
 
         <div className="flex items-center gap-4 text-xs text-slate-500 font-semibold">
           <div className="flex items-center gap-1.5">
-            <Users2 className="w-4 h-4 text-indigo-500" />
+            <Users2 className="w-4 h-4 text-teal-500" />
             <span>
               إجمالي المشرفين:{" "}
-              <strong className="text-indigo-700 font-mono text-sm">
+              <strong className="text-teal-700 font-mono text-sm">
                 {supervisorsList.length}
               </strong>
             </span>

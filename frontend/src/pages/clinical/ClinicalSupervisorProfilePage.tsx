@@ -278,17 +278,17 @@ export function ClinicalSupervisorProfilePage() {
       </div>
 
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="h-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500" />
+        <div className="h-2 bg-teal-600" />
         <div className="p-6 flex flex-col sm:flex-row gap-6">
           <div className="relative shrink-0">
-            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-indigo-100 to-violet-100 border-2 border-indigo-200 overflow-hidden shadow-sm flex items-center justify-center">
+            <div className="w-24 h-24 rounded-3xl bg-teal-50 border-2 border-teal-200 overflow-hidden shadow-sm flex items-center justify-center">
               {profileData.avatar_url
                 ? <img src={profileData.avatar_url} alt={profileData.name} className="w-full h-full object-cover" />
-                : <span className="text-2xl font-black text-indigo-600">{profileData.name.split(" ").map(n=>n[0]).join("").slice(0,2)||"م"}</span>
+                : <span className="text-2xl font-black text-teal-600">{profileData.name.split(" ").map(n=>n[0]).join("").slice(0,2)||"م"}</span>
               }
             </div>
             {canEdit && (
-              <label htmlFor="avatar-upload" className="absolute -bottom-1.5 -left-1.5 w-7 h-7 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center cursor-pointer shadow-sm transition-colors" title="تغيير الصورة">
+              <label htmlFor="avatar-upload" className="absolute -bottom-1.5 -left-1.5 w-7 h-7 rounded-full bg-teal-600 hover:bg-teal-700 text-white flex items-center justify-center cursor-pointer shadow-sm transition-colors" title="تغيير الصورة">
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
                 <input id="avatar-upload" type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={isUploadingAvatar} />
               </label>
@@ -298,7 +298,7 @@ export function ClinicalSupervisorProfilePage() {
           <div className="flex-1 min-w-0 space-y-3">
             <div>
               <div className="flex items-center gap-2 flex-wrap mb-1">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-[11px] font-bold text-indigo-700">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-50 border border-teal-200 text-[11px] font-bold text-teal-700">
                   <ShieldCheck className="w-3.5 h-3.5" /> مشرف سريري
                 </span>
                 {profileData.kpi_rating && (
@@ -312,8 +312,8 @@ export function ClinicalSupervisorProfilePage() {
               {profileData.name_en && <p className="text-sm font-medium text-slate-400 font-mono">{profileData.name_en}</p>}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-[12px]">
-              <div className="flex items-center gap-2 text-slate-600 font-semibold"><Stethoscope className="w-3.5 h-3.5 text-violet-500 shrink-0" /><span>{profileData.title}</span></div>
-              <div className="flex items-center gap-2 text-slate-600 font-semibold"><Building2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" /><span>{deptLabel}</span></div>
+              <div className="flex items-center gap-2 text-slate-600 font-semibold"><Stethoscope className="w-3.5 h-3.5 text-emerald-500 shrink-0" /><span>{profileData.title}</span></div>
+              <div className="flex items-center gap-2 text-slate-600 font-semibold"><Building2 className="w-3.5 h-3.5 text-teal-500 shrink-0" /><span>{deptLabel}</span></div>
               <div className="flex items-center gap-2 text-slate-500 font-medium"><Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span className="font-mono">{profileData.email}</span></div>
               {profileData.phone && <div className="flex items-center gap-2 text-slate-500 font-medium"><Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span className="font-mono">{profileData.phone}</span></div>}
               {profileData.specialty && <div className="flex items-center gap-2 text-slate-600 font-semibold col-span-2"><Info className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>{profileData.specialty}</span></div>}
@@ -321,7 +321,7 @@ export function ClinicalSupervisorProfilePage() {
             <div className="flex items-center gap-2 pt-1 flex-wrap">
               {canEdit && (
                 <button type="button" onClick={() => isEditMode ? handleSaveProfile() : setIsEditMode(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition-colors">
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-sm transition-colors">
                   {isEditMode ? <><Save className="w-3.5 h-3.5" /><span>حفظ التعديلات</span></> : <><Pencil className="w-3.5 h-3.5" /><span>تعديل البروفايل</span></>}
                 </button>
               )}
@@ -340,7 +340,7 @@ export function ClinicalSupervisorProfilePage() {
         <div className="flex items-center gap-0.5 p-2 border-b border-slate-100 overflow-x-auto">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button key={id} type="button" onClick={() => setActiveTab(id)}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${activeTab===id ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}>
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${activeTab===id ? "bg-teal-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}>
               <Icon className="w-3.5 h-3.5" />{label}
             </button>
           ))}
@@ -350,9 +350,9 @@ export function ClinicalSupervisorProfilePage() {
           {activeTab === "cv" && (
             <div className="space-y-5">
               <div>
-                <h3 className="text-sm font-black text-slate-800 mb-2 flex items-center gap-2"><User className="w-4 h-4 text-indigo-500" />نبذة تعريفية</h3>
+                <h3 className="text-sm font-black text-slate-800 mb-2 flex items-center gap-2"><User className="w-4 h-4 text-teal-500" />نبذة تعريفية</h3>
                 {isEditMode
-                  ? <textarea value={profileData.cv_summary} onChange={e=>setProfileData({...profileData,cv_summary:e.target.value})} rows={6} className="w-full text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-2xl p-3.5 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300" placeholder="اكتب نبذة تعريفية عن المشرف السريري..." />
+                  ? <textarea value={profileData.cv_summary} onChange={e=>setProfileData({...profileData,cv_summary:e.target.value})} rows={6} className="w-full text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-2xl p-3.5 resize-none focus:outline-none focus:ring-2 focus:ring-teal-300" placeholder="اكتب نبذة تعريفية عن المشرف السريري..." />
                   : <p className="text-sm text-slate-700 leading-relaxed bg-slate-50 rounded-2xl p-4 min-h-[80px]">{profileData.cv_summary || <span className="text-slate-400 italic">لم تُضف نبذة تعريفية بعد.</span>}</p>
                 }
               </div>
@@ -361,7 +361,7 @@ export function ClinicalSupervisorProfilePage() {
                   <div key={key} className="space-y-1">
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</label>
                     {isEditMode
-                      ? <input type="text" value={(profileData as any)[key]||""} onChange={e=>setProfileData({...profileData,[key]:e.target.value})} className="w-full text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                      ? <input type="text" value={(profileData as any)[key]||""} onChange={e=>setProfileData({...profileData,[key]:e.target.value})} className="w-full text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-300" />
                       : <p className="text-sm font-semibold text-slate-800 bg-slate-50 rounded-xl px-3 py-2">{(profileData as any)[key]||<span className="text-slate-400">—</span>}</p>
                     }
                   </div>
@@ -372,16 +372,16 @@ export function ClinicalSupervisorProfilePage() {
 
           {activeTab === "research" && (
             <div className="space-y-4">
-              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2"><BookOpen className="w-4 h-4 text-indigo-500" />الأبحاث العلمية المنشورة ({profileData.publications.length})</h3>
+              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2"><BookOpen className="w-4 h-4 text-teal-500" />الأبحاث العلمية المنشورة ({profileData.publications.length})</h3>
               {canEdit && (
-                <div className="bg-indigo-50 rounded-2xl border border-indigo-100 p-4 space-y-3">
-                  <p className="text-xs font-bold text-indigo-700">إضافة بحث جديد</p>
+                <div className="bg-teal-50 rounded-2xl border border-teal-100 p-4 space-y-3">
+                  <p className="text-xs font-bold text-teal-700">إضافة بحث جديد</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {([["عنوان البحث *",newPubTitle,setNewPubTitle],["المجلة العلمية",newPubJournal,setNewPubJournal],["سنة النشر",newPubYear,setNewPubYear],["رابط DOI",newPubDoi,setNewPubDoi]] as [string,string,any][]).map(([ph,val,fn],i)=>(
-                      <input key={i} type="text" placeholder={ph} value={val} onChange={e=>fn(e.target.value)} className="text-xs font-medium bg-white border border-indigo-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-300 w-full" />
+                      <input key={i} type="text" placeholder={ph} value={val} onChange={e=>fn(e.target.value)} className="text-xs font-medium bg-white border border-teal-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-teal-300 w-full" />
                     ))}
                   </div>
-                  <button type="button" onClick={handleAddPub} disabled={!newPubTitle.trim()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold transition-colors">
+                  <button type="button" onClick={handleAddPub} disabled={!newPubTitle.trim()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white text-xs font-bold transition-colors">
                     <Plus className="w-3.5 h-3.5" /> إضافة البحث
                   </button>
                 </div>
@@ -389,11 +389,11 @@ export function ClinicalSupervisorProfilePage() {
               {profileData.publications.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">لم تُضف أبحاث بعد.</p> : (
                 <div className="space-y-3">
                   {profileData.publications.map((pub,idx)=>(
-                    <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-4 flex items-start justify-between gap-3 hover:border-indigo-200 transition-colors">
+                    <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-4 flex items-start justify-between gap-3 hover:border-teal-200 transition-colors">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-slate-900 mb-1">{pub.title}</p>
                         <p className="text-xs text-slate-500 font-medium">{pub.journal} · {pub.year}</p>
-                        {pub.doi && <a href={pub.doi.startsWith("http")?pub.doi:`https://doi.org/${pub.doi}`} target="_blank" rel="noopener noreferrer" className="text-[11px] text-indigo-600 font-mono hover:underline">{pub.doi}</a>}
+                        {pub.doi && <a href={pub.doi.startsWith("http")?pub.doi:`https://doi.org/${pub.doi}`} target="_blank" rel="noopener noreferrer" className="text-[11px] text-teal-600 font-mono hover:underline">{pub.doi}</a>}
                       </div>
                       {canEdit && <button type="button" onClick={()=>handleDeletePub(idx)} className="text-rose-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors shrink-0"><Trash2 className="w-4 h-4" /></button>}
                     </div>
@@ -405,16 +405,16 @@ export function ClinicalSupervisorProfilePage() {
 
           {activeTab === "conferences" && (
             <div className="space-y-4">
-              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2"><Award className="w-4 h-4 text-violet-500" />المؤتمرات والفعاليات ({profileData.conferences.length})</h3>
+              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2"><Award className="w-4 h-4 text-emerald-500" />المؤتمرات والفعاليات ({profileData.conferences.length})</h3>
               {canEdit && (
-                <div className="bg-violet-50 rounded-2xl border border-violet-100 p-4 space-y-3">
-                  <p className="text-xs font-bold text-violet-700">إضافة مؤتمر / فعالية</p>
+                <div className="bg-emerald-50 rounded-2xl border border-emerald-100 p-4 space-y-3">
+                  <p className="text-xs font-bold text-emerald-700">إضافة مؤتمر / فعالية</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {([["اسم المؤتمر *",newConfName,setNewConfName],["المكان",newConfLocation,setNewConfLocation],["السنة",newConfDate,setNewConfDate],["الدور",newConfRole,setNewConfRole]] as [string,string,any][]).map(([ph,val,fn],i)=>(
-                      <input key={i} type="text" placeholder={ph} value={val} onChange={e=>fn(e.target.value)} className="text-xs font-medium bg-white border border-violet-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-violet-300 w-full" />
+                      <input key={i} type="text" placeholder={ph} value={val} onChange={e=>fn(e.target.value)} className="text-xs font-medium bg-white border border-emerald-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-300 w-full" />
                     ))}
                   </div>
-                  <button type="button" onClick={handleAddConf} disabled={!newConfName.trim()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white text-xs font-bold transition-colors">
+                  <button type="button" onClick={handleAddConf} disabled={!newConfName.trim()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold transition-colors">
                     <Plus className="w-3.5 h-3.5" /> إضافة المؤتمر
                   </button>
                 </div>
@@ -422,11 +422,11 @@ export function ClinicalSupervisorProfilePage() {
               {profileData.conferences.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">لم تُضف مؤتمرات بعد.</p> : (
                 <div className="space-y-3">
                   {profileData.conferences.map((conf,idx)=>(
-                    <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-4 flex items-start justify-between gap-3 hover:border-violet-200 transition-colors">
+                    <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-4 flex items-start justify-between gap-3 hover:border-emerald-200 transition-colors">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-slate-900 mb-1">{conf.name}</p>
                         <p className="text-xs text-slate-500 font-medium">{conf.location} · {conf.date}</p>
-                        <span className="text-[11px] font-bold text-violet-700 bg-violet-50 border border-violet-100 rounded-lg px-2 py-0.5 inline-block mt-1">{conf.role}</span>
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-0.5 inline-block mt-1">{conf.role}</span>
                       </div>
                       {canEdit && <button type="button" onClick={()=>handleDeleteConf(idx)} className="text-rose-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors shrink-0"><Trash2 className="w-4 h-4" /></button>}
                     </div>
@@ -453,7 +453,7 @@ export function ClinicalSupervisorProfilePage() {
                         <p className="text-[10px] text-slate-400 font-mono mt-0.5">{doc.file_size} · {doc.created_at}</p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        {doc.file_url && <button type="button" onClick={()=>setPreviewDoc(doc)} className="w-7 h-7 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 flex items-center justify-center transition-colors"><Eye className="w-3.5 h-3.5" /></button>}
+                        {doc.file_url && <button type="button" onClick={()=>setPreviewDoc(doc)} className="w-7 h-7 rounded-lg text-slate-500 hover:text-teal-600 hover:bg-teal-50 flex items-center justify-center transition-colors"><Eye className="w-3.5 h-3.5" /></button>}
                         {canEdit && <button type="button" onClick={()=>handleDeleteDoc(doc.id||"",idx)} className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
                       </div>
                     </div>
@@ -465,26 +465,26 @@ export function ClinicalSupervisorProfilePage() {
 
           {activeTab === "kpi" && (
             <div className="space-y-5">
-              <div className="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-2xl border border-indigo-100 p-6 flex flex-col sm:flex-row items-center gap-5">
+              <div className="bg-teal-50 rounded-2xl border border-teal-100 p-6 flex flex-col sm:flex-row items-center gap-5">
                 <div className="text-center">
-                  <div className="text-4xl font-black text-indigo-700 font-mono">{kpiBreakdown.totalScore}</div>
-                  <div className="text-xs text-indigo-500 font-bold mt-0.5">من أصل 100</div>
+                  <div className="text-4xl font-black text-teal-700 font-mono">{kpiBreakdown.totalScore}</div>
+                  <div className="text-xs text-teal-500 font-bold mt-0.5">من أصل 100</div>
                 </div>
                 <div className="flex-1 w-full space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-black text-slate-800">مجموع نقاط الأداء</span>
                     <span className={`text-xs font-black px-2.5 py-1 rounded-full border ${ratingColors[kpiBreakdown.rating]||ratingColors["مقبول"]}`}>{kpiBreakdown.rating}</span>
                   </div>
-                  <div className="h-3 bg-white rounded-full overflow-hidden border border-indigo-100">
-                    <div className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full transition-all" style={{width:`${kpiBreakdown.totalScore}%`}} />
+                  <div className="h-3 bg-white rounded-full overflow-hidden border border-teal-100">
+                    <div className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 rounded-full transition-all" style={{width:`${kpiBreakdown.totalScore}%`}} />
                   </div>
                 </div>
               </div>
               <div className="space-y-3">
                 {[
-                  {label:"حضور الجلسات السريرية", score:kpiBreakdown.sessionAttendanceScore, max:(kpiBreakdown.weights?.sessionAttendanceWeight||30), color:"bg-indigo-500", icon:"📋"},
+                  {label:"حضور الجلسات السريرية", score:kpiBreakdown.sessionAttendanceScore, max:(kpiBreakdown.weights?.sessionAttendanceWeight||30), color:"bg-teal-500", icon:"📋"},
                   {label:"الأبحاث والنشر العلمي",  score:kpiBreakdown.researchScore,          max:(kpiBreakdown.weights?.researchWeight||20),          color:"bg-blue-500",   icon:"📚"},
-                  {label:"المؤتمرات والفعاليات",   score:kpiBreakdown.confScore,              max:(kpiBreakdown.weights?.confWeight||15),               color:"bg-violet-500", icon:"🎤"},
+                  {label:"المؤتمرات والفعاليات",   score:kpiBreakdown.confScore,              max:(kpiBreakdown.weights?.confWeight||15),               color:"bg-emerald-500", icon:"🎤"},
                   {label:"تقييم الإدارة السريرية", score:kpiBreakdown.directorEvalScore,      max:(kpiBreakdown.weights?.evaluationWeight||20),         color:"bg-emerald-500",icon:"✅"},
                   {label:"تقييم الطلاب للمشرف",   score:kpiBreakdown.studentFeedbackScore,   max:(kpiBreakdown.weights?.studentFeedbackWeight||15),    color:"bg-amber-500",  icon:"⭐"},
                 ].map(({label,score,max,color,icon})=>(
@@ -575,7 +575,7 @@ export function ClinicalSupervisorProfilePage() {
                 : <p className="text-sm text-slate-500 text-center py-10">لا يمكن معاينة هذا النوع هنا.</p>
             }
             {previewDoc.file_url && !previewDoc.file_url.startsWith("data:") && (
-              <a href={previewDoc.file_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 transition-colors">
+              <a href={previewDoc.file_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-teal-600 text-white font-bold text-sm hover:bg-teal-700 transition-colors">
                 <Download className="w-4 h-4" /> فتح / تنزيل الوثيقة
               </a>
             )}
