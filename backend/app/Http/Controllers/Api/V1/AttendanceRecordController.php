@@ -5,17 +5,29 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AttendanceRecord;
+use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class AttendanceRecordController extends Controller
 {
+    use ScopesByDepartmentAndLevel;
+
     public function index(Request $request): JsonResponse
     {
-        $records = AttendanceRecord::with(['student', 'session.trainingSite'])
-            ->when($request->filled('clinical_session_id'), fn ($query) => $query->where('clinical_session_id', $request->integer('clinical_session_id')))
-            ->when($request->filled('student_id'), fn ($query) => $query->where('student_id', $request->integer('student_id')))
+        $query = AttendanceRecord::with(['student', 'session.trainingSite']);
+
+        $userDeptId = $this->getUserDepartmentId();
+        if ($userDeptId) {
+            $query->whereHas('session.course', function ($q) use ($userDeptId) {
+                $q->where('department_id', $userDeptId);
+            });
+        }
+
+        $records = $query
+            ->when($request->filled('clinical_session_id'), fn ($q) => $q->where('clinical_session_id', $request->integer('clinical_session_id')))
+            ->when($request->filled('student_id'), fn ($q) => $q->where('student_id', $request->integer('student_id')))
             ->latest()
             ->paginate($request->integer('per_page', 25));
 

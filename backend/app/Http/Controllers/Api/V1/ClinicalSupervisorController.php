@@ -6,11 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Models\DepartmentHeadProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ClinicalSupervisorController extends Controller
 {
+    use ScopesByDepartmentAndLevel;
+
     public function index(Request $request): JsonResponse
     {
         $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->first();
@@ -20,6 +23,13 @@ class ClinicalSupervisorController extends Controller
         if ($supervisorRole) {
             $query->whereHas('roles', function ($q) use ($supervisorRole) {
                 $q->where('roles.id', $supervisorRole->id);
+            });
+        }
+
+        $userDeptId = $this->getUserDepartmentId();
+        if ($userDeptId) {
+            $query->whereHas('person', function ($q) use ($userDeptId) {
+                $q->where('department_id', $userDeptId);
             });
         }
 

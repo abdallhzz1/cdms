@@ -8,11 +8,14 @@ use App\Http\Requests\V1\UpdateStudentRequest;
 use App\Http\Resources\V1\StudentResource;
 use App\Http\Responses\ApiResponse;
 use App\Models\Student;
+use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class StudentController extends Controller
 {
+    use ScopesByDepartmentAndLevel;
+
     /**
      * GET /api/v1/students
      * Permission: students.view
@@ -22,7 +25,13 @@ class StudentController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $scopedLevels = $this->getUserScopedLevels();
+
         $students = Student::with(['academicYear', 'academicAdvisor', 'currentGroupAssignments.group'])
+            ->when(
+                !empty($scopedLevels) && !$request->query('academic_level'),
+                fn ($q) => $q->whereIn('academic_level', $scopedLevels)
+            )
             ->when(
                 $request->query('academic_level'),
                 fn ($q, $l) => $q->where('academic_level', $l)

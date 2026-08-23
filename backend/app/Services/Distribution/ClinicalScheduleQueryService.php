@@ -5,12 +5,15 @@ namespace App\Services\Distribution;
 use App\DTOs\ClinicalScheduleItemDTO;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
+use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
 class ClinicalScheduleQueryService
 {
+    use ScopesByDepartmentAndLevel;
+
     public function __construct(
         private CurrentDistributionResolver $currentResolver,
         private ClinicalScheduleDateCalculator $dateCalculator
@@ -37,6 +40,12 @@ class ClinicalScheduleQueryService
                 'supervisor',
             ]);
 
+        // Auto-scope by department if user is a Department Head or RTA
+        $scopedDeptId = $this->getUserDepartmentId();
+        if ($scopedDeptId) {
+            $query->where('department_id', $scopedDeptId);
+        }
+
         // Filters
         if ($request->filled('rotation_id')) {
             $rotationId = (int) $request->input('rotation_id');
@@ -53,7 +62,7 @@ class ClinicalScheduleQueryService
             $query->where('training_site_id', (int) $request->input('training_site_id'));
         }
 
-        if ($request->filled('department_id')) {
+        if (!$scopedDeptId && $request->filled('department_id')) {
             $query->where('department_id', (int) $request->input('department_id'));
         }
 
