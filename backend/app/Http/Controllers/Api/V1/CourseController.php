@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\Course;
+use App\Models\CourseAssessmentComponent;
+use App\Models\CourseLearningOutcome;
+use App\Models\CourseProgramOutcomeMapping;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -72,7 +75,9 @@ class CourseController extends Controller
     }
 
     public function show(Course $course): JsonResponse {
-        return ApiResponse::success($course->load(['assessmentComponents', 'learningOutcomes', 'programOutcomeMappings']));
+        return ApiResponse::success(
+            $course->load(['assessmentComponents', 'learningOutcomes', 'programOutcomeMappings'])
+        );
     }
 
     public function update(Request $request, Course $course): JsonResponse {
@@ -98,6 +103,108 @@ class CourseController extends Controller
     public function destroy(Course $course): JsonResponse {
         $course->delete();
         return ApiResponse::success(null, 'Course deleted successfully.');
+    }
+
+    /**
+     * Assessment Components Sub-Resource API
+     */
+    public function addAssessmentComponent(Request $request, Course $course): JsonResponse {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'weight' => 'nullable|numeric|min:0|max:100',
+            'max_score' => 'nullable|numeric|min:0',
+            'evaluator' => 'nullable|string|max:255',
+            'timing' => 'nullable|string|max:255',
+            'is_required_to_pass' => 'boolean',
+            'notes' => 'nullable|string',
+        ]);
+
+        $component = $course->assessmentComponents()->create($validated);
+        return ApiResponse::success($component, 'Assessment component added.', [], 201);
+    }
+
+    public function updateAssessmentComponent(Request $request, Course $course, int $componentId): JsonResponse {
+        $component = $course->assessmentComponents()->findOrFail($componentId);
+        $validated = $request->validate([
+            'name' => 'sometimes|required|string|max:255',
+            'weight' => 'nullable|numeric|min:0|max:100',
+            'max_score' => 'nullable|numeric|min:0',
+            'evaluator' => 'nullable|string|max:255',
+            'timing' => 'nullable|string|max:255',
+            'is_required_to_pass' => 'boolean',
+            'notes' => 'nullable|string',
+        ]);
+
+        $component->update($validated);
+        return ApiResponse::success($component, 'Assessment component updated.');
+    }
+
+    public function deleteAssessmentComponent(Course $course, int $componentId): JsonResponse {
+        $component = $course->assessmentComponents()->findOrFail($componentId);
+        $component->delete();
+        return ApiResponse::success(null, 'Assessment component deleted.');
+    }
+
+    /**
+     * Learning Outcomes (ILOs) Sub-Resource API
+     */
+    public function addLearningOutcome(Request $request, Course $course): JsonResponse {
+        $validated = $request->validate([
+            'outcome_code' => 'required|string|max:50',
+            'text_ar' => 'nullable|string',
+            'text_en' => 'nullable|string',
+            'domain' => 'nullable|string|max:100',
+            'program_outcome' => 'nullable|string|max:100',
+            'teaching_method' => 'nullable|string|max:255',
+            'assessment_method' => 'nullable|string|max:255',
+        ]);
+
+        $outcome = $course->learningOutcomes()->create($validated);
+        return ApiResponse::success($outcome, 'Learning outcome added.', [], 201);
+    }
+
+    public function updateLearningOutcome(Request $request, Course $course, int $outcomeId): JsonResponse {
+        $outcome = $course->learningOutcomes()->findOrFail($outcomeId);
+        $validated = $request->validate([
+            'outcome_code' => 'sometimes|required|string|max:50',
+            'text_ar' => 'nullable|string',
+            'text_en' => 'nullable|string',
+            'domain' => 'nullable|string|max:100',
+            'program_outcome' => 'nullable|string|max:100',
+            'teaching_method' => 'nullable|string|max:255',
+            'assessment_method' => 'nullable|string|max:255',
+        ]);
+
+        $outcome->update($validated);
+        return ApiResponse::success($outcome, 'Learning outcome updated.');
+    }
+
+    public function deleteLearningOutcome(Course $course, int $outcomeId): JsonResponse {
+        $outcome = $course->learningOutcomes()->findOrFail($outcomeId);
+        $outcome->delete();
+        return ApiResponse::success(null, 'Learning outcome deleted.');
+    }
+
+    /**
+     * Program Outcome Mappings (PLOs) Sub-Resource API
+     */
+    public function addProgramOutcomeMapping(Request $request, Course $course): JsonResponse {
+        $validated = $request->validate([
+            'program_outcome_code' => 'required|string|max:50',
+            'mapping_level' => 'nullable|string|max:50',
+        ]);
+
+        $mapping = $course->programOutcomeMappings()->updateOrCreate(
+            ['program_outcome_code' => $validated['program_outcome_code']],
+            ['mapping_level' => $validated['mapping_level'] ?? 'Medium']
+        );
+        return ApiResponse::success($mapping, 'Program outcome mapping saved.', [], 201);
+    }
+
+    public function deleteProgramOutcomeMapping(Course $course, int $mappingId): JsonResponse {
+        $mapping = $course->programOutcomeMappings()->findOrFail($mappingId);
+        $mapping->delete();
+        return ApiResponse::success(null, 'Program outcome mapping deleted.');
     }
 
     /**

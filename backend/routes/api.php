@@ -112,6 +112,18 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('courses/{course}', [\App\Http\Controllers\Api\V1\CourseController::class, 'show'])->middleware('permission:courses.view');
         Route::put('courses/{course}', [\App\Http\Controllers\Api\V1\CourseController::class, 'update'])->middleware('permission:courses.manage');
         Route::delete('courses/{course}', [\App\Http\Controllers\Api\V1\CourseController::class, 'destroy'])->middleware('permission:courses.manage');
+
+        // Course Sub-Resource Routes
+        Route::post('courses/{course}/assessment-components', [\App\Http\Controllers\Api\V1\CourseController::class, 'addAssessmentComponent'])->middleware('permission:courses.manage');
+        Route::put('courses/{course}/assessment-components/{componentId}', [\App\Http\Controllers\Api\V1\CourseController::class, 'updateAssessmentComponent'])->middleware('permission:courses.manage');
+        Route::delete('courses/{course}/assessment-components/{componentId}', [\App\Http\Controllers\Api\V1\CourseController::class, 'deleteAssessmentComponent'])->middleware('permission:courses.manage');
+
+        Route::post('courses/{course}/learning-outcomes', [\App\Http\Controllers\Api\V1\CourseController::class, 'addLearningOutcome'])->middleware('permission:courses.manage');
+        Route::put('courses/{course}/learning-outcomes/{outcomeId}', [\App\Http\Controllers\Api\V1\CourseController::class, 'updateLearningOutcome'])->middleware('permission:courses.manage');
+        Route::delete('courses/{course}/learning-outcomes/{outcomeId}', [\App\Http\Controllers\Api\V1\CourseController::class, 'deleteLearningOutcome'])->middleware('permission:courses.manage');
+
+        Route::post('courses/{course}/program-outcome-mappings', [\App\Http\Controllers\Api\V1\CourseController::class, 'addProgramOutcomeMapping'])->middleware('permission:courses.manage');
+        Route::delete('courses/{course}/program-outcome-mappings/{mappingId}', [\App\Http\Controllers\Api\V1\CourseController::class, 'deleteProgramOutcomeMapping'])->middleware('permission:courses.manage');
         Route::get('study-plans', [\App\Http\Controllers\Api\V1\StudyPlanController::class, 'index'])->middleware('permission:courses.view');
         Route::get('study-plans/{studyPlan}', [\App\Http\Controllers\Api\V1\StudyPlanController::class, 'show'])->middleware('permission:courses.view');
         Route::post('study-plans', [\App\Http\Controllers\Api\V1\StudyPlanController::class, 'store'])->middleware('permission:courses.manage');
