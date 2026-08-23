@@ -93,8 +93,6 @@ class CourseController extends Controller
     {
         $request->validate([
             'courses' => ['required', 'array', 'min:1'],
-            'courses.*.code' => ['required', 'string'],
-            'courses.*.name_ar' => ['required', 'string'],
         ]);
 
         $imported = 0;
@@ -103,14 +101,16 @@ class CourseController extends Controller
 
         foreach ($request->input('courses') as $index => $row) {
             try {
-                $code = trim((string)($row['code'] ?? ''));
-                $nameAr = trim((string)($row['name_ar'] ?? ''));
+                $code = trim((string)($row['code'] ?? $row['رمز_المساق'] ?? $row['رمز المساق'] ?? ''));
+                $nameAr = trim((string)($row['name_ar'] ?? $row['اسم_المساق_بالعربية'] ?? $row['اسم المساق بالعربي'] ?? $row['اسم_المساق'] ?? ''));
+                $nameEn = trim((string)($row['name_en'] ?? $row['اسم_المساق_بالانجليزية'] ?? $row['اسم المساق بالانجليزي'] ?? ''));
+
                 if (empty($code) || empty($nameAr)) {
                     $errors[] = "السطر " . ($index + 1) . ": رمز المساق والاسم بالعربي مطلوبان.";
                     continue;
                 }
 
-                $rawLevel = strtolower(trim((string)($row['academic_level'] ?? '')));
+                $rawLevel = strtolower(trim((string)($row['academic_level'] ?? $row['المستوى_الأكاديمي'] ?? $row['المستوى'] ?? $row['السنة_السريرية'] ?? '')));
                 $level = 'fourth';
                 if (in_array($rawLevel, ['fourth', 'fifth', 'sixth'])) {
                     $level = $rawLevel;
@@ -120,25 +120,31 @@ class CourseController extends Controller
                     elseif (str_contains($rawLevel, '6') || str_contains($rawLevel, 'سادس') || str_contains($rawLevel, 'sixth')) $level = 'sixth';
                 }
 
+                $rawSem = trim((string)($row['semester'] ?? $row['الفصل'] ?? $row['الفصل_الدراسي'] ?? '1'));
+                $semester = 1;
+                if (str_contains($rawSem, '2') || str_contains($rawSem, 'ثاني') || str_contains($rawSem, 'second')) {
+                    $semester = 2;
+                }
+
                 $isActive = true;
-                if (isset($row['is_active'])) {
-                    $val = strtolower(trim((string)$row['is_active']));
+                if (isset($row['is_active']) || isset($row['نشط'])) {
+                    $val = strtolower(trim((string)($row['is_active'] ?? $row['نشط'])));
                     if (in_array($val, ['0', 'false', 'no', 'لا', 'غير نشط', 'inactive'])) {
                         $isActive = false;
                     }
                 }
 
-                $credits = max(1, min(30, (int)($row['credit_hours'] ?? 1)));
-                $semester = isset($row['semester']) ? max(1, min(2, (int)$row['semester'])) : 1;
+                $credits = max(1, min(30, (int)($row['credit_hours'] ?? $row['الساعات_المعتمدة'] ?? $row['الساعات'] ?? 4)));
+                $description = !empty($row['description']) ? trim((string)$row['description']) : (!empty($row['الوصف']) ? trim((string)$row['الوصف']) : null);
 
                 $data = [
                     'name_ar'        => $nameAr,
-                    'name_en'        => !empty($row['name_en']) ? trim((string)$row['name_en']) : null,
+                    'name_en'        => !empty($nameEn) ? $nameEn : null,
                     'credit_hours'   => $credits,
                     'academic_level' => $level,
                     'semester'       => $semester,
                     'is_active'      => $isActive,
-                    'description'    => !empty($row['description']) ? trim((string)$row['description']) : null,
+                    'description'    => $description,
                 ];
 
                 $course = Course::where('code', $code)->first();

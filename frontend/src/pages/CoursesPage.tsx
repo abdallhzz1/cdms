@@ -72,6 +72,7 @@ export function CoursesPage() {
     mutationFn: (courses: any[]) => apiFetch('/courses/bulk-import', { method: 'POST', body: { courses } }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ['courses-live'] });
+      qc.invalidateQueries({ queryKey: ['courses'] });
       setImportSuccessMsg(
         locale === 'ar' 
           ? `تم استيراد ${res.data?.imported ?? importRows.length} مساق جديد وتحديث ${res.data?.updated ?? 0} مساق بنجاح!` 
@@ -165,22 +166,37 @@ export function CoursesPage() {
         }
 
         const parsed: any[] = [];
-        const headerLine = lines[0].toLowerCase();
-        const hasHeader = headerLine.includes('code') || headerLine.includes('رمز');
+        const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+
+        let codeIdx = rawHeaders.findIndex(h => h.includes('code') || h.includes('رمز'));
+        let nameArIdx = rawHeaders.findIndex(h => h.includes('name_ar') || h.includes('العربي') || h.includes('عربي') || (h.includes('اسم') && !h.includes('en') && !h.includes('انجليز')));
+        let nameEnIdx = rawHeaders.findIndex(h => h.includes('name_en') || h.includes('انجليز') || h.includes('english'));
+        let creditsIdx = rawHeaders.findIndex(h => h.includes('credit') || h.includes('ساع'));
+        let levelIdx = rawHeaders.findIndex(h => h.includes('level') || h.includes('مستوى') || h.includes('سنة'));
+        let semesterIdx = rawHeaders.findIndex(h => h.includes('semester') || h.includes('فصل'));
+        let activeIdx = rawHeaders.findIndex(h => h.includes('active') || h.includes('نشط'));
+        let descIdx = rawHeaders.findIndex(h => h.includes('desc') || h.includes('وصف'));
+
+        if (codeIdx === -1) codeIdx = 0;
+        if (nameArIdx === -1) nameArIdx = 1;
+
+        const hasHeader = rawHeaders[0].includes('code') || rawHeaders[0].includes('رمز') || rawHeaders[0].includes('اسم');
         const startIndex = hasHeader ? 1 : 0;
 
         for (let i = startIndex; i < lines.length; i++) {
           const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
-          if (cols.length >= 2 && cols[0] && cols[1]) {
+          const codeVal = cols[codeIdx] || '';
+          const nameArVal = cols[nameArIdx] || '';
+          if (codeVal && nameArVal) {
             parsed.push({
-              code: cols[0],
-              name_ar: cols[1],
-              name_en: cols[2] || '',
-              credit_hours: cols[3] || '4',
-              academic_level: cols[4] || 'fourth',
-              semester: cols[5] || '1',
-              is_active: cols[6] !== undefined ? cols[6] : '1',
-              description: cols[7] || '',
+              code: codeVal,
+              name_ar: nameArVal,
+              name_en: nameEnIdx !== -1 ? cols[nameEnIdx] || '' : (cols[2] || ''),
+              credit_hours: creditsIdx !== -1 ? cols[creditsIdx] || '4' : (cols[3] || '4'),
+              academic_level: levelIdx !== -1 ? cols[levelIdx] || 'fourth' : (cols[4] || 'fourth'),
+              semester: semesterIdx !== -1 ? cols[semesterIdx] || '1' : '1',
+              is_active: activeIdx !== -1 ? cols[activeIdx] : '1',
+              description: descIdx !== -1 ? cols[descIdx] || '' : '',
             });
           }
         }
@@ -227,6 +243,7 @@ export function CoursesPage() {
       }
 
       await qc.invalidateQueries({ queryKey: ['courses-live'] });
+      await qc.invalidateQueries({ queryKey: ['courses'] });
       setIsModalOpen(false);
     } catch (err: any) {
       alert(err.message || 'حدث خطأ أثناء حفظ المساق');
@@ -242,6 +259,7 @@ export function CoursesPage() {
     try {
       await apiFetch(`/courses/${course.id}`, { method: 'DELETE' });
       await qc.invalidateQueries({ queryKey: ['courses-live'] });
+      await qc.invalidateQueries({ queryKey: ['courses'] });
     } catch (err: any) {
       alert(err.message || 'تعذر حذف المساق من قاعدة البيانات');
     }
@@ -653,7 +671,7 @@ export function CoursesPage() {
                       {c.academic_level === 'fourth' ? (locale === 'ar' ? 'سنة رابعة' : '4th Year') : c.academic_level === 'fifth' ? (locale === 'ar' ? 'سنة خامسة' : '5th Year') : (locale === 'ar' ? 'سنة سادسة' : '6th Year')}
                     </td>
                     <td className="p-2.5 text-center text-slate-600">
-                      {c.semester === 1 ? (locale === 'ar' ? 'الفصل الأول' : 'Semester 1') : (locale === 'ar' ? 'الفصل الثاني' : 'Semester 2')}
+                      {Number(c.semester) === 2 ? (locale === 'ar' ? 'الفصل الثاني' : 'Semester 2') : (locale === 'ar' ? 'الفصل الأول' : 'Semester 1')}
                     </td>
                     <td className="p-2.5 text-center font-semibold text-teal-700">{c.credit_hours}</td>
                     <td className="p-2.5 text-center">
@@ -675,7 +693,7 @@ export function CoursesPage() {
       ) : (
         <div className="space-y-4">
           {(() => {
-            const sem1Courses = filteredCourses.filter(c => Number(c.semester) === 1);
+            const sem1Courses = filteredCourses.filter(c => !c.semester || Number(c.semester) === 1);
             const sem1Hours = sem1Courses.reduce((acc, c) => acc + (c.credit_hours || 0), 0);
             return renderSemesterTable(
               sem1Courses,
