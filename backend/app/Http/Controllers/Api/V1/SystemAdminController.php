@@ -169,10 +169,7 @@ class SystemAdminController extends Controller
         $role = Role::findOrFail($request->role_id);
         $permId = $request->permission_id;
 
-        // SYS_ADMIN role protection
-        if ($role->code === 'SYS_ADMIN') {
-            return ApiResponse::error('لا يمكن تعديل صلاحيات مدير النظام الفني (مطلقة بشكل دائم).', 422);
-        }
+
 
         if ($role->permissions()->where('permissions.id', $permId)->exists()) {
             $role->permissions()->detach($permId);

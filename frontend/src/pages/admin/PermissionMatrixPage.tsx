@@ -6,7 +6,7 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { Card } from '@/components/ui/Card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
-import { Check, X, Lock, CheckCircle2, Search, Filter, LayoutGrid } from 'lucide-react';
+import { Check, X, CheckCircle2, Search, Filter, LayoutGrid } from 'lucide-react';
 
 const ROLE_LABELS: Record<string, { ar: string; en: string }> = {
   SYS_ADMIN: { ar: 'مدير النظام التقني', en: 'System Admin' },
@@ -252,7 +252,6 @@ export function PermissionMatrixPage() {
                 </TableHead>
                 {roles.map((role: any) => {
                   const rLabel = ROLE_LABELS[role.code]?.ar || role.name || role.code;
-                  const isSysAdmin = role.code === 'SYS_ADMIN';
                   return (
                     <TableHead
                       key={role.id}
@@ -263,11 +262,6 @@ export function PermissionMatrixPage() {
                         <span className="text-[10px] font-mono font-medium text-slate-400">
                           {role.code}
                         </span>
-                        {isSysAdmin && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[9px] font-bold">
-                            <Lock className="w-2.5 h-2.5" /> ثابتة
-                          </span>
-                        )}
                       </div>
                     </TableHead>
                   );
@@ -316,10 +310,9 @@ export function PermissionMatrixPage() {
 
                       {/* Checkboxes for each Role */}
                       {roles.map((role: any) => {
-                        const isSysAdmin = role.code === 'SYS_ADMIN';
                         const roleEntry = matrix.find((m: any) => m.role_id === role.id);
                         const permEntry = roleEntry?.permissions.find((p: any) => p.permission_id === perm.id);
-                        const isGranted = isSysAdmin || (permEntry?.granted ?? false);
+                        const isGranted = permEntry?.granted ?? false;
 
                         return (
                           <TableCell
@@ -327,34 +320,28 @@ export function PermissionMatrixPage() {
                             className="p-3 text-center border-s border-slate-100"
                           >
                             <div className="flex items-center justify-center">
-                              {isSysAdmin ? (
-                                <div className="w-7 h-7 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 cursor-not-allowed">
-                                  <Lock className="w-3.5 h-3.5" />
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled={toggleMutation.isPending}
-                                  onClick={() =>
-                                    toggleMutation.mutate({
-                                      role_id: role.id,
-                                      permission_id: perm.id,
-                                    })
-                                  }
-                                  className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-                                    isGranted
-                                      ? 'bg-teal-600 text-white shadow-xs hover:bg-teal-700'
-                                      : 'bg-slate-100 text-slate-300 hover:bg-slate-200 hover:text-slate-500 border border-slate-200'
-                                  }`}
-                                  title={isGranted ? 'انقر للتعطيل' : 'انقر للتفعيل'}
-                                >
-                                  {isGranted ? (
-                                    <Check className="w-4 h-4 stroke-[3]" />
-                                  ) : (
-                                    <X className="w-3.5 h-3.5 stroke-[2]" />
-                                  )}
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                disabled={toggleMutation.isPending}
+                                onClick={() =>
+                                  toggleMutation.mutate({
+                                    role_id: role.id,
+                                    permission_id: perm.id,
+                                  })
+                                }
+                                className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                                  isGranted
+                                    ? 'bg-teal-600 text-white shadow-xs hover:bg-teal-700'
+                                    : 'bg-slate-100 text-slate-300 hover:bg-slate-200 hover:text-slate-500 border border-slate-200'
+                                }`}
+                                title={isGranted ? 'انقر للتعطيل' : 'انقر للتفعيل'}
+                              >
+                                {isGranted ? (
+                                  <Check className="w-4 h-4 stroke-[3]" />
+                                ) : (
+                                  <X className="w-3.5 h-3.5 stroke-[2]" />
+                                )}
+                              </button>
                             </div>
                           </TableCell>
                         );

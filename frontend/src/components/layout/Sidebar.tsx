@@ -63,7 +63,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
       ];
     }
 
-    // Full system navigation sections filtered by dynamic permissions
+    // Full system navigation sections filtered strictly by dynamic permissions
     return [
       {
         title: locale === 'ar' ? 'الطلاب والتدريب السريري' : 'Students & Clinical',
@@ -87,10 +87,10 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
       {
         title: locale === 'ar' ? 'الكادر ورؤساء الأقسام' : 'Staff & Department Heads',
         items: [
-          { path: '/dept-heads/me', label: locale === 'ar' ? 'بروفايلي الأكاديمي والـ Score' : 'My Academic Profile', icon: GraduationCap, customCheck: () => isDeptHead || isClinicalDirector || isClinicalSupervisor || isSuperAdmin },
-          { path: '/staff-allocations', label: locale === 'ar' ? 'دليل رؤساء الأقسام' : 'Department Heads Directory', icon: Users, customCheck: () => isSuperAdmin || isClinicalDirector || isDeptHead || can('people.manage') || can('people.view') || can('departments.view') },
-          { path: '/clinical-supervisors', label: locale === 'ar' ? 'دليل المشرفين السريريين' : 'Clinical Supervisors Directory', icon: ShieldCheck, customCheck: () => isSuperAdmin || isClinicalDirector || isDeptHead || can('people.view') || can('students.view') },
-          { path: '/rta-assignments', label: locale === 'ar' ? 'تخصيص دفعات المساعدين' : 'Assign RTA Cohorts', icon: Users, customCheck: () => isSuperAdmin || isClinicalDirector || isDeptHead || can('students.view') || isRTA },
+          { path: '/dept-heads/me', label: locale === 'ar' ? 'بروفايلي الأكاديمي والـ Score' : 'My Academic Profile', icon: GraduationCap, customCheck: () => isDeptHead || isClinicalDirector || isClinicalSupervisor },
+          { path: '/staff-allocations', label: locale === 'ar' ? 'دليل رؤساء الأقسام' : 'Department Heads Directory', icon: Users, permission: 'people.manage' },
+          { path: '/clinical-supervisors', label: locale === 'ar' ? 'دليل المشرفين السريريين' : 'Clinical Supervisors Directory', icon: ShieldCheck, permission: 'people.view' },
+          { path: '/rta-assignments', label: locale === 'ar' ? 'تخصيص دفعات المساعدين' : 'Assign RTA Cohorts', icon: Users, customCheck: () => can('students.view') && (isClinicalDirector || isDeptHead || isRTA || isSuperAdmin) },
         ]
       },
       {
@@ -114,7 +114,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         title: locale === 'ar' ? 'إدارة النظام والأمان' : 'System Administration',
         items: [
           { path: '/users', label: locale === 'ar' ? 'المستخدمون والأدوار' : 'Users & Roles', icon: Users, permission: 'users.manage' },
-          { path: '/admin/permissions', label: locale === 'ar' ? 'مصفوفة الصلاحيات والشاشات' : 'Permission Matrix', icon: ShieldCheck, permission: 'roles.manage' },
+          { path: '/admin/permissions', label: locale === 'ar' ? 'مصفوفة الصلاحيات والشاشات' : 'Permission Matrix', icon: ShieldCheck, customCheck: () => isSuperAdmin || can('roles.manage') },
           { path: '/admin/sessions', label: locale === 'ar' ? 'الجلسات والأمان الحية' : 'Active Sessions & Security', icon: Monitor, permission: 'users.manage' },
           { path: '/admin/health', label: locale === 'ar' ? 'مراقبة صحة السيرفر' : 'System Health Monitor', icon: Activity, permission: 'settings.manage' },
           { path: '/admin/settings', label: locale === 'ar' ? 'إعدادات النظام والنسخ الاحتياطي' : 'System Settings & Backup', icon: Settings, permission: 'settings.manage' },
@@ -155,7 +155,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
           {sections.map((section, idx) => {
             const filteredItems = section.items.filter(item => {
-              if (isSuperAdmin) return true;
               if (item.customCheck) return item.customCheck();
               if (item.permission) return can(item.permission);
               if (item.roles && item.roles.length > 0) {
