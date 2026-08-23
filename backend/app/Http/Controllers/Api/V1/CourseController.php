@@ -84,4 +84,81 @@ class CourseController extends Controller
         $course->delete();
         return ApiResponse::success(null, 'Course deleted successfully.');
     }
+
+    /**
+     * POST /api/v1/courses/bulk-import
+     * Permission: courses.manage
+     */
+    public function bulkImport(Request $request): JsonResponse
+    {
+        $request->validate([
+            'courses' => ['required', 'array', 'min:1'],
+            'courses.*.code' => ['required', 'string'],
+            'courses.*.name_ar' => ['required', 'string'],
+        ]);
+
+        $imported = 0;
+        $updated = 0;
+        $errors = [];
+
+        foreach ($request->input('courses') as $index => $row) {
+            try {
+                $code = trim((string)($row['code'] ?? ''));
+                $nameAr = trim((string)($row['name_ar'] ?? ''));
+                if (empty($code) || empty($nameAr)) {
+                    $errors[] = "السطر " . ($index + 1) . ": رمز المساق والاسم بالعربي مطلوبان.";
+                    continue;
+                }
+
+                $rawLevel = strtolower(trim((string)($row['academic_level'] ?? '')));
+                $level = 'fourth';
+                if (in_array($rawLevel, ['fourth', 'fifth', 'sixth'])) {
+                    $level = $rawLevel;
+                } elseif (!empty($rawLevel)) {
+                    if (str_contains($rawLevel, '4') || str_contains($rawLevel, 'رابع') || str_contains($rawLevel, 'fourth')) $level = 'fourth';
+                    elseif (str_contains($rawLevel, '5') || str_contains($rawLevel, 'خامس') || str_contains($rawLevel, 'fifth')) $level = 'fifth';
+                    elseif (str_contains($rawLevel, '6') || str_contains($rawLevel, 'سادس') || str_contains($rawLevel, 'sixth')) $level = 'sixth';
+                }
+
+                $isActive = true;
+                if (isset($row['is_active'])) {
+                    $val = strtolower(trim((string)$row['is_active']));
+                    if (in_array($val, ['0', 'false', 'no', 'لا', 'غير نشط', 'inactive'])) {
+                        $isActive = false;
+                    }
+                }
+
+                $credits = max(1, min(30, (int)($row['credit_hours'] ?? 1)));
+                $semester = isset($row['semester']) ? max(1, min(2, (int)$row['semester'])) : 1;
+
+                $data = [
+                    'name_ar'        => $nameAr,
+                    'name_en'        => !empty($row['name_en']) ? trim((string)$row['name_en']) : null,
+                    'credit_hours'   => $credits,
+                    'academic_level' => $level,
+                    'semester'       => $semester,
+                    'is_active'      => $isActive,
+                    'description'    => !empty($row['description']) ? trim((string)$row['description']) : null,
+                ];
+
+                $course = Course::where('code', $code)->first();
+                if ($course) {
+                    $course->update($data);
+                    $updated++;
+                } else {
+                    $data['code'] = $code;
+                    Course::create($data);
+                    $imported++;
+                }
+            } catch (\Throwable $e) {
+                $errors[] = "السطر " . ($index + 1) . ": " . $e->getMessage();
+            }
+        }
+
+        return ApiResponse::success([
+            'imported' => $imported,
+            'updated'  => $updated,
+            'errors'   => $errors,
+        ], "تمت معالجة " . ($imported + $updated) . " مساق بنجاح.");
+    }
 }

@@ -1,14 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { LoadingState } from '@/components/ui/LoadingState';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
+import { Button } from '@/components/ui/Button';
 import { 
   BookOpen, Plus, Search, Edit3, Trash2,
-  Calendar, Stethoscope
+  Calendar, Stethoscope, UploadCloud, Download, X,
+  CheckCircle, AlertCircle, FileSpreadsheet, FileCheck
 } from 'lucide-react';
 
 interface Course {
@@ -27,6 +30,7 @@ export function CoursesPage() {
   const { can } = useAuth();
   const { locale, t } = useI18n();
   const qc = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [search, setSearch] = useState('');
   const [selectedLevel, setSelectedLevel] = useState<'fourth' | 'fifth' | 'sixth' | 'all'>('fourth');
@@ -34,6 +38,13 @@ export function CoursesPage() {
   // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+
+  // Bulk Import Modal State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importRows, setImportRows] = useState<any[]>([]);
+  const [importFileName, setImportFileName] = useState('');
+  const [importSuccessMsg, setImportSuccessMsg] = useState('');
+  const [importErrorMsg, setImportErrorMsg] = useState('');
 
   // Form State
   const [formCode, setFormCode] = useState('');
@@ -55,6 +66,28 @@ export function CoursesPage() {
     if (Array.isArray(coursesResponse)) return coursesResponse;
     return coursesResponse.data || coursesResponse.items || [];
   }, [coursesResponse]);
+
+  // Bulk Import Mutation
+  const bulkImportMutation = useMutation({
+    mutationFn: (courses: any[]) => apiFetch('/courses/bulk-import', { method: 'POST', body: { courses } }),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ['courses-live'] });
+      setImportSuccessMsg(
+        locale === 'ar' 
+          ? `تم استيراد ${res.data?.imported ?? importRows.length} مساق جديد وتحديث ${res.data?.updated ?? 0} مساق بنجاح!` 
+          : 'Courses imported successfully!'
+      );
+      setTimeout(() => {
+        setImportSuccessMsg('');
+        setIsImportModalOpen(false);
+        setImportRows([]);
+        setImportFileName('');
+      }, 1800);
+    },
+    onError: (err: any) => {
+      setImportErrorMsg(err?.message || (locale === 'ar' ? 'تعذر إتمام عملية استيراد المساقات.' : 'Failed to import courses.'));
+    }
+  });
 
   if (!can('courses.view')) return <ErrorState title={t('state.forbidden.title')} message={t('state.forbidden.message')} />;
   if (isLoading) return <LoadingState />;
@@ -93,6 +126,75 @@ export function CoursesPage() {
     setFormLevel((course.academic_level as any) || 'fourth');
     setFormSemester(String(course.semester || 1) as any);
     setIsModalOpen(true);
+  };
+
+  const handleDownloadTemplate = () => {
+    const csvContent = "\uFEFF" + 
+      "code,name_ar,name_en,credit_hours,academic_level,semester,is_active,description\n" +
+      "MEDI401,مساق الطب الباطني العام,General Internal Medicine,6,fourth,1,1,تدريب سريري في الطب الباطني للسنة الرابعة\n" +
+      "SURG402,مساق الجراحة العامة,General Surgery,6,fourth,1,1,تدريب سريري في الجراحة العامة للسنة الرابعة\n" +
+      "PEDI501,مساق طب الأطفال,Pediatrics,4,fifth,1,1,تدريب سريري في طب الأطفال للسنة الخامسة\n" +
+      "OBGY502,مساق النسائية والتوليد,Obstetrics and Gynecology,4,fifth,2,1,تدريب سريري في النسائية والتوليد للسنة الخامسة\n" +
+      "PSYC601,مساق الطب النفسي السريري,Clinical Psychiatry,3,sixth,1,1,تدريب سريري في الطب النفسي للسنة السادسة\n";
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'نموذج_استيراد_مساقات_الدائرة_السريرية.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportFileName(file.name);
+    setImportErrorMsg('');
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r\n|\n/).filter(line => line.trim().length > 0);
+        if (lines.length < 2) {
+          setImportErrorMsg(locale === 'ar' ? 'الملف فارغ أو لا يحتوي على صفوف بيانات كافية.' : 'File is empty or invalid.');
+          return;
+        }
+
+        const parsed: any[] = [];
+        const headerLine = lines[0].toLowerCase();
+        const hasHeader = headerLine.includes('code') || headerLine.includes('رمز');
+        const startIndex = hasHeader ? 1 : 0;
+
+        for (let i = startIndex; i < lines.length; i++) {
+          const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+          if (cols.length >= 2 && cols[0] && cols[1]) {
+            parsed.push({
+              code: cols[0],
+              name_ar: cols[1],
+              name_en: cols[2] || '',
+              credit_hours: cols[3] || '4',
+              academic_level: cols[4] || 'fourth',
+              semester: cols[5] || '1',
+              is_active: cols[6] !== undefined ? cols[6] : '1',
+              description: cols[7] || '',
+            });
+          }
+        }
+
+        if (parsed.length === 0) {
+          setImportErrorMsg(locale === 'ar' ? 'لم يتم العثور على سجلات مساقات صالحة في الملف.' : 'No valid course records found.');
+        } else {
+          setImportRows(parsed);
+        }
+      } catch (err: any) {
+        setImportErrorMsg(locale === 'ar' ? 'فشل في قراءة الملف. يرجى التأكد من اختيار ملف CSV صالح.' : 'Failed to parse CSV file.');
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
   };
 
   // Save (Create or Update) course in MySQL DB
@@ -149,7 +251,6 @@ export function CoursesPage() {
   const renderSemesterTable = (courses: Course[], semesterTitle: string, totalSemHours: number) => {
     return (
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-        {/* Soft header responsive */}
         <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-teal-600 shrink-0" />
@@ -262,22 +363,30 @@ export function CoursesPage() {
         </div>
 
         {can('courses.manage') && (
-          <button
-            type="button"
-            onClick={handleOpenCreateModal}
-            className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{locale === 'ar' ? 'إضافة مساق سريري' : 'Add Clinical Course'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { setIsImportModalOpen(true); setImportRows([]); setImportFileName(''); setImportErrorMsg(''); }}
+              className="px-3.5 py-2 rounded-xl border border-teal-200 bg-teal-50/50 hover:bg-teal-100/60 text-teal-700 font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+            >
+              <UploadCloud className="w-4 h-4 text-teal-600" />
+              <span>{locale === 'ar' ? 'استيراد CSV' : 'Import CSV'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenCreateModal}
+              className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{locale === 'ar' ? 'إضافة مساق سريري' : 'Add Clinical Course'}</span>
+            </button>
+          </div>
         )}
       </div>
 
-      {/* 🚀 Mobile-Responsive Segmented Bar & Search */}
+      {/* Segmented Bar & Search */}
       <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-        {/* Horizontal Scrollable Tabs on Mobile */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none w-full sm:w-auto">
-          {/* Option 1: 4th Year */}
           <button
             type="button"
             onClick={() => setSelectedLevel('fourth')}
@@ -295,7 +404,6 @@ export function CoursesPage() {
             </span>
           </button>
 
-          {/* Option 2: 5th Year */}
           <button
             type="button"
             onClick={() => setSelectedLevel('fifth')}
@@ -313,7 +421,6 @@ export function CoursesPage() {
             </span>
           </button>
 
-          {/* Option 3: 6th Year */}
           <button
             type="button"
             onClick={() => setSelectedLevel('sixth')}
@@ -331,7 +438,6 @@ export function CoursesPage() {
             </span>
           </button>
 
-          {/* Option 4: All */}
           <button
             type="button"
             onClick={() => setSelectedLevel('all')}
@@ -350,7 +456,6 @@ export function CoursesPage() {
           </button>
         </div>
 
-        {/* Compact Mobile Search Input */}
         <div className="relative w-full sm:max-w-xs">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5" />
           <input
@@ -363,9 +468,149 @@ export function CoursesPage() {
         </div>
       </div>
 
+      {/* Bulk Import Modal */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
+          <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-teal-50 text-teal-600">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900">{locale === 'ar' ? 'استيراد مساقات جديدة عبر ملف CSV' : 'Bulk Import Courses via CSV'}</h3>
+                  <p className="text-xs text-slate-500">{locale === 'ar' ? 'قم بتحميل ملف CSV يحتوي على بيانات المساقات للرفع المباشر' : 'Upload a CSV file with course data for batch insertion'}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsImportModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 overflow-y-auto">
+              {importSuccessMsg && (
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center gap-3">
+                  <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span className="text-sm font-medium">{importSuccessMsg}</span>
+                </div>
+              )}
+
+              {importErrorMsg && (
+                <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                  <span className="text-sm font-medium">{importErrorMsg}</span>
+                </div>
+              )}
+
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-semibold text-slate-800">{locale === 'ar' ? 'تحتاج إلى نموذج جاهز؟' : 'Need a template?'}</p>
+                  <p className="text-xs text-slate-500">{locale === 'ar' ? 'قم بتنزيل نموذج CSV المهيأ مسبقاً بالأعمدة المطلوبة.' : 'Download pre-formatted CSV template with required headers.'}</p>
+                </div>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={handleDownloadTemplate}
+                  className="gap-2 shrink-0 rounded-xl text-xs"
+                >
+                  <Download className="w-4 h-4 text-teal-600" />
+                  {locale === 'ar' ? 'تنزيل النموذج' : 'Download Template'}
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
+                  {locale === 'ar' ? 'اختيار ملف CSV' : 'Select CSV File'}
+                </label>
+                <input 
+                  type="file" 
+                  ref={fileInputRef}
+                  accept=".csv" 
+                  onChange={handleFileChange}
+                  className="hidden" 
+                />
+                <div 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-slate-200 hover:border-teal-500 hover:bg-teal-50/20 rounded-2xl p-6 text-center cursor-pointer transition-all duration-200 group"
+                >
+                  <UploadCloud className="w-10 h-10 mx-auto text-slate-400 group-hover:text-teal-600 transition-colors mb-2" />
+                  <p className="text-sm font-medium text-slate-700 group-hover:text-teal-600">
+                    {importFileName || (locale === 'ar' ? 'اضغط هنا لاختيار ملف المساقات (.csv)' : 'Click to select CSV file')}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {locale === 'ar' ? 'يدعم ترميز UTF-8 والفاصلة العادية' : 'Supports UTF-8 encoding'}
+                  </p>
+                </div>
+              </div>
+
+              {importRows.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <FileCheck className="w-4 h-4 text-emerald-600" />
+                      {locale === 'ar' ? `معاينة السجلات الجاهزة للإدخال (${importRows.length} مساق)` : `Preview (${importRows.length} courses)`}
+                    </span>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">رمز المساق</TableHead>
+                          <TableHead className="text-xs">اسم المساق (عربي)</TableHead>
+                          <TableHead className="text-xs">الساعات</TableHead>
+                          <TableHead className="text-xs">المستوى</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {importRows.slice(0, 10).map((row, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell className="text-xs font-mono font-bold text-teal-600">{row.code}</TableCell>
+                            <TableCell className="text-xs">{row.name_ar}</TableCell>
+                            <TableCell className="text-xs">{row.credit_hours}</TableCell>
+                            <TableCell className="text-xs">{row.academic_level || '—'}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    {importRows.length > 10 && (
+                      <div className="p-2 text-center text-xs text-slate-400 bg-slate-50 border-t border-slate-100">
+                        {locale === 'ar' ? `و ${importRows.length - 10} مساقات إضافية...` : `And ${importRows.length - 10} more courses...`}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50/50">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setIsImportModalOpen(false)}
+                className="rounded-xl"
+              >
+                {locale === 'ar' ? 'إلغاء' : 'Cancel'}
+              </Button>
+              <Button 
+                type="button"
+                disabled={importRows.length === 0 || bulkImportMutation.isPending}
+                onClick={() => bulkImportMutation.mutate(importRows)}
+                className="rounded-xl gap-2 bg-teal-600 hover:bg-teal-700 text-white"
+              >
+                {bulkImportMutation.isPending 
+                  ? (locale === 'ar' ? 'جاري الاستيراد...' : 'Importing...') 
+                  : (locale === 'ar' ? `استيراد ${importRows.length} مساق` : `Import ${importRows.length} Courses`)}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Content Layout: Grouped by Semester */}
       {selectedLevel === 'all' ? (
-        /* If 'all' selected, render master list */
         <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
           <div className="p-3 bg-slate-50 border-b border-slate-200 font-bold text-xs text-slate-800 flex justify-between items-center">
             <span>{locale === 'ar' ? 'كافة المساقات السريرية المسجلة في قاعدة البيانات' : 'All Clinical Courses in DB'}</span>
@@ -428,9 +673,7 @@ export function CoursesPage() {
           </div>
         </div>
       ) : (
-        /* If specific cohort level selected, render 2 Semester Tables */
         <div className="space-y-4">
-          {/* Semester 1 Table */}
           {(() => {
             const sem1Courses = filteredCourses.filter(c => Number(c.semester) === 1);
             const sem1Hours = sem1Courses.reduce((acc, c) => acc + (c.credit_hours || 0), 0);
@@ -441,7 +684,6 @@ export function CoursesPage() {
             );
           })()}
 
-          {/* Semester 2 Table */}
           {(() => {
             const sem2Courses = filteredCourses.filter(c => Number(c.semester) === 2);
             const sem2Hours = sem2Courses.reduce((acc, c) => acc + (c.credit_hours || 0), 0);
@@ -454,7 +696,7 @@ export function CoursesPage() {
         </div>
       )}
 
-      {/* Add / Edit Course Modal - Responsive for Mobile */}
+      {/* Add / Edit Course Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/30 backdrop-blur-2xs flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-lg w-full p-4 sm:p-5 shadow-lg border border-slate-200 space-y-4 my-auto">
@@ -492,9 +734,9 @@ export function CoursesPage() {
                   <label className="block text-xs font-semibold text-slate-700 mb-1">{locale === 'ar' ? 'الساعات المعتمدة:' : 'Credit Hours:'}</label>
                   <input
                     type="number"
+                    required
                     min="1"
                     max="20"
-                    required
                     value={formCredits}
                     onChange={e => setFormCredits(e.target.value)}
                     className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
@@ -507,7 +749,7 @@ export function CoursesPage() {
                 <input
                   type="text"
                   required
-                  placeholder="جراحة عامة (مبتدئ)"
+                  placeholder="مساق الطب الباطني السريري"
                   value={formNameAr}
                   onChange={e => setFormNameAr(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
@@ -515,19 +757,19 @@ export function CoursesPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">{locale === 'ar' ? 'اسم المساق (بالإنجليزية - اختياري):' : 'Course Name (English):'}</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">{locale === 'ar' ? 'اسم المساق (بالإنجليزية):' : 'Course Name (English):'}</label>
                 <input
                   type="text"
-                  placeholder="General Surgery (Junior)"
+                  placeholder="Clinical Internal Medicine"
                   value={formNameEn}
                   onChange={e => setFormNameEn(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 p-2 text-xs font-normal focus:ring-1 focus:ring-teal-600"
+                  className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
                 />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">{locale === 'ar' ? 'السنة / المرحلة:' : 'Academic Level:'}</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">{locale === 'ar' ? 'السنة السريرية:' : 'Clinical Level:'}</label>
                   <select
                     value={formLevel}
                     onChange={e => setFormLevel(e.target.value as any)}
@@ -556,7 +798,7 @@ export function CoursesPage() {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="w-full sm:w-auto px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs cursor-pointer"
                 >
                   {locale === 'ar' ? 'إلغاء' : 'Cancel'}
                 </button>
@@ -564,12 +806,9 @@ export function CoursesPage() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs cursor-pointer shadow-xs"
+                  className="px-4 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs cursor-pointer shadow-xs"
                 >
-                  {isSubmitting 
-                    ? (locale === 'ar' ? 'جاري الحفظ...' : 'Saving...')
-                    : (locale === 'ar' ? 'حفظ المساق' : 'Save Course')
-                  }
+                  {isSubmitting ? (locale === 'ar' ? 'جاري الحفظ...' : 'Saving...') : (locale === 'ar' ? 'حفظ البيانات' : 'Save Course')}
                 </button>
               </div>
             </form>

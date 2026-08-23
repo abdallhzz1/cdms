@@ -108,6 +108,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         Route::get('courses', [\App\Http\Controllers\Api\V1\CourseController::class, 'index'])->middleware('permission:courses.view');
         Route::post('courses', [\App\Http\Controllers\Api\V1\CourseController::class, 'store'])->middleware('permission:courses.manage');
+        Route::post('courses/bulk-import', [\App\Http\Controllers\Api\V1\CourseController::class, 'bulkImport'])->middleware('permission:courses.manage');
         Route::get('courses/{course}', [\App\Http\Controllers\Api\V1\CourseController::class, 'show'])->middleware('permission:courses.view');
         Route::put('courses/{course}', [\App\Http\Controllers\Api\V1\CourseController::class, 'update'])->middleware('permission:courses.manage');
         Route::delete('courses/{course}', [\App\Http\Controllers\Api\V1\CourseController::class, 'destroy'])->middleware('permission:courses.manage');
