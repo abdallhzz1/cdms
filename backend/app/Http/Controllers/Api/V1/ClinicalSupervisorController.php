@@ -41,6 +41,19 @@ class ClinicalSupervisorController extends Controller
                 ]
             );
 
+            // Auto-heal corrupted encoding from previous bug
+            if (str_contains($profile->academic_title, '??')) {
+                $profile->delete();
+                $profile = DepartmentHeadProfile::create([
+                    'user_id'          => $u->id,
+                    'academic_title'   => 'مشرف سريري',
+                    'specialty'        => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'مشرف سريري',
+                    'contract_type'    => 'عقد سريري',
+                    'appointment_date' => '2024-09-01',
+                    'phone'            => $u->person ? $u->person->primary_phone : null,
+                ]);
+            }
+
             $deptName = $this->resolveDeptName($u, $profile);
             $kpi      = $this->calculateKpi($profile);
 
@@ -98,6 +111,18 @@ class ClinicalSupervisorController extends Controller
                 'phone'            => $u->person ? $u->person->primary_phone : null,
             ]
         );
+
+        if (str_contains($profile->academic_title, '??')) {
+            $profile->delete();
+            $profile = DepartmentHeadProfile::create([
+                'user_id'          => $u->id,
+                'academic_title'   => 'مشرف سريري',
+                'specialty'        => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'مشرف سريري',
+                'contract_type'    => 'عقد سريري',
+                'appointment_date' => '2024-09-01',
+                'phone'            => $u->person ? $u->person->primary_phone : null,
+            ]);
+        }
 
         $deptName = $this->resolveDeptName($u, $profile);
         $kpi      = $this->calculateKpi($profile);
