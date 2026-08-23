@@ -101,25 +101,30 @@ class AuthController extends Controller
             ->all();
 
         // Resolve scoped department IDs for DEPARTMENT_HEAD / RTA
-        $departmentIds = \DB::table('user_roles')
-            ->join('roles', 'roles.id', '=', 'user_roles.role_id')
-            ->where('user_roles.user_id', $user->id)
-            ->whereIn('roles.code', ['DEPARTMENT_HEAD', 'RTA'])
-            ->where('user_roles.scope_type', 'department')
-            ->whereNotNull('user_roles.scope_id')
-            ->pluck('user_roles.scope_id')
-            ->unique()
-            ->values()
-            ->all();
+        // Wrapped in try/catch so login never breaks if scope columns are missing on server
+        try {
+            $departmentIds = \DB::table('user_roles')
+                ->join('roles', 'roles.id', '=', 'user_roles.role_id')
+                ->where('user_roles.user_id', $user->id)
+                ->whereIn('roles.code', ['DEPARTMENT_HEAD', 'RTA'])
+                ->where('user_roles.scope_type', 'department')
+                ->whereNotNull('user_roles.scope_id')
+                ->pluck('user_roles.scope_id')
+                ->unique()
+                ->values()
+                ->all();
+        } catch (\Throwable $e) {
+            $departmentIds = [];
+        }
 
         return [
-            'id' => $user->id,
-            'name' => $user->name,
-            'email' => $user->email,
-            'roles' => $user->roles->pluck('code')->values()->all(),
-            'permissions' => $permissions,
+            'id'              => $user->id,
+            'name'            => $user->name,
+            'email'           => $user->email,
+            'roles'           => $user->roles->pluck('code')->values()->all(),
+            'permissions'     => $permissions,
             'assigned_levels' => $user->assigned_levels ?? null,
-            'department_ids' => $departmentIds,
+            'department_ids'  => $departmentIds,
         ];
     }
 }
