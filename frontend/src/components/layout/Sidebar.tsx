@@ -7,7 +7,6 @@ import {
   MessagesSquare, FolderGit2, BarChart3, Send, AlertTriangle, TrendingUp, Target,
   GraduationCap, X, Monitor, Settings, Activity
 } from 'lucide-react';
-
 interface NavItem {
   path: string;
   label: string;
@@ -15,34 +14,28 @@ interface NavItem {
   permission?: string | null;
   roles?: string[];
 }
-
 interface NavSection {
   title: string;
   items: NavItem[];
 }
-
 interface SidebarProps {
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
 }
-
 export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
   const { locale } = useI18n();
   const { can, user } = useAuth();
-
   const userRoles = user?.roles ?? [];
   const knownHeadEmails = ['iyad.jadaa@hebron.edu', 'raed.shawawreh@hebron.edu', 'rashad.zaro@hebron.edu', 'shatha.afaneh@hebron.edu', 'bassam.nasreddin@hebron.edu'];
   const isDeptHeadByEmail = user?.email && knownHeadEmails.includes(user.email.toLowerCase());
   const isDeptHeadByName = user?.name && (user.name.includes('الجدع') || user.name.includes('شواورة') || user.name.includes('الزرو') || user.name.includes('عفانة') || user.name.includes('ناصر الدين'));
   const hasHeadRole = userRoles.includes('DEPARTMENT_HEAD') || isDeptHeadByEmail || isDeptHeadByName;
-
   const isSuperAdmin = userRoles.includes('SYS_ADMIN');
   const isSupervisorOnly = userRoles.includes('CLINICAL_SUPERVISOR') && !hasHeadRole && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
   const isAdvisorOnly = userRoles.includes('ACADEMIC_ADVISOR') && !hasHeadRole && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
   const isQualityOnly = userRoles.includes('QUALITY') && !hasHeadRole && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
   const isHeadOnly = hasHeadRole && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
   const isRTAOnly = userRoles.includes('RTA') && !hasHeadRole && !userRoles.some(r => ['CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
-
   const getNavigation = (): NavSection[] => {
     // 1. المشرف السريري فقط (Clinical Supervisor Portal View)
     if (isSupervisorOnly) {
@@ -66,7 +59,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         }
       ];
     }
-
     // 2. مساعد بحث وتدريس (Research & Teaching Assistant View)
     if (isRTAOnly) {
       return [
@@ -89,7 +81,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         }
       ];
     }
-
     // 2. المرشد الأكاديمي فقط (Academic Advisor View)
     if (isAdvisorOnly) {
       return [
@@ -112,7 +103,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         }
       ];
     }
-
     // 3. دائرة الجودة فقط (Quality & Accreditation View)
     if (isQualityOnly) {
       return [
@@ -137,7 +127,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         }
       ];
     }
-
     // 4. رئيس القسم فقط (Department Head View)
     if (isHeadOnly) {
       return [
@@ -167,7 +156,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         }
       ];
     }
-
     // 5. مدير النظام التقني (System Admin View)
     if (isSuperAdmin) {
       return [
@@ -186,7 +174,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         }
       ];
     }
-
     // 6. الإدارة السريرية والعمادة (Clinical Director / Dean / Vice Dean / Admin Assistant)
     return [
       {
@@ -211,7 +198,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         items: [
           { path: '/dept-heads/me', label: locale === 'ar' ? 'بروفايلي الأكاديمي والـ Score' : 'My Academic Profile', icon: GraduationCap },
           { path: '/staff-allocations', label: locale === 'ar' ? 'دليل رؤساء الأقسام' : 'Department Heads Directory', icon: Users, permission: 'people.manage' },
-          { path: '/supervisor-workloads', label: locale === 'ar' ? 'المشرفون السريريون (أعباء)' : 'Supervisor Workloads', icon: ShieldCheck, permission: 'students.view' },
           { path: '/clinical-supervisors', label: locale === 'ar' ? 'دليل المشرفين السريريين' : 'Clinical Supervisors', icon: ShieldCheck, permission: 'students.view' },
           { path: '/rta-assignments', label: locale === 'ar' ? 'تخصيص دفعات المساعدين' : 'Assign RTA Cohorts', icon: Users, permission: 'students.view' },
         ]
@@ -235,9 +221,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
       }
     ];
   };
-
   const sections = getNavigation();
-
   return (
     <>
       {/* Mobile Backdrop Overlay */}
@@ -247,7 +231,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs md:hidden transition-opacity"
         />
       )}
-
       {/* Sidebar Content */}
       <aside
         className={`fixed md:static inset-y-0 z-40 w-72 max-w-[85vw] bg-white border-e border-slate-200/80 flex flex-col transition-transform duration-200 ease-in-out md:translate-x-0 ${
@@ -263,7 +246,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
             <X className="w-5 h-5" />
           </button>
         </div>
-
         {/* Navigation Sections */}
         <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
           {sections.map((section, idx) => {
@@ -271,9 +253,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
               if (item.permission && !can(item.permission)) return false;
               return true;
             });
-
             if (filteredItems.length === 0) return null;
-
             return (
               <div key={idx} className="space-y-1">
                 <h2 className="px-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">

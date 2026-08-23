@@ -48,7 +48,6 @@ import { ExternalElectivesPage } from '@/pages/ExternalElectivesPage';
 import { ResearchProjectsPage } from '@/pages/ResearchProjectsPage';
 import { SkillLogbookPage } from '@/pages/SkillLogbookPage';
 import { StaffAllocationsPage } from '@/pages/StaffAllocationsPage';
-import { SupervisorWorkloadsPage } from '@/pages/SupervisorWorkloadsPage';
 import { PartnershipsPage } from '@/pages/PartnershipsPage';
 import { UsersPage } from '@/pages/UsersPage';
 import { AuditLogsPage } from '@/pages/AuditLogsPage';
@@ -187,7 +186,7 @@ export function App() {
                 <Route path="/staff-allocations" element={<StaffAllocationsPage />} />
                 <Route path="/dept-heads/:id" element={<DeptHeadProfilePage />} />
                 <Route path="/dept-heads/me" element={<DeptHeadProfilePage />} />
-                <Route path="/supervisor-workloads" element={<SupervisorWorkloadsPage />} />
+                
                 <Route path="/clinical-supervisors" element={<ClinicalSupervisorsDirectoryPage />} />
                 <Route path="/clinical-supervisors/me" element={<ClinicalSupervisorProfilePage />} />
                 <Route path="/clinical-supervisors/:id" element={<ClinicalSupervisorProfilePage />} />
