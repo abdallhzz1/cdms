@@ -21,7 +21,7 @@ const ROLE_LABELS: Record<string, { ar: string; en: string }> = {
   CLINICAL_DIRECTOR: { ar: 'مدير الدائرة السريرية', en: 'Clinical Director' },
   ADMIN_ASSISTANT: { ar: 'مساعد إداري', en: 'Admin Assistant' },
   DEPARTMENT_HEAD: { ar: 'رئيس القسم الأكاديمي', en: 'Department Head' },
-  RTA: { ar: 'مساعد التدريب السريري', en: 'RTA' },
+  RTA: { ar: 'مساعد بحث وتدريس (TA)', en: 'Teaching & Research Assistant (TA)' },
   CLINICAL_SUPERVISOR: { ar: 'المشرف السريري', en: 'Clinical Supervisor' },
   ACADEMIC_ADVISOR: { ar: 'المرشد الأكاديمي', en: 'Academic Advisor' },
   QUALITY: { ar: 'مسؤول الجودة والاعتماد', en: 'Quality Officer' },

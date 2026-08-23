@@ -20,7 +20,7 @@ const ROLE_LABELS: Record<string, { ar: string; icon?: any; color?: string }> = 
   CLINICAL_SUPERVISOR: { ar: 'المشرف السريري', icon: Users, color: 'text-indigo-600 bg-indigo-50 border-indigo-200' },
   DEAN: { ar: 'عميد الكلية', icon: Shield, color: 'text-purple-600 bg-purple-50 border-purple-200' },
   VICE_DEAN: { ar: 'نائب العميد', icon: Shield, color: 'text-purple-600 bg-purple-50 border-purple-200' },
-  RTA: { ar: 'مساعد التدريب السريري', icon: ClipboardCheck, color: 'text-amber-600 bg-amber-50 border-amber-200' },
+  RTA: { ar: 'مساعد بحث وتدريس (TA)', icon: ClipboardCheck, color: 'text-amber-600 bg-amber-50 border-amber-200' },
   ACADEMIC_ADVISOR: { ar: 'المرشد الأكاديمي', icon: BookOpen, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
   QUALITY: { ar: 'مسؤول الجودة والاعتماد', icon: BarChart3, color: 'text-cyan-600 bg-cyan-50 border-cyan-200' },
   ADMIN_ASSISTANT: { ar: 'مساعد إداري', icon: FolderGit2, color: 'text-slate-600 bg-slate-50 border-slate-200' },
