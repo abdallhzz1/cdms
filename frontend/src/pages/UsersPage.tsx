@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -61,18 +61,30 @@ export function UsersPage() {
 
   // 1. Fetch Users
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin-users-list', search],
-    queryFn: () => apiFetch<any>(`/users?per_page=100${search ? `&search=${search}` : ''}`),
+    queryKey: ['admin-users-list'],
+    queryFn: () => apiFetch<any>('/users?per_page=500'),
   });
 
-  const usersList = data?.data?.items || data?.items || data?.data || [];
+  const usersList = useMemo(() => {
+    return data?.data?.items || data?.items || data?.data || [];
+  }, [data]);
 
-  // Filter by Role
-  const filteredUsers = usersList.filter((u: any) => {
-    if (roleFilter === 'ALL') return true;
-    const userRoleCodes = u.roles?.map((r: any) => r.code) || [u.role];
-    return userRoleCodes.includes(roleFilter);
-  });
+  // Instant Client-Side Filter (0ms response, preserves focus perfectly)
+  const filteredUsers = useMemo(() => {
+    return usersList.filter((u: any) => {
+      const q = search.trim().toLowerCase();
+      const matchesSearch =
+        !q ||
+        (u.name && u.name.toLowerCase().includes(q)) ||
+        (u.email && u.email.toLowerCase().includes(q));
+
+      if (!matchesSearch) return false;
+
+      if (roleFilter === 'ALL') return true;
+      const userRoleCodes = u.roles?.map((r: any) => r.code) || [u.role];
+      return userRoleCodes.includes(roleFilter);
+    });
+  }, [usersList, search, roleFilter]);
 
   // Create User Mutation
   const createMutation = useMutation({
@@ -140,7 +152,7 @@ export function UsersPage() {
     });
   };
 
-  if (isLoading) return <LoadingState />;
+  if (isLoading && !data) return <LoadingState />;
   if (isError) return <ErrorState onRetry={() => refetch()} />;
 
   return (
@@ -260,7 +272,7 @@ export function UsersPage() {
                               key={r.id || r.code}
                               className="px-2 py-0.5 rounded-lg bg-teal-50 text-teal-800 border border-teal-100 text-[10px] font-bold"
                             >
-                              {label.ar} ({r.code})
+                              {label.ar}
                             </span>
                           );
                         })}
@@ -385,7 +397,7 @@ export function UsersPage() {
             >
               {Object.entries(ROLE_LABELS).map(([code, label]) => (
                 <option key={code} value={code}>
-                  {label.ar} ({code})
+                  {label.ar}
                 </option>
               ))}
             </select>
@@ -444,7 +456,7 @@ export function UsersPage() {
             >
               {Object.entries(ROLE_LABELS).map(([code, label]) => (
                 <option key={code} value={code}>
-                  {label.ar} ({code})
+                  {label.ar}
                 </option>
               ))}
             </select>
