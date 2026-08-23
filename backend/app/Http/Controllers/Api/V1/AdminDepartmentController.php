@@ -127,8 +127,8 @@ class AdminDepartmentController extends Controller
             'serves_academic_levels.*' => 'string',
             'is_active'              => 'boolean',
             'notes'                  => 'nullable|string|max:1000',
-            'head_person_id'         => 'nullable|integer|exists:persons,id',
-            'rta_person_id'          => 'nullable|integer|exists:persons,id',
+            'head_person_id'         => 'nullable|integer|exists:people,id',
+            'rta_person_id'          => 'nullable|integer|exists:people,id',
         ]);
 
         return DB::transaction(function () use ($validated) {
@@ -207,8 +207,8 @@ class AdminDepartmentController extends Controller
     public function assignLeaders(Request $request, Department $department)
     {
         $validated = $request->validate([
-            'head_person_id' => 'nullable|integer|exists:persons,id',
-            'rta_person_id'  => 'nullable|integer|exists:persons,id',
+            'head_person_id' => 'nullable|integer|exists:people,id',
+            'rta_person_id'  => 'nullable|integer|exists:people,id',
         ]);
 
         return DB::transaction(function () use ($department, $validated) {
