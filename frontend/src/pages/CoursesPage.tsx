@@ -21,10 +21,18 @@ interface Course {
   name_en: string | null;
   credit_hours: number;
   academic_level: 'fourth' | 'fifth' | 'sixth' | string;
-  semester: number;
+  semester?: number;
   is_active: boolean;
   description?: string | null;
 }
+
+const normalizeLevel = (level: string | null | undefined): 'fourth' | 'fifth' | 'sixth' => {
+  if (!level) return 'fourth';
+  const l = String(level).toLowerCase().trim();
+  if (l === 'fifth' || l.includes('5') || l.includes('خامس')) return 'fifth';
+  if (l === 'sixth' || l.includes('6') || l.includes('سادس')) return 'sixth';
+  return 'fourth';
+};
 
 export function CoursesPage() {
   const { can } = useAuth();
@@ -83,6 +91,7 @@ export function CoursesPage() {
         setIsImportModalOpen(false);
         setImportRows([]);
         setImportFileName('');
+        refetch();
       }, 1800);
     },
     onError: (err: any) => {
@@ -94,16 +103,18 @@ export function CoursesPage() {
   if (isLoading) return <LoadingState />;
   if (isError) return <ErrorState onRetry={() => refetch()} />;
 
-  // Filtered list based on cohort tab
+  // Filtered list based on cohort tab with level normalization
   const filteredCourses = coursesList.filter(c => {
-    if (selectedLevel !== 'all' && c.academic_level !== selectedLevel) return false;
+    const level = normalizeLevel(c.academic_level);
+    if (selectedLevel !== 'all' && level !== selectedLevel) return false;
     return true;
   });
 
-  // Calculate total hours
-  const totalHoursFourth = coursesList.filter(c => c.academic_level === 'fourth').reduce((acc, c) => acc + (c.credit_hours || 0), 0);
-  const totalHoursFifth = coursesList.filter(c => c.academic_level === 'fifth').reduce((acc, c) => acc + (c.credit_hours || 0), 0);
-  const totalHoursSixth = coursesList.filter(c => c.academic_level === 'sixth').reduce((acc, c) => acc + (c.credit_hours || 0), 0);
+  // Calculate total hours accurately
+  const totalHoursFourth = coursesList.filter(c => normalizeLevel(c.academic_level) === 'fourth').reduce((acc, c) => acc + (c.credit_hours || 0), 0);
+  const totalHoursFifth = coursesList.filter(c => normalizeLevel(c.academic_level) === 'fifth').reduce((acc, c) => acc + (c.credit_hours || 0), 0);
+  const totalHoursSixth = coursesList.filter(c => normalizeLevel(c.academic_level) === 'sixth').reduce((acc, c) => acc + (c.credit_hours || 0), 0);
+  const totalHoursAll = coursesList.reduce((acc, c) => acc + (c.credit_hours || 0), 0);
 
   // Open modal for Create
   const handleOpenCreateModal = () => {
@@ -124,7 +135,7 @@ export function CoursesPage() {
     setFormNameAr(course.name_ar);
     setFormNameEn(course.name_en || '');
     setFormCredits(String(course.credit_hours));
-    setFormLevel((course.academic_level as any) || 'fourth');
+    setFormLevel(normalizeLevel(course.academic_level));
     setFormSemester(String(course.semester || 1) as any);
     setIsModalOpen(true);
   };
@@ -165,8 +176,11 @@ export function CoursesPage() {
           return;
         }
 
+        // Auto-detect CSV delimiter (supports comma ',' or semicolon ';' from Excel)
+        const delimiter = lines[0].includes(';') ? ';' : ',';
+
         const parsed: any[] = [];
-        const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+        const rawHeaders = lines[0].split(delimiter).map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
 
         let codeIdx = rawHeaders.findIndex(h => h.includes('code') || h.includes('رمز'));
         let nameArIdx = rawHeaders.findIndex(h => h.includes('name_ar') || h.includes('العربي') || h.includes('عربي') || (h.includes('اسم') && !h.includes('en') && !h.includes('انجليز')));
@@ -184,7 +198,7 @@ export function CoursesPage() {
         const startIndex = hasHeader ? 1 : 0;
 
         for (let i = startIndex; i < lines.length; i++) {
-          const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+          const cols = lines[i].split(delimiter).map(c => c.trim().replace(/^"|"$/g, ''));
           const codeVal = cols[codeIdx] || '';
           const nameArVal = cols[nameArIdx] || '';
           if (codeVal && nameArVal) {
@@ -244,6 +258,7 @@ export function CoursesPage() {
 
       await qc.invalidateQueries({ queryKey: ['courses-live'] });
       await qc.invalidateQueries({ queryKey: ['courses'] });
+      refetch();
       setIsModalOpen(false);
     } catch (err: any) {
       alert(err.message || 'حدث خطأ أثناء حفظ المساق');
@@ -260,6 +275,7 @@ export function CoursesPage() {
       await apiFetch(`/courses/${course.id}`, { method: 'DELETE' });
       await qc.invalidateQueries({ queryKey: ['courses-live'] });
       await qc.invalidateQueries({ queryKey: ['courses'] });
+      refetch();
     } catch (err: any) {
       alert(err.message || 'تعذر حذف المساق من قاعدة البيانات');
     }
@@ -469,7 +485,7 @@ export function CoursesPage() {
             <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
               selectedLevel === 'all' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
             }`}>
-              {totalHoursFourth + totalHoursFifth + totalHoursSixth}{locale === 'ar' ? 'س' : 'h'}
+              {totalHoursAll}{locale === 'ar' ? 'س' : 'h'}
             </span>
           </button>
         </div>
@@ -559,7 +575,7 @@ export function CoursesPage() {
                     {importFileName || (locale === 'ar' ? 'اضغط هنا لاختيار ملف المساقات (.csv)' : 'Click to select CSV file')}
                   </p>
                   <p className="text-xs text-slate-400 mt-1">
-                    {locale === 'ar' ? 'يدعم ترميز UTF-8 والفاصلة العادية' : 'Supports UTF-8 encoding'}
+                    {locale === 'ar' ? 'يدعم ترميز UTF-8 والفاصلة العادية والمنقوطة (;)' : 'Supports UTF-8 and comma/semicolon delimiters'}
                   </p>
                 </div>
               </div>
@@ -668,7 +684,7 @@ export function CoursesPage() {
                       )}
                     </td>
                     <td className="p-2.5 text-center text-slate-600">
-                      {c.academic_level === 'fourth' ? (locale === 'ar' ? 'سنة رابعة' : '4th Year') : c.academic_level === 'fifth' ? (locale === 'ar' ? 'سنة خامسة' : '5th Year') : (locale === 'ar' ? 'سنة سادسة' : '6th Year')}
+                      {normalizeLevel(c.academic_level) === 'fourth' ? (locale === 'ar' ? 'سنة رابعة' : '4th Year') : normalizeLevel(c.academic_level) === 'fifth' ? (locale === 'ar' ? 'سنة خامسة' : '5th Year') : (locale === 'ar' ? 'سنة سادسة' : '6th Year')}
                     </td>
                     <td className="p-2.5 text-center text-slate-600">
                       {Number(c.semester) === 2 ? (locale === 'ar' ? 'الفصل الثاني' : 'Semester 2') : (locale === 'ar' ? 'الفصل الأول' : 'Semester 1')}

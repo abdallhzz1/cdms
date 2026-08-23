@@ -7,11 +7,14 @@ use App\Http\Responses\ApiResponse;
 use App\Models\Course;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class CourseController extends Controller
 {
     public function index(Request $request): JsonResponse {
         $perPage = $request->integer('per_page', 100);
+        $hasSemester = Schema::hasColumn('courses', 'semester');
+
         $query = Course::query()
             ->when($request->filled('search'), function ($q) use ($request) {
                 $search = $request->query('search');
@@ -24,12 +27,16 @@ class CourseController extends Controller
             ->when($request->filled('academic_level'), function ($q) use ($request) {
                 $q->where('academic_level', $request->query('academic_level'));
             })
-            ->when($request->filled('semester'), function ($q) use ($request) {
+            ->when($hasSemester && $request->filled('semester'), function ($q) use ($request) {
                 $q->where('semester', $request->query('semester'));
             })
-            ->orderBy('academic_level')
-            ->orderBy('semester')
-            ->orderBy('code');
+            ->orderBy('academic_level');
+
+        if ($hasSemester) {
+            $query->orderBy('semester');
+        }
+
+        $query->orderBy('code');
 
         $courses = $query->paginate($perPage);
 
@@ -45,17 +52,21 @@ class CourseController extends Controller
     }
 
     public function store(Request $request): JsonResponse {
-        $validated = $request->validate([
+        $hasSemester = Schema::hasColumn('courses', 'semester');
+        $rules = [
             'code' => 'required|string|max:50',
             'name_ar' => 'required|string|max:255',
             'name_en' => 'nullable|string|max:255',
             'credit_hours' => 'required|integer|min:1',
             'academic_level' => 'required|string|in:fourth,fifth,sixth',
-            'semester' => 'required|integer|in:1,2',
             'is_active' => 'boolean',
             'description' => 'nullable|string',
-        ]);
+        ];
+        if ($hasSemester) {
+            $rules['semester'] = 'sometimes|integer|in:1,2';
+        }
 
+        $validated = $request->validate($rules);
         $course = Course::create($validated);
         return ApiResponse::success($course, 'Course created.', [], 201);
     }
@@ -65,17 +76,21 @@ class CourseController extends Controller
     }
 
     public function update(Request $request, Course $course): JsonResponse {
-        $validated = $request->validate([
+        $hasSemester = Schema::hasColumn('courses', 'semester');
+        $rules = [
             'code' => 'sometimes|required|string|max:50',
             'name_ar' => 'sometimes|required|string|max:255',
             'name_en' => 'nullable|string|max:255',
             'credit_hours' => 'sometimes|required|integer|min:1',
             'academic_level' => 'sometimes|required|string|in:fourth,fifth,sixth',
-            'semester' => 'sometimes|required|integer|in:1,2',
             'is_active' => 'boolean',
             'description' => 'nullable|string',
-        ]);
+        ];
+        if ($hasSemester) {
+            $rules['semester'] = 'sometimes|integer|in:1,2';
+        }
 
+        $validated = $request->validate($rules);
         $course->update($validated);
         return ApiResponse::success($course, 'Course updated successfully.');
     }
@@ -95,14 +110,15 @@ class CourseController extends Controller
             'courses' => ['required', 'array', 'min:1'],
         ]);
 
+        $hasSemester = Schema::hasColumn('courses', 'semester');
         $imported = 0;
         $updated = 0;
         $errors = [];
 
         foreach ($request->input('courses') as $index => $row) {
             try {
-                $code = trim((string)($row['code'] ?? $row['رمز_المساق'] ?? $row['رمز المساق'] ?? ''));
-                $nameAr = trim((string)($row['name_ar'] ?? $row['اسم_المساق_بالعربية'] ?? $row['اسم المساق بالعربي'] ?? $row['اسم_المساق'] ?? ''));
+                $code = trim((string)($row['code'] ?? $row['رمز_المساق'] ?? $row['رمز المساق'] ?? $row['رمز'] ?? ''));
+                $nameAr = trim((string)($row['name_ar'] ?? $row['اسم_المساق_بالعربية'] ?? $row['اسم المساق بالعربي'] ?? $row['اسم_المساق'] ?? $row['اسم المساق'] ?? $row['اسم'] ?? ''));
                 $nameEn = trim((string)($row['name_en'] ?? $row['اسم_المساق_بالانجليزية'] ?? $row['اسم المساق بالانجليزي'] ?? ''));
 
                 if (empty($code) || empty($nameAr)) {
@@ -110,7 +126,7 @@ class CourseController extends Controller
                     continue;
                 }
 
-                $rawLevel = strtolower(trim((string)($row['academic_level'] ?? $row['المستوى_الأكاديمي'] ?? $row['المستوى'] ?? $row['السنة_السريرية'] ?? '')));
+                $rawLevel = strtolower(trim((string)($row['academic_level'] ?? $row['المستوى_الأكاديمي'] ?? $row['المستوى'] ?? $row['السنة_السريرية'] ?? $row['السنة'] ?? '')));
                 $level = 'fourth';
                 if (in_array($rawLevel, ['fourth', 'fifth', 'sixth'])) {
                     $level = $rawLevel;
@@ -118,12 +134,6 @@ class CourseController extends Controller
                     if (str_contains($rawLevel, '4') || str_contains($rawLevel, 'رابع') || str_contains($rawLevel, 'fourth')) $level = 'fourth';
                     elseif (str_contains($rawLevel, '5') || str_contains($rawLevel, 'خامس') || str_contains($rawLevel, 'fifth')) $level = 'fifth';
                     elseif (str_contains($rawLevel, '6') || str_contains($rawLevel, 'سادس') || str_contains($rawLevel, 'sixth')) $level = 'sixth';
-                }
-
-                $rawSem = trim((string)($row['semester'] ?? $row['الفصل'] ?? $row['الفصل_الدراسي'] ?? '1'));
-                $semester = 1;
-                if (str_contains($rawSem, '2') || str_contains($rawSem, 'ثاني') || str_contains($rawSem, 'second')) {
-                    $semester = 2;
                 }
 
                 $isActive = true;
@@ -142,10 +152,18 @@ class CourseController extends Controller
                     'name_en'        => !empty($nameEn) ? $nameEn : null,
                     'credit_hours'   => $credits,
                     'academic_level' => $level,
-                    'semester'       => $semester,
                     'is_active'      => $isActive,
                     'description'    => $description,
                 ];
+
+                if ($hasSemester) {
+                    $rawSem = trim((string)($row['semester'] ?? $row['الفصل'] ?? $row['الفصل_الدراسي'] ?? '1'));
+                    $semester = 1;
+                    if (str_contains($rawSem, '2') || str_contains($rawSem, 'ثاني') || str_contains($rawSem, 'second')) {
+                        $semester = 2;
+                    }
+                    $data['semester'] = $semester;
+                }
 
                 $course = Course::where('code', $code)->first();
                 if ($course) {
