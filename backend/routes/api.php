@@ -34,6 +34,14 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     });
 
     // -------------------------------------------------------------------------
+    // Public Routes (No authentication required — for lobby displays & student self-lookup)
+    // -------------------------------------------------------------------------
+    Route::prefix('public')->name('public.')->group(function () {
+        Route::get('clinical-schedule', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'administrativeSchedule'])
+            ->name('clinical-schedule');
+    });
+
+    // -------------------------------------------------------------------------
     // Phase 3A — Core Domain & People Foundation
     // All routes: auth:sanctum (authentication) + permission:<code> (authorization)
     // -------------------------------------------------------------------------
