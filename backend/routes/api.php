@@ -103,6 +103,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 ->middleware('permission:groups.view')->name('show');
         });
 
+        // Program Outcomes (read-only for all authenticated users)
+        Route::get('/program-outcomes', [\App\Http\Controllers\ProgramOutcomeController::class, 'index']);
+
         Route::post('student-group-assignments', [\App\Http\Controllers\Api\V1\StudentGroupAssignmentController::class, 'store'])
             ->middleware('permission:groups.manage')->name('student-group-assignments.store');
 

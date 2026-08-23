@@ -41,6 +41,14 @@ interface ProgramOutcomeMapping {
   mapping_level?: string | null;
 }
 
+interface ProgramOutcome {
+  id: number;
+  code: string;
+  name_ar: string;
+  name_en: string;
+  domain: string;
+}
+
 interface Course {
   id: number;
   code: string;
@@ -84,7 +92,7 @@ export function CourseDetailsPage() {
   const [iloDomain, setIloDomain] = useState('Knowledge');
 
   // PLO Form State
-  const [ploCode, setPloCode] = useState('PLO-1');
+  const [ploCode, setPloCode] = useState('');
   const [ploLevel, setPloLevel] = useState('High');
 
   // Report Improvement Notes State
@@ -96,6 +104,11 @@ export function CourseDetailsPage() {
     queryKey: ['course', courseId],
     queryFn: () => apiFetch<Course>(`/courses/${courseId}`),
     enabled: Boolean(courseId),
+  });
+
+  const { data: plosList } = useQuery({
+    queryKey: ['program-outcomes'],
+    queryFn: () => apiFetch<ProgramOutcome[]>('/program-outcomes'),
   });
 
   // Assessment Component Mutations
@@ -688,15 +701,20 @@ export function CourseDetailsPage() {
 
             <form onSubmit={handleSavePlo} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">{locale === 'ar' ? 'رمز مخرج البرنامج (PLO Code):' : 'PLO Code:'}</label>
-                <input
-                  type="text"
+                <label className="block text-xs font-semibold text-slate-700 mb-1">{locale === 'ar' ? 'مخرج البرنامج (PLO):' : 'Program Outcome (PLO):'}</label>
+                <select
                   required
-                  placeholder="PLO-1"
                   value={ploCode}
                   onChange={e => setPloCode(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 p-2 text-xs font-mono font-semibold focus:ring-1 focus:ring-teal-600"
-                />
+                  className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600 bg-white"
+                >
+                  <option value="" disabled>{locale === 'ar' ? 'اختر مخرج البرنامج' : 'Select Program Outcome'}</option>
+                  {plosList?.map(plo => (
+                    <option key={plo.id} value={plo.code}>
+                      {plo.code} - {locale === 'ar' ? plo.name_ar : plo.name_en}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
