@@ -91,25 +91,57 @@ class AdminDepartmentController extends Controller
 
     /**
      * GET /api/v1/admin/departments/candidates
-     * Returns eligible candidates for Head and TA roles.
+     * Returns ONLY users with role DEPARTMENT_HEAD for heads, and role RTA for TAs.
      */
     public function candidates()
     {
-        $people = Person::where('is_active', true)
-            ->orderBy('full_name_ar')
-            ->get([
-                'id', 'full_name_ar', 'full_name_en', 'email', 
-                'department_id', 'academic_degree', 'specialty', 'user_id'
-            ]);
+        // 1. Head candidates: Users with role DEPARTMENT_HEAD
+        $headRole = Role::where('code', 'DEPARTMENT_HEAD')->first();
+        $headUserIds = $headRole ? DB::table('user_roles')->where('role_id', $headRole->id)->pluck('user_id')->toArray() : [];
 
-        $users = User::where('is_active', true)
-            ->with('roles')
-            ->orderBy('name')
-            ->get(['id', 'name', 'email']);
+        $headCandidates = [];
+        if (!empty($headUserIds)) {
+            $headUsers = User::whereIn('id', $headUserIds)->where('is_active', true)->orderBy('name')->get();
+            foreach ($headUsers as $u) {
+                $person = Person::where('user_id', $u->id)->first();
+                $headCandidates[] = [
+                    'id'              => $person ? $person->id : ('user_' . $u->id),
+                    'person_id'       => $person?->id,
+                    'user_id'         => $u->id,
+                    'full_name_ar'    => $person?->full_name_ar ?? $u->name,
+                    'full_name_en'    => $person?->full_name_en,
+                    'email'           => $u->email,
+                    'academic_degree' => $person?->academic_degree ?? 'دكتور',
+                    'specialty'       => $person?->specialty,
+                ];
+            }
+        }
+
+        // 2. TA candidates: Users with role RTA
+        $rtaRole = Role::where('code', 'RTA')->first();
+        $rtaUserIds = $rtaRole ? DB::table('user_roles')->where('role_id', $rtaRole->id)->pluck('user_id')->toArray() : [];
+
+        $rtaCandidates = [];
+        if (!empty($rtaUserIds)) {
+            $rtaUsers = User::whereIn('id', $rtaUserIds)->where('is_active', true)->orderBy('name')->get();
+            foreach ($rtaUsers as $u) {
+                $person = Person::where('user_id', $u->id)->first();
+                $rtaCandidates[] = [
+                    'id'              => $person ? $person->id : ('user_' . $u->id),
+                    'person_id'       => $person?->id,
+                    'user_id'         => $u->id,
+                    'full_name_ar'    => $person?->full_name_ar ?? $u->name,
+                    'full_name_en'    => $person?->full_name_en,
+                    'email'           => $u->email,
+                    'academic_degree' => $person?->academic_degree ?? 'مساعد بحث وتدريس',
+                    'specialty'       => $person?->specialty,
+                ];
+            }
+        }
 
         return ApiResponse::success([
-            'people' => $people,
-            'users'  => $users,
+            'head_candidates' => $headCandidates,
+            'rta_candidates'  => $rtaCandidates,
         ]);
     }
 
@@ -127,8 +159,8 @@ class AdminDepartmentController extends Controller
             'serves_academic_levels.*' => 'string',
             'is_active'              => 'boolean',
             'notes'                  => 'nullable|string|max:1000',
-            'head_person_id'         => 'nullable|integer|exists:people,id',
-            'rta_person_id'          => 'nullable|integer|exists:people,id',
+            'head_person_id'         => 'nullable',
+            'rta_person_id'          => 'nullable',
         ]);
 
         return DB::transaction(function () use ($validated) {
@@ -187,14 +219,14 @@ class AdminDepartmentController extends Controller
 
             // Sync Head
             if (array_key_exists('head_person_id', $validated)) {
-                $headId = $validated['head_person_id'] ? (int) $validated['head_person_id'] : null;
-                $this->assignLeaderInternal($department->id, $headId, 'head');
+                $headVal = $validated['head_person_id'] ?: null;
+                $this->assignLeaderInternal($department->id, $headVal, 'head');
             }
 
             // Sync TA
             if (array_key_exists('rta_person_id', $validated)) {
-                $rtaId = $validated['rta_person_id'] ? (int) $validated['rta_person_id'] : null;
-                $this->assignLeaderInternal($department->id, $rtaId, 'rta');
+                $rtaVal = $validated['rta_person_id'] ?: null;
+                $this->assignLeaderInternal($department->id, $rtaVal, 'rta');
             }
 
             return ApiResponse::success($department->fresh(), 'تم تحديث بيانات القسم بنجاح.');
@@ -207,19 +239,19 @@ class AdminDepartmentController extends Controller
     public function assignLeaders(Request $request, Department $department)
     {
         $validated = $request->validate([
-            'head_person_id' => 'nullable|integer|exists:people,id',
-            'rta_person_id'  => 'nullable|integer|exists:people,id',
+            'head_person_id' => 'nullable',
+            'rta_person_id'  => 'nullable',
         ]);
 
         return DB::transaction(function () use ($department, $validated) {
             if (array_key_exists('head_person_id', $validated)) {
-                $headId = $validated['head_person_id'] ? (int) $validated['head_person_id'] : null;
-                $this->assignLeaderInternal($department->id, $headId, 'head');
+                $headVal = $validated['head_person_id'] ?: null;
+                $this->assignLeaderInternal($department->id, $headVal, 'head');
             }
 
             if (array_key_exists('rta_person_id', $validated)) {
-                $rtaId = $validated['rta_person_id'] ? (int) $validated['rta_person_id'] : null;
-                $this->assignLeaderInternal($department->id, $rtaId, 'rta');
+                $rtaVal = $validated['rta_person_id'] ?: null;
+                $this->assignLeaderInternal($department->id, $rtaVal, 'rta');
             }
 
             return ApiResponse::success(null, 'تم تحديث رئيس القسم ومساعد البحث والتدريس بنجاح.');
@@ -244,14 +276,11 @@ class AdminDepartmentController extends Controller
     public function destroy(Department $department)
     {
         return DB::transaction(function () use ($department) {
-            // Safety check: if there are related records
             $peopleCount = $department->people()->count();
             if ($peopleCount > 0) {
-                // Detach people rather than fail or cascade safely
                 $department->people()->update(['department_id' => null]);
             }
 
-            // Close current assignments
             DepartmentHeadAssignment::where('department_id', $department->id)->delete();
 
             $department->delete();
@@ -263,9 +292,53 @@ class AdminDepartmentController extends Controller
     /**
      * Internal helper to atomically assign or remove a department leader (head/rta)
      */
-    private function assignLeaderInternal(int $departmentId, ?int $personId, string $roleType): void
+    private function assignLeaderInternal(int $departmentId, mixed $rawCandidateId, string $roleType): void
     {
-        // 1. End previous current assignment for this department & role_type
+        // 1. Resolve Person ID from raw ID (which may be person_id or 'user_X')
+        $personId = null;
+        $userId = null;
+
+        if (!empty($rawCandidateId)) {
+            if (is_numeric($rawCandidateId)) {
+                $person = Person::find((int) $rawCandidateId);
+                if ($person) {
+                    $personId = $person->id;
+                    $userId = $person->user_id;
+                } else {
+                    // Check if numeric candidate ID was user_id
+                    $user = User::find((int) $rawCandidateId);
+                    if ($user) {
+                        $userId = $user->id;
+                        $person = Person::firstOrCreate(
+                            ['user_id' => $user->id],
+                            [
+                                'full_name_ar' => $user->name,
+                                'email'        => $user->email,
+                                'is_active'    => true,
+                            ]
+                        );
+                        $personId = $person->id;
+                    }
+                }
+            } elseif (is_string($rawCandidateId) && str_starts_with($rawCandidateId, 'user_')) {
+                $extractedUserId = (int) str_replace('user_', '', $rawCandidateId);
+                $user = User::find($extractedUserId);
+                if ($user) {
+                    $userId = $user->id;
+                    $person = Person::firstOrCreate(
+                        ['user_id' => $user->id],
+                        [
+                            'full_name_ar' => $user->name,
+                            'email'        => $user->email,
+                            'is_active'    => true,
+                        ]
+                    );
+                    $personId = $person->id;
+                }
+            }
+        }
+
+        // 2. End previous current assignment for this department & role_type
         $currentAssignment = DepartmentHeadAssignment::where('department_id', $departmentId)
             ->where('role_type', $roleType)
             ->where('is_current', true)
@@ -297,7 +370,7 @@ class AdminDepartmentController extends Controller
             }
         }
 
-        // 2. If new person is selected, create new current assignment
+        // 3. If new person is selected, create new current assignment
         if ($personId) {
             DepartmentHeadAssignment::create([
                 'department_id' => $departmentId,
@@ -311,29 +384,28 @@ class AdminDepartmentController extends Controller
             $person = Person::find($personId);
             if ($person) {
                 $person->update(['department_id' => $departmentId]);
+            }
 
-                // Also sync user role scope if user is attached
-                if ($person->user_id) {
-                    $roleCode = $roleType === 'head' ? 'DEPARTMENT_HEAD' : 'RTA';
-                    $role = Role::where('code', $roleCode)->first();
-                    if ($role) {
-                        $user = User::find($person->user_id);
-                        if ($user) {
-                            // Ensure user has this role
-                            if (!$user->hasRole($roleCode)) {
-                                $user->roles()->attach($role->id, [
+            // Sync user role scope if user is attached
+            if ($userId) {
+                $roleCode = $roleType === 'head' ? 'DEPARTMENT_HEAD' : 'RTA';
+                $role = Role::where('code', $roleCode)->first();
+                if ($role) {
+                    $user = User::find($userId);
+                    if ($user) {
+                        if (!$user->hasRole($roleCode)) {
+                            $user->roles()->attach($role->id, [
+                                'scope_type' => 'department',
+                                'scope_id'   => $departmentId,
+                            ]);
+                        } else {
+                            DB::table('user_roles')
+                                ->where('user_id', $user->id)
+                                ->where('role_id', $role->id)
+                                ->update([
                                     'scope_type' => 'department',
                                     'scope_id'   => $departmentId,
                                 ]);
-                            } else {
-                                DB::table('user_roles')
-                                    ->where('user_id', $user->id)
-                                    ->where('role_id', $role->id)
-                                    ->update([
-                                        'scope_type' => 'department',
-                                        'scope_id'   => $departmentId,
-                                    ]);
-                            }
                         }
                     }
                 }

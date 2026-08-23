@@ -11,7 +11,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
 import {
   UserPlus, Search, Key, Edit2, Trash2,
-  CheckCircle2, XCircle, AlertTriangle, Filter, Building2
+  CheckCircle2, XCircle, AlertTriangle, Filter
 } from 'lucide-react';
 
 const ROLE_LABELS: Record<string, { ar: string; en: string }> = {
@@ -26,9 +26,6 @@ const ROLE_LABELS: Record<string, { ar: string; en: string }> = {
   ACADEMIC_ADVISOR: { ar: 'المرشد الأكاديمي', en: 'Academic Advisor' },
   QUALITY: { ar: 'مسؤول الجودة والاعتماد', en: 'Quality Officer' },
 };
-
-// Roles that require a department to be selected
-const SCOPED_ROLES = ['DEPARTMENT_HEAD', 'RTA'];
 
 export function UsersPage() {
   const qc = useQueryClient();
@@ -51,7 +48,6 @@ export function UsersPage() {
     password: '',
     roles: ['CLINICAL_SUPERVISOR'],
     is_active: true,
-    department_id: '' as string | number,
   });
 
   const [editForm, setEditForm] = useState({
@@ -59,7 +55,6 @@ export function UsersPage() {
     email: '',
     roles: [] as string[],
     is_active: true,
-    department_id: '' as string | number,
   });
 
   const [newPassword, setNewPassword] = useState('');
@@ -69,16 +64,6 @@ export function UsersPage() {
     queryKey: ['admin-users-list'],
     queryFn: () => apiFetch<any>('/users?per_page=500'),
   });
-
-  // Fetch Departments for selector (uses admin-only endpoint, no departments.view perm needed)
-  const { data: deptData } = useQuery({
-    queryKey: ['admin-departments-list'],
-    queryFn: () => apiFetch<any>('/users/departments-for-assignment'),
-  });
-  const departments: any[] = useMemo(() => {
-    const raw = deptData?.data || deptData || [];
-    return Array.isArray(raw) ? raw : [];
-  }, [deptData]);
 
   const usersList = useMemo(() => {
     return data?.data?.items || data?.items || data?.data || [];
@@ -100,15 +85,13 @@ export function UsersPage() {
     });
   }, [usersList, search, roleFilter]);
 
-  const showDeptSelector = (roles: string[]) => roles.some(r => SCOPED_ROLES.includes(r));
-
   // Create User Mutation
   const createMutation = useMutation({
     mutationFn: (body: any) => apiFetch('/users', { method: 'POST', body }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-users-list'] });
       setIsAddModalOpen(false);
-      setAddForm({ name: '', email: '', password: '', roles: ['CLINICAL_SUPERVISOR'], is_active: true, department_id: '' });
+      setAddForm({ name: '', email: '', password: '', roles: ['CLINICAL_SUPERVISOR'], is_active: true });
       setSuccessMessage('تم إنشاء الحساب بنجاح في النظام.');
       setTimeout(() => setSuccessMessage(null), 3000);
     },
@@ -165,14 +148,7 @@ export function UsersPage() {
       email: u.email,
       roles: u.roles?.map((r: any) => r.code) || [u.role],
       is_active: u.is_active ?? true,
-      department_id: u.department_id ?? '',
     });
-  };
-
-  const getDeptName = (deptId: number | null | undefined) => {
-    if (!deptId) return null;
-    const dept = departments.find((d: any) => d.id === deptId);
-    return dept ? (dept.name_ar || dept.name_en || dept.code) : `قسم #${deptId}`;
   };
 
   if (isLoading && !data) return <LoadingState />;
@@ -183,7 +159,7 @@ export function UsersPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <PageHeader
           title="شاشة إدارة المستخدمين والأدوار التقنية"
-          description="إنشاء وتعديل الحسابات، تعيين وتحديث الأدوار، ربط رؤساء الأقسام والـ TA بأقسامهم."
+          description="إنشاء وتعديل الحسابات، تعيين وتحديث الأدوار، وتجميد أو تفعيل الحسابات."
         />
         <Button
           onClick={() => setIsAddModalOpen(true)}
@@ -245,7 +221,7 @@ export function UsersPage() {
           <TableHeader className="bg-slate-50">
             <TableRow>
               <TableHead>المستخدم والبريد الإلكتروني</TableHead>
-              <TableHead>الدور والقسم المخصص</TableHead>
+              <TableHead>الأدوار والمسمى التقني</TableHead>
               <TableHead className="text-center">حالة الحساب</TableHead>
               <TableHead className="text-center">إجراءات</TableHead>
             </TableRow>
@@ -262,7 +238,6 @@ export function UsersPage() {
                 const userRoles = u.roles || [];
                 const isPrimaryAdmin = u.email === 'admin1@hebron.edu';
                 const isSelf = currentUser?.id === u.id;
-                const deptName = getDeptName(u.department_id);
 
                 return (
                   <TableRow key={u.id} className="hover:bg-slate-50/80 transition-colors">
@@ -287,12 +262,6 @@ export function UsersPage() {
                           );
                         })}
                       </div>
-                      {deptName && (
-                        <div className="flex items-center gap-1 mt-1.5">
-                          <Building2 className="w-3 h-3 text-teal-600 shrink-0" />
-                          <span className="text-[11px] text-teal-700 font-semibold">{deptName}</span>
-                        </div>
-                      )}
                     </TableCell>
 
                     <TableCell className="text-center">
@@ -331,7 +300,7 @@ export function UsersPage() {
 
       {/* 1. Add User Modal */}
       <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="إضافة حساب مستخدم جديد">
-        <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate({ ...addForm, department_id: addForm.department_id || null }); }} className="space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate(addForm); }} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">الاسم الكامل للمستخدم</label>
             <input type="text" required placeholder="مثال: د. معاذ الشريف" value={addForm.name}
@@ -355,35 +324,13 @@ export function UsersPage() {
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">الدور التقني</label>
-            <select value={addForm.roles[0]} onChange={(e) => setAddForm({ ...addForm, roles: [e.target.value], department_id: '' })}
+            <select value={addForm.roles[0]} onChange={(e) => setAddForm({ ...addForm, roles: [e.target.value] })}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white">
               {Object.entries(ROLE_LABELS).map(([code, label]) => (
                 <option key={code} value={code}>{label.ar}</option>
               ))}
             </select>
           </div>
-
-          {/* Department selector — shown only for DEPARTMENT_HEAD and RTA */}
-          {showDeptSelector(addForm.roles) && (
-            <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 space-y-2">
-              <label className="block text-xs font-bold text-teal-800 flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5" />
-                القسم الأكاديمي المخصص
-              </label>
-              <select
-                required
-                value={addForm.department_id}
-                onChange={(e) => setAddForm({ ...addForm, department_id: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-teal-300 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white"
-              >
-                <option value="">— اختر القسم —</option>
-                {departments.map((d: any) => (
-                  <option key={d.id} value={d.id}>{d.name_ar || d.name_en}</option>
-                ))}
-              </select>
-              <p className="text-[10px] text-teal-600">سيرى هذا المستخدم بيانات هذا القسم فقط في جميع الشاشات.</p>
-            </div>
-          )}
 
           <div className="flex justify-end gap-2 pt-3">
             <Button type="button" variant="ghost" onClick={() => setIsAddModalOpen(false)}>إلغاء</Button>
@@ -396,7 +343,7 @@ export function UsersPage() {
 
       {/* 2. Edit User Modal */}
       <Modal isOpen={!!editingUser} onClose={() => setEditingUser(null)} title="تعديل بيانات الحساب والأدوار">
-        <form onSubmit={(e) => { e.preventDefault(); if (editingUser) updateMutation.mutate({ id: editingUser.id, body: { ...editForm, department_id: editForm.department_id || null } }); }} className="space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); if (editingUser) updateMutation.mutate({ id: editingUser.id, body: editForm }); }} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">الاسم الكامل</label>
             <input type="text" required value={editForm.name}
@@ -414,35 +361,13 @@ export function UsersPage() {
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">الدور التقني</label>
             <select value={editForm.roles[0] || 'CLINICAL_SUPERVISOR'}
-              onChange={(e) => setEditForm({ ...editForm, roles: [e.target.value], department_id: '' })}
+              onChange={(e) => setEditForm({ ...editForm, roles: [e.target.value] })}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white">
               {Object.entries(ROLE_LABELS).map(([code, label]) => (
                 <option key={code} value={code}>{label.ar}</option>
               ))}
             </select>
           </div>
-
-          {/* Department selector for DEPARTMENT_HEAD and RTA */}
-          {showDeptSelector(editForm.roles) && (
-            <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 space-y-2">
-              <label className="block text-xs font-bold text-teal-800 flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5" />
-                القسم الأكاديمي المخصص
-              </label>
-              <select
-                required
-                value={editForm.department_id}
-                onChange={(e) => setEditForm({ ...editForm, department_id: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-teal-300 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white"
-              >
-                <option value="">— اختر القسم —</option>
-                {departments.map((d: any) => (
-                  <option key={d.id} value={d.id}>{d.name_ar || d.name_en}</option>
-                ))}
-              </select>
-              <p className="text-[10px] text-teal-600">سيرى هذا المستخدم بيانات هذا القسم فقط في جميع الشاشات.</p>
-            </div>
-          )}
 
           <div className="flex justify-end gap-2 pt-3">
             <Button type="button" variant="ghost" onClick={() => setEditingUser(null)}>إلغاء</Button>

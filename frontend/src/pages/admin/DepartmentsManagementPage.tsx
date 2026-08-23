@@ -86,12 +86,12 @@ export function DepartmentsManagementPage() {
     queryFn: () => apiFetch<any>('/departments-manage/candidates'),
   });
 
-  const candidates = useMemo(() => {
-    const raw = candidatesData?.data || candidatesData || {};
-    return {
-      people: (raw.people || []) as any[],
-      users: (raw.users || []) as any[],
-    };
+  const headCandidates: any[] = useMemo(() => {
+    return candidatesData?.data?.head_candidates || [];
+  }, [candidatesData]);
+
+  const rtaCandidates: any[] = useMemo(() => {
+    return candidatesData?.data?.rta_candidates || [];
   }, [candidatesData]);
 
   // Instant Filter
@@ -680,7 +680,7 @@ export function DepartmentsManagementPage() {
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden bg-white font-medium"
               >
                 <option value="">— لا يوجد رئيس قسم مكلف حالياً —</option>
-                {candidates.people.map((p: any) => (
+                {headCandidates.map((p: any) => (
                   <option key={p.id} value={p.id}>
                     {p.full_name_ar} {p.specialty ? `(${p.specialty})` : ''} - {p.email}
                   </option>
@@ -696,7 +696,7 @@ export function DepartmentsManagementPage() {
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden bg-white font-medium"
               >
                 <option value="">— لا يوجد مساعد بحث وتدريس حالياً —</option>
-                {candidates.people.map((p: any) => (
+                {rtaCandidates.map((p: any) => (
                   <option key={p.id} value={p.id}>
                     {p.full_name_ar} - {p.email}
                   </option>
@@ -751,8 +751,8 @@ export function DepartmentsManagementPage() {
               assignLeadersMutation.mutate({
                 id: assigningDept.id,
                 body: {
-                  head_person_id: assignForm.head_person_id ? Number(assignForm.head_person_id) : null,
-                  rta_person_id: assignForm.rta_person_id ? Number(assignForm.rta_person_id) : null,
+                  head_person_id: assignForm.head_person_id || null,
+                  rta_person_id: assignForm.rta_person_id || null,
                 },
               });
             }
@@ -760,7 +760,7 @@ export function DepartmentsManagementPage() {
           className="space-y-4"
         >
           <div className="p-3.5 rounded-2xl bg-teal-50 border border-teal-200 text-xs font-medium text-teal-800 leading-relaxed">
-            يتم هنا تحديد وتغيير رئيس القسم ومساعد البحث والتدريس (TA) لهذا القسم. يتم حفظ سجل التغييرات التاريخية وتحديث صلاحيات الموظف في النظام تلقائياً.
+            يتم هنا تحديد وتغيير رئيس القسم ومساعد البحث والتدريس (TA) لهذا القسم. تقتصر الخيارات على الكادر الحاملين لدور <b>رئيس القسم</b> و<b>مساعد بحث وتدريس</b> في النظام.
           </div>
 
           <div>
@@ -774,7 +774,7 @@ export function DepartmentsManagementPage() {
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-indigo-500 outline-hidden bg-white font-medium"
             >
               <option value="">— لا يوجد رئيس قسم (إخلاء المنصب) —</option>
-              {candidates.people.map((p: any) => (
+              {headCandidates.map((p: any) => (
                 <option key={p.id} value={p.id}>
                   {p.full_name_ar} {p.specialty ? `(${p.specialty})` : ''} - {p.email}
                 </option>
@@ -793,7 +793,7 @@ export function DepartmentsManagementPage() {
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500 outline-hidden bg-white font-medium"
             >
               <option value="">— لا يوجد مساعد بحث وتدريس —</option>
-              {candidates.people.map((p: any) => (
+              {rtaCandidates.map((p: any) => (
                 <option key={p.id} value={p.id}>
                   {p.full_name_ar} - {p.email}
                 </option>
