@@ -387,6 +387,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 return response()->json(['data' => $depts]);
             });
 
+            // Admin Departments Management
+            Route::get('departments-manage/candidates', [\App\Http\Controllers\Api\V1\AdminDepartmentController::class, 'candidates']);
+            Route::post('departments-manage/{department}/assign-leaders', [\App\Http\Controllers\Api\V1\AdminDepartmentController::class, 'assignLeaders']);
+            Route::post('departments-manage/{department}/toggle', [\App\Http\Controllers\Api\V1\AdminDepartmentController::class, 'toggle']);
+            Route::apiResource('departments-manage', \App\Http\Controllers\Api\V1\AdminDepartmentController::class)->parameters(['departments-manage' => 'department']);
+
             // Direct route aliases
             Route::get('system-health', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'health']);
             Route::get('system-sessions', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'sessions']);

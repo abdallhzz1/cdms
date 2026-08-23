@@ -53,6 +53,7 @@ import { UsersPage } from '@/pages/UsersPage';
 import { AuditLogsPage } from '@/pages/AuditLogsPage';
 import { ActiveSessionsPage } from '@/pages/admin/ActiveSessionsPage';
 import { PermissionMatrixPage } from '@/pages/admin/PermissionMatrixPage';
+import { DepartmentsManagementPage } from '@/pages/admin/DepartmentsManagementPage';
 import { SystemHealthPage } from '@/pages/admin/SystemHealthPage';
 import { SystemSettingsPage } from '@/pages/admin/SystemSettingsPage';
 import { InboxPage } from '@/pages/InboxPage';
@@ -121,6 +122,14 @@ export function App() {
                   element={
                     <ProtectedRoute requiredRole="SYS_ADMIN">
                       <PermissionMatrixPage />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin/departments" 
+                  element={
+                    <ProtectedRoute requiredRole="SYS_ADMIN">
+                      <DepartmentsManagementPage />
                     </ProtectedRoute>
                   } 
                 />
