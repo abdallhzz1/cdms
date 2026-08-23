@@ -95,7 +95,7 @@ export function App() {
                 <Route 
                   path="/users" 
                   element={
-                    <ProtectedRoute requiredPermission="users.view" requiredRole="SYS_ADMIN">
+                    <ProtectedRoute requiredRole="SYS_ADMIN">
                       <UsersPage />
                     </ProtectedRoute>
                   } 
@@ -103,7 +103,7 @@ export function App() {
                 <Route 
                   path="/audit-logs" 
                   element={
-                    <ProtectedRoute requiredPermission="audit.view" requiredRole="SYS_ADMIN">
+                    <ProtectedRoute requiredRole="SYS_ADMIN">
                       <AuditLogsPage />
                     </ProtectedRoute>
                   } 
