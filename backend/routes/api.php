@@ -378,6 +378,15 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::post('users/{user}/reset-password', [\App\Http\Controllers\Api\V1\UserController::class, 'resetPassword']);
             Route::apiResource('users', \App\Http\Controllers\Api\V1\UserController::class, ['as' => 'direct']);
 
+            // Departments list for admin user-assignment (no departments.view required)
+            Route::get('users/departments-for-assignment', function () {
+                $depts = \DB::table('departments')
+                    ->where('is_active', 1)
+                    ->orderBy('name_ar')
+                    ->get(['id', 'name_ar', 'name_en', 'code', 'dept_type']);
+                return response()->json(['data' => $depts]);
+            });
+
             // Direct route aliases
             Route::get('system-health', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'health']);
             Route::get('system-sessions', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'sessions']);

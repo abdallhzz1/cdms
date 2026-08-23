@@ -70,10 +70,10 @@ export function UsersPage() {
     queryFn: () => apiFetch<any>('/users?per_page=500'),
   });
 
-  // Fetch Departments for selector
+  // Fetch Departments for selector (uses admin-only endpoint, no departments.view perm needed)
   const { data: deptData } = useQuery({
-    queryKey: ['departments-list'],
-    queryFn: () => apiFetch<any>('/departments'),
+    queryKey: ['admin-departments-list'],
+    queryFn: () => apiFetch<any>('/users/departments-for-assignment'),
   });
   const departments: any[] = useMemo(() => {
     const raw = deptData?.data || deptData || [];
