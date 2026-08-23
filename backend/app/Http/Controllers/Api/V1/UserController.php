@@ -55,7 +55,9 @@ class UserController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = User::with('roles');
+            $query = User::with(['roles' => function ($q) {
+                $q->withPivot('scope_type', 'scope_id');
+            }]);
 
             if ($request->filled('search')) {
                 $search = $request->search;
@@ -65,21 +67,33 @@ class UserController extends Controller
                 });
             }
 
-            $users = $query->orderBy('id', 'desc')->paginate($request->get('per_page', 100));
+            $users = $query->orderBy('id', 'desc')->paginate($request->get('per_page', 500));
+
+            // Enrich each user with their current department_id
+            $items = collect($users->items())->map(function ($user) {
+                $scopedRole = $user->roles->first(function ($role) {
+                    return in_array($role->code, ['DEPARTMENT_HEAD', 'RTA'])
+                        && $role->pivot->scope_type === 'department'
+                        && !is_null($role->pivot->scope_id);
+                });
+                $user->department_id = $scopedRole ? (int) $scopedRole->pivot->scope_id : null;
+                return $user;
+            });
 
             return response()->json([
                 'data' => [
-                    'items' => $users->items(),
-                    'total' => $users->total(),
+                    'items'     => $items,
+                    'total'     => $users->total(),
                     'last_page' => $users->lastPage()
                 ]
             ]);
         } catch (\Throwable $e) {
-            $allUsers = User::with('roles')->orderBy('id', 'desc')->get();
+            $allUsers = User::with(['roles' => fn($q) => $q->withPivot('scope_type', 'scope_id')])
+                ->orderBy('id', 'desc')->get();
             return response()->json([
                 'data' => [
-                    'items' => $allUsers,
-                    'total' => $allUsers->count(),
+                    'items'     => $allUsers,
+                    'total'     => $allUsers->count(),
                     'last_page' => 1
                 ]
             ]);
@@ -92,24 +106,24 @@ class UserController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:users,email',
-            'password' => 'required|string|min:6',
-            'roles' => 'array',
-            'roles.*' => 'exists:roles,code',
-            'is_active' => 'boolean',
+            'name'          => 'required|string|max:255',
+            'email'         => 'required|email|unique:users,email',
+            'password'      => 'required|string|min:6',
+            'roles'         => 'array',
+            'roles.*'       => 'exists:roles,code',
+            'is_active'     => 'boolean',
+            'department_id' => 'nullable|integer|exists:departments,id',
         ]);
 
         $user = User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'password' => Hash::make($validated['password']),
+            'name'      => $validated['name'],
+            'email'     => $validated['email'],
+            'password'  => Hash::make($validated['password']),
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
         if (!empty($validated['roles'])) {
-            $roleIds = Role::whereIn('code', $validated['roles'])->pluck('id');
-            $user->roles()->sync($roleIds);
+            $this->syncRolesWithScope($user, $validated['roles'], $validated['department_id'] ?? null);
         }
 
         return ApiResponse::success($user->load('roles'), 'تم إنشاء الحساب بنجاح.');
@@ -121,28 +135,58 @@ class UserController extends Controller
     public function update(Request $request, User $user)
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => ['required', 'email', Rule::unique('users')->ignore($user->id)],
-            'roles' => 'array',
-            'roles.*' => 'exists:roles,code',
-            'is_active' => 'boolean',
+            'name'          => 'required|string|max:255',
+            'email'         => ['required', 'email', Rule::unique('users')->ignore($user->id)],
+            'roles'         => 'array',
+            'roles.*'       => 'exists:roles,code',
+            'is_active'     => 'boolean',
+            'department_id' => 'nullable|integer|exists:departments,id',
         ]);
 
         $user->update([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
+            'name'      => $validated['name'],
+            'email'     => $validated['email'],
             'is_active' => $validated['is_active'] ?? $user->is_active,
         ]);
 
         if (isset($validated['roles'])) {
-            $roleIds = Role::whereIn('code', $validated['roles'])->pluck('id');
-            $user->roles()->sync($roleIds);
+            $this->syncRolesWithScope($user, $validated['roles'], $validated['department_id'] ?? null);
         }
 
         return ApiResponse::success(
             $user->load('roles'),
             'تم تحديث بيانات الحساب بنجاح.'
         );
+    }
+
+    /**
+     * Sync roles with department scope for DEPARTMENT_HEAD and RTA.
+     * For scoped roles (DEPARTMENT_HEAD / RTA) we store scope_type='department' + scope_id.
+     * For all other roles we store scope_type='global' + scope_id=null.
+     */
+    private function syncRolesWithScope(User $user, array $roleCodes, ?int $departmentId): void
+    {
+        $scopedRoles = ['DEPARTMENT_HEAD', 'RTA'];
+
+        $syncData = [];
+        foreach ($roleCodes as $code) {
+            $role = Role::where('code', $code)->first();
+            if (!$role) continue;
+
+            if (in_array($code, $scopedRoles) && $departmentId) {
+                $syncData[$role->id] = [
+                    'scope_type' => 'department',
+                    'scope_id'   => $departmentId,
+                ];
+            } else {
+                $syncData[$role->id] = [
+                    'scope_type' => 'global',
+                    'scope_id'   => null,
+                ];
+            }
+        }
+
+        $user->roles()->sync($syncData);
     }
 
     /**

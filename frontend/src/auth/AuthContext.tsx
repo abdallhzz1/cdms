@@ -17,6 +17,10 @@ interface AuthContextValue {
    */
   can: (permissionCode: string) => boolean;
   hasRole: (roleCode: string) => boolean;
+  /** Department IDs this user is scoped to (DEPARTMENT_HEAD / RTA). Empty for non-scoped roles. */
+  departmentIds: number[];
+  /** Convenience: the first (primary) department ID, or null for non-scoped roles. */
+  primaryDepartmentId: number | null;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -75,9 +79,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user],
   );
 
+  const departmentIds = useMemo<number[]>(
+    () => user?.department_ids ?? [],
+    [user],
+  );
+
+  const primaryDepartmentId = useMemo<number | null>(
+    () => departmentIds[0] ?? null,
+    [departmentIds],
+  );
+
   const value = useMemo<AuthContextValue>(
-    () => ({ user, isAuthenticated: user !== null, isLoading, login, logout, can, hasRole }),
-    [user, isLoading, login, logout, can, hasRole],
+    () => ({ user, isAuthenticated: user !== null, isLoading, login, logout, can, hasRole, departmentIds, primaryDepartmentId }),
+    [user, isLoading, login, logout, can, hasRole, departmentIds, primaryDepartmentId],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

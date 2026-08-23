@@ -12,6 +12,8 @@ export interface AuthenticatedUser {
   roles: string[];
   permissions: Permission[];
   assigned_levels?: string[] | null;
+  /** IDs of departments scoped to this user (for DEPARTMENT_HEAD and RTA) */
+  department_ids: number[];
 }
 
 export function login(email: string, password: string): Promise<AuthenticatedUser> {

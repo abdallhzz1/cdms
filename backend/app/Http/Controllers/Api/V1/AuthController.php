@@ -100,6 +100,18 @@ class AuthController extends Controller
             ->values()
             ->all();
 
+        // Resolve scoped department IDs for DEPARTMENT_HEAD / RTA
+        $departmentIds = \DB::table('user_roles')
+            ->join('roles', 'roles.id', '=', 'user_roles.role_id')
+            ->where('user_roles.user_id', $user->id)
+            ->whereIn('roles.code', ['DEPARTMENT_HEAD', 'RTA'])
+            ->where('user_roles.scope_type', 'department')
+            ->whereNotNull('user_roles.scope_id')
+            ->pluck('user_roles.scope_id')
+            ->unique()
+            ->values()
+            ->all();
+
         return [
             'id' => $user->id,
             'name' => $user->name,
@@ -107,6 +119,7 @@ class AuthController extends Controller
             'roles' => $user->roles->pluck('code')->values()->all(),
             'permissions' => $permissions,
             'assigned_levels' => $user->assigned_levels ?? null,
+            'department_ids' => $departmentIds,
         ];
     }
 }

@@ -9,9 +9,9 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
-import { 
-  UserPlus, Search, Key, Edit2, Trash2, 
-  CheckCircle2, XCircle, AlertTriangle, Filter
+import {
+  UserPlus, Search, Key, Edit2, Trash2,
+  CheckCircle2, XCircle, AlertTriangle, Filter, Building2
 } from 'lucide-react';
 
 const ROLE_LABELS: Record<string, { ar: string; en: string }> = {
@@ -26,6 +26,9 @@ const ROLE_LABELS: Record<string, { ar: string; en: string }> = {
   ACADEMIC_ADVISOR: { ar: 'المرشد الأكاديمي', en: 'Academic Advisor' },
   QUALITY: { ar: 'مسؤول الجودة والاعتماد', en: 'Quality Officer' },
 };
+
+// Roles that require a department to be selected
+const SCOPED_ROLES = ['DEPARTMENT_HEAD', 'RTA'];
 
 export function UsersPage() {
   const qc = useQueryClient();
@@ -48,6 +51,7 @@ export function UsersPage() {
     password: '',
     roles: ['CLINICAL_SUPERVISOR'],
     is_active: true,
+    department_id: '' as string | number,
   });
 
   const [editForm, setEditForm] = useState({
@@ -55,21 +59,32 @@ export function UsersPage() {
     email: '',
     roles: [] as string[],
     is_active: true,
+    department_id: '' as string | number,
   });
 
   const [newPassword, setNewPassword] = useState('');
 
-  // 1. Fetch Users
+  // Fetch Users
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin-users-list'],
     queryFn: () => apiFetch<any>('/users?per_page=500'),
   });
 
+  // Fetch Departments for selector
+  const { data: deptData } = useQuery({
+    queryKey: ['departments-list'],
+    queryFn: () => apiFetch<any>('/departments'),
+  });
+  const departments: any[] = useMemo(() => {
+    const raw = deptData?.data || deptData || [];
+    return Array.isArray(raw) ? raw : [];
+  }, [deptData]);
+
   const usersList = useMemo(() => {
     return data?.data?.items || data?.items || data?.data || [];
   }, [data]);
 
-  // Instant Client-Side Filter (0ms response, preserves focus perfectly)
+  // Instant Client-Side Filter
   const filteredUsers = useMemo(() => {
     return usersList.filter((u: any) => {
       const q = search.trim().toLowerCase();
@@ -79,12 +94,13 @@ export function UsersPage() {
         (u.email && u.email.toLowerCase().includes(q));
 
       if (!matchesSearch) return false;
-
       if (roleFilter === 'ALL') return true;
       const userRoleCodes = u.roles?.map((r: any) => r.code) || [u.role];
       return userRoleCodes.includes(roleFilter);
     });
   }, [usersList, search, roleFilter]);
+
+  const showDeptSelector = (roles: string[]) => roles.some(r => SCOPED_ROLES.includes(r));
 
   // Create User Mutation
   const createMutation = useMutation({
@@ -92,7 +108,7 @@ export function UsersPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-users-list'] });
       setIsAddModalOpen(false);
-      setAddForm({ name: '', email: '', password: '', roles: ['CLINICAL_SUPERVISOR'], is_active: true });
+      setAddForm({ name: '', email: '', password: '', roles: ['CLINICAL_SUPERVISOR'], is_active: true, department_id: '' });
       setSuccessMessage('تم إنشاء الحساب بنجاح في النظام.');
       setTimeout(() => setSuccessMessage(null), 3000);
     },
@@ -149,7 +165,14 @@ export function UsersPage() {
       email: u.email,
       roles: u.roles?.map((r: any) => r.code) || [u.role],
       is_active: u.is_active ?? true,
+      department_id: u.department_id ?? '',
     });
+  };
+
+  const getDeptName = (deptId: number | null | undefined) => {
+    if (!deptId) return null;
+    const dept = departments.find((d: any) => d.id === deptId);
+    return dept ? (dept.name_ar || dept.name_en || dept.code) : `قسم #${deptId}`;
   };
 
   if (isLoading && !data) return <LoadingState />;
@@ -160,9 +183,8 @@ export function UsersPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <PageHeader
           title="شاشة إدارة المستخدمين والأدوار التقنية"
-          description="إنشاء وتعديل الحسابات، تعيين وتحديث الأدوار، تجميد أو تفعيل الحسابات، وحذف الحسابات نهائياً."
+          description="إنشاء وتعديل الحسابات، تعيين وتحديث الأدوار، ربط رؤساء الأقسام والـ TA بأقسامهم."
         />
-
         <Button
           onClick={() => setIsAddModalOpen(true)}
           className="gap-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-xs"
@@ -173,7 +195,7 @@ export function UsersPage() {
       </div>
 
       {successMessage && (
-        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-semibold flex items-center gap-3 animate-fade-in">
+        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-semibold flex items-center gap-3">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
           <span>{successMessage}</span>
         </div>
@@ -192,20 +214,16 @@ export function UsersPage() {
               className="w-full pr-10 pl-4 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-slate-50/50"
             />
           </div>
-
           <div className="text-xs font-bold text-slate-500 flex items-center gap-2">
             <Filter className="w-4 h-4 text-teal-600" />
             <span>عرض {filteredUsers.length} من أصل {usersList.length} حساب</span>
           </div>
         </div>
 
-        {/* Role Filter Pills */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
           <button
             onClick={() => setRoleFilter('ALL')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-              roleFilter === 'ALL' ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${roleFilter === 'ALL' ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
           >
             جميع الحسابات
           </button>
@@ -213,9 +231,7 @@ export function UsersPage() {
             <button
               key={code}
               onClick={() => setRoleFilter(code)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                roleFilter === code ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${roleFilter === code ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
             >
               {label.ar}
             </button>
@@ -229,16 +245,16 @@ export function UsersPage() {
           <TableHeader className="bg-slate-50">
             <TableRow>
               <TableHead>المستخدم والبريد الإلكتروني</TableHead>
-              <TableHead>الأدوار والمسمى التقني</TableHead>
+              <TableHead>الدور والقسم المخصص</TableHead>
               <TableHead className="text-center">حالة الحساب</TableHead>
-              <TableHead className="text-center">إجراءات الحساب والتحكم</TableHead>
+              <TableHead className="text-center">إجراءات</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredUsers.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} className="text-center py-12 text-slate-400 text-xs">
-                  لا يوجد مستخدمين مطبقين لهذا التصفية.
+                  لا يوجد مستخدمين مطابقين لهذا التصفية.
                 </TableCell>
               </TableRow>
             ) : (
@@ -246,89 +262,60 @@ export function UsersPage() {
                 const userRoles = u.roles || [];
                 const isPrimaryAdmin = u.email === 'admin1@hebron.edu';
                 const isSelf = currentUser?.id === u.id;
+                const deptName = getDeptName(u.department_id);
 
                 return (
                   <TableRow key={u.id} className="hover:bg-slate-50/80 transition-colors">
-                    {/* Name & Email */}
                     <TableCell>
                       <div className="font-bold text-slate-900 text-xs flex items-center gap-2">
                         {u.name}
                         {isPrimaryAdmin && (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
-                            مدير رئيسي 👑
-                          </span>
+                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">مدير رئيسي 👑</span>
                         )}
                       </div>
                       <div className="text-[11px] text-slate-500 font-mono mt-0.5">{u.email}</div>
                     </TableCell>
 
-                    {/* Roles Badges */}
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {userRoles.map((r: any) => {
-                          const label = ROLE_LABELS[r.code] || { ar: r.code, en: r.code };
+                          const label = ROLE_LABELS[r.code] || { ar: r.code };
                           return (
-                            <span
-                              key={r.id || r.code}
-                              className="px-2 py-0.5 rounded-lg bg-teal-50 text-teal-800 border border-teal-100 text-[10px] font-bold"
-                            >
+                            <span key={r.id || r.code} className="px-2 py-0.5 rounded-lg bg-teal-50 text-teal-800 border border-teal-100 text-[10px] font-bold">
                               {label.ar}
                             </span>
                           );
                         })}
                       </div>
+                      {deptName && (
+                        <div className="flex items-center gap-1 mt-1.5">
+                          <Building2 className="w-3 h-3 text-teal-600 shrink-0" />
+                          <span className="text-[11px] text-teal-700 font-semibold">{deptName}</span>
+                        </div>
+                      )}
                     </TableCell>
 
-                    {/* Active Status Toggle */}
                     <TableCell className="text-center">
                       <button
                         onClick={() => toggleMutation.mutate(u.id)}
                         disabled={isSelf || isPrimaryAdmin || toggleMutation.isPending}
-                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all inline-flex items-center gap-1.5 ${
-                          u.is_active ?? true
-                            ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                            : 'bg-red-100 text-red-800 hover:bg-red-200'
-                        }`}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all inline-flex items-center gap-1.5 ${u.is_active ?? true ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-red-100 text-red-800 hover:bg-red-200'}`}
                       >
                         {u.is_active ?? true ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
                         {u.is_active ?? true ? 'حساب نشط' : 'حساب مجمد'}
                       </button>
                     </TableCell>
 
-                    {/* Action Buttons */}
                     <TableCell className="text-center">
                       <div className="flex items-center justify-center gap-1">
-                        {/* Edit Roles & Details */}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => openEditModal(u)}
-                          title="تعديل الحساب والأدوار"
-                          className="h-8 w-8 p-0 text-slate-600 hover:bg-slate-100 rounded-lg"
-                        >
+                        <Button size="sm" variant="ghost" onClick={() => openEditModal(u)} title="تعديل الحساب والأدوار" className="h-8 w-8 p-0 text-slate-600 hover:bg-slate-100 rounded-lg">
                           <Edit2 className="w-4 h-4" />
                         </Button>
-
-                        {/* Quick Reset Password */}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setResetPasswordUser(u)}
-                          title="إعادة تعيين كلمة المرور"
-                          className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-50 rounded-lg"
-                        >
+                        <Button size="sm" variant="ghost" onClick={() => setResetPasswordUser(u)} title="إعادة تعيين كلمة المرور" className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-50 rounded-lg">
                           <Key className="w-4 h-4" />
                         </Button>
-
-                        {/* Permanent Delete Button */}
                         {!isSelf && !isPrimaryAdmin && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setDeleteConfirmUser(u)}
-                            title="حذف الحساب نهائياً من النظام"
-                            className="h-8 w-8 p-0 text-red-600 hover:bg-red-50 rounded-lg"
-                          >
+                          <Button size="sm" variant="ghost" onClick={() => setDeleteConfirmUser(u)} title="حذف الحساب نهائياً" className="h-8 w-8 p-0 text-red-600 hover:bg-red-50 rounded-lg">
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         )}
@@ -344,71 +331,64 @@ export function UsersPage() {
 
       {/* 1. Add User Modal */}
       <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="إضافة حساب مستخدم جديد">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            createMutation.mutate(addForm);
-          }}
-          className="space-y-4"
-        >
+        <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate({ ...addForm, department_id: addForm.department_id || null }); }} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">الاسم الكامل للمستخدم</label>
-            <input
-              type="text"
-              required
-              placeholder="مثال: د. معاذ الشريف"
-              value={addForm.name}
+            <input type="text" required placeholder="مثال: د. معاذ الشريف" value={addForm.name}
               onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium"
-            />
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium" />
           </div>
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">البريد الإلكتروني الجامعي</label>
-            <input
-              type="email"
-              required
-              placeholder="user@hebron.edu"
-              value={addForm.email}
+            <input type="email" required placeholder="user@hebron.edu" value={addForm.email}
               onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium"
-            />
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium" />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور الحساب</label>
-            <input
-              type="password"
-              required
-              minLength={6}
-              placeholder="••••••••"
-              value={addForm.password}
+            <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور</label>
+            <input type="password" required minLength={6} placeholder="••••••••" value={addForm.password}
               onChange={(e) => setAddForm({ ...addForm, password: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium"
-            />
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium" />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">الدور التقني المعتمد</label>
-            <select
-              value={addForm.roles[0]}
-              onChange={(e) => setAddForm({ ...addForm, roles: [e.target.value] })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white"
-            >
+            <label className="block text-xs font-bold text-slate-700 mb-1">الدور التقني</label>
+            <select value={addForm.roles[0]} onChange={(e) => setAddForm({ ...addForm, roles: [e.target.value], department_id: '' })}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white">
               {Object.entries(ROLE_LABELS).map(([code, label]) => (
-                <option key={code} value={code}>
-                  {label.ar}
-                </option>
+                <option key={code} value={code}>{label.ar}</option>
               ))}
             </select>
           </div>
 
+          {/* Department selector — shown only for DEPARTMENT_HEAD and RTA */}
+          {showDeptSelector(addForm.roles) && (
+            <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 space-y-2">
+              <label className="block text-xs font-bold text-teal-800 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5" />
+                القسم الأكاديمي المخصص
+              </label>
+              <select
+                required
+                value={addForm.department_id}
+                onChange={(e) => setAddForm({ ...addForm, department_id: e.target.value })}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-teal-300 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white"
+              >
+                <option value="">— اختر القسم —</option>
+                {departments.map((d: any) => (
+                  <option key={d.id} value={d.id}>{d.name_ar || d.name_en}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-teal-600">سيرى هذا المستخدم بيانات هذا القسم فقط في جميع الشاشات.</p>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-3">
-            <Button type="button" variant="ghost" onClick={() => setIsAddModalOpen(false)}>
-              إلغاء
-            </Button>
+            <Button type="button" variant="ghost" onClick={() => setIsAddModalOpen(false)}>إلغاء</Button>
             <Button type="submit" disabled={createMutation.isPending} className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs">
-              إنشاء الحساب فوراً
+              إنشاء الحساب
             </Button>
           </div>
         </form>
@@ -416,56 +396,56 @@ export function UsersPage() {
 
       {/* 2. Edit User Modal */}
       <Modal isOpen={!!editingUser} onClose={() => setEditingUser(null)} title="تعديل بيانات الحساب والأدوار">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (editingUser) {
-              updateMutation.mutate({ id: editingUser.id, body: editForm });
-            }
-          }}
-          className="space-y-4"
-        >
+        <form onSubmit={(e) => { e.preventDefault(); if (editingUser) updateMutation.mutate({ id: editingUser.id, body: { ...editForm, department_id: editForm.department_id || null } }); }} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">الاسم الكامل</label>
-            <input
-              type="text"
-              required
-              value={editForm.name}
+            <input type="text" required value={editForm.name}
               onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium"
-            />
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium" />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">البريد الإلكتروني الجامعي</label>
-            <input
-              type="email"
-              required
-              value={editForm.email}
+            <label className="block text-xs font-bold text-slate-700 mb-1">البريد الإلكتروني</label>
+            <input type="email" required value={editForm.email}
               onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium"
-            />
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium" />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">الدور التقني المعتمد</label>
-            <select
-              value={editForm.roles[0] || 'CLINICAL_SUPERVISOR'}
-              onChange={(e) => setEditForm({ ...editForm, roles: [e.target.value] })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white"
-            >
+            <label className="block text-xs font-bold text-slate-700 mb-1">الدور التقني</label>
+            <select value={editForm.roles[0] || 'CLINICAL_SUPERVISOR'}
+              onChange={(e) => setEditForm({ ...editForm, roles: [e.target.value], department_id: '' })}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white">
               {Object.entries(ROLE_LABELS).map(([code, label]) => (
-                <option key={code} value={code}>
-                  {label.ar}
-                </option>
+                <option key={code} value={code}>{label.ar}</option>
               ))}
             </select>
           </div>
 
+          {/* Department selector for DEPARTMENT_HEAD and RTA */}
+          {showDeptSelector(editForm.roles) && (
+            <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 space-y-2">
+              <label className="block text-xs font-bold text-teal-800 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5" />
+                القسم الأكاديمي المخصص
+              </label>
+              <select
+                required
+                value={editForm.department_id}
+                onChange={(e) => setEditForm({ ...editForm, department_id: e.target.value })}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-teal-300 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white"
+              >
+                <option value="">— اختر القسم —</option>
+                {departments.map((d: any) => (
+                  <option key={d.id} value={d.id}>{d.name_ar || d.name_en}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-teal-600">سيرى هذا المستخدم بيانات هذا القسم فقط في جميع الشاشات.</p>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-3">
-            <Button type="button" variant="ghost" onClick={() => setEditingUser(null)}>
-              إلغاء
-            </Button>
+            <Button type="button" variant="ghost" onClick={() => setEditingUser(null)}>إلغاء</Button>
             <Button type="submit" disabled={updateMutation.isPending} className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs">
               حفظ التعديلات
             </Button>
@@ -474,45 +454,27 @@ export function UsersPage() {
       </Modal>
 
       {/* 3. Reset Password Modal */}
-      <Modal isOpen={!!resetPasswordUser} onClose={() => setResetPasswordUser(null)} title="تغيير كلمة المرور للحساب">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (resetPasswordUser) {
-              resetPasswordMutation.mutate({ id: resetPasswordUser.id, password: newPassword });
-            }
-          }}
-          className="space-y-4"
-        >
+      <Modal isOpen={!!resetPasswordUser} onClose={() => setResetPasswordUser(null)} title="تغيير كلمة المرور">
+        <form onSubmit={(e) => { e.preventDefault(); if (resetPasswordUser) resetPasswordMutation.mutate({ id: resetPasswordUser.id, password: newPassword }); }} className="space-y-4">
           <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
             تعيين كلمة مرور جديدة للحساب: <b>{resetPasswordUser?.name}</b> ({resetPasswordUser?.email})
           </div>
-
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور الجديدة</label>
-            <input
-              type="password"
-              required
-              minLength={6}
-              placeholder="أدخل كلمة مرور جديدة..."
-              value={newPassword}
+            <input type="password" required minLength={6} placeholder="أدخل كلمة مرور جديدة..." value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium"
-            />
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium" />
           </div>
-
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setResetPasswordUser(null)}>
-              إلغاء
-            </Button>
+            <Button type="button" variant="ghost" onClick={() => setResetPasswordUser(null)}>إلغاء</Button>
             <Button type="submit" disabled={resetPasswordMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs">
-              تغيير كلمة المرور فوراً
+              تغيير كلمة المرور
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* 4. Permanent Delete Confirm Modal */}
+      {/* 4. Delete Confirm Modal */}
       <Modal isOpen={!!deleteConfirmUser} onClose={() => setDeleteConfirmUser(null)} title="تأكيد حذف الحساب نهائياً">
         <div className="space-y-4">
           <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-xs font-semibold flex items-start gap-3">
@@ -520,20 +482,13 @@ export function UsersPage() {
             <div>
               <p className="font-bold text-sm">هل أنت متأكد من حذف هذا الحساب نهائياً؟</p>
               <p className="mt-1 text-red-700">
-                سيتم حذف الحساب (<b>{deleteConfirmUser?.name}</b> - {deleteConfirmUser?.email}) من قاعدة البيانات نهائياً وتجريده من كافة الأدوار والصلاحيات.
+                سيتم حذف (<b>{deleteConfirmUser?.name}</b> - {deleteConfirmUser?.email}) من قاعدة البيانات نهائياً وتجريده من كافة الأدوار والصلاحيات.
               </p>
             </div>
           </div>
-
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setDeleteConfirmUser(null)}>
-              إلغاء الأمر
-            </Button>
-            <Button
-              onClick={() => deleteMutation.mutate(deleteConfirmUser?.id)}
-              disabled={deleteMutation.isPending}
-              className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs"
-            >
+            <Button type="button" variant="ghost" onClick={() => setDeleteConfirmUser(null)}>إلغاء الأمر</Button>
+            <Button onClick={() => deleteMutation.mutate(deleteConfirmUser?.id)} disabled={deleteMutation.isPending} className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs">
               تأكيد الحذف النهائي
             </Button>
           </div>
