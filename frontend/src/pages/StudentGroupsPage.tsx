@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, ApiError } from '@/api/client';
@@ -10,14 +10,17 @@ import { Copy, Link2, Plus, Trash2, Upload } from 'lucide-react';
 type Subgroup={id:number;name:string;capacity:number;max_size:number;is_active:boolean;current_students_count:number};
 type Group={id:number;name:string;subgroups:Subgroup[]};
 type Cycle={id:number;public_id:string;academic_year_id:number;academic_year?:{code:string;name?:string};academic_level:string;status:string;default_capacity:number;rosters_count:number;registered_rosters_count:number;public_url:string;groups:Group[]};
-type Year={id:number;code:string;name?:string};
+type Year={id:number;code:string;name?:string;is_current?:boolean};
+type YearsResponse=Year[]|{data?:Year[]};
 const levels={fourth:'السنة الرابعة — L, M, N',fifth:'السنة الخامسة — A, B, C',sixth:'السنة السادسة'};
 
 export function StudentGroupsPage(){
   const {can}=useAuth(), qc=useQueryClient();
   const [yearId,setYearId]=useState(''),[level,setLevel]=useState('fourth'),[capacity,setCapacity]=useState(6),[selectedId,setSelectedId]=useState<number|null>(null),[csv,setCsv]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
   const {data:cycles=[],refetch}=useQuery({queryKey:['group-registration-cycles'],queryFn:()=>apiFetch<Cycle[]>('/group-registration-cycles')});
-  const {data:years=[]}=useQuery({queryKey:['academic-years'],queryFn:()=>apiFetch<Year[]>('/academic-years?per_page=100')});
+  const {data:yearsResponse,isLoading:yearsLoading,isError:yearsError}=useQuery({queryKey:['academic-years'],queryFn:()=>apiFetch<YearsResponse>('/academic-years?per_page=100')});
+  const years=useMemo(()=>Array.isArray(yearsResponse)?yearsResponse:(yearsResponse?.data??[]),[yearsResponse]);
+  useEffect(()=>{if(!yearId&&years.length){setYearId(String(years.find(y=>y.is_current)?.id??years[0].id));}},[yearId,years]);
   const selected=useMemo(()=>cycles.find(c=>c.id===selectedId)||cycles[0],[cycles,selectedId]);
   const run=async(fn:()=>Promise<unknown>)=>{setBusy(true);setError('');try{await fn();await qc.invalidateQueries({queryKey:['group-registration-cycles']});await refetch();}catch(e){setError(e instanceof ApiError?e.message:'تعذر تنفيذ العملية.')}finally{setBusy(false)}};
   const create=(e:FormEvent)=>{e.preventDefault();run(()=>apiFetch('/group-registration-cycles',{method:'POST',body:{academic_year_id:Number(yearId),academic_level:level,default_capacity:capacity}}));};
@@ -30,7 +33,7 @@ export function StudentGroupsPage(){
   return <div dir="rtl" className="space-y-6">
     <div><h1 className="text-2xl font-black text-slate-900">إدارة التسجيل الذاتي للمجموعات</h1><p className="mt-1 text-sm text-slate-500">إنشاء الدورات، استيراد القوائم، إدارة الشعب، وفتح الرابط العام الآمن.</p></div>
     {error&&<div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}
-    {can('group_registration.manage_groups')&&<Card className="p-5"><form onSubmit={create} className="grid gap-3 md:grid-cols-4"><select required value={yearId} onChange={e=>setYearId(e.target.value)} className="rounded-xl border p-2"><option value="">العام الأكاديمي</option>{years.map(y=><option key={y.id} value={y.id}>{y.name||y.code}</option>)}</select><select value={level} onChange={e=>setLevel(e.target.value)} className="rounded-xl border p-2">{Object.entries(levels).map(([v,l])=><option value={v} key={v}>{l}</option>)}</select><select value={capacity} onChange={e=>setCapacity(Number(e.target.value))} className="rounded-xl border p-2"><option value={6}>السعة 6</option><option value={5}>السعة 5</option></select><Button isLoading={busy}><Plus className="ml-2 h-4 w-4"/>إنشاء دورة ومجموعات فارغة</Button></form></Card>}
+    {can('group_registration.manage_groups')&&<Card className="p-5 space-y-3"><form onSubmit={create} className="grid gap-3 md:grid-cols-4"><select required disabled={yearsLoading||years.length===0} value={yearId} onChange={e=>setYearId(e.target.value)} className="rounded-xl border p-2"><option value="">{yearsLoading?'جاري تحميل الأعوام...':'العام الأكاديمي'}</option>{years.map(y=><option key={y.id} value={y.id}>{y.name||y.code}{y.is_current?' — الحالي':''}</option>)}</select><select value={level} onChange={e=>setLevel(e.target.value)} className="rounded-xl border p-2">{Object.entries(levels).map(([v,l])=><option value={v} key={v}>{l}</option>)}</select><select value={capacity} onChange={e=>setCapacity(Number(e.target.value))} className="rounded-xl border p-2"><option value={6}>السعة 6</option><option value={5}>السعة 5</option></select><Button disabled={!yearId||yearsError||years.length===0} isLoading={busy}><Plus className="ml-2 h-4 w-4"/>إنشاء دورة ومجموعات فارغة</Button></form>{yearsError&&<p className="text-xs font-bold text-red-700">تعذر تحميل السنوات الأكاديمية. يرجى تحديث الصفحة أو التواصل مع مدير النظام.</p>}{!yearsLoading&&!yearsError&&years.length===0&&<p className="text-xs font-bold text-amber-700">لا توجد سنة أكاديمية معرفة في النظام. يجب إضافتها قبل إنشاء دورة التسجيل.</p>}</Card>}
     <div className="flex gap-2 overflow-x-auto">{cycles.map(c=><button key={c.id} onClick={()=>setSelectedId(c.id)} className={`whitespace-nowrap rounded-xl border px-4 py-2 text-sm font-bold ${(selected?.id===c.id)?'bg-teal-600 text-white':'bg-white'}`}>{levels[c.academic_level as keyof typeof levels]} · {c.academic_year?.code} · {c.status}</button>)}</div>
     {selected&&<>
       <Card className="p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-black">{levels[selected.academic_level as keyof typeof levels]} · {selected.academic_year?.code}</h2><p className="mt-1 text-sm text-slate-500">القائمة: {selected.rosters_count} · المسجلون أكاديمياً: {selected.registered_rosters_count}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={copyLink}><Copy className="ml-1 h-4 w-4"/>نسخ الرابط</Button>{can('group_registration.open_close')&&<Button variant={selected.status==='open'?'danger':'primary'} onClick={()=>updateCycle(selected.status==='open'?'closed':'open')} isLoading={busy}>{selected.status==='open'?'إغلاق التسجيل':'فتح التسجيل'}</Button>}</div></div><div className="mt-3 flex items-center gap-2 rounded-xl bg-slate-50 p-3 font-mono text-xs"><Link2 className="h-4 w-4"/>{location.origin}{selected.public_url}</div></Card>
