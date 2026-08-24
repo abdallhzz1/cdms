@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiFetch } from '@/api/client';
+import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { LoadingState } from '@/components/ui/LoadingState';
@@ -27,6 +27,31 @@ const ROLE_LABELS: Record<string, { ar: string; en: string }> = {
   QUALITY: { ar: 'مسؤول الجودة والاعتماد', en: 'Quality Officer' },
 };
 
+function userActionError(error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    return 'تعذر تنفيذ العملية. يرجى التحقق من الاتصال والمحاولة مرة أخرى.';
+  }
+
+  if (error.status === 422) {
+    const emailErrors = Array.isArray(error.errors.email) ? error.errors.email.join(' ') : '';
+
+    if (emailErrors.toLowerCase().includes('taken')) {
+      return 'البريد الإلكتروني مستخدم لحساب آخر. أدخل بريداً جامعياً مختلفاً.';
+    }
+    if (error.errors.email) {
+      return 'صيغة البريد الإلكتروني غير صحيحة. يرجى إدخال بريد جامعي صالح.';
+    }
+    if (error.errors.password) {
+      return 'كلمة المرور يجب أن تكون 12 خانة على الأقل، وتحتوي حرفاً كبيراً وحرفاً صغيراً ورقماً ورمزاً خاصاً.';
+    }
+    if (error.errors.roles) {
+      return 'الدور التقني المحدد غير صالح. يرجى اختياره مرة أخرى.';
+    }
+  }
+
+  return error.message || 'تعذر تنفيذ العملية. يرجى المحاولة مرة أخرى.';
+}
+
 export function UsersPage() {
   const qc = useQueryClient();
   const { user: currentUser } = useAuth();
@@ -34,6 +59,7 @@ export function UsersPage() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('ALL');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -95,6 +121,7 @@ export function UsersPage() {
       setSuccessMessage('تم إنشاء الحساب بنجاح في النظام.');
       setTimeout(() => setSuccessMessage(null), 3000);
     },
+    onError: (error) => setActionError(userActionError(error)),
   });
 
   // Update User Mutation
@@ -106,6 +133,7 @@ export function UsersPage() {
       setSuccessMessage('تم تحديث بيانات الحساب والأدوار بنجاح.');
       setTimeout(() => setSuccessMessage(null), 3000);
     },
+    onError: (error) => setActionError(userActionError(error)),
   });
 
   // Toggle Active Mutation
@@ -128,6 +156,7 @@ export function UsersPage() {
       setSuccessMessage('تم إعادة تعيين كلمة المرور بنجاح.');
       setTimeout(() => setSuccessMessage(null), 3000);
     },
+    onError: (error) => setActionError(userActionError(error)),
   });
 
   // Delete User Mutation
@@ -142,6 +171,7 @@ export function UsersPage() {
   });
 
   const openEditModal = (u: any) => {
+    setActionError(null);
     setEditingUser(u);
     setEditForm({
       name: u.name,
@@ -162,7 +192,7 @@ export function UsersPage() {
           description="إنشاء وتعديل الحسابات، تعيين وتحديث الأدوار، وتجميد أو تفعيل الحسابات."
         />
         <Button
-          onClick={() => setIsAddModalOpen(true)}
+          onClick={() => { setActionError(null); setIsAddModalOpen(true); }}
           className="gap-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-xs"
         >
           <UserPlus className="w-4 h-4" />
@@ -280,7 +310,7 @@ export function UsersPage() {
                         <Button size="sm" variant="ghost" onClick={() => openEditModal(u)} title="تعديل الحساب والأدوار" className="h-8 w-8 p-0 text-slate-600 hover:bg-slate-100 rounded-lg">
                           <Edit2 className="w-4 h-4" />
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setResetPasswordUser(u)} title="إعادة تعيين كلمة المرور" className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                        <Button size="sm" variant="ghost" onClick={() => { setActionError(null); setNewPassword(''); setResetPasswordUser(u); }} title="إعادة تعيين كلمة المرور" className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-50 rounded-lg">
                           <Key className="w-4 h-4" />
                         </Button>
                         {!isSelf && !isPrimaryAdmin && (
@@ -299,8 +329,13 @@ export function UsersPage() {
       </Card>
 
       {/* 1. Add User Modal */}
-      <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="إضافة حساب مستخدم جديد">
-        <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate(addForm); }} className="space-y-4">
+      <Modal isOpen={isAddModalOpen} onClose={() => { setActionError(null); setIsAddModalOpen(false); }} title="إضافة حساب مستخدم جديد">
+        <form onSubmit={(e) => { e.preventDefault(); setActionError(null); createMutation.mutate(addForm); }} className="space-y-4">
+          {actionError && (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800">
+              {actionError}
+            </div>
+          )}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">الاسم الكامل للمستخدم</label>
             <input type="text" required placeholder="مثال: د. معاذ الشريف" value={addForm.name}
@@ -320,6 +355,7 @@ export function UsersPage() {
             <input type="password" required minLength={12} placeholder="12+ أحرف مع رقم ورمز" value={addForm.password}
               onChange={(e) => setAddForm({ ...addForm, password: e.target.value })}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium" />
+            <p className="mt-1.5 text-[11px] text-slate-500">مطلوب: 12 خانة على الأقل، حرف كبير، حرف صغير، رقم، ورمز خاص مثل ! أو @.</p>
           </div>
 
           <div>
@@ -334,7 +370,7 @@ export function UsersPage() {
 
           <div className="flex justify-end gap-2 pt-3">
             <Button type="button" variant="ghost" onClick={() => setIsAddModalOpen(false)}>إلغاء</Button>
-            <Button type="submit" disabled={createMutation.isPending} className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs">
+            <Button type="submit" isLoading={createMutation.isPending} className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs">
               إنشاء الحساب
             </Button>
           </div>
@@ -342,8 +378,13 @@ export function UsersPage() {
       </Modal>
 
       {/* 2. Edit User Modal */}
-      <Modal isOpen={!!editingUser} onClose={() => setEditingUser(null)} title="تعديل بيانات الحساب والأدوار">
-        <form onSubmit={(e) => { e.preventDefault(); if (editingUser) updateMutation.mutate({ id: editingUser.id, body: editForm }); }} className="space-y-4">
+      <Modal isOpen={!!editingUser} onClose={() => { setActionError(null); setEditingUser(null); }} title="تعديل بيانات الحساب والأدوار">
+        <form onSubmit={(e) => { e.preventDefault(); setActionError(null); if (editingUser) updateMutation.mutate({ id: editingUser.id, body: editForm }); }} className="space-y-4">
+          {actionError && (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800">
+              {actionError}
+            </div>
+          )}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">الاسم الكامل</label>
             <input type="text" required value={editForm.name}
@@ -371,7 +412,7 @@ export function UsersPage() {
 
           <div className="flex justify-end gap-2 pt-3">
             <Button type="button" variant="ghost" onClick={() => setEditingUser(null)}>إلغاء</Button>
-            <Button type="submit" disabled={updateMutation.isPending} className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs">
+            <Button type="submit" isLoading={updateMutation.isPending} className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs">
               حفظ التعديلات
             </Button>
           </div>
@@ -379,8 +420,13 @@ export function UsersPage() {
       </Modal>
 
       {/* 3. Reset Password Modal */}
-      <Modal isOpen={!!resetPasswordUser} onClose={() => setResetPasswordUser(null)} title="تغيير كلمة المرور">
-        <form onSubmit={(e) => { e.preventDefault(); if (resetPasswordUser) resetPasswordMutation.mutate({ id: resetPasswordUser.id, password: newPassword }); }} className="space-y-4">
+      <Modal isOpen={!!resetPasswordUser} onClose={() => { setActionError(null); setResetPasswordUser(null); }} title="تغيير كلمة المرور">
+        <form onSubmit={(e) => { e.preventDefault(); setActionError(null); if (resetPasswordUser) resetPasswordMutation.mutate({ id: resetPasswordUser.id, password: newPassword }); }} className="space-y-4">
+          {actionError && (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800">
+              {actionError}
+            </div>
+          )}
           <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
             تعيين كلمة مرور جديدة للحساب: <b>{resetPasswordUser?.name}</b> ({resetPasswordUser?.email})
           </div>
@@ -389,10 +435,11 @@ export function UsersPage() {
             <input type="password" required minLength={12} placeholder="12+ أحرف مع حرف كبير وصغير ورقم ورمز" value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium" />
+            <p className="mt-1.5 text-[11px] text-slate-500">مطلوب: 12 خانة على الأقل، حرف كبير، حرف صغير، رقم، ورمز خاص مثل ! أو @.</p>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setResetPasswordUser(null)}>إلغاء</Button>
-            <Button type="submit" disabled={resetPasswordMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs">
+            <Button type="submit" isLoading={resetPasswordMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs">
               تغيير كلمة المرور
             </Button>
           </div>
