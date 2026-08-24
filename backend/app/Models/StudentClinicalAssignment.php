@@ -17,6 +17,11 @@ class StudentClinicalAssignment extends Model
         return $this->belongsTo(DistributionVersion::class);
     }
 
+    public function courseScheduleRow(): BelongsTo
+    {
+        return $this->belongsTo(CourseScheduleRow::class);
+    }
+
     public function student(): BelongsTo
     {
         return $this->belongsTo(Student::class);

@@ -267,6 +267,7 @@ const en = {
     distribution_create: { description: 'Create distribution' },
     distribution_generate: { description: 'Auto-generate' },
     distribution_update: { description: 'Update distribution' },
+    distribution_schedule_rows_manage: { description: 'Manage doctor and vacancy rows in the clinical schedule' },
     distribution_validate: { description: 'Check conflicts' },
     distribution_approve: { description: 'Approve distribution' },
     distribution_publish: { description: 'Publish distribution' },

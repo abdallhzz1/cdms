@@ -256,6 +256,7 @@ const ar: typeof en = {
     distribution_create: { description: 'إنشاء التوزيع' },
     distribution_generate: { description: 'توليد تلقائي' },
     distribution_update: { description: 'تعديل التوزيع' },
+    distribution_schedule_rows_manage: { description: 'إدارة صفوف الأطباء والشواغر في الجدول السريري' },
     distribution_validate: { description: 'فحص التعارضات' },
     distribution_approve: { description: 'اعتماد التوزيع' },
     distribution_publish: { description: 'نشر التوزيع' },

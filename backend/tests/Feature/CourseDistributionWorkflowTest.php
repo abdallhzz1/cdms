@@ -32,7 +32,7 @@ class CourseDistributionWorkflowTest extends TestCase
         parent::setUp();
         $this->seed([\Database\Seeders\PermissionSeeder::class, \Database\Seeders\Phase3PermissionSeeder::class, \Database\Seeders\RoleSeeder::class]);
         $role = Role::create(['code' => 'COURSE_DISTRIBUTOR_TEST', 'name_key' => 'test', 'name_ar' => 'Test', 'name_en' => 'Test']);
-        $ids = Permission::whereIn('code', ['distribution.view', 'distribution.update', 'distribution.approve', 'rotations.create', 'people.manage'])->pluck('id');
+        $ids = Permission::whereIn('code', ['distribution.view', 'distribution.update', 'distribution.schedule_rows.manage', 'distribution.approve', 'rotations.create', 'people.manage'])->pluck('id');
         $role->permissions()->sync($ids->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all());
         $this->user = User::factory()->create();
         $this->user->roles()->attach($role);
@@ -76,14 +76,20 @@ class CourseDistributionWorkflowTest extends TestCase
         ])->assertCreated();
 
         $versionId = $created->json('data.version.id');
+        $emptySchedule = $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
+            ->assertOk()->assertJsonCount(3, 'data.blocks')->assertJsonCount(0, 'data.rows')->assertJsonPath('data.subgroups.0.name', 'L1');
+        $rowId = $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$versionId}/rows", [
+            'row_type' => 'doctor',
+            'person_id' => $this->doctor->id,
+            'training_site_id' => $this->doctor->primary_site_id,
+        ])->assertCreated()->json('data.id');
         $schedule = $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
-            ->assertOk()->assertJsonCount(3, 'data.blocks')->assertJsonPath('data.subgroups.0.name', 'L1');
+            ->assertOk()->assertJsonCount(1, 'data.rows');
         $blockId = $schedule->json('data.blocks.0.id');
 
         $this->actingAs($this->user)->putJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
             'rotation_block_id' => $blockId,
-            'supervisor_id' => $this->doctor->id,
-            'training_site_id' => $this->doctor->primary_site_id,
+            'course_schedule_row_id' => $rowId,
             'subgroup_id' => $this->subgroup->id,
         ])->assertOk();
 
@@ -92,7 +98,7 @@ class CourseDistributionWorkflowTest extends TestCase
             ->assertOk();
         $this->actingAs($this->user)->deleteJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
             'rotation_block_id' => $blockId,
-            'supervisor_id' => $this->doctor->id,
+            'course_schedule_row_id' => $rowId,
         ])->assertOk();
         $this->assertDatabaseCount('student_clinical_assignments', 0);
     }
@@ -135,5 +141,49 @@ class CourseDistributionWorkflowTest extends TestCase
         ]);
         $this->actingAs($this->user)->getJson('/api/v1/course-distribution/options')
             ->assertJsonFragment(['user_id' => $account->id, 'primary_site_id' => $site->id]);
+    }
+
+    public function test_can_add_edit_and_delete_a_vacancy_row(): void
+    {
+        $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'course_id' => $this->course->id,
+            'start_date' => '2026-09-01',
+            'weeks_count' => 2,
+        ])->assertCreated();
+        $versionId = $created->json('data.version.id');
+
+        $rowId = $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$versionId}/rows", [
+            'row_type' => 'vacancy',
+            'training_site_id' => $this->doctor->primary_site_id,
+            'label' => 'شاغر جراحة',
+        ])->assertCreated()->assertJsonPath('data.person_id', null)->json('data.id');
+
+        $blockId = $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
+            ->assertOk()->json('data.blocks.0.id');
+        $this->actingAs($this->user)->putJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
+            'rotation_block_id' => $blockId,
+            'course_schedule_row_id' => $rowId,
+            'subgroup_id' => $this->subgroup->id,
+        ])->assertOk();
+        $this->assertDatabaseHas('student_clinical_assignments', [
+            'course_schedule_row_id' => $rowId,
+            'supervisor_id' => null,
+        ]);
+
+        $this->actingAs($this->user)->putJson("/api/v1/course-distribution/versions/{$versionId}/rows/{$rowId}", [
+            'row_type' => 'doctor',
+            'person_id' => $this->doctor->id,
+            'training_site_id' => $this->doctor->primary_site_id,
+        ])->assertOk()->assertJsonPath('data.person_id', $this->doctor->id);
+        $this->assertDatabaseMissing('student_clinical_assignments', [
+            'course_schedule_row_id' => $rowId,
+            'supervisor_id' => null,
+        ]);
+
+        $this->actingAs($this->user)->deleteJson("/api/v1/course-distribution/versions/{$versionId}/rows/{$rowId}")
+            ->assertOk();
+        $this->assertDatabaseMissing('course_schedule_rows', ['id' => $rowId]);
     }
 }

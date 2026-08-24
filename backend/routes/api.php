@@ -552,6 +552,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 ->middleware('permission:distribution.update')->name('cells.update');
             Route::delete('versions/{version}/cell', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'clearCell'])
                 ->middleware('permission:distribution.update')->name('cells.destroy');
+            Route::post('versions/{version}/rows', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'storeScheduleRow'])
+                ->middleware('permission:distribution.schedule_rows.manage')->name('rows.store');
+            Route::put('versions/{version}/rows/{row}', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'updateScheduleRow'])
+                ->middleware('permission:distribution.schedule_rows.manage')->name('rows.update');
+            Route::delete('versions/{version}/rows/{row}', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'destroyScheduleRow'])
+                ->middleware('permission:distribution.schedule_rows.manage')->name('rows.destroy');
             Route::post('doctors', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'storeDoctor'])
                 ->middleware('permission:people.manage')->name('doctors.store');
             Route::put('doctors/{user}/hospital', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'assignDoctorHospital'])

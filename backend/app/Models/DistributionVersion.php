@@ -30,6 +30,11 @@ class DistributionVersion extends Model
         return $this->hasMany(StudentClinicalAssignment::class);
     }
 
+    public function courseScheduleRows()
+    {
+        return $this->hasMany(CourseScheduleRow::class);
+    }
+
     public function scopeCurrentPublishedForRotation($query, int $rotationId)
     {
         return $query->where('rotation_id', $rotationId)

@@ -7,6 +7,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\AcademicYear;
 use App\Models\AuditLog;
 use App\Models\Course;
+use App\Models\CourseScheduleRow;
 use App\Models\DistributionVersion;
 use App\Models\Person;
 use App\Models\Role;
@@ -70,6 +71,7 @@ class CourseDistributionController extends Controller
                 'subgroups' => $this->subgroups((int) $data['academic_year_id'], $data['academic_level']),
                 'hospitals' => $this->hospitals($directory),
                 'unassigned_doctors' => $directory->filter(fn ($doctor) => count($doctor['training_site_ids']) === 0)->values(),
+                'rows' => [],
                 'cells' => [],
             ]);
         }
@@ -81,15 +83,22 @@ class CourseDistributionController extends Controller
             ->first();
 
         $cells = collect();
+        $rows = collect();
         if ($version) {
+            $rows = CourseScheduleRow::query()
+                ->where('distribution_version_id', $version->id)
+                ->with(['person:id,full_name_ar,full_name_en,email,specialty', 'trainingSite:id,name_ar,name_en,site_code'])
+                ->orderBy('sort_order')->orderBy('id')->get();
             $cells = StudentClinicalAssignment::query()
                 ->where('distribution_version_id', $version->id)
+                ->whereNotNull('course_schedule_row_id')
                 ->whereNotNull('student_subgroup_id')
                 ->with(['studentSubgroup:id,name,student_group_id', 'studentSubgroup.group:id,name'])
-                ->select(['student_subgroup_id', 'rotation_block_id', 'supervisor_id', 'training_site_id'])
+                ->select(['course_schedule_row_id', 'student_subgroup_id', 'rotation_block_id', 'supervisor_id', 'training_site_id'])
                 ->distinct()
                 ->get()
                 ->map(fn ($assignment) => [
+                    'course_schedule_row_id' => $assignment->course_schedule_row_id,
                     'rotation_block_id' => $assignment->rotation_block_id,
                     'supervisor_id' => $assignment->supervisor_id,
                     'training_site_id' => $assignment->training_site_id,
@@ -106,6 +115,7 @@ class CourseDistributionController extends Controller
             'subgroups' => $this->subgroups($rotation->academic_year_id, $rotation->academic_level),
             'hospitals' => $this->hospitals($directory),
             'unassigned_doctors' => $directory->filter(fn ($doctor) => count($doctor['training_site_ids']) === 0)->values(),
+            'rows' => $rows,
             'cells' => $cells,
         ]);
     }
@@ -163,17 +173,13 @@ class CourseDistributionController extends Controller
         }
         $data = $request->validate([
             'rotation_block_id' => ['required', 'integer', 'exists:rotation_blocks,id'],
-            'supervisor_id' => ['required', 'integer', 'exists:people,id'],
-            'training_site_id' => ['required', 'integer', 'exists:training_sites,id'],
+            'course_schedule_row_id' => ['required', 'integer', 'exists:course_schedule_rows,id'],
             'subgroup_id' => ['required', 'integer', 'exists:student_subgroups,id'],
         ]);
         $version->loadMissing('rotation');
         $block = RotationBlock::where('rotation_id', $version->rotation_id)->findOrFail($data['rotation_block_id']);
-        $doctor = Person::active()->findOrFail($data['supervisor_id']);
-        if (! $doctor->trainingSites()->whereKey($data['training_site_id'])->exists()
-            && $doctor->primary_site_id !== $data['training_site_id']) {
-            throw ValidationException::withMessages(['training_site_id' => ['الطبيب غير مرتبط بالمستشفى المحدد.']]);
-        }
+        $row = CourseScheduleRow::where('distribution_version_id', $version->id)->findOrFail($data['course_schedule_row_id']);
+        $doctor = $row->person;
         $subgroup = StudentSubgroup::with('group')->findOrFail($data['subgroup_id']);
         if (! $subgroup->is_active || ! $subgroup->group
             || $subgroup->group->academic_year_id !== $version->rotation->academic_year_id
@@ -185,17 +191,17 @@ class CourseDistributionController extends Controller
             ->where('distribution_version_id', $version->id)
             ->where('rotation_block_id', $block->id)
             ->where('student_subgroup_id', $subgroup->id)
-            ->where('supervisor_id', '!=', $doctor->id)
+            ->where('course_schedule_row_id', '!=', $row->id)
             ->exists();
         if ($conflict) {
             throw ValidationException::withMessages(['subgroup_id' => ['هذه المجموعة موزعة على طبيب آخر في الأسبوع نفسه.']]);
         }
 
-        DB::transaction(function () use ($version, $block, $doctor, $subgroup, $data) {
+        DB::transaction(function () use ($version, $block, $row, $doctor, $subgroup) {
             StudentClinicalAssignment::where([
                 'distribution_version_id' => $version->id,
                 'rotation_block_id' => $block->id,
-                'supervisor_id' => $doctor->id,
+                'course_schedule_row_id' => $row->id,
             ])->delete();
 
             $memberships = StudentGroupAssignment::query()
@@ -210,12 +216,13 @@ class CourseDistributionController extends Controller
             $now = now();
             StudentClinicalAssignment::insert($memberships->map(fn ($membership) => [
                 'distribution_version_id' => $version->id,
+                'course_schedule_row_id' => $row->id,
                 'student_id' => $membership->student_id,
                 'student_subgroup_id' => $subgroup->id,
                 'rotation_block_id' => $block->id,
-                'training_site_id' => $data['training_site_id'],
-                'department_id' => $doctor->department_id,
-                'supervisor_id' => $doctor->id,
+                'training_site_id' => $row->training_site_id,
+                'department_id' => $doctor?->department_id,
+                'supervisor_id' => $doctor?->id,
                 'created_at' => $now,
                 'updated_at' => $now,
             ])->all());
@@ -233,18 +240,63 @@ class CourseDistributionController extends Controller
         }
         $data = $request->validate([
             'rotation_block_id' => ['required', 'integer', 'exists:rotation_blocks,id'],
-            'supervisor_id' => ['required', 'integer', 'exists:people,id'],
+            'course_schedule_row_id' => ['required', 'integer', 'exists:course_schedule_rows,id'],
         ]);
         $version->loadMissing('rotation');
         RotationBlock::where('rotation_id', $version->rotation_id)->findOrFail($data['rotation_block_id']);
-        Person::active()->whereNotNull('primary_site_id')->findOrFail($data['supervisor_id']);
+        CourseScheduleRow::where('distribution_version_id', $version->id)->findOrFail($data['course_schedule_row_id']);
         StudentClinicalAssignment::where([
             'distribution_version_id' => $version->id,
             'rotation_block_id' => $data['rotation_block_id'],
-            'supervisor_id' => $data['supervisor_id'],
+            'course_schedule_row_id' => $data['course_schedule_row_id'],
         ])->delete();
         $this->recordCellChange($request, $version, 'course_schedule.cell_cleared', $data);
         return ApiResponse::success(null, 'تم تفريغ خلية الجدول.');
+    }
+
+    public function storeScheduleRow(Request $request, DistributionVersion $version): JsonResponse
+    {
+        $this->ensureEditableVersion($version);
+        $data = $this->validateScheduleRow($request);
+        $data['distribution_version_id'] = $version->id;
+        $data['sort_order'] = (int) CourseScheduleRow::where('distribution_version_id', $version->id)->max('sort_order') + 1;
+        $row = CourseScheduleRow::create($data);
+        $this->recordCellChange($request, $version, 'course_schedule.row_created', ['row_id' => $row->id] + $data);
+
+        return ApiResponse::success($row->load(['person', 'trainingSite']), 'تمت إضافة صف الجدول.', [], 201);
+    }
+
+    public function updateScheduleRow(Request $request, DistributionVersion $version, CourseScheduleRow $row): JsonResponse
+    {
+        $this->ensureEditableVersion($version);
+        abort_unless($row->distribution_version_id === $version->id, 404);
+        $data = $this->validateScheduleRow($request, $row);
+
+        DB::transaction(function () use ($row, $data) {
+            $row->update($data);
+            StudentClinicalAssignment::where('course_schedule_row_id', $row->id)->update([
+                'supervisor_id' => $row->person_id,
+                'training_site_id' => $row->training_site_id,
+                'department_id' => $row->person?->department_id,
+            ]);
+        });
+        $this->recordCellChange($request, $version, 'course_schedule.row_updated', ['row_id' => $row->id] + $data);
+
+        return ApiResponse::success($row->fresh()->load(['person', 'trainingSite']), 'تم تعديل صف الجدول.');
+    }
+
+    public function destroyScheduleRow(Request $request, DistributionVersion $version, CourseScheduleRow $row): JsonResponse
+    {
+        $this->ensureEditableVersion($version);
+        abort_unless($row->distribution_version_id === $version->id, 404);
+
+        DB::transaction(function () use ($row) {
+            StudentClinicalAssignment::where('course_schedule_row_id', $row->id)->delete();
+            $row->delete();
+        });
+        $this->recordCellChange($request, $version, 'course_schedule.row_deleted', ['row_id' => $row->id]);
+
+        return ApiResponse::success(null, 'تم حذف صف الجدول وما يحتويه من توزيعات.');
     }
 
     public function storeDoctor(Request $request): JsonResponse
@@ -345,6 +397,50 @@ class CourseDistributionController extends Controller
             ->where('is_active', true)
             ->whereHas('group', fn ($query) => $query->where('academic_year_id', $academicYearId)->where('academic_level', $academicLevel))
             ->get(['id', 'student_group_id', 'name', 'capacity'])->sortBy(fn ($group) => ($group->group?->name ?? '').$group->name)->values();
+    }
+
+    private function validateScheduleRow(Request $request, ?CourseScheduleRow $row = null): array
+    {
+        $data = $request->validate([
+            'row_type' => ['required', 'in:doctor,vacancy'],
+            'person_id' => ['nullable', 'integer', 'exists:people,id', 'required_if:row_type,doctor'],
+            'training_site_id' => ['required', 'integer', 'exists:training_sites,id'],
+            'label' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        if (! TrainingSite::query()->active()->whereKey($data['training_site_id'])->exists()) {
+            throw ValidationException::withMessages(['training_site_id' => ['المستشفى المحدد غير فعال.']]);
+        }
+
+        if ($data['row_type'] === 'doctor') {
+            $doctor = Person::active()->findOrFail($data['person_id']);
+            if (! $doctor->trainingSites()->whereKey($data['training_site_id'])->exists()
+                && $doctor->primary_site_id !== (int) $data['training_site_id']) {
+                throw ValidationException::withMessages(['person_id' => ['الطبيب لا يتبع المستشفى المحدد.']]);
+            }
+            $duplicate = CourseScheduleRow::query()
+                ->where('distribution_version_id', $row?->distribution_version_id ?? $request->route('version')->id)
+                ->where('person_id', $doctor->id)
+                ->where('training_site_id', $data['training_site_id'])
+                ->when($row, fn ($query) => $query->whereKeyNot($row->id))
+                ->exists();
+            if ($duplicate) {
+                throw ValidationException::withMessages(['person_id' => ['الطبيب مضاف مسبقاً لهذا المستشفى في الجدول.']]);
+            }
+            $data['label'] = null;
+        } else {
+            $data['person_id'] = null;
+            $data['label'] = trim($data['label'] ?? '') ?: 'شاغر';
+        }
+
+        return $data;
+    }
+
+    private function ensureEditableVersion(DistributionVersion $version): void
+    {
+        if ($version->status === 'published') {
+            throw ValidationException::withMessages(['version' => ['لا يمكن تعديل جدول منشور.']]);
+        }
     }
 
     private function doctorDirectory()
