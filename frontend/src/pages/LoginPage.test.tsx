@@ -73,7 +73,7 @@ describe('LoginPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /foundation/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /أهلاً بك/ })).toBeInTheDocument();
     });
   });
 
@@ -99,9 +99,8 @@ describe('LoginPage', () => {
     mockFetch(() => jsonResponse(AUTHENTICATED_USER));
     renderWithProviders(<App />, { route: '/login' });
 
-    await waitFor(() => screen.getByLabelText(/language/i));
-
-    await userEvent.selectOptions(screen.getByLabelText(/language/i), 'ar');
+    const languageButton = await screen.findByRole('button', { name: /English/i });
+    await userEvent.click(languageButton);
 
     await waitFor(() => {
       expect(document.documentElement.dir).toBe('rtl');

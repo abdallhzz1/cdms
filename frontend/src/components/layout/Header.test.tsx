@@ -48,11 +48,12 @@ describe('Header (authenticated app shell)', () => {
     renderWithProviders(<App />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /foundation/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /أهلاً بك/ })).toBeInTheDocument();
     });
     expect(meCallCount).toBe(1);
 
-    await userEvent.click(screen.getByRole('button', { name: /log out/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Test Director Clinical Director/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Sign Out/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument();
@@ -75,7 +76,7 @@ describe('Header (authenticated app shell)', () => {
     renderWithProviders(<App />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByTestId('admin-badge')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Users & Roles/i })).toBeInTheDocument();
     });
   });
 
@@ -93,8 +94,8 @@ describe('Header (authenticated app shell)', () => {
     renderWithProviders(<App />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /foundation/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /أهلاً بك/ })).toBeInTheDocument();
     });
-    expect(screen.queryByTestId('admin-badge')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Users & Roles/i })).not.toBeInTheDocument();
   });
 });

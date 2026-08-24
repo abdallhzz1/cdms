@@ -30,7 +30,7 @@ describe('ClinicalDashboard', () => {
     renderComponent();
 
     await waitFor(() => {
-      expect(screen.getByText(/An Error Occurred/i)).toBeInTheDocument();
+      expect(screen.getByText(/^Error Occurred$/i)).toBeInTheDocument();
     });
   });
 
@@ -50,7 +50,7 @@ describe('ClinicalDashboard', () => {
     renderComponent();
 
     await waitFor(() => {
-      expect(screen.getByText(/No Data Found/i)).toBeInTheDocument();
+      expect(screen.getByText(/^No Data$/i)).toBeInTheDocument();
     });
   });
 

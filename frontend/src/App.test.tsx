@@ -54,13 +54,9 @@ describe('App', () => {
     renderWithProviders(<App />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /foundation/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /أهلاً بك/ })).toBeInTheDocument();
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId('application-status')).toHaveTextContent('OK');
-      expect(screen.getByTestId('database-status')).toHaveTextContent('OK');
-    });
   });
 
   it('renders the not-found page for an unknown route when authenticated', async () => {

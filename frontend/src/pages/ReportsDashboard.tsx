@@ -10,10 +10,10 @@ export function ReportsDashboard() {
   const [activeCategory, setActiveCategory] = useState('ALL');
 
   const reportCategories = [
-    { id: 'ALL', label: 'Ø¬Ù…ÙŠØ¹ Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ±' },
-    { id: 'ACADEMIC', label: 'Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ± Ø§Ù„Ø£ÙƒØ§Ø¯ÙŠÙ…ÙŠØ©' },
-    { id: 'CLINICAL', label: 'Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ± Ø§Ù„Ø³Ø±ÙŠØ±ÙŠØ©' },
-    { id: 'QUALITY', label: 'ØªÙ‚Ø§Ø±ÙŠØ± Ø§Ù„Ø¬ÙˆØ¯Ø©' },
+    { id: 'ALL', label: 'جميع التقارير' },
+    { id: 'ACADEMIC', label: 'التقارير الأكاديمية' },
+    { id: 'CLINICAL', label: 'التقارير السريرية' },
+    { id: 'QUALITY', label: 'تقارير الجودة' },
   ];
 
   const handleDownload = (endpoint: string) => {
@@ -40,9 +40,9 @@ export function ReportsDashboard() {
   const reports = [
     {
       id: 'students',
-      title: 'ØªÙ‚Ø±ÙŠØ± Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø·Ù„Ø¨Ø© (Student Registry)',
+      title: 'تقرير بيانات الطلبة (Student Registry)',
       category: 'ACADEMIC',
-      description: 'ÙƒØ´Ù Ø¨Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø·Ù„Ø¨Ø©ØŒ Ø§Ù„Ù…Ø¹Ø¯Ù„Ø§Øª Ø§Ù„ØªØ±Ø§ÙƒÙ…ÙŠØ©ØŒ ÙˆØ­Ø§Ù„Ø© Ø§Ù„ØªØ³Ø¬ÙŠÙ„.',
+      description: 'كشف ببيانات الطلبة، والمعدلات التراكمية، وحالة التسجيل.',
       icon: Users,
       endpoint: 'students',
       color: 'text-indigo-600',
@@ -50,9 +50,9 @@ export function ReportsDashboard() {
     },
     {
       id: 'grades',
-      title: 'ØªÙ‚Ø±ÙŠØ± Ø§Ù„Ø¹Ù„Ø§Ù…Ø§Øª (Grade Entries)',
+      title: 'تقرير العلامات (Grade Entries)',
       category: 'ACADEMIC',
-      description: 'Ø¹Ù„Ø§Ù…Ø§Øª Ø§Ù„Ø·Ù„Ø¨Ø© ÙÙŠ Ø§Ù„Ù…Ø³Ø§Ù‚Ø§Øª Ø§Ù„Ø³Ø±ÙŠØ±ÙŠØ©ØŒ Ø§Ù„Ø£ÙˆØ³ÙƒÙŠØŒ ÙˆØ§Ù„Ø§Ù…ØªØ­Ø§Ù† Ø§Ù„ÙƒØªØ§Ø¨ÙŠ.',
+      description: 'علامات الطلبة في المساقات السريرية، والأوسكي، والامتحان الكتابي.',
       icon: GraduationCap,
       endpoint: 'grades',
       color: 'text-emerald-600',
@@ -60,9 +60,9 @@ export function ReportsDashboard() {
     },
     {
       id: 'attendance',
-      title: 'ØªÙ‚Ø±ÙŠØ± Ø§Ù„Ø­Ø¶ÙˆØ± ÙˆØ§Ù„ØºÙŠØ§Ø¨ (Attendance Records)',
+      title: 'تقرير الحضور والغياب (Attendance Records)',
       category: 'CLINICAL',
-      description: 'Ø³Ø¬Ù„Ø§Øª Ø­Ø¶ÙˆØ± Ø§Ù„Ø·Ù„Ø¨Ø© Ù„Ù„ÙØ¹Ø§Ù„ÙŠØ§Øª Ø§Ù„Ø³Ø±ÙŠØ±ÙŠØ© ÙˆØ§Ù„Ù…Ø­Ø§Ø¶Ø±Ø§Øª.',
+      description: 'سجلات حضور الطلبة للفعاليات السريرية والمحاضرات.',
       icon: Activity,
       endpoint: 'attendance',
       color: 'text-amber-600',
@@ -70,9 +70,9 @@ export function ReportsDashboard() {
     },
     {
       id: 'assessments',
-      title: 'ØªÙ‚Ø±ÙŠØ± Ø§Ù„ØªÙ‚ÙŠÙŠÙ…Ø§Øª Ø§Ù„Ø³Ø±ÙŠØ±ÙŠØ© (Clinical Assessments)',
+      title: 'تقرير التقييمات السريرية (Clinical Assessments)',
       category: 'CLINICAL',
-      description: 'ØªÙ‚ÙŠÙŠÙ…Ø§Øª Ø§Ù„Ù…Ø´Ø±ÙÙŠÙ† Ø§Ù„Ø³Ø±ÙŠØ±ÙŠÙŠÙ† Ù„Ù„Ø·Ù„Ø¨Ø© Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„Ø¬ÙˆÙ„Ø§Øª (Mini-CEX, DOPS).',
+      description: 'تقييمات المشرفين السريريين للطلبة أثناء الجولات (Mini-CEX, DOPS).',
       icon: Stethoscope,
       endpoint: 'assessments',
       color: 'text-rose-600',
@@ -80,9 +80,9 @@ export function ReportsDashboard() {
     },
     {
       id: 'staff',
-      title: 'ØªÙ‚Ø±ÙŠØ± Ø§Ù„ÙƒØ§Ø¯Ø± Ø§Ù„Ø£ÙƒØ§Ø¯ÙŠÙ…ÙŠ (Staff Directory)',
+      title: 'تقرير الكادر الأكاديمي (Staff Directory)',
       category: 'ACADEMIC',
-      description: 'Ø¨ÙŠØ§Ù†Ø§Øª Ø£Ø¹Ø¶Ø§Ø¡ Ù‡ÙŠØ¦Ø© Ø§Ù„ØªØ¯Ø±ÙŠØ³ ÙˆØ§Ù„Ù…Ø´Ø±ÙÙŠÙ† Ø§Ù„Ø³Ø±ÙŠØ±ÙŠÙŠÙ† ÙˆØ§Ù„Ø£Ù‚Ø³Ø§Ù….',
+      description: 'بيانات أعضاء هيئة التدريس والمشرفين السريريين والأقسام.',
       icon: Users,
       endpoint: 'staff',
       color: 'text-blue-600',
@@ -90,9 +90,9 @@ export function ReportsDashboard() {
     },
     {
       id: 'quality',
-      title: 'ØªÙ‚Ø±ÙŠØ± Ø®Ø·Ø· Ø§Ù„ØªØ­Ø³ÙŠÙ† (Quality Plans)',
+      title: 'تقرير خطط التحسين (Quality Plans)',
       category: 'QUALITY',
-      description: 'Ø®Ø·Ø· ØªØ­Ø³ÙŠÙ† Ø§Ù„Ø¬ÙˆØ¯Ø© Ø§Ù„Ø£ÙƒØ§Ø¯ÙŠÙ…ÙŠØ© ÙˆØ§Ù„Ø³Ø±ÙŠØ±ÙŠØ© ÙˆØ£ÙˆÙ„ÙˆÙŠØ§ØªÙ‡Ø§.',
+      description: 'خطط تحسين الجودة الأكاديمية والسريرية وأولوياتها.',
       icon: ClipboardCheck,
       endpoint: 'quality',
       color: 'text-teal-600',
@@ -105,8 +105,8 @@ export function ReportsDashboard() {
   return (
     <div className="mx-auto max-w-[1200px] space-y-6 pb-12">
       <PageHeader
-        title="Ù…Ø±ÙƒØ² Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ± (Reports Center)"
-        description="ØªØµØ¯ÙŠØ± ÙˆØªØ­Ù…ÙŠÙ„ Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ± Ø§Ù„Ø£ÙƒØ§Ø¯ÙŠÙ…ÙŠØ©ØŒ Ø§Ù„Ø³Ø±ÙŠØ±ÙŠØ©ØŒ ÙˆØªÙ‚Ø§Ø±ÙŠØ± Ø§Ù„Ø¬ÙˆØ¯Ø© Ø¨ØµÙŠØºØ© Ø¬Ø¯Ø§ÙˆÙ„ Ø¨ÙŠØ§Ù†Ø§Øª (CSV/Excel)."
+        title="مركز التقارير (Reports Center)"
+        description="تصدير وتحميل التقارير الأكاديمية والسريرية وتقارير الجودة بصيغة جداول بيانات (CSV/Excel)."
       />
 
       <div className="flex gap-2 border-b border-slate-200 pb-2 overflow-x-auto">
@@ -142,7 +142,7 @@ export function ReportsDashboard() {
                    onClick={() => handleDownload(report.endpoint)}
                    className="w-full bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-indigo-700 font-bold text-xs gap-2"
                  >
-                   <FileSpreadsheet className="w-4 h-4" /> ØªØµØ¯ÙŠØ± CSV / Excel
+                   <FileSpreadsheet className="w-4 h-4" /> تصدير CSV / Excel
                  </Button>
               </div>
             </Card>

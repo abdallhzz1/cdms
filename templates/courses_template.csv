@@ -1,0 +1,6 @@
+code,name_ar,name_en,credit_hours,academic_level,is_active,description
+MEDI401,مساق الطب الباطني العام,General Internal Medicine,6,fourth,1,تدريب سريري سنوي في الطب الباطني للسنة الرابعة
+SURG402,مساق الجراحة العامة,General Surgery,6,fourth,1,تدريب سريري سنوي في الجراحة العامة للسنة الرابعة
+PEDI501,مساق طب الأطفال,Pediatrics,4,fifth,1,تدريب سريري سنوي في طب الأطفال للسنة الخامسة
+OBGY502,مساق النسائية والتوليد,Obstetrics and Gynecology,4,fifth,1,تدريب سريري سنوي في النسائية والتوليد للسنة الخامسة
+PSYC601,مساق الطب النفسي السريري,Clinical Psychiatry,3,sixth,1,تدريب سريري سنوي في الطب النفسي للسنة السادسة
