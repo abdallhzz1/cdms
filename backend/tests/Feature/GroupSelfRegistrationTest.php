@@ -117,7 +117,8 @@ class GroupSelfRegistrationTest extends TestCase
     public function test_authorized_administrator_can_create_cycle_import_roster_and_open_it(): void
     {
         $role=Role::create(['code'=>'TEST_GROUP_ADMIN','name_key'=>'test.group.admin']);
-        $role->permissions()->sync(Permission::where('code','like','group_registration.%')->pluck('id')->mapWithKeys(fn($id)=>[$id=>['scope_type'=>'global']])->all());
+        Permission::firstOrCreate(['code'=>'students.create'],['module'=>'Students','action'=>'CREATE','description_key'=>'permissions.students_create.description']);
+        $role->permissions()->sync(Permission::where('code','like','group_registration.%')->orWhere('code','students.create')->pluck('id')->mapWithKeys(fn($id)=>[$id=>['scope_type'=>'global']])->all());
         $user=User::factory()->create();
         $user->roles()->attach($role);
         $secondYear=AcademicYear::factory()->create();
@@ -126,10 +127,14 @@ class GroupSelfRegistrationTest extends TestCase
             'academic_year_id'=>$secondYear->id,'academic_level'=>'fifth','default_capacity'=>6,
         ])->assertCreated()->assertJsonPath('data.groups.0.name','A')->assertJsonCount(3,'data.groups');
         $created=GroupRegistrationCycle::where('academic_year_id',$secondYear->id)->firstOrFail();
-        $this->actingAs($user)->postJson("/api/v1/group-registration-cycles/{$created->id}/roster",['students'=>[
-            ['university_number'=>'22550001','full_name_ar'=>'طالب تجريبي','main_group_code'=>'A','academic_registration_status'=>'registered'],
-        ]])->assertOk();
+        $this->actingAs($user)->postJson('/api/v1/students/bulk-import',[
+            'group_registration_cycle_id'=>$created->id,
+            'students'=>[
+                ['university_number'=>'22550001','full_name_ar'=>'طالب تجريبي','academic_level'=>'fifth','main_group_code'=>'A','academic_registration_status'=>'registered'],
+            ],
+        ])->assertOk()->assertJsonPath('data.rostered',1);
         $this->assertDatabaseHas('students',['university_number'=>'22550001','university_email'=>'22550001@students.hebron.edu','academic_registration_status'=>'registered']);
+        $this->assertDatabaseHas('student_group_rosters',['group_registration_cycle_id'=>$created->id,'student_group_id'=>$created->fresh()->rosters()->first()->student_group_id]);
         $this->actingAs($user)->putJson("/api/v1/group-registration-cycles/{$created->id}",['status'=>'open'])->assertOk()->assertJsonPath('data.status','open');
     }
 }

@@ -95,6 +95,11 @@ class Student extends Model
         return $this->belongsTo(AcademicYear::class);
     }
 
+    public function groupRegistrationRosters(): HasMany
+    {
+        return $this->hasMany(StudentGroupRoster::class)->orderByDesc('group_registration_cycle_id');
+    }
+
     /** @return BelongsTo<Person, $this> */
     public function academicAdvisor(): BelongsTo
     {

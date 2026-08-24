@@ -17,6 +17,7 @@ import {
 
 type DirectoryKind = 'students' | 'supervisors' | 'departments' | 'sites';
 type RecordItem = Record<string, any>;
+type RegistrationCycle = {id:number;academic_level:string;status:string;academic_year?:{code:string};groups?:Array<{name:string}>};
 
 const paths: Record<DirectoryKind, string> = { 
   students: '/students', 
@@ -67,6 +68,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const [importFileName, setImportFileName] = useState('');
   const [importSuccessMsg, setImportSuccessMsg] = useState('');
   const [importErrorMsg, setImportErrorMsg] = useState('');
+  const [importCycleId, setImportCycleId] = useState('');
 
   // Student Form State
   const [studentForm, setStudentForm] = useState({
@@ -117,6 +119,12 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     placeholderData: (previousData) => previousData,
   });
 
+  const { data: registrationCycles = [] } = useQuery({
+    queryKey: ['group-registration-cycles', 'student-directory'],
+    queryFn: () => apiFetch<RegistrationCycle[]>('/group-registration-cycles'),
+    enabled: kind === 'students' && can('students.create') && can('group_registration.view'),
+  });
+
   // Create Student Mutation
   const createStudentMutation = useMutation({
     mutationFn: (body: any) => apiFetch('/students', { method: 'POST', body }),
@@ -165,15 +173,17 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
 
   // Bulk Import Mutation
   const bulkImportMutation = useMutation({
-    mutationFn: (students: any[]) => apiFetch('/students/bulk-import', { method: 'POST', body: { students } }),
+    mutationFn: ({students,cycleId}:{students:any[];cycleId:string}) => apiFetch<any>('/students/bulk-import', { method: 'POST', body: { students, group_registration_cycle_id: cycleId ? Number(cycleId) : null } }),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ['directory', 'students'] });
-      setImportSuccessMsg(locale === 'ar' ? `تم استيراد ${res.data?.imported ?? importRows.length} طالب جديد وتحديث ${res.data?.updated ?? 0} سجل بنجاح!` : 'Students imported successfully!');
+      queryClient.invalidateQueries({ queryKey: ['group-registration-cycles'] });
+      setImportSuccessMsg(locale === 'ar' ? `تمت إضافة ${res.imported ?? 0} طالب وتحديث ${res.updated ?? 0} سجل${res.rostered ? ` وربط ${res.rostered} طالب بقائمة التسجيل` : ''}.` : 'Students imported successfully!');
       setTimeout(() => {
         setImportSuccessMsg('');
         setIsImportModalOpen(false);
         setImportRows([]);
         setImportFileName('');
+        setImportCycleId('');
       }, 1800);
     },
     onError: (err: any) => {
@@ -239,9 +249,9 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   // Download CSV Template with GPA and Warning Count
   const handleDownloadTemplate = () => {
     const csvContent = "\uFEFF" + 
-      "الرقم_الجامعي,الاسم_بالعربية,الاسم_بالانجليزية,السنة_السريرية,المعدل_التراكمي,عدد_الإنذارات,سنة_الدفعة,الجنس,رقم_الهاتف,المدينة,الحالة_النظامية,حالة_التسجيل_الأكاديمي\n" +
-      "22011001,محمد أحمد إبراهيم القواسمي,Mohammad A. Qawasmi,fourth,2.45,0,2022,male,0599111222,الخليل,active,registered\n" +
-      "22011002,سارة محمود علي التميمي,Sara M. Tamimi,fifth,1.85,1,2021,female,0599222333,الخليل,active,unregistered\n";
+      "الرقم_الجامعي,الاسم_بالعربية,الاسم_بالانجليزية,السنة_السريرية,المعدل_التراكمي,عدد_الإنذارات,سنة_الدفعة,الجنس,رقم_الهاتف,المدينة,الحالة_النظامية,حالة_التسجيل_الأكاديمي,المجموعة_الرئيسية\n" +
+      "22011001,محمد أحمد إبراهيم القواسمي,Mohammad A. Qawasmi,fourth,78.50,0,2022,male,0599111222,الخليل,active,registered,L\n" +
+      "22011002,سارة محمود علي التميمي,Sara M. Tamimi,fifth,71.25,1,2021,female,0599222333,الخليل,active,unregistered,A\n";
     
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -294,6 +304,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                 city: cols[9] || 'الخليل',
                 registration_status: cols[10] || 'active',
                 academic_registration_status: cols[11] || 'registered',
+                main_group_code: (cols[12] || '').toUpperCase(),
               });
             } else {
               // Legacy 9 cols support
@@ -379,6 +390,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       locale === 'ar' ? 'الرقم الجامعي' : 'University ID', 
       locale === 'ar' ? 'الدفعة' : 'Batch',
       locale === 'ar' ? 'السنة الدراسية' : 'Academic Year', 
+      locale === 'ar' ? 'المجموعة الرئيسية' : 'Main Group',
       locale === 'ar' ? 'الحالة الأكاديمية' : 'Status',
       locale === 'ar' ? 'الإجراءات' : 'Actions'
     ],
@@ -439,7 +451,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
             {/* 2. Bulk Import */}
             <button 
               type="button"
-              onClick={() => setIsImportModalOpen(true)}
+              onClick={() => { setImportErrorMsg(''); setImportSuccessMsg(''); setIsImportModalOpen(true); }}
               className="w-9 h-9 rounded-full text-teal-600 hover:bg-teal-50 flex items-center justify-center transition-colors"
               title={locale === 'ar' ? 'استيراد قائمة الطلبة من Excel' : 'Import Excel'}
             >
@@ -584,12 +596,19 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                     </span>
                   </TableCell>
 
-                  {/* 5. Status (الحالة) */}
+                  {/* 5. Main registration group */}
+                  <TableCell>
+                    <span className="font-bold text-xs text-slate-700">
+                      {row.registration_main_group || '—'}
+                    </span>
+                  </TableCell>
+
+                  {/* 6. Status (الحالة) */}
                   <TableCell>
                     {getStatus(row)}
                   </TableCell>
 
-                  {/* 6. Actions (تعديل وحذف) */}
+                  {/* 7. Actions (تعديل وحذف) */}
                   {kind === 'students' && (
                     <TableCell>
                       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
@@ -937,6 +956,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                   setIsImportModalOpen(false);
                   setImportRows([]);
                   setImportFileName('');
+                  setImportCycleId('');
                 }}
                 className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
               >
@@ -962,6 +982,27 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                 </div>
               )}
 
+              {/* Registration cycle binding */}
+              <div className="space-y-2 rounded-2xl border border-teal-100 bg-teal-50/50 p-4">
+                <label className="block text-xs font-bold text-teal-950">
+                  {locale === 'ar' ? 'ربط القائمة بدورة التسجيل والمجموعات الرئيسية' : 'Link to registration cycle and main groups'}
+                </label>
+                <select
+                  value={importCycleId}
+                  onChange={(e) => { setImportCycleId(e.target.value); setImportErrorMsg(''); }}
+                  className="w-full rounded-xl border border-teal-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-800 focus:border-teal-500"
+                >
+                  <option value="">حفظ في دليل الطلاب فقط (بدون ربط بدورة)</option>
+                  {registrationCycles.filter(c=>c.status!=='archived').map(c=><option key={c.id} value={c.id}>{c.academic_year?.code || '—'} · {getLevelLabel(c.academic_level)} · {c.groups?.map(g=>g.name).join(', ') || 'المجموعات الرئيسية'}</option>)}
+                </select>
+                <p className="text-[11px] leading-5 text-teal-800">
+                  {importCycleId
+                    ? 'سيتم تحديث دليل الطلاب وربط كل طالب بالمجموعة الرئيسية الموجودة في عمود المجموعة_الرئيسية. حالة registered أو unregistered هي الحالة الأكاديمية العامة للطالب.'
+                    : 'يمكن الاستيراد للدليل فقط. لتمكين رابط التسجيل الذاتي اختر دورة؛ ويجب أن يحتوي الملف على المجموعة الرئيسية لكل طالب.'}
+                </p>
+                {registrationCycles.length===0&&<button type="button" onClick={()=>navigate('/distribution/groups')} className="text-xs font-bold text-teal-700 underline">لا توجد دورة؟ أنشئ المجموعات الفارغة أولاً من شاشة إدارة المجموعات</button>}
+              </div>
+
               {/* Step 1: Download Template */}
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-4">
                 <div>
@@ -969,7 +1010,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                     {locale === 'ar' ? 'الخطوة 1: تنزيل وتعبئة النموذج المعتمد' : 'Step 1: Download & Fill Official Template'}
                   </h4>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    {locale === 'ar' ? 'قم بتنزيل ملف الـ CSV وتعبئته ببيانات الطلاب بالأعمدة المحددة' : 'Download template with ready headers'}
+                    {locale === 'ar' ? 'يتضمن النموذج حالة التسجيل الأكاديمية والمجموعة الرئيسية لكل طالب' : 'Template includes academic registration status and main group'}
                   </p>
                 </div>
                 <Button 
@@ -1036,7 +1077,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                           <th className="p-2 text-start">{locale === 'ar' ? 'الرقم الجامعي' : 'Univ ID'}</th>
                           <th className="p-2 text-start">{locale === 'ar' ? 'الاسم' : 'Name'}</th>
                           <th className="p-2 text-start">{locale === 'ar' ? 'السنة السريرية' : 'Level'}</th>
-                          <th className="p-2 text-start">{locale === 'ar' ? 'المدينة' : 'City'}</th>
+                          <th className="p-2 text-start">{locale === 'ar' ? 'الحالة' : 'Status'}</th>
+                          <th className="p-2 text-start">{locale === 'ar' ? 'المجموعة' : 'Group'}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1046,7 +1088,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                             <td className="p-2 font-bold text-slate-700">{r.university_number}</td>
                             <td className="p-2 text-slate-800">{r.full_name_ar}</td>
                             <td className="p-2 text-slate-600">{getLevelLabel(r.academic_level)}</td>
-                            <td className="p-2 text-slate-500">{r.city}</td>
+                            <td className="p-2 text-slate-500">{r.academic_registration_status==='registered'?'مسجل':'غير مسجل'}</td>
+                            <td className="p-2 font-bold text-teal-700">{r.main_group_code||'—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1069,6 +1112,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                     setIsImportModalOpen(false);
                     setImportRows([]);
                     setImportFileName('');
+                    setImportCycleId('');
                   }}
                   className="rounded-xl"
                 >
@@ -1076,9 +1120,9 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                 </Button>
                 <Button 
                   type="button" 
-                  disabled={importRows.length === 0}
+                  disabled={importRows.length === 0 || (Boolean(importCycleId) && importRows.some(r=>!r.main_group_code))}
                   isLoading={bulkImportMutation.isPending}
-                  onClick={() => bulkImportMutation.mutate(importRows)}
+                  onClick={() => bulkImportMutation.mutate({students:importRows,cycleId:importCycleId})}
                   className="rounded-xl bg-gradient-to-tr from-teal-500 to-teal-400 text-white font-bold shadow-md shadow-teal-500/25 disabled:opacity-50"
                 >
                   {locale === 'ar' ? `استيراد وحفظ (${importRows.length}) طالب` : `Import (${importRows.length}) Students`}

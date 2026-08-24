@@ -7,10 +7,15 @@ use App\Http\Requests\V1\StoreStudentRequest;
 use App\Http\Requests\V1\UpdateStudentRequest;
 use App\Http\Resources\V1\StudentResource;
 use App\Http\Responses\ApiResponse;
+use App\Models\GroupRegistrationCycle;
 use App\Models\Student;
+use App\Models\StudentGroup;
+use App\Models\StudentGroupRoster;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class StudentController extends Controller
 {
@@ -29,7 +34,7 @@ class StudentController extends Controller
 
         $query = $this->applyStudentAccessScope(Student::query());
 
-        $students = $query->with(['academicYear', 'academicAdvisor', 'currentGroupAssignments.group'])
+        $students = $query->with(['academicYear', 'academicAdvisor', 'currentGroupAssignments.group', 'groupRegistrationRosters.group'])
             ->when(
                 !empty($scopedLevels) && !$request->query('academic_level'),
                 fn ($q) => $q->whereIn('academic_level', $scopedLevels)
@@ -220,27 +225,77 @@ class StudentController extends Controller
      */
     public function bulkImport(Request $request): JsonResponse
     {
-        $request->validate([
+        $validated = $request->validate([
             'students' => ['required', 'array', 'min:1'],
-            'students.*.university_number' => ['required', 'string'],
-            'students.*.full_name_ar' => ['required', 'string'],
-            'students.*.academic_level' => ['required', 'string'],
+            'students.*.university_number' => ['required', 'string', 'max:20'],
+            'students.*.full_name_ar' => ['required', 'string', 'max:255'],
+            'students.*.full_name_en' => ['nullable', 'string', 'max:255'],
+            'students.*.national_id' => ['nullable', 'string', 'max:20'],
+            'students.*.academic_level' => ['required', 'string', 'max:20'],
+            'students.*.main_group_code' => ['nullable', 'string', 'max:2'],
+            'students.*.academic_registration_status' => ['nullable', 'in:registered,unregistered'],
+            'students.*.gender' => ['nullable', 'in:male,female'],
+            'students.*.city' => ['nullable', 'string', 'max:100'],
+            'students.*.phone' => ['nullable', 'string', 'max:30'],
+            'students.*.university_email' => ['nullable', 'email', 'max:255'],
+            'students.*.batch_year' => ['nullable', 'integer', 'min:2000', 'max:2100'],
+            'students.*.registration_status' => ['nullable', 'in:active,suspended,on_leave,transferred,graduated,repeating,deferred,delayed'],
+            'students.*.gpa' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'students.*.warning_count' => ['nullable', 'integer', 'min:0', 'max:10'],
+            'group_registration_cycle_id' => ['nullable', 'integer', 'exists:group_registration_cycles,id'],
         ]);
+
+        $normalizeLevel = static function (mixed $value): string {
+            $level = strtolower(trim((string) $value));
+            if (in_array($level, ['fourth', 'fifth', 'sixth'], true)) return $level;
+            if (str_contains($level, '4') || str_contains($level, 'رابع')) return 'fourth';
+            if (str_contains($level, '5') || str_contains($level, 'خامس')) return 'fifth';
+            if (str_contains($level, '6') || str_contains($level, 'سادس') || str_contains($level, 'امتياز')) return 'sixth';
+            return '';
+        };
+
+        $cycle = ! empty($validated['group_registration_cycle_id'])
+            ? GroupRegistrationCycle::findOrFail($validated['group_registration_cycle_id'])
+            : null;
+        $groups = collect();
+
+        if ($cycle) {
+            if ($cycle->status === 'archived') {
+                throw ValidationException::withMessages([
+                    'group_registration_cycle_id' => ['لا يمكن استيراد قائمة إلى دورة مؤرشفة.'],
+                ]);
+            }
+
+            $groups = StudentGroup::query()
+                ->where('academic_year_id', $cycle->academic_year_id)
+                ->where('academic_level', $cycle->academic_level)
+                ->where('group_type', 'self_registration')
+                ->get()
+                ->keyBy(fn (StudentGroup $group) => strtoupper($group->name));
+
+            $rosterErrors = [];
+            foreach ($validated['students'] as $index => $row) {
+                $groupCode = strtoupper(trim((string) ($row['main_group_code'] ?? '')));
+                if ($normalizeLevel($row['academic_level']) !== $cycle->academic_level) {
+                    $rosterErrors["students.$index.academic_level"][] = 'السنة السريرية لا تطابق دورة التسجيل المختارة.';
+                }
+                if ($groupCode === '') {
+                    $rosterErrors["students.$index.main_group_code"][] = 'المجموعة الرئيسية مطلوبة عند ربط القائمة بدورة تسجيل.';
+                } elseif (! $groups->has($groupCode)) {
+                    $rosterErrors["students.$index.main_group_code"][] = 'المجموعة الرئيسية غير موجودة في دورة التسجيل المختارة.';
+                }
+            }
+            if ($rosterErrors) throw ValidationException::withMessages($rosterErrors);
+        }
 
         $imported = 0;
         $updated = 0;
-        $errors = [];
+        $rostered = 0;
 
-        foreach ($request->input('students') as $index => $row) {
-            try {
+        DB::transaction(function () use ($validated, $cycle, $groups, $normalizeLevel, &$imported, &$updated, &$rostered) {
+            foreach ($validated['students'] as $row) {
                 $univNumber = trim((string)$row['university_number']);
-                $level = strtolower(trim((string)$row['academic_level']));
-                if (!in_array($level, ['fourth', 'fifth', 'sixth'])) {
-                    if (str_contains($level, '4') || str_contains($level, 'رابع')) $level = 'fourth';
-                    elseif (str_contains($level, '5') || str_contains($level, 'خامس')) $level = 'fifth';
-                    elseif (str_contains($level, '6') || str_contains($level, 'سادس') || str_contains($level, 'امتياز')) $level = 'sixth';
-                    else $level = 'fourth';
-                }
+                $level = $normalizeLevel($row['academic_level']) ?: 'fourth';
 
                 $data = [
                     'full_name_ar'        => trim((string)$row['full_name_ar']),
@@ -249,7 +304,7 @@ class StudentController extends Controller
                     'gender'              => in_array(strtolower((string)($row['gender'] ?? '')), ['male', 'female']) ? strtolower((string)$row['gender']) : (str_contains((string)($row['gender'] ?? ''), 'أنثى') ? 'female' : 'male'),
                     'city'                => !empty($row['city']) ? trim((string)$row['city']) : 'الخليل',
                     'phone'               => !empty($row['phone']) ? trim((string)$row['phone']) : null,
-                    'university_email'    => !empty($row['university_email']) ? trim((string)$row['university_email']) : "{$univNumber}@hebron.edu",
+                    'university_email'    => !empty($row['university_email']) ? trim((string)$row['university_email']) : "{$univNumber}@students.hebron.edu",
                     'batch_year'          => !empty($row['batch_year']) ? (int)$row['batch_year'] : date('Y') - 3,
                     'academic_level'      => $level,
                     'registration_status' => !empty($row['registration_status']) ? strtolower((string)$row['registration_status']) : 'active',
@@ -263,6 +318,9 @@ class StudentController extends Controller
                 if (isset($row['warning_count']) && $row['warning_count'] !== '' && $row['warning_count'] !== null) {
                     $data['warning_count'] = (int)$row['warning_count'];
                 }
+                if ($cycle) {
+                    $data['academic_year_id'] = $cycle->academic_year_id;
+                }
 
                 $student = Student::where('university_number', $univNumber)->first();
                 if ($student) {
@@ -273,20 +331,24 @@ class StudentController extends Controller
                     Student::create($data);
                     $imported++;
                 }
-            } catch (\Throwable $e) {
-                \Log::warning('Student import row failed', [
-                    'row' => $index + 1,
-                    'exception' => $e,
-                    'user_id' => auth()->id(),
-                ]);
-                $errors[] = "Row " . ($index + 1) . ": تعذرت معالجة بيانات هذا السطر.";
+
+                if ($cycle) {
+                    $student = Student::where('university_number', $univNumber)->firstOrFail();
+                    $groupCode = strtoupper(trim((string) $row['main_group_code']));
+                    StudentGroupRoster::updateOrCreate(
+                        ['group_registration_cycle_id' => $cycle->id, 'student_id' => $student->id],
+                        ['student_group_id' => $groups->get($groupCode)->id],
+                    );
+                    $rostered++;
+                }
             }
-        }
+        });
 
         return ApiResponse::success([
             'imported' => $imported,
             'updated'  => $updated,
-            'errors'   => $errors,
+            'rostered' => $rostered,
+            'errors'   => [],
         ], "تمت معالجة " . ($imported + $updated) . " طالب بنجاح.");
     }
 }
