@@ -50,6 +50,13 @@ class CourseManagementWorkflowTest extends TestCase
             'academic_level' => 'fourth',
             'semester' => 1,
         ])->assertUnprocessable()->assertJsonValidationErrors('code');
+
+        $this->actingAs($this->manager)->postJson('/api/v1/courses', [
+            'code' => 'CLIN-NO-SEMESTER',
+            'name_ar' => 'مساق سريري دون تصنيف فصل',
+            'credit_hours' => 4,
+            'academic_level' => 'fourth',
+        ])->assertCreated()->assertJsonPath('data.semester', 1);
     }
 
     public function test_course_detail_resources_validate_weights_outcomes_and_program_mappings(): void

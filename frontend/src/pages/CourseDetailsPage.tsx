@@ -44,9 +44,11 @@ interface ProgramOutcomeMapping {
 interface ProgramOutcome {
   id: number;
   code: string;
-  name_ar: string;
-  name_en: string;
-  domain: string;
+  name_ar?: string | null;
+  name_en?: string | null;
+  description_ar?: string | null;
+  description_en?: string | null;
+  domain?: string | null;
 }
 
 interface Course {
@@ -58,7 +60,6 @@ interface Course {
   academic_level?: string | null;
   is_active?: boolean;
   description?: string | null;
-  semester?: 1 | 2;
   assessment_components?: AssessmentComponent[];
   learning_outcomes?: LearningOutcome[];
   program_outcome_mappings?: ProgramOutcomeMapping[];
@@ -229,6 +230,14 @@ export function CourseDetailsPage() {
   if (isError || !data) return <ErrorState onRetry={() => refetch()} />;
 
   const name = locale === 'ar' ? data.name_ar : data.name_en || data.name_ar;
+  const getPloText = (code: string) => {
+    const outcome = plosList?.find((item) => item.code === code);
+    return outcome
+      ? (locale === 'ar'
+          ? outcome.description_ar || outcome.name_ar || outcome.description_en || outcome.name_en
+          : outcome.description_en || outcome.name_en || outcome.description_ar || outcome.name_ar)
+      : null;
+  };
 
   // Calculate total weights
   const totalWeight = (data.assessment_components || []).reduce((acc, item) => acc + (Number(item.weight) || 0), 0);
@@ -366,7 +375,6 @@ export function CourseDetailsPage() {
               <Award className="w-4 h-4 text-teal-600" />
               <span className="text-xs font-bold text-teal-800">
                 {data.credit_hours} {locale === 'ar' ? 'ساعات معتمدة' : 'Credit Hours'}
-                {' · '}{data.semester === 2 ? 'الفصل الثاني' : 'الفصل الأول'}
               </span>
             </div>
           </div>
@@ -485,13 +493,17 @@ export function CourseDetailsPage() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {data.program_outcome_mappings.map(item => (
-                    <div key={item.id} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold font-mono text-slate-800 text-xs">{item.program_outcome_code}</span>
-                        <span className="text-slate-300">|</span>
-                        <span className="text-[11px] font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-100">
-                          {item.mapping_level || 'High'}
-                        </span>
+                    <div key={item.id} className="flex items-start justify-between gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold font-mono text-slate-800 text-xs">{item.program_outcome_code}</span>
+                          <span className="text-[11px] font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-100">
+                            {item.mapping_level || 'High'}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-[11px] font-medium leading-5 text-slate-600">
+                          {getPloText(item.program_outcome_code) || (locale === 'ar' ? 'نص مخرج البرنامج غير متوفر' : 'Program outcome text is unavailable')}
+                        </p>
                       </div>
 
                       {can('courses.manage') && (

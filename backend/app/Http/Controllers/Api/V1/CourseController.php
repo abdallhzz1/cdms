@@ -96,10 +96,13 @@ class CourseController extends Controller
             'description' => 'nullable|string',
         ];
         if ($hasSemester) {
-            $rules['semester'] = 'required|integer|in:1,2';
+            $rules['semester'] = 'sometimes|integer|in:1,2';
         }
 
         $validated = $request->validate($rules);
+        if ($hasSemester) {
+            $validated['semester'] = 1;
+        }
         $course = Course::create($validated);
         return ApiResponse::success($course, 'Course created.', [], 201);
     }
