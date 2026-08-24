@@ -178,20 +178,9 @@ class Phase5FTest extends TestCase
             ->assertStatus(403);
     }
 
-    public function test_public_schedule_excludes_internal_identifiers_and_contact_data()
+    public function test_bulk_public_schedule_is_not_exposed()
     {
-        $response = $this->getJson('/api/v1/public/clinical-schedule');
-
-        $response->assertOk();
-        $item = $response->json('data.data.0');
-
-        $this->assertIsArray($item);
-        $this->assertArrayNotHasKey('assignment_id', $item);
-        $this->assertArrayNotHasKey('distribution_version_id', $item);
-        $this->assertArrayNotHasKey('university_number', $item['student']);
-        $this->assertArrayNotHasKey('email', $item['supervisor']);
-        $this->assertNotSame((string) $this->student->id, (string) $item['student']['id']);
-        $this->assertNotSame((string) $this->supervisor->id, (string) $item['supervisor']['id']);
+        $this->getJson('/api/v1/public/clinical-schedule')->assertNotFound();
     }
 
     /* ---------------------------------------------------------------------- */

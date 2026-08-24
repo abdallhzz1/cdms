@@ -37,9 +37,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // Public Routes (No authentication required — for lobby displays & student self-lookup)
     // -------------------------------------------------------------------------
     Route::prefix('public')->name('public.')->group(function () {
-        Route::get('clinical-schedule', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'publicSchedule'])
-            ->middleware('throttle:operational-read')
-            ->name('clinical-schedule');
+        Route::post('student-schedule/request-otp', [\App\Http\Controllers\Api\V1\PublicStudentScheduleController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
+        Route::post('student-schedule/verify-otp', [\App\Http\Controllers\Api\V1\PublicStudentScheduleController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
+        Route::post('student-schedule', [\App\Http\Controllers\Api\V1\PublicStudentScheduleController::class, 'schedule'])->middleware('throttle:operational-read');
         Route::get('group-registration/{cycle:public_id}', [\App\Http\Controllers\Api\V1\PublicGroupRegistrationController::class, 'cycle']);
         Route::post('group-registration/{cycle:public_id}/request-otp', [\App\Http\Controllers\Api\V1\PublicGroupRegistrationController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
         Route::post('group-registration/{cycle:public_id}/verify-otp', [\App\Http\Controllers\Api\V1\PublicGroupRegistrationController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');

@@ -1,0 +1,247 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\DTOs\ClinicalScheduleItemDTO;
+use App\Http\Controllers\Controller;
+use App\Http\Responses\ApiResponse;
+use App\Models\AuditLog;
+use App\Models\Student;
+use App\Models\StudentClinicalAssignment;
+use App\Models\StudentGroupAssignment;
+use App\Models\StudentScheduleOtpChallenge;
+use App\Services\Distribution\ClinicalScheduleDateCalculator;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+
+class PublicStudentScheduleController extends Controller
+{
+    public function __construct(private ClinicalScheduleDateCalculator $dateCalculator) {}
+
+    public function requestOtp(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'university_number' => ['required', 'string', 'max:20', 'regex:/^[0-9]+$/'],
+        ]);
+
+        $student = Student::where('university_number', $data['university_number'])->first();
+        if (!$student) {
+            throw ValidationException::withMessages([
+                'university_number' => ['تعذر متابعة الطلب. يرجى التواصل مع إدارة الدائرة السريرية للتحقق من بياناتك.'],
+            ]);
+        }
+        if ($student->academic_registration_status !== 'registered') {
+            return ApiResponse::error(
+                'يجب أن تقوم بالتسجيل الأكاديمي أولاً قبل الاستعلام عن جدولك السريري.',
+                ['code' => ['registration_required']],
+                [],
+                403
+            );
+        }
+
+        $otp = (string) random_int(100000, 999999);
+        $challengeToken = Str::random(64);
+        $challenge = StudentScheduleOtpChallenge::create([
+            'student_id' => $student->id,
+            'challenge_token_hash' => hash('sha256', $challengeToken),
+            'otp_hash' => Hash::make($otp),
+            'expires_at' => now()->addMinutes(config('group_registration.otp_ttl_minutes')),
+            'request_ip_hash' => hash_hmac('sha256', (string) $request->ip(), (string) config('app.key')),
+        ]);
+
+        $email = $student->university_number.'@'.config('group_registration.student_email_domain');
+        try {
+            Mail::raw(
+                "رمز التحقق الخاص بعرض جدولك السريري هو: {$otp}\n\nصلاحية الرمز ".config('group_registration.otp_ttl_minutes')." دقائق. لا تشارك الرمز مع أي شخص.\n\nClinical Department - Hebron University",
+                fn ($message) => $message->to($email)->subject('رمز التحقق لعرض الجدول السريري')
+            );
+        } catch (\Throwable $exception) {
+            $challenge->delete();
+            Log::error('Student schedule OTP delivery failed', [
+                'student_id' => $student->id,
+                'exception_class' => $exception::class,
+            ]);
+            return ApiResponse::error(
+                'تعذر إرسال رمز التحقق. يرجى التواصل مع إدارة الدائرة السريرية للتحقق من بياناتك أو حالة حسابك.',
+                ['code' => ['otp_delivery_failed']],
+                [],
+                503
+            );
+        }
+
+        return ApiResponse::success([
+            'challenge_token' => $challengeToken,
+            'email_hint' => substr($student->university_number, 0, 3)
+                .str_repeat('*', max(0, strlen($student->university_number) - 3))
+                .'@'.config('group_registration.student_email_domain'),
+            'expires_in_seconds' => config('group_registration.otp_ttl_minutes') * 60,
+        ], 'تم إرسال رمز التحقق إلى بريدك الجامعي.');
+    }
+
+    public function verifyOtp(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'challenge_token' => ['required', 'string', 'size:64'],
+            'otp' => ['required', 'digits:6'],
+        ]);
+
+        [$accessToken, $error] = DB::transaction(function () use ($data): array {
+            $challenge = StudentScheduleOtpChallenge::where(
+                'challenge_token_hash',
+                hash('sha256', $data['challenge_token'])
+            )->lockForUpdate()->first();
+
+            if (!$challenge || $challenge->consumed_at || $challenge->expires_at->isPast()
+                || $challenge->attempts >= config('group_registration.max_otp_attempts')) {
+                return [null, 'رمز التحقق غير صالح أو انتهت صلاحيته. اطلب رمزاً جديداً.'];
+            }
+            if (!Hash::check($data['otp'], $challenge->otp_hash)) {
+                $challenge->increment('attempts');
+                return [null, 'رمز التحقق غير صحيح.'];
+            }
+
+            $token = Str::random(80);
+            $challenge->update([
+                'verified_at' => now(),
+                'consumed_at' => now(),
+                'access_token_hash' => hash('sha256', $token),
+                'access_expires_at' => now()->addMinutes(config('group_registration.session_ttl_minutes')),
+            ]);
+
+            return [$token, null];
+        });
+
+        if (!$accessToken) {
+            throw ValidationException::withMessages(['otp' => [$error]]);
+        }
+
+        return ApiResponse::success([
+            'access_token' => $accessToken,
+            'expires_in_seconds' => config('group_registration.session_ttl_minutes') * 60,
+        ], 'تم التحقق بنجاح.');
+    }
+
+    public function schedule(Request $request): JsonResponse
+    {
+        $data = $request->validate(['access_token' => ['required', 'string', 'size:80']]);
+        $challenge = StudentScheduleOtpChallenge::with('student')
+            ->where('access_token_hash', hash('sha256', $data['access_token']))
+            ->whereNotNull('verified_at')
+            ->where('access_expires_at', '>', now())
+            ->first();
+
+        if (!$challenge) {
+            abort(401, 'انتهت جلسة التحقق. يرجى طلب رمز جديد.');
+        }
+        $student = $challenge->student;
+        if (!$student || $student->academic_registration_status !== 'registered') {
+            abort(403, 'لا يمكنك عرض الجدول. يرجى التواصل مع إدارة الدائرة السريرية.');
+        }
+
+        $assignments = StudentClinicalAssignment::where('student_id', $student->id)
+            ->whereHas('distributionVersion', fn ($query) => $query
+                ->where('status', 'published')->where('is_current', true))
+            ->with([
+                'distributionVersion',
+                'rotationBlock.rotation.course',
+                'rotationBlock.rotation.academicYear',
+                'studentSubgroup.group',
+                'trainingSite',
+                'department',
+                'supervisor',
+            ])
+            ->get()
+            ->sortBy([
+                fn ($left, $right) => strcmp(
+                    (string) $left->rotationBlock?->rotation?->start_date,
+                    (string) $right->rotationBlock?->rotation?->start_date
+                ),
+                fn ($left, $right) => ($left->rotationBlock?->from_week ?? 0) <=> ($right->rotationBlock?->from_week ?? 0),
+            ])->values();
+
+        $firstAssignment = $assignments->first();
+        $membership = StudentGroupAssignment::current()
+            ->where('student_id', $student->id)
+            ->when($firstAssignment?->student_subgroup_id, fn ($query, $subgroupId) => $query->where('student_subgroup_id', $subgroupId))
+            ->with(['group', 'subgroup'])
+            ->latest('id')
+            ->first();
+        $subgroup = $firstAssignment?->studentSubgroup ?? $membership?->subgroup;
+        $group = $subgroup?->group ?? $membership?->group;
+
+        $members = collect();
+        if ($subgroup) {
+            $members = StudentGroupAssignment::current()
+                ->where('student_subgroup_id', $subgroup->id)
+                ->with('student:id,full_name_ar,full_name_en')
+                ->get()
+                ->pluck('student')
+                ->filter();
+
+            if ($members->isEmpty()) {
+                $memberIds = StudentClinicalAssignment::where('student_subgroup_id', $subgroup->id)
+                    ->whereHas('distributionVersion', fn ($query) => $query
+                        ->where('status', 'published')->where('is_current', true))
+                    ->distinct()->pluck('student_id');
+                $members = Student::whereIn('id', $memberIds)->get(['id', 'full_name_ar', 'full_name_en']);
+            }
+        }
+
+        $schedule = $assignments->map(function (StudentClinicalAssignment $assignment): array {
+            $item = ClinicalScheduleItemDTO::fromAssignment($assignment, $this->dateCalculator);
+            $course = $assignment->rotationBlock?->rotation?->course;
+
+            return [
+                'course' => $course ? [
+                    'code' => $course->code,
+                    'name_ar' => $course->name_ar,
+                    'name_en' => $course->name_en,
+                ] : [
+                    'code' => $item['rotation']['code'] ?? null,
+                    'name_ar' => $item['rotation']['name'] ?? null,
+                    'name_en' => $item['rotation']['name'] ?? null,
+                ],
+                'academic_year' => $assignment->rotationBlock?->rotation?->academicYear?->code,
+                'block' => $item['block'],
+                'training_site' => $item['training_site'],
+                'department' => $item['department'],
+                'supervisor' => $item['supervisor'] ? [
+                    'full_name_ar' => $item['supervisor']['full_name_ar'],
+                    'full_name_en' => $item['supervisor']['full_name_en'],
+                    'name' => $item['supervisor']['name'],
+                ] : null,
+            ];
+        });
+
+        AuditLog::create([
+            'action' => 'student_schedule.viewed',
+            'entity_type' => 'student_schedule',
+            'entity_id' => $student->id,
+            'student_id' => $student->id,
+            'changes' => ['assignment_count' => $schedule->count()],
+        ]);
+
+        return ApiResponse::success([
+            'student' => [
+                'name' => $student->full_name_ar,
+                'name_en' => $student->full_name_en,
+                'university_number' => $student->university_number,
+                'academic_level' => $student->academic_level,
+            ],
+            'group' => $group ? ['name' => $group->name] : null,
+            'subgroup' => $subgroup ? ['name' => $subgroup->name] : null,
+            'members' => $members->sortBy('full_name_ar')->values()->map(fn ($member) => [
+                'name' => $member->full_name_ar,
+                'name_en' => $member->full_name_en,
+                'is_current_student' => $member->id === $student->id,
+            ]),
+            'schedule' => $schedule,
+        ]);
+    }
+}
