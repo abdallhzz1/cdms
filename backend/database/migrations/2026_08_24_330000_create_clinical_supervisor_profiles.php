@@ -9,6 +9,12 @@ return new class extends Migration
 {
     public function up(): void
     {
+        Schema::table('department_head_profiles', function (Blueprint $table) {
+            $table->string('academic_title')->nullable()->default(null)->change();
+            $table->string('contract_type')->nullable()->default(null)->change();
+            $table->string('appointment_date')->nullable()->default(null)->change();
+        });
+
         // These values were schema placeholders, not verified staff data. Keeping
         // them made newly-created profiles look complete when they were not.
         DB::table('department_head_profiles')
@@ -20,12 +26,6 @@ return new class extends Migration
         DB::table('department_head_profiles')
             ->where('appointment_date', '2024-09-01')
             ->update(['appointment_date' => null]);
-
-        Schema::table('department_head_profiles', function (Blueprint $table) {
-            $table->string('academic_title')->nullable()->default(null)->change();
-            $table->string('contract_type')->nullable()->default(null)->change();
-            $table->string('appointment_date')->nullable()->default(null)->change();
-        });
 
         Schema::create('clinical_supervisor_profiles', function (Blueprint $table) {
             $table->id();
