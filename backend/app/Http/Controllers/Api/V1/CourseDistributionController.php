@@ -31,6 +31,8 @@ class CourseDistributionController extends Controller
 
     public function options(): JsonResponse
     {
+        $directory = $this->doctorDirectory();
+
         return ApiResponse::success([
             'academic_years' => AcademicYear::query()->active()
                 ->orderByDesc('is_current')->orderByDesc('start_date')
@@ -39,7 +41,8 @@ class CourseDistributionController extends Controller
                 ->whereIn('academic_level', ['fourth', 'fifth', 'sixth'])
                 ->orderBy('academic_level')->orderBy('semester')->orderBy('code')
                 ->get(['id', 'code', 'name_ar', 'name_en', 'academic_level', 'semester']),
-            'hospitals' => $this->hospitals(),
+            'hospitals' => $this->hospitals($directory),
+            'unassigned_doctors' => $directory->whereNull('primary_site_id')->values(),
         ]);
     }
 
@@ -51,6 +54,7 @@ class CourseDistributionController extends Controller
             'course_id' => ['required', 'integer', 'exists:courses,id'],
         ]);
 
+        $directory = $this->doctorDirectory();
         $rotation = Rotation::query()
             ->with(['academicYear', 'course', 'blocks'])
             ->where('academic_year_id', $data['academic_year_id'])
@@ -64,7 +68,8 @@ class CourseDistributionController extends Controller
                 'version' => null,
                 'blocks' => [],
                 'subgroups' => $this->subgroups((int) $data['academic_year_id'], $data['academic_level']),
-                'hospitals' => $this->hospitals(),
+                'hospitals' => $this->hospitals($directory),
+                'unassigned_doctors' => $directory->whereNull('primary_site_id')->values(),
                 'cells' => [],
             ]);
         }
@@ -99,7 +104,8 @@ class CourseDistributionController extends Controller
             'version' => $version,
             'blocks' => $rotation->blocks->sortBy('from_week')->values(),
             'subgroups' => $this->subgroups($rotation->academic_year_id, $rotation->academic_level),
-            'hospitals' => $this->hospitals(),
+            'hospitals' => $this->hospitals($directory),
+            'unassigned_doctors' => $directory->whereNull('primary_site_id')->values(),
             'cells' => $cells,
         ]);
     }
@@ -270,6 +276,52 @@ class CourseDistributionController extends Controller
         return ApiResponse::success($person->load('primarySite'), 'تم إنشاء الطبيب وحساب المشرف السريري.', [], 201);
     }
 
+    public function assignDoctorHospital(Request $request, User $user): JsonResponse
+    {
+        $data = $request->validate([
+            'primary_site_id' => ['nullable', 'integer', 'exists:training_sites,id'],
+        ]);
+
+        if (! $user->hasRole('CLINICAL_SUPERVISOR')) {
+            throw ValidationException::withMessages([
+                'user_id' => ['الحساب المحدد لا يحمل دور مشرف سريري.'],
+            ]);
+        }
+
+        if (isset($data['primary_site_id']) && ! TrainingSite::query()->active()->whereKey($data['primary_site_id'])->exists()) {
+            throw ValidationException::withMessages([
+                'primary_site_id' => ['المستشفى المحدد غير فعال.'],
+            ]);
+        }
+
+        $person = DB::transaction(function () use ($user, $data) {
+            $person = Person::query()->where('user_id', $user->id)->first()
+                ?? Person::query()->whereNull('user_id')->whereRaw('LOWER(email) = ?', [strtolower($user->email)])->first()
+                ?? new Person();
+
+            $person->fill([
+                'full_name_ar' => $person->full_name_ar ?: $user->name,
+                'email' => strtolower($user->email),
+                'user_id' => $user->id,
+                'primary_site_id' => $data['primary_site_id'] ?? null,
+                'is_active' => $user->is_active,
+            ])->save();
+
+            return $person;
+        });
+
+        AuditLog::create([
+            'user_id' => $request->user()->id,
+            'action' => 'clinical_supervisor.hospital_assigned',
+            'entity_type' => User::class,
+            'entity_id' => $user->id,
+            'changes' => ['primary_site_id' => $person->primary_site_id],
+            'is_override' => false,
+        ]);
+
+        return ApiResponse::success(null, $person->primary_site_id ? 'تم ربط الطبيب بالمستشفى.' : 'تم إلغاء ربط الطبيب بالمستشفى.');
+    }
+
     private function subgroups(int $academicYearId, string $academicLevel)
     {
         return StudentSubgroup::query()->with('group:id,name')
@@ -279,11 +331,44 @@ class CourseDistributionController extends Controller
             ->get(['id', 'student_group_id', 'name', 'capacity'])->sortBy(fn ($group) => ($group->group?->name ?? '').$group->name)->values();
     }
 
-    private function hospitals()
+    private function doctorDirectory()
     {
-        return TrainingSite::query()->active()->with(['supervisors' => fn ($query) => $query->active()->orderBy('full_name_ar')
-            ->select(['id', 'full_name_ar', 'full_name_en', 'email', 'specialty', 'primary_site_id'])])
-            ->orderBy('name_ar')->get(['id', 'site_code', 'name_ar', 'name_en']);
+        $activeSiteIds = TrainingSite::query()->active()->pluck('id');
+
+        return User::query()
+            ->where('is_active', true)
+            ->whereHas('roles', fn ($query) => $query->where('code', 'CLINICAL_SUPERVISOR'))
+            ->with('person:id,user_id,full_name_ar,full_name_en,email,specialty,primary_site_id,is_active')
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'is_active'])
+            ->map(function (User $user) use ($activeSiteIds) {
+                $person = $user->person;
+                $siteId = $person?->primary_site_id;
+
+                return [
+                    'id' => $person?->id,
+                    'user_id' => $user->id,
+                    'full_name_ar' => $person?->full_name_ar ?: $user->name,
+                    'full_name_en' => $person?->full_name_en,
+                    'email' => $user->email,
+                    'specialty' => $person?->specialty,
+                    'primary_site_id' => $siteId && $activeSiteIds->contains($siteId) ? $siteId : null,
+                ];
+            });
+    }
+
+    private function hospitals($directory)
+    {
+        return TrainingSite::query()->active()->orderBy('name_ar')
+            ->get(['id', 'site_code', 'name_ar', 'name_en', 'site_type', 'city'])
+            ->map(function (TrainingSite $site) use ($directory) {
+                $site->setAttribute('supervisors', $directory
+                    ->where('primary_site_id', $site->id)
+                    ->filter(fn ($doctor) => $doctor['id'] !== null)
+                    ->values());
+
+                return $site;
+            });
     }
 
     private function recordCellChange(Request $request, DistributionVersion $version, string $action, array $data): void

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Building2, CalendarDays, CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Grid3X3, Plus, Send, Stethoscope, Trash2, UserRound, Users } from 'lucide-react';
+import { Building2, CalendarDays, CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Grid3X3, Pencil, Plus, Send, Stethoscope, Trash2, UserRound, Users } from 'lucide-react';
 import { apiFetch, ApiError } from '@/api/client';
 import { approveVersion, publishVersion } from '@/api/distribution';
 import { useAuth } from '@/auth/AuthContext';
@@ -14,15 +14,15 @@ import { Modal } from '@/components/ui/Modal';
 type Level = 'fourth' | 'fifth' | 'sixth';
 type Year = { id: number; code: string; start_date: string; end_date: string; is_current: boolean };
 type Course = { id: number; code: string; name_ar: string; name_en?: string | null; academic_level: Level; semester?: number };
-type Doctor = { id: number; full_name_ar: string; full_name_en?: string | null; email?: string; specialty?: string };
-type Hospital = { id: number; site_code: string; name_ar: string; name_en?: string | null; supervisors: Doctor[] };
+type Doctor = { id: number | null; user_id: number; full_name_ar: string; full_name_en?: string | null; email?: string; specialty?: string; primary_site_id?: number | null };
+type Hospital = { id: number; site_code: string; name_ar: string; name_en?: string | null; site_type?: string; city?: string | null; supervisors: Doctor[] };
 type Block = { id: number; block_code: string; from_week: number; to_week: number };
 type Subgroup = { id: number; name: string; capacity: number; students_count: number; group?: { id: number; name: string } };
 type Cell = { rotation_block_id: number; supervisor_id: number; training_site_id: number; subgroup_id: number; subgroup_name: string; main_group_name?: string };
 type Version = { id: number; status: string; updated_at: string };
 type Rotation = { id: number; name: string; start_date?: string | null; duration_weeks: number };
-type Options = { academic_years: Year[]; courses: Course[]; hospitals: Hospital[] };
-type Schedule = { rotation: Rotation | null; version: Version | null; blocks: Block[]; subgroups: Subgroup[]; hospitals: Hospital[]; cells: Cell[] };
+type Options = { academic_years: Year[]; courses: Course[]; hospitals: Hospital[]; unassigned_doctors: Doctor[] };
+type Schedule = { rotation: Rotation | null; version: Version | null; blocks: Block[]; subgroups: Subgroup[]; hospitals: Hospital[]; unassigned_doctors: Doctor[]; cells: Cell[] };
 
 const levels: Record<Level, string> = { fourth: 'السنة الرابعة', fifth: 'السنة الخامسة', sixth: 'السنة السادسة' };
 const inputClass = 'w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100';
@@ -51,8 +51,12 @@ export function DistributionPage() {
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [editingCell, setEditingCell] = useState<{ doctor: Doctor; hospital: Hospital; block: Block; subgroupId: string } | null>(null);
   const [doctorModal, setDoctorModal] = useState(false);
+  const [assigningDoctor, setAssigningDoctor] = useState<{ doctor: Doctor; siteId: string } | null>(null);
+  const [hospitalModal, setHospitalModal] = useState(false);
+  const [editingHospitalId, setEditingHospitalId] = useState<number | null>(null);
   const [hospitalsExpanded, setHospitalsExpanded] = useState(true);
   const [doctorForm, setDoctorForm] = useState({ full_name_ar: '', full_name_en: '', email: '', password: '', primary_site_id: '', specialty: '' });
+  const [hospitalForm, setHospitalForm] = useState({ site_code: '', name_ar: '', name_en: '', site_type: 'hospital_public', city: '' });
 
   const optionsQuery = useQuery({ queryKey: ['course-distribution-options'], queryFn: () => apiFetch<Options>('/course-distribution/options'), enabled: can('distribution.view') });
   const years = optionsQuery.data?.academic_years ?? [];
@@ -70,6 +74,7 @@ export function DistributionPage() {
   });
   const schedule = scheduleQuery.data;
   const hospitals = schedule?.hospitals ?? optionsQuery.data?.hospitals ?? [];
+  const unassignedDoctors = schedule?.unassigned_doctors ?? optionsQuery.data?.unassigned_doctors ?? [];
   const doctorsCount = hospitals.reduce((total, hospital) => total + hospital.supervisors.length, 0);
   const cellMap = useMemo(() => new Map((schedule?.cells ?? []).map((cell) => [`${cell.supervisor_id}|${cell.rotation_block_id}`, cell])), [schedule?.cells]);
   const refresh = async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['course-distribution-schedule'] }), queryClient.invalidateQueries({ queryKey: ['course-distribution-options'] })]); };
@@ -94,13 +99,35 @@ export function DistributionPage() {
     onSuccess: async () => { setDoctorModal(false); setDoctorForm({ full_name_ar: '', full_name_en: '', email: '', password: '', primary_site_id: '', specialty: '' }); await refresh(); setNotice({ type: 'success', text: 'تمت إضافة الطبيب وإنشاء حساب مشرف سريري له.' }); },
     onError: (error) => setNotice({ type: 'error', text: message(error, 'تعذر إضافة الطبيب.') }),
   });
+  const assignHospital = useMutation({
+    mutationFn: () => apiFetch(`/course-distribution/doctors/${assigningDoctor!.doctor.user_id}/hospital`, { method: 'PUT', body: { primary_site_id: assigningDoctor!.siteId ? Number(assigningDoctor!.siteId) : null } }),
+    onSuccess: async () => { setAssigningDoctor(null); await refresh(); setNotice({ type: 'success', text: 'تم تحديث مستشفى الطبيب.' }); },
+    onError: (error) => setNotice({ type: 'error', text: message(error, 'تعذر تحديث مستشفى الطبيب.') }),
+  });
+  const saveHospital = useMutation({
+    mutationFn: () => apiFetch(editingHospitalId ? `/training-sites/${editingHospitalId}` : '/training-sites', { method: editingHospitalId ? 'PUT' : 'POST', body: hospitalForm }),
+    onSuccess: async () => { setHospitalModal(false); setEditingHospitalId(null); setHospitalForm({ site_code: '', name_ar: '', name_en: '', site_type: 'hospital_public', city: '' }); await refresh(); setNotice({ type: 'success', text: 'تم حفظ بيانات المستشفى.' }); },
+    onError: (error) => setNotice({ type: 'error', text: message(error, 'تعذر حفظ المستشفى.') }),
+  });
   const approve = useMutation({ mutationFn: () => approveVersion(schedule!.version!.id), onSuccess: async () => { await refresh(); setNotice({ type: 'success', text: 'تم اعتماد الجدول.' }); }, onError: (error) => setNotice({ type: 'error', text: message(error, 'تعذر اعتماد الجدول.') }) });
   const publish = useMutation({ mutationFn: () => publishVersion(schedule!.version!.id, { last_updated_at: schedule!.version!.updated_at }), onSuccess: async () => { await refresh(); setNotice({ type: 'success', text: 'تم نشر الجدول للطلبة والمشرفين.' }); }, onError: (error) => setNotice({ type: 'error', text: message(error, 'تعذر نشر الجدول.') }) });
 
   const openCell = (doctor: Doctor, hospital: Hospital, block: Block) => {
-    if (!can('distribution.update') || schedule?.version?.status === 'published') return;
+    if (doctor.id === null || !can('distribution.update') || schedule?.version?.status === 'published') return;
     const current = cellMap.get(`${doctor.id}|${block.id}`);
     setEditingCell({ doctor, hospital, block, subgroupId: current ? String(current.subgroup_id) : '' });
+  };
+
+  const openHospital = (hospital?: Hospital) => {
+    setEditingHospitalId(hospital?.id ?? null);
+    setHospitalForm({
+      site_code: hospital?.site_code ?? '',
+      name_ar: hospital?.name_ar ?? '',
+      name_en: hospital?.name_en ?? '',
+      site_type: hospital?.site_type ?? 'hospital_public',
+      city: hospital?.city ?? '',
+    });
+    setHospitalModal(true);
   };
 
   if (!can('distribution.view')) return <ErrorState title="غير مصرح" message="لا تملك صلاحية عرض التوزيع السريري." />;
@@ -131,10 +158,38 @@ export function DistributionPage() {
       <section className="overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm"><div className="overflow-x-auto"><table className="min-w-max border-collapse text-xs"><thead><tr className="bg-slate-100"><th className="sticky right-0 z-20 min-w-52 border border-slate-300 bg-slate-100 p-3 text-right">المستشفى / الطبيب</th>{schedule.blocks.map((block) => <th key={block.id} className="min-w-24 border border-slate-300 p-2 text-center"><div className="font-black">الأسبوع {block.from_week}</div><div className="mt-1 text-[10px] font-normal text-slate-500">{weekDate(schedule.rotation?.start_date, block.from_week)}</div></th>)}</tr></thead><tbody>{hospitals.flatMap((hospital) => hospital.supervisors.map((doctor, index) => <tr key={doctor.id} className="hover:bg-slate-50"><th className="sticky right-0 z-10 border border-slate-300 bg-white p-2.5 text-right"><div className="font-black text-slate-800">{doctor.full_name_ar}</div><div className="mt-0.5 text-[10px] font-normal text-slate-500">{index === 0 ? hospital.name_ar : doctor.specialty || hospital.name_ar}</div></th>{schedule.blocks.map((block) => { const cell = cellMap.get(`${doctor.id}|${block.id}`); return <td key={block.id} className={`border border-slate-300 p-1 text-center ${cell ? 'bg-rose-100' : 'bg-white'}`}><button type="button" onClick={() => openCell(doctor, hospital, block)} className="min-h-10 w-full rounded-lg px-2 font-black text-slate-800 hover:bg-teal-50 disabled:cursor-default" disabled={!can('distribution.update') || schedule.version?.status === 'published'}>{cell ? cell.subgroup_name : <span className="text-slate-300">—</span>}</button></td>; })}</tr>))}</tbody></table></div></section>
     </>}
 
-    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm"><button type="button" onClick={() => setHospitalsExpanded(!hospitalsExpanded)} className="flex w-full items-center justify-between p-4 text-right"><div className="flex items-center gap-2"><Building2 className="h-5 w-5 text-teal-700" /><div><h2 className="font-black text-slate-900">المستشفيات والأطباء</h2><p className="mt-0.5 text-[11px] text-slate-500">الطبيب يظهر تلقائيًا في شبكة التوزيع تحت مستشفاه.</p></div></div>{hospitalsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button>{hospitalsExpanded && <div className="border-t border-slate-100 p-4"><div className="mb-4 flex justify-end">{can('people.manage') && <Button onClick={() => setDoctorModal(true)}><Plus className="ml-1 h-4 w-4" />إضافة طبيب وحساب مشرف</Button>}</div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{hospitals.map((hospital) => <article key={hospital.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center gap-2"><Building2 className="h-4 w-4 text-teal-700" /><h3 className="font-black text-slate-900">{hospital.name_ar}</h3></div><div className="mt-3 space-y-2">{hospital.supervisors.length ? hospital.supervisors.map((doctor) => <div key={doctor.id} className="flex items-center gap-2 rounded-xl bg-slate-50 p-2.5"><UserRound className="h-4 w-4 text-slate-500" /><div className="min-w-0"><p className="truncate text-xs font-bold text-slate-800">{doctor.full_name_ar}</p><p className="truncate text-[10px] text-slate-500">{doctor.email || doctor.specialty}</p></div></div>) : <p className="rounded-xl border border-dashed p-3 text-center text-xs text-slate-400">لا يوجد أطباء</p>}</div></article>)}</div></div>}</section>
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <button type="button" onClick={() => setHospitalsExpanded(!hospitalsExpanded)} className="flex w-full items-center justify-between p-4 text-right">
+        <div className="flex items-center gap-2"><Building2 className="h-5 w-5 text-teal-700" /><div><h2 className="font-black text-slate-900">إدارة المستشفيات والأطباء</h2><p className="mt-0.5 text-[11px] text-slate-500">كل حساب يحمل دور «مشرف سريري» يظهر هنا كطبيب، ثم يُربط بالمستشفى المناسب.</p></div></div>
+        {hospitalsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </button>
+      {hospitalsExpanded && <div className="space-y-5 border-t border-slate-100 p-4">
+        <div className="flex flex-wrap justify-end gap-2">
+          {can('training_sites.manage') && <Button variant="outline" onClick={() => openHospital()}><Plus className="ml-1 h-4 w-4" />إضافة مستشفى</Button>}
+          {can('people.manage') && <Button onClick={() => setDoctorModal(true)}><Plus className="ml-1 h-4 w-4" />إضافة طبيب وحساب مشرف</Button>}
+        </div>
+
+        {unassignedDoctors.length > 0 && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="mb-3 flex items-center justify-between gap-2"><div><h3 className="text-sm font-black text-amber-900">أطباء بانتظار تعيين مستشفى</h3><p className="mt-0.5 text-[11px] text-amber-700">هؤلاء موجودون في المستخدمين بدور مشرف سريري ولن يظهروا في شبكة الجدول حتى يتم تعيين مستشفى.</p></div><span className="rounded-full bg-white px-2.5 py-1 text-xs font-black text-amber-800">{unassignedDoctors.length}</span></div>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{unassignedDoctors.map((doctor) => <div key={doctor.user_id} className="flex items-center justify-between gap-2 rounded-xl border border-amber-100 bg-white p-3"><div className="min-w-0"><p className="truncate text-xs font-black text-slate-800">{doctor.full_name_ar}</p><p dir="ltr" className="truncate text-left text-[10px] text-slate-500">{doctor.email}</p></div>{can('people.manage') && <Button variant="outline" size="sm" onClick={() => setAssigningDoctor({ doctor, siteId: '' })}>تعيين</Button>}</div>)}</div>
+        </div>}
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{hospitals.map((hospital) => <article key={hospital.id} className="rounded-2xl border border-slate-200 p-4">
+          <div className="flex items-start justify-between gap-2"><div><div className="flex items-center gap-2"><Building2 className="h-4 w-4 text-teal-700" /><h3 className="font-black text-slate-900">{hospital.name_ar}</h3></div><p className="mt-1 text-[10px] text-slate-500">{hospital.site_code}{hospital.city ? ` · ${hospital.city}` : ''} · {hospital.supervisors.length} طبيب</p></div>{can('training_sites.manage') && <button type="button" onClick={() => openHospital(hospital)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" title="تعديل المستشفى"><Pencil className="h-4 w-4" /></button>}</div>
+          <div className="mt-3 space-y-2">{hospital.supervisors.length ? hospital.supervisors.map((doctor) => <div key={doctor.user_id} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 p-2.5"><div className="flex min-w-0 items-center gap-2"><UserRound className="h-4 w-4 shrink-0 text-slate-500" /><div className="min-w-0"><p className="truncate text-xs font-bold text-slate-800">{doctor.full_name_ar}</p><p className="truncate text-[10px] text-slate-500">{doctor.email || doctor.specialty}</p></div></div>{can('people.manage') && <button type="button" onClick={() => setAssigningDoctor({ doctor, siteId: String(hospital.id) })} className="shrink-0 rounded-lg px-2 py-1 text-[10px] font-bold text-teal-700 hover:bg-teal-50">نقل</button>}</div>) : <p className="rounded-xl border border-dashed p-3 text-center text-xs text-slate-400">لا يوجد أطباء</p>}</div>
+        </article>)}</div>
+      </div>}
+    </section>
 
     <Modal isOpen={Boolean(editingCell)} onClose={() => setEditingCell(null)} title={editingCell ? `${editingCell.doctor.full_name_ar} — الأسبوع ${editingCell.block.from_week}` : ''} footer={editingCell && <><Button variant="outline" onClick={() => setEditingCell(null)}>إلغاء</Button>{cellMap.has(`${editingCell.doctor.id}|${editingCell.block.id}`) && <Button variant="danger" onClick={() => clearCell.mutate()} isLoading={clearCell.isPending}><Trash2 className="ml-1 h-4 w-4" />تفريغ الخلية</Button>}<Button onClick={() => saveCell.mutate()} isLoading={saveCell.isPending} disabled={!editingCell.subgroupId}>حفظ المجموعة</Button></>}><label><span className="mb-2 block text-xs font-black text-slate-600">مجموعة الطلبة</span><select className={inputClass} value={editingCell?.subgroupId ?? ''} onChange={(event) => setEditingCell((current) => current ? { ...current, subgroupId: event.target.value } : null)}><option value="">اختر المجموعة</option>{schedule?.subgroups.map((subgroup) => <option key={subgroup.id} value={subgroup.id}>{subgroup.name} — {subgroup.students_count} طالب</option>)}</select></label><p className="mt-3 rounded-xl bg-slate-50 p-3 text-[11px] text-slate-600"><Stethoscope className="ml-1 inline h-3.5 w-3.5" />المستشفى: {editingCell?.hospital.name_ar}</p></Modal>
 
     <Modal isOpen={doctorModal} onClose={() => setDoctorModal(false)} title="إضافة طبيب وإنشاء حساب مشرف سريري" maxWidth="lg"><form onSubmit={(event: FormEvent) => { event.preventDefault(); addDoctor.mutate(); }} className="space-y-3"><div className="grid gap-3 sm:grid-cols-2"><label><span className="mb-1 block text-xs font-bold">اسم الطبيب بالعربية</span><input required className={inputClass} value={doctorForm.full_name_ar} onChange={(event) => setDoctorForm({ ...doctorForm, full_name_ar: event.target.value })} /></label><label><span className="mb-1 block text-xs font-bold">الاسم بالإنجليزية</span><input className={inputClass} value={doctorForm.full_name_en} onChange={(event) => setDoctorForm({ ...doctorForm, full_name_en: event.target.value })} /></label><label><span className="mb-1 block text-xs font-bold">المستشفى</span><select required className={inputClass} value={doctorForm.primary_site_id} onChange={(event) => setDoctorForm({ ...doctorForm, primary_site_id: event.target.value })}><option value="">اختر المستشفى</option>{hospitals.map((hospital) => <option key={hospital.id} value={hospital.id}>{hospital.name_ar}</option>)}</select></label><label><span className="mb-1 block text-xs font-bold">التخصص</span><input className={inputClass} value={doctorForm.specialty} onChange={(event) => setDoctorForm({ ...doctorForm, specialty: event.target.value })} /></label><label><span className="mb-1 block text-xs font-bold">البريد الإلكتروني</span><input required type="email" dir="ltr" className={inputClass} value={doctorForm.email} onChange={(event) => setDoctorForm({ ...doctorForm, email: event.target.value })} /></label><label><span className="mb-1 block text-xs font-bold">كلمة المرور المؤقتة</span><input required type="password" dir="ltr" minLength={12} className={inputClass} value={doctorForm.password} onChange={(event) => setDoctorForm({ ...doctorForm, password: event.target.value })} placeholder="12+ حرف كبير وصغير ورقم ورمز" /></label></div><div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-[11px] leading-5 text-blue-800">سيُنشئ النظام حسابًا فعالًا بدور «مشرف سريري» ويربطه بالطبيب والمستشفى المحدد.</div><div className="flex justify-end gap-2 border-t pt-3"><Button type="button" variant="outline" onClick={() => setDoctorModal(false)}>إلغاء</Button><Button type="submit" isLoading={addDoctor.isPending}>إضافة الطبيب والحساب</Button></div></form></Modal>
+
+    <Modal isOpen={Boolean(assigningDoctor)} onClose={() => setAssigningDoctor(null)} title={assigningDoctor ? `تعيين مستشفى — ${assigningDoctor.doctor.full_name_ar}` : ''} footer={<><Button variant="outline" onClick={() => setAssigningDoctor(null)}>إلغاء</Button><Button onClick={() => assignHospital.mutate()} isLoading={assignHospital.isPending}>حفظ</Button></>}>
+      <label><span className="mb-2 block text-xs font-black text-slate-600">المستشفى</span><select className={inputClass} value={assigningDoctor?.siteId ?? ''} onChange={(event) => setAssigningDoctor((current) => current ? { ...current, siteId: event.target.value } : null)}><option value="">بدون مستشفى</option>{hospitals.map((hospital) => <option key={hospital.id} value={hospital.id}>{hospital.name_ar}</option>)}</select></label>
+      <p className="mt-3 rounded-xl bg-slate-50 p-3 text-[11px] leading-5 text-slate-600">يمكن نقل الطبيب إلى مستشفى آخر أو اختيار «بدون مستشفى» لإزالته مؤقتًا من شبكة التوزيع.</p>
+    </Modal>
+
+    <Modal isOpen={hospitalModal} onClose={() => setHospitalModal(false)} title={editingHospitalId ? 'تعديل بيانات المستشفى' : 'إضافة مستشفى'} maxWidth="lg"><form onSubmit={(event: FormEvent) => { event.preventDefault(); saveHospital.mutate(); }} className="space-y-3"><div className="grid gap-3 sm:grid-cols-2"><label><span className="mb-1 block text-xs font-bold">رمز المستشفى</span><input required dir="ltr" className={inputClass} value={hospitalForm.site_code} onChange={(event) => setHospitalForm({ ...hospitalForm, site_code: event.target.value })} /></label><label><span className="mb-1 block text-xs font-bold">اسم المستشفى بالعربية</span><input required className={inputClass} value={hospitalForm.name_ar} onChange={(event) => setHospitalForm({ ...hospitalForm, name_ar: event.target.value })} /></label><label><span className="mb-1 block text-xs font-bold">الاسم بالإنجليزية</span><input className={inputClass} value={hospitalForm.name_en} onChange={(event) => setHospitalForm({ ...hospitalForm, name_en: event.target.value })} /></label><label><span className="mb-1 block text-xs font-bold">نوع المنشأة</span><select className={inputClass} value={hospitalForm.site_type} onChange={(event) => setHospitalForm({ ...hospitalForm, site_type: event.target.value })}><option value="hospital_public">مستشفى حكومي</option><option value="hospital_private">مستشفى خاص</option><option value="medical_center">مركز طبي</option><option value="clinic">عيادة</option><option value="other">أخرى</option></select></label><label className="sm:col-span-2"><span className="mb-1 block text-xs font-bold">المدينة</span><input className={inputClass} value={hospitalForm.city} onChange={(event) => setHospitalForm({ ...hospitalForm, city: event.target.value })} /></label></div><div className="flex justify-end gap-2 border-t pt-3"><Button type="button" variant="outline" onClick={() => setHospitalModal(false)}>إلغاء</Button><Button type="submit" isLoading={saveHospital.isPending}>حفظ المستشفى</Button></div></form></Modal>
   </div>;
 }

@@ -554,6 +554,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 ->middleware('permission:distribution.update')->name('cells.destroy');
             Route::post('doctors', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'storeDoctor'])
                 ->middleware('permission:people.manage')->name('doctors.store');
+            Route::put('doctors/{user}/hospital', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'assignDoctorHospital'])
+                ->middleware('permission:people.manage')->name('doctors.hospital.update');
         });
 
         Route::apiResource('rotations', App\Http\Controllers\Api\V1\RotationController::class)

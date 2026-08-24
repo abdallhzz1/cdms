@@ -46,7 +46,14 @@ class CourseDistributionWorkflowTest extends TestCase
             StudentGroupAssignment::factory()->create(['student_id' => $student->id, 'academic_year_id' => $this->year->id, 'student_group_id' => $group->id, 'student_subgroup_id' => $this->subgroup->id, 'valid_until' => null]);
         }
         $site = TrainingSite::factory()->create(['is_active' => true]);
-        $this->doctor = Person::factory()->create(['primary_site_id' => $site->id, 'is_active' => true]);
+        $doctorUser = User::factory()->create();
+        $doctorUser->roles()->attach(Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail());
+        $this->doctor = Person::factory()->create([
+            'user_id' => $doctorUser->id,
+            'email' => $doctorUser->email,
+            'primary_site_id' => $site->id,
+            'is_active' => true,
+        ]);
     }
 
     public function test_options_expose_courses_by_their_academic_level_and_hospital_doctors(): void
@@ -102,5 +109,29 @@ class CourseDistributionWorkflowTest extends TestCase
         $account = User::where('email', 'doctor@example.com')->firstOrFail();
         $this->assertTrue($account->hasRole('CLINICAL_SUPERVISOR'));
         $this->assertDatabaseHas('people', ['user_id' => $account->id, 'primary_site_id' => $site->id]);
+    }
+
+    public function test_supervisor_accounts_without_people_profiles_are_listed_and_can_be_assigned(): void
+    {
+        $account = User::factory()->create(['name' => 'د. موجود مسبقاً', 'email' => 'existing-doctor@example.com']);
+        $account->roles()->attach(Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail());
+        $site = TrainingSite::factory()->create(['is_active' => true]);
+
+        $this->actingAs($this->user)->getJson('/api/v1/course-distribution/options')
+            ->assertOk()
+            ->assertJsonFragment(['user_id' => $account->id, 'full_name_ar' => 'د. موجود مسبقاً'])
+            ->assertJsonPath('data.unassigned_doctors.0.user_id', $account->id);
+
+        $this->actingAs($this->user)->putJson("/api/v1/course-distribution/doctors/{$account->id}/hospital", [
+            'primary_site_id' => $site->id,
+        ])->assertOk();
+
+        $this->assertDatabaseHas('people', [
+            'user_id' => $account->id,
+            'email' => 'existing-doctor@example.com',
+            'primary_site_id' => $site->id,
+        ]);
+        $this->actingAs($this->user)->getJson('/api/v1/course-distribution/options')
+            ->assertJsonFragment(['user_id' => $account->id, 'primary_site_id' => $site->id]);
     }
 }
