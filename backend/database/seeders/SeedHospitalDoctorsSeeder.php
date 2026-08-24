@@ -140,6 +140,13 @@ class SeedHospitalDoctorsSeeder extends Seeder
                     ?? Person::query()->whereRaw('LOWER(email) = ?', [$email])->first()
                     ?? $people->first(fn (Person $item) => $normalize($item->full_name_ar) === $normalizedName && $item->user_id === null);
 
+                // A doctor can appear under more than one hospital in the same
+                // import. Always re-read by the unique user_id before creating,
+                // rather than trusting a relation cached before the first pass.
+                if ($user) {
+                    $person = Person::query()->where('user_id', $user->id)->first() ?? $person;
+                }
+
                 // An older directory seeder created guessed-email duplicates for
                 // some doctors who already had a richer institutional profile.
                 // Keep the account, but remove only its duplicate supervisor role.
