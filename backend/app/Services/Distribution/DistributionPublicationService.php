@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Exception;
+use Carbon\CarbonImmutable;
 
 class DistributionPublicationService
 {
@@ -52,10 +53,11 @@ class DistributionPublicationService
             ]);
         }
 
-        // Concurrency Check (ISO 8601 string or equivalent representation)
-        if ($version->updated_at->toIso8601String() !== $lastUpdatedAt && $version->updated_at->toDateTimeString() !== $lastUpdatedAt) {
+        // Compare the actual instant, not its textual representation. Laravel's
+        // JSON uses `Z` with microseconds while Carbon commonly renders `+00:00`.
+        if (! $this->timestampMatches($version, $lastUpdatedAt)) {
             throw ValidationException::withMessages([
-                'concurrency' => ['The version has been modified by another user. Please reload and try again.']
+                'concurrency' => ['تم تعديل نسخة الجدول من جلسة أخرى. حدّث الصفحة ثم حاول مجدداً.']
             ]);
         }
 
@@ -66,10 +68,9 @@ class DistributionPublicationService
             // Re-fetch target version
             $version = DistributionVersion::where('id', $version->id)->firstOrFail();
 
-            if ($version->updated_at->toIso8601String() !== $lastUpdatedAt
-                && $version->updated_at->toDateTimeString() !== $lastUpdatedAt) {
+            if (! $this->timestampMatches($version, $lastUpdatedAt)) {
                 throw ValidationException::withMessages([
-                    'concurrency' => ['The version changed while publication was waiting for a lock. Please reload and try again.'],
+                    'concurrency' => ['تغيرت نسخة الجدول أثناء انتظار النشر. حدّث الصفحة ثم حاول مجدداً.'],
                 ]);
             }
 
@@ -189,5 +190,14 @@ class DistributionPublicationService
         );
 
         return $publishedVersion;
+    }
+
+    private function timestampMatches(DistributionVersion $version, string $lastUpdatedAt): bool
+    {
+        try {
+            return $version->updated_at->equalTo(CarbonImmutable::parse($lastUpdatedAt));
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }

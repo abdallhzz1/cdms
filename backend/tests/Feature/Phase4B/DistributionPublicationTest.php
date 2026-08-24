@@ -99,6 +99,18 @@ class DistributionPublicationTest extends TestCase
         ]);
     }
 
+    public function test_publication_accepts_json_timestamp_format_sent_by_spa()
+    {
+        $this->approveVersion();
+
+        $this->actingAs($this->publishAdmin)->postJson(
+            route('api.v1.distribution-versions.publish', $this->version->id),
+            ['last_updated_at' => $this->version->fresh()->updated_at->toJSON()]
+        )->assertOk();
+
+        $this->assertEquals('published', $this->version->fresh()->status);
+    }
+
     public function test_unapproved_version_cannot_publish()
     {
         $response = $this->actingAs($this->publishAdmin)->postJson(
