@@ -12,6 +12,7 @@ import { StudentProfilePage } from '@/pages/StudentProfilePage';
 import { StudentGroupsPage } from '@/pages/StudentGroupsPage';
 import { StaffProfilePage } from '@/pages/StaffProfilePage';
 import { CoursesPage } from '@/pages/CoursesPage';
+import { StudyPlansPage } from '@/pages/StudyPlansPage';
 import { StudyPlanDetailsPage } from '@/pages/StudyPlanDetailsPage';
 import { CourseDetailsPage } from '@/pages/CourseDetailsPage';
 import { GradesPage } from '@/pages/GradesPage';
@@ -79,7 +80,7 @@ export function App() {
                 
                 {/* Academic Affairs & Plans */}
                 <Route path="/courses" element={<CoursesPage />} />
-                <Route path="/study-plans" element={<CoursesPage />} />
+                <Route path="/study-plans" element={<StudyPlansPage />} />
                 <Route path="/study-plans/:planId" element={<StudyPlanDetailsPage />} />
                 <Route path="/courses/:courseId" element={<CourseDetailsPage />} />
                 <Route path="/grades" element={<GradesPage />} />

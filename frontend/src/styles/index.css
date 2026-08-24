@@ -97,6 +97,22 @@ input, select, textarea {
   font: inherit; 
 }
 
+.input {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 0.65rem 0.75rem;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 600;
+  outline: none;
+}
+.input:focus {
+  border-color: #0d9488;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
+}
+
 /* Table smooth scrolling on mobile */
 .table-responsive {
   width: 100%;

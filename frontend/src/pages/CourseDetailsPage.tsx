@@ -58,9 +58,22 @@ interface Course {
   academic_level?: string | null;
   is_active?: boolean;
   description?: string | null;
+  semester?: 1 | 2;
   assessment_components?: AssessmentComponent[];
   learning_outcomes?: LearningOutcome[];
   program_outcome_mappings?: ProgramOutcomeMapping[];
+}
+
+interface CourseReport {
+  id: number; academic_year_id: number; status: 'draft'|'submitted'|'approved'|'returned';
+  summary?: string|null; achievements?: string|null; challenges?: string|null;
+  improvement_plan?: string|null; review_notes?: string|null;
+  academic_year?: { id:number; code:string; is_current:boolean };
+  preparer?: { id:number; name:string }; approver?: { id:number; name:string };
+}
+interface ReportsPayload {
+  reports: CourseReport[];
+  academic_years: Array<{id:number;code:string;is_current:boolean;status:string}>;
 }
 
 export function CourseDetailsPage() {
@@ -95,9 +108,14 @@ export function CourseDetailsPage() {
   const [ploCode, setPloCode] = useState('');
   const [ploLevel, setPloLevel] = useState('High');
 
-  // Report Improvement Notes State
-  const [reportNotes, setReportNotes] = useState('');
-  const [isSavingReport, setIsSavingReport] = useState(false);
+  const [reportYearId, setReportYearId] = useState('');
+  const [reportSummary, setReportSummary] = useState('');
+  const [reportAchievements, setReportAchievements] = useState('');
+  const [reportChallenges, setReportChallenges] = useState('');
+  const [reportPlan, setReportPlan] = useState('');
+  const [reviewNotes, setReviewNotes] = useState('');
+  const [reportError, setReportError] = useState('');
+  const [actionError, setActionError] = useState('');
 
   // Fetch course details live from MySQL DB
   const { data, isLoading, isError, refetch } = useQuery({
@@ -111,6 +129,41 @@ export function CourseDetailsPage() {
     queryFn: () => apiFetch<ProgramOutcome[]>('/program-outcomes'),
   });
 
+  const reportsQuery = useQuery({
+    queryKey: ['course-reports', courseId],
+    queryFn: () => apiFetch<ReportsPayload>(`/courses/${courseId}/reports`),
+    enabled: Boolean(courseId),
+  });
+
+  const refreshReports = () => qc.invalidateQueries({ queryKey: ['course-reports', courseId] });
+  const selectedReport = reportsQuery.data?.reports.find((report) => String(report.academic_year_id) === reportYearId);
+  const loadReport = (yearId: string) => {
+    setReportYearId(yearId);
+    const report = reportsQuery.data?.reports.find((item) => String(item.academic_year_id) === yearId);
+    setReportSummary(report?.summary || '');
+    setReportAchievements(report?.achievements || '');
+    setReportChallenges(report?.challenges || '');
+    setReportPlan(report?.improvement_plan || '');
+    setReviewNotes(report?.review_notes || '');
+    setReportError('');
+  };
+  const openReports = () => {
+    const current = reportsQuery.data?.academic_years.find((year) => year.is_current)
+      || reportsQuery.data?.academic_years[0];
+    loadReport(current ? String(current.id) : '');
+    setIsReportModalOpen(true);
+  };
+  const reportAction = useMutation({
+    mutationFn: async (action: 'save'|'submit'|'approve'|'return') => {
+      if (!reportYearId) throw new Error('اختر العام الأكاديمي.');
+      if (action === 'save') return apiFetch(`/courses/${courseId}/reports`, { method:'POST', body:{ academic_year_id:Number(reportYearId), summary:reportSummary, achievements:reportAchievements, challenges:reportChallenges, improvement_plan:reportPlan } });
+      if (!selectedReport) throw new Error('احفظ التقرير أولاً.');
+      return apiFetch(`/courses/${courseId}/reports/${selectedReport.id}/${action}`, { method:'POST', body: action === 'approve' || action === 'return' ? { review_notes:reviewNotes } : {} });
+    },
+    onSuccess: async () => { await refreshReports(); setReportError(''); },
+    onError: (error: Error) => setReportError(error.message),
+  });
+
   // Assessment Component Mutations
   const compMutation = useMutation({
     mutationFn: (payload: any) => {
@@ -122,12 +175,15 @@ export function CourseDetailsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['course', courseId] });
       setIsCompModalOpen(false);
+      setActionError('');
     },
+    onError: (error: Error) => setActionError(error.message),
   });
 
   const deleteCompMutation = useMutation({
     mutationFn: (compId: number) => apiFetch(`/courses/${courseId}/assessment-components/${compId}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['course', courseId] }),
+    onError: (error: Error) => setActionError(error.message),
   });
 
   // ILO Mutations
@@ -141,12 +197,15 @@ export function CourseDetailsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['course', courseId] });
       setIsIloModalOpen(false);
+      setActionError('');
     },
+    onError: (error: Error) => setActionError(error.message),
   });
 
   const deleteIloMutation = useMutation({
     mutationFn: (iloId: number) => apiFetch(`/courses/${courseId}/learning-outcomes/${iloId}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['course', courseId] }),
+    onError: (error: Error) => setActionError(error.message),
   });
 
   // PLO Mapping Mutations
@@ -155,12 +214,15 @@ export function CourseDetailsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['course', courseId] });
       setIsPloModalOpen(false);
+      setActionError('');
     },
+    onError: (error: Error) => setActionError(error.message),
   });
 
   const deletePloMutation = useMutation({
     mutationFn: (ploId: number) => apiFetch(`/courses/${courseId}/program-outcome-mappings/${ploId}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['course', courseId] }),
+    onError: (error: Error) => setActionError(error.message),
   });
 
   if (isLoading) return <LoadingState />;
@@ -237,24 +299,9 @@ export function CourseDetailsPage() {
     });
   };
 
-  const handleSaveReport = async () => {
-    setIsSavingReport(true);
-    try {
-      await apiFetch(`/courses/${courseId}`, {
-        method: 'PUT',
-        body: { description: reportNotes.trim() || data.description },
-      });
-      await qc.invalidateQueries({ queryKey: ['course', courseId] });
-      setIsReportModalOpen(false);
-    } catch (err) {
-      alert('تعذر حفظ التقرير');
-    } finally {
-      setIsSavingReport(false);
-    }
-  };
-
   return (
     <div className="mx-auto max-w-[1200px] space-y-5 pb-16 px-2 sm:px-0">
+      {actionError && <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-700"><span>{actionError}</span><button onClick={()=>setActionError('')}>✕</button></div>}
       {/* Breadcrumbs & Navigation Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-2xs">
         <div className="flex items-center gap-2">
@@ -274,51 +321,52 @@ export function CourseDetailsPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <button 
             type="button"
-            onClick={() => { setReportNotes(data.description || ''); setIsReportModalOpen(true); }}
+            onClick={openReports}
             className="text-xs font-semibold bg-teal-50 border border-teal-200 text-teal-700 hover:bg-teal-100/70 px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
           >
             <FileText className="w-4 h-4 text-teal-600" />
             <span>{locale === 'ar' ? 'تقرير المساق السنوي' : 'Annual Course Report'}</span>
           </button>
 
-          <Link 
+          {can('grades.view') && <Link
             to={`/grades?course_id=${courseId}`} 
             className="text-xs font-semibold bg-teal-600 hover:bg-teal-700 text-white px-3.5 py-2 rounded-xl shadow-xs transition-all flex items-center gap-1.5"
           >
             <BarChart2 className="w-4 h-4" />
             <span>{locale === 'ar' ? 'سجل العلامات' : 'Grades Log'}</span>
-          </Link>
+          </Link>}
         </div>
       </div>
 
       {/* Hero Course Profile Header */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-        <div className="bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-700 p-6 text-white relative">
+        <div className="bg-teal-50 p-6 relative">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/20 flex items-center justify-center shrink-0">
-                <BookOpen className="w-7 h-7 text-white" />
+              <div className="w-14 h-14 rounded-2xl bg-white border border-teal-100 flex items-center justify-center shrink-0">
+                <BookOpen className="w-7 h-7 text-teal-600" />
               </div>
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="bg-white/20 backdrop-blur-xs text-white font-mono font-bold text-xs px-2.5 py-0.5 rounded-md border border-white/20">
+                  <span className="bg-white text-teal-700 font-mono font-bold text-xs px-2.5 py-0.5 rounded-md border border-teal-100">
                     {data.code}
                   </span>
-                  <span className="bg-emerald-400/20 backdrop-blur-xs text-emerald-100 font-semibold text-[11px] px-2.5 py-0.5 rounded-md border border-emerald-300/30">
+                  <span className="bg-white text-slate-600 font-semibold text-[11px] px-2.5 py-0.5 rounded-md border border-slate-200">
                     {data.academic_level === 'fifth' ? (locale === 'ar' ? 'السنة الخامسة' : '5th Year') : data.academic_level === 'sixth' ? (locale === 'ar' ? 'السنة السادسة' : '6th Year') : (locale === 'ar' ? 'السنة الرابعة' : '4th Year')}
                   </span>
                 </div>
-                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">{name}</h1>
+                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">{name}</h1>
                 {locale === 'ar' && data.name_en && (
-                  <p className="text-teal-100/90 text-xs mt-0.5 font-medium">{data.name_en}</p>
+                  <p className="text-slate-500 text-xs mt-0.5 font-medium">{data.name_en}</p>
                 )}
               </div>
             </div>
 
-            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-xs px-3.5 py-2 rounded-xl border border-white/20 self-start sm:self-center">
-              <Award className="w-4 h-4 text-emerald-300" />
-              <span className="text-xs font-bold text-white">
+            <div className="flex items-center gap-2 bg-white px-3.5 py-2 rounded-xl border border-teal-100 self-start sm:self-center">
+              <Award className="w-4 h-4 text-teal-600" />
+              <span className="text-xs font-bold text-teal-800">
                 {data.credit_hours} {locale === 'ar' ? 'ساعات معتمدة' : 'Credit Hours'}
+                {' · '}{data.semester === 2 ? 'الفصل الثاني' : 'الفصل الأول'}
               </span>
             </div>
           </div>
@@ -753,6 +801,11 @@ export function CourseDetailsPage() {
             </div>
 
             <div className="p-6 space-y-5 overflow-y-auto">
+              {reportError && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-700">{reportError}</div>}
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                <label className="space-y-1"><span className="text-xs font-bold text-slate-600">العام الأكاديمي</span><select value={reportYearId} onChange={e=>loadReport(e.target.value)} className="input"><option value="">اختر العام</option>{reportsQuery.data?.academic_years.map(year=><option key={year.id} value={year.id}>{year.code}{year.is_current?' — الحالي':''}</option>)}</select></label>
+                <div className="self-end rounded-xl bg-slate-100 px-4 py-2.5 text-xs font-black text-slate-600">{selectedReport ? ({draft:'مسودة',submitted:'مرسل للاعتماد',approved:'معتمد',returned:'معاد للتعديل'} as const)[selectedReport.status] : 'تقرير جديد'}</div>
+              </div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="p-3.5 rounded-2xl bg-teal-50 border border-teal-100 text-center">
                   <div className="text-xl font-black text-teal-700">{data.credit_hours}</div>
@@ -777,7 +830,7 @@ export function CourseDetailsPage() {
                     <div key={ilo.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between gap-2 text-xs">
                       <span className="font-bold text-teal-700 font-mono">{ilo.outcome_code}</span>
                       <span className="font-medium text-slate-700 flex-1 truncate">{ilo.text_ar || ilo.text_en}</span>
-                      <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[10px] shrink-0">متحقق</span>
+                      <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 font-bold text-[10px] shrink-0">مسجل</span>
                     </div>
                   ))}
                   {(!data.learning_outcomes || data.learning_outcomes.length === 0) && (
@@ -786,18 +839,13 @@ export function CourseDetailsPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  {locale === 'ar' ? 'توصيات وخطة تطوير المساق للعام القادم:' : 'Improvement Action Plan:'}
-                </label>
-                <textarea 
-                  rows={3} 
-                  value={reportNotes}
-                  onChange={e => setReportNotes(e.target.value)}
-                  placeholder={locale === 'ar' ? 'أدخل التوصيات وخطة التحسين السنوية للمساق...' : 'Enter annual course improvement recommendations...'}
-                  className="w-full rounded-xl border border-slate-200 p-3 text-xs font-medium focus:ring-1 focus:ring-teal-600"
-                />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">ملخص تنفيذ المساق *</span><textarea rows={4} value={reportSummary} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportSummary(e.target.value)} className="input resize-none" placeholder="ملخص التنفيذ والنتائج..."/></label>
+                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">الإنجازات</span><textarea rows={4} value={reportAchievements} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportAchievements(e.target.value)} className="input resize-none" placeholder="أهم الإنجازات..."/></label>
+                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">التحديات</span><textarea rows={4} value={reportChallenges} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportChallenges(e.target.value)} className="input resize-none" placeholder="التحديات والمعيقات..."/></label>
+                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">خطة التحسين *</span><textarea rows={4} value={reportPlan} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportPlan(e.target.value)} className="input resize-none" placeholder="إجراءات محددة للعام القادم..."/></label>
               </div>
+              {(can('course_report.approve')||selectedReport?.review_notes)&&<label className="block space-y-1"><span className="text-xs font-bold text-slate-700">ملاحظات المراجعة</span><textarea rows={3} value={reviewNotes} disabled={!can('course_report.approve')||selectedReport?.status!=='submitted'} onChange={e=>setReviewNotes(e.target.value)} className="input resize-none" placeholder="ملاحظات الاعتماد أو الإعادة..."/></label>}
 
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button 
@@ -807,14 +855,8 @@ export function CourseDetailsPage() {
                 >
                   {locale === 'ar' ? 'إلغاء' : 'Close'}
                 </button>
-                <button 
-                  type="button"
-                  disabled={isSavingReport}
-                  onClick={handleSaveReport}
-                  className="px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs"
-                >
-                  {isSavingReport ? (locale === 'ar' ? 'جاري الحفظ...' : 'Saving...') : (locale === 'ar' ? 'حفظ واعتماد التقرير' : 'Save Report')}
-                </button>
+                {can('course_report.manage')&&(!selectedReport||['draft','returned'].includes(selectedReport.status))&&<><button type="button" disabled={reportAction.isPending} onClick={()=>reportAction.mutate('save')} className="px-4 py-2 text-xs font-semibold rounded-xl border border-teal-200 text-teal-700 hover:bg-teal-50">حفظ المسودة</button>{selectedReport&&<button type="button" disabled={reportAction.isPending} onClick={()=>reportAction.mutate('submit')} className="px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700">إرسال للاعتماد</button>}</>}
+                {can('course_report.approve')&&selectedReport?.status==='submitted'&&<><button type="button" disabled={reportAction.isPending||!reviewNotes.trim()} onClick={()=>reportAction.mutate('return')} className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-300 text-slate-700">إعادة للتعديل</button><button type="button" disabled={reportAction.isPending} onClick={()=>reportAction.mutate('approve')} className="px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white">اعتماد التقرير</button></>}
               </div>
             </div>
           </div>

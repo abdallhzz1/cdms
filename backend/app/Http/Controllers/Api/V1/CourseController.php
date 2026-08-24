@@ -12,6 +12,8 @@ use App\Models\CourseProgramOutcomeMapping;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CourseController extends Controller
 {
@@ -30,13 +32,27 @@ class CourseController extends Controller
                       ->orWhere('name_en', 'like', "%{$search}%");
                 });
             })
-            ->when($request->filled('academic_level'), function ($q) use ($request) {
-                $q->where('academic_level', $request->query('academic_level'));
-            })
             ->when($hasSemester && $request->filled('semester'), function ($q) use ($request) {
                 $q->where('semester', $request->query('semester'));
             })
-            ->orderBy('academic_level');
+            ->when($request->query('status') === 'active', fn ($q) => $q->where('is_active', true))
+            ->when($request->query('status') === 'inactive', fn ($q) => $q->where('is_active', false));
+
+        $summaryQuery = clone $query;
+        $summary = [
+            'total' => (clone $summaryQuery)->count(),
+            'total_hours' => (int) (clone $summaryQuery)->sum('credit_hours'),
+            'active' => (clone $summaryQuery)->where('is_active', true)->count(),
+            'inactive' => (clone $summaryQuery)->where('is_active', false)->count(),
+            'by_level' => (clone $summaryQuery)->selectRaw('academic_level, COUNT(*) as courses_count, COALESCE(SUM(credit_hours), 0) as credit_hours')
+                ->groupBy('academic_level')->get()->keyBy('academic_level'),
+        ];
+
+        $query->when($request->filled('academic_level'), function ($q) use ($request) {
+            $q->where('academic_level', $request->query('academic_level'));
+        });
+
+        $query->orderBy('academic_level');
 
         if ($hasSemester) {
             $query->orderBy('semester');
@@ -46,8 +62,19 @@ class CourseController extends Controller
 
         $courses = $query->paginate($perPage);
 
+        $data = $request->boolean('with_pagination') ? [
+            'items' => $courses->items(),
+            'pagination' => [
+                'current_page' => $courses->currentPage(),
+                'last_page' => $courses->lastPage(),
+                'per_page' => $courses->perPage(),
+                'total' => $courses->total(),
+            ],
+            'summary' => $summary,
+        ] : $courses->items();
+
         return ApiResponse::success(
-            $courses->items(),
+            $data,
             null,
             [
                 'current_page' => $courses->currentPage(),
@@ -60,7 +87,7 @@ class CourseController extends Controller
     public function store(Request $request): JsonResponse {
         $hasSemester = Schema::hasColumn('courses', 'semester');
         $rules = [
-            'code' => 'required|string|max:50',
+            'code' => ['required', 'string', 'max:30', 'unique:courses,code'],
             'name_ar' => 'required|string|max:255',
             'name_en' => 'nullable|string|max:255',
             'credit_hours' => 'required|integer|min:1',
@@ -69,7 +96,7 @@ class CourseController extends Controller
             'description' => 'nullable|string',
         ];
         if ($hasSemester) {
-            $rules['semester'] = 'sometimes|integer|in:1,2';
+            $rules['semester'] = 'required|integer|in:1,2';
         }
 
         $validated = $request->validate($rules);
@@ -86,7 +113,7 @@ class CourseController extends Controller
     public function update(Request $request, Course $course): JsonResponse {
         $hasSemester = Schema::hasColumn('courses', 'semester');
         $rules = [
-            'code' => 'sometimes|required|string|max:50',
+            'code' => ['sometimes', 'required', 'string', 'max:30', Rule::unique('courses', 'code')->ignore($course->id)],
             'name_ar' => 'sometimes|required|string|max:255',
             'name_en' => 'nullable|string|max:255',
             'credit_hours' => 'sometimes|required|integer|min:1',
@@ -104,8 +131,8 @@ class CourseController extends Controller
     }
 
     public function destroy(Course $course): JsonResponse {
-        $course->delete();
-        return ApiResponse::success(null, 'Course deleted successfully.');
+        $course->update(['is_active' => false]);
+        return ApiResponse::success($course->fresh(), 'Course archived safely.');
     }
 
     /**
@@ -121,6 +148,8 @@ class CourseController extends Controller
             'is_required_to_pass' => 'boolean',
             'notes' => 'nullable|string',
         ]);
+
+        $this->validateAssessmentWeight($course, (float) ($validated['weight'] ?? 0));
 
         $component = $course->assessmentComponents()->create($validated);
         return ApiResponse::success($component, 'Assessment component added.', [], 201);
@@ -138,6 +167,8 @@ class CourseController extends Controller
             'notes' => 'nullable|string',
         ]);
 
+        $this->validateAssessmentWeight($course, (float) ($validated['weight'] ?? $component->weight ?? 0), $component->id);
+
         $component->update($validated);
         return ApiResponse::success($component, 'Assessment component updated.');
     }
@@ -153,7 +184,7 @@ class CourseController extends Controller
      */
     public function addLearningOutcome(Request $request, Course $course): JsonResponse {
         $validated = $request->validate([
-            'outcome_code' => 'required|string|max:50',
+            'outcome_code' => ['required', 'string', 'max:50', Rule::unique('course_learning_outcomes', 'outcome_code')->where('course_id', $course->id)],
             'text_ar' => 'nullable|string',
             'text_en' => 'nullable|string',
             'domain' => 'nullable|string|max:100',
@@ -169,7 +200,7 @@ class CourseController extends Controller
     public function updateLearningOutcome(Request $request, Course $course, int $outcomeId): JsonResponse {
         $outcome = $course->learningOutcomes()->findOrFail($outcomeId);
         $validated = $request->validate([
-            'outcome_code' => 'sometimes|required|string|max:50',
+            'outcome_code' => ['sometimes', 'required', 'string', 'max:50', Rule::unique('course_learning_outcomes', 'outcome_code')->where('course_id', $course->id)->ignore($outcome->id)],
             'text_ar' => 'nullable|string',
             'text_en' => 'nullable|string',
             'domain' => 'nullable|string|max:100',
@@ -193,8 +224,8 @@ class CourseController extends Controller
      */
     public function addProgramOutcomeMapping(Request $request, Course $course): JsonResponse {
         $validated = $request->validate([
-            'program_outcome_code' => 'required|string|max:50',
-            'mapping_level' => 'nullable|string|max:50',
+            'program_outcome_code' => ['required', 'string', 'max:50', Rule::exists('program_outcomes', 'code')->where('is_active', true)],
+            'mapping_level' => ['nullable', Rule::in(['High', 'Medium', 'Low', 'Introduced', 'Reinforced', 'Mastered'])],
         ]);
 
         $mapping = $course->programOutcomeMappings()->updateOrCreate(
@@ -216,9 +247,7 @@ class CourseController extends Controller
      */
     public function bulkImport(Request $request): JsonResponse
     {
-        $request->validate([
-            'courses' => ['required', 'array', 'min:1'],
-        ]);
+        $request->validate(['courses' => ['required', 'array', 'min:1', 'max:1000']]);
 
         $hasSemester = Schema::hasColumn('courses', 'semester');
         $imported = 0;
@@ -237,13 +266,17 @@ class CourseController extends Controller
                 }
 
                 $rawLevel = strtolower(trim((string)($row['academic_level'] ?? $row['المستوى_الأكاديمي'] ?? $row['المستوى'] ?? $row['السنة_السريرية'] ?? $row['السنة'] ?? '')));
-                $level = 'fourth';
+                $level = null;
                 if (in_array($rawLevel, ['fourth', 'fifth', 'sixth'])) {
                     $level = $rawLevel;
                 } elseif (!empty($rawLevel)) {
                     if (str_contains($rawLevel, '4') || str_contains($rawLevel, 'رابع') || str_contains($rawLevel, 'fourth')) $level = 'fourth';
                     elseif (str_contains($rawLevel, '5') || str_contains($rawLevel, 'خامس') || str_contains($rawLevel, 'fifth')) $level = 'fifth';
                     elseif (str_contains($rawLevel, '6') || str_contains($rawLevel, 'سادس') || str_contains($rawLevel, 'sixth')) $level = 'sixth';
+                }
+                if (!$level) {
+                    $errors[] = "السطر " . ($index + 1) . ": السنة السريرية يجب أن تكون رابعة أو خامسة أو سادسة.";
+                    continue;
                 }
 
                 $isActive = true;
@@ -254,7 +287,12 @@ class CourseController extends Controller
                     }
                 }
 
-                $credits = max(1, min(30, (int)($row['credit_hours'] ?? $row['الساعات_المعتمدة'] ?? $row['الساعات'] ?? 4)));
+                $rawCredits = $row['credit_hours'] ?? $row['الساعات_المعتمدة'] ?? $row['الساعات'] ?? null;
+                if (!is_numeric($rawCredits) || (int) $rawCredits < 1 || (int) $rawCredits > 30) {
+                    $errors[] = "السطر " . ($index + 1) . ": الساعات المعتمدة يجب أن تكون بين 1 و30.";
+                    continue;
+                }
+                $credits = (int) $rawCredits;
                 $description = !empty($row['description']) ? trim((string)$row['description']) : (!empty($row['الوصف']) ? trim((string)$row['الوصف']) : null);
 
                 $data = [
@@ -299,5 +337,18 @@ class CourseController extends Controller
             'updated'  => $updated,
             'errors'   => $errors,
         ], "تمت معالجة " . ($imported + $updated) . " مساق بنجاح.");
+    }
+
+    private function validateAssessmentWeight(Course $course, float $weight, ?int $exceptComponentId = null): void
+    {
+        $existing = $course->assessmentComponents()
+            ->when($exceptComponentId, fn ($query) => $query->where('id', '!=', $exceptComponentId))
+            ->sum('weight');
+
+        if ((float) $existing + $weight > 100.0001) {
+            throw ValidationException::withMessages([
+                'weight' => ['مجموع أوزان مكونات التقييم لا يمكن أن يتجاوز 100%.'],
+            ]);
+        }
     }
 }

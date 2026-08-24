@@ -82,6 +82,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         items: [
           { path: '/grades', label: locale === 'ar' ? 'سجل العلامات والاعتماد' : 'Grades Log', icon: ClipboardCheck, permission: 'grades.view' },
           { path: '/courses', label: locale === 'ar' ? 'مساقات الدائرة السريرية' : 'Clinical Courses', icon: BookOpen, permission: 'courses.view' },
+          { path: '/study-plans', label: locale === 'ar' ? 'الخطط الدراسية' : 'Study Plans', icon: FileText, permission: 'courses.view' },
           { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: Users, permission: 'advising.view' },
         ]
       },
