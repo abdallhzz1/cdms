@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node -e \"const fs=require('fs'); for (const p of ['../assets','../index.html','../favicon.svg','../templates']) fs.rmSync(p,{recursive:true,force:true}); fs.cpSync('dist','..',{recursive:true});\"",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
