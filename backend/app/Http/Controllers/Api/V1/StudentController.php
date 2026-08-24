@@ -107,7 +107,16 @@ class StudentController extends Controller
      */
     public function store(StoreStudentRequest $request): JsonResponse
     {
-        $student = Student::create($request->validated());
+        $data = $request->validated();
+        $cycleId = $data['group_registration_cycle_id'] ?? null;
+        $mainGroupCode = $data['main_group_code'] ?? null;
+        unset($data['group_registration_cycle_id'], $data['main_group_code']);
+
+        $student = DB::transaction(function () use ($data, $cycleId, $mainGroupCode) {
+            $student = Student::create($data);
+            $this->syncRegistrationRoster($student, $cycleId, $mainGroupCode);
+            return $student;
+        });
 
         return ApiResponse::success(
             new StudentResource($student->load('academicYear', 'academicAdvisor')),
@@ -141,6 +150,9 @@ class StudentController extends Controller
         $this->authorizeStudentAccess($student);
 
         $data = $request->validated();
+        $cycleId = $data['group_registration_cycle_id'] ?? null;
+        $mainGroupCode = $data['main_group_code'] ?? null;
+        unset($data['group_registration_cycle_id'], $data['main_group_code']);
 
         if (array_key_exists('academic_advisor_id', $data)) {
             $advisorId = $data['academic_advisor_id'];
@@ -152,7 +164,10 @@ class StudentController extends Controller
             unset($data['academic_advisor_id']);
         }
 
-        $student->update($data);
+        DB::transaction(function () use ($student, $data, $cycleId, $mainGroupCode) {
+            $student->update($data);
+            $this->syncRegistrationRoster($student, $cycleId, $mainGroupCode);
+        });
 
         return ApiResponse::success(
             new StudentResource($student->fresh()->load('academicYear', 'academicAdvisor')),
@@ -350,5 +365,35 @@ class StudentController extends Controller
             'rostered' => $rostered,
             'errors'   => [],
         ], "تمت معالجة " . ($imported + $updated) . " طالب بنجاح.");
+    }
+
+    private function syncRegistrationRoster(Student $student, mixed $cycleId, mixed $mainGroupCode): void
+    {
+        if (! $cycleId) return;
+
+        $cycle = GroupRegistrationCycle::findOrFail((int) $cycleId);
+        if ($cycle->status === 'archived') {
+            throw ValidationException::withMessages(['group_registration_cycle_id' => ['لا يمكن ربط الطالب بدورة مؤرشفة.']]);
+        }
+        if ($student->academic_level !== $cycle->academic_level) {
+            throw ValidationException::withMessages(['group_registration_cycle_id' => ['السنة السريرية للطالب لا تطابق دورة التسجيل المختارة.']]);
+        }
+
+        $group = StudentGroup::query()
+            ->where('academic_year_id', $cycle->academic_year_id)
+            ->where('academic_level', $cycle->academic_level)
+            ->where('group_type', 'self_registration')
+            ->whereRaw('UPPER(name) = ?', [strtoupper(trim((string) $mainGroupCode))])
+            ->first();
+
+        if (! $group) {
+            throw ValidationException::withMessages(['main_group_code' => ['المجموعة الرئيسية غير موجودة في دورة التسجيل المختارة.']]);
+        }
+
+        $student->update(['academic_year_id' => $cycle->academic_year_id]);
+        StudentGroupRoster::updateOrCreate(
+            ['group_registration_cycle_id' => $cycle->id, 'student_id' => $student->id],
+            ['student_group_id' => $group->id],
+        );
     }
 }

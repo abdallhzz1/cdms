@@ -76,6 +76,9 @@ class StudentResource extends JsonResource
             'registration_main_group' => $this->whenLoaded('groupRegistrationRosters', fn () =>
                 $this->groupRegistrationRosters->first()?->group?->name
             ),
+            'registration_cycle_id'   => $this->whenLoaded('groupRegistrationRosters', fn () =>
+                $this->groupRegistrationRosters->first()?->group_registration_cycle_id
+            ),
         ];
     }
 }

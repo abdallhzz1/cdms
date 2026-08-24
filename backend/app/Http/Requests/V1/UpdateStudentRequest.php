@@ -43,6 +43,8 @@ class UpdateStudentRequest extends FormRequest
             'has_amboss_subscription' => ['boolean'],
             'notes'                   => ['nullable', 'string', 'max:2000'],
             'data_source'             => ['nullable', 'string', 'max:255'],
+            'group_registration_cycle_id' => ['nullable', 'integer', 'exists:group_registration_cycles,id'],
+            'main_group_code'         => ['nullable', 'required_with:group_registration_cycle_id', 'string', 'max:2'],
         ];
     }
 }

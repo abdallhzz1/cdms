@@ -114,6 +114,34 @@ class GroupSelfRegistrationTest extends TestCase
         $this->assertSame(1,StudentGroupAssignment::where('student_subgroup_id',$target->id)->whereNull('valid_until')->count());
     }
 
+    public function test_manual_student_creation_can_link_the_registration_cycle_and_main_group(): void
+    {
+        $permission=Permission::firstOrCreate(['code'=>'students.create'],['module'=>'Students','action'=>'CREATE','description_key'=>'permissions.students_create.description']);
+        $role=Role::create(['code'=>'TEST_STUDENT_CREATOR','name_key'=>'test.student.creator']);
+        $role->permissions()->attach($permission->id,['scope_type'=>'global']);
+        $user=User::factory()->create();
+        $user->roles()->attach($role);
+
+        $this->actingAs($user)->postJson('/api/v1/students',[
+            'university_number'=>'22440001',
+            'full_name_ar'=>'طالب مضاف يدوياً',
+            'academic_level'=>'fourth',
+            'registration_status'=>'active',
+            'academic_registration_status'=>'registered',
+            'university_email'=>'22440001@students.hebron.edu',
+            'group_registration_cycle_id'=>$this->cycle->id,
+            'main_group_code'=>'L',
+        ])->assertCreated();
+
+        $created=Student::where('university_number','22440001')->firstOrFail();
+        $this->assertSame($this->year->id,$created->academic_year_id);
+        $this->assertDatabaseHas('student_group_rosters',[
+            'group_registration_cycle_id'=>$this->cycle->id,
+            'student_id'=>$created->id,
+            'student_group_id'=>$this->group->id,
+        ]);
+    }
+
     public function test_authorized_administrator_can_create_cycle_import_roster_and_open_it(): void
     {
         $role=Role::create(['code'=>'TEST_GROUP_ADMIN','name_key'=>'test.group.admin']);
