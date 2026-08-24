@@ -191,6 +191,7 @@ class CourseDistributionController extends Controller
             ->where('distribution_version_id', $version->id)
             ->where('rotation_block_id', $block->id)
             ->where('student_subgroup_id', $subgroup->id)
+            ->whereNotNull('course_schedule_row_id')
             ->where('course_schedule_row_id', '!=', $row->id)
             ->exists();
         if ($conflict) {
@@ -213,6 +214,12 @@ class CourseDistributionController extends Controller
             if ($memberships->isEmpty()) {
                 throw ValidationException::withMessages(['subgroup_id' => ['لا يوجد طلبة مسجلون حاليًا في هذه المجموعة.']]);
             }
+            StudentClinicalAssignment::query()
+                ->where('distribution_version_id', $version->id)
+                ->where('rotation_block_id', $block->id)
+                ->whereNull('course_schedule_row_id')
+                ->whereIn('student_id', $memberships->pluck('student_id'))
+                ->delete();
             $now = now();
             StudentClinicalAssignment::insert($memberships->map(fn ($membership) => [
                 'distribution_version_id' => $version->id,
