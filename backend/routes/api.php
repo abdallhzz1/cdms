@@ -292,6 +292,11 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('annual-report-entries', [\App\Http\Controllers\Api\V1\AnnualReportEntryController::class, 'index'])->middleware('permission:reports.view');
         Route::get('annual-report-entries/export', [\App\Http\Controllers\Api\V1\AnnualReportEntryController::class, 'export'])->middleware('permission:reports.export');
 
+        // Unified branded report center
+        Route::get('report-center/summary', [\App\Http\Controllers\Api\V1\ReportCenterController::class, 'summary'])->middleware('permission:reports.view');
+        Route::get('report-center/{report}/preview', [\App\Http\Controllers\Api\V1\ReportCenterController::class, 'preview'])->middleware('permission:reports.view');
+        Route::get('report-center/{report}/export', [\App\Http\Controllers\Api\V1\ReportCenterController::class, 'export'])->middleware(['permission:reports.export', 'throttle:export']);
+
         // Staff Allocations
         Route::get('staff-allocations', [\App\Http\Controllers\Api\V1\StaffAllocationController::class, 'index'])->middleware('permission:people.view');
 

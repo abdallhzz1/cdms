@@ -56,7 +56,7 @@ class AppServiceProvider extends ServiceProvider
                 ? 'user:'.$request->user()->id
                 : 'ip:'.$request->ip();
 
-            return Limit::perMinute(20)->by($key);
+            return Limit::perMinute(15)->by($key);
         });
 
         RateLimiter::for('student-otp-request', fn (Request $request) => [
