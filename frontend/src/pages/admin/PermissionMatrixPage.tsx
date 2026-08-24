@@ -79,6 +79,8 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   'distribution.validate': { ar: 'التحقق من صحة التوزيع وتفادي التعارض' },
   'distribution.approve': { ar: 'اعتماد التوزيع السريري رسمياً' },
   'distribution.publish': { ar: 'نشر وتعميم التوزيع السريري للطلبة' },
+  'distribution.revise': { ar: 'إنشاء نسخة لتعديل جدول سريري منشور' },
+  'distribution.unpublish': { ar: 'إلغاء نشر الجدول السريري وإخفاؤه' },
   'distribution.delete': { ar: 'حذف التوزيع السريري' },
   'distribution.override': { ar: 'تجاوز واستثناء قيود التوزيع السريري' },
 

@@ -261,6 +261,8 @@ const ar: typeof en = {
     distribution_validate: { description: 'فحص التعارضات' },
     distribution_approve: { description: 'اعتماد التوزيع' },
     distribution_publish: { description: 'نشر التوزيع' },
+    distribution_revise: { description: 'إنشاء نسخة لتعديل جدول منشور' },
+    distribution_unpublish: { description: 'إلغاء نشر الجدول السريري' },
     distribution_delete: { description: 'إزالة إسنادات التوزيع غير المنشورة' },
     distribution_override: { description: 'تجاوز قيود التوزيع بصلاحية' },
     attendance_view: { description: 'عرض الحضور' },

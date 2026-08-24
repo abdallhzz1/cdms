@@ -42,6 +42,11 @@ class Rotation extends Model
         return $this->hasMany(RotationBlock::class);
     }
 
+    public function distributionVersions()
+    {
+        return $this->hasMany(DistributionVersion::class);
+    }
+
     public function departments()
     {
         return $this->belongsToMany(Department::class);

@@ -47,6 +47,16 @@ class CourseDistributionController extends Controller
         ]);
     }
 
+    public function clinicalWorkforce(): JsonResponse
+    {
+        $directory = $this->doctorDirectory();
+
+        return ApiResponse::success([
+            'hospitals' => $this->hospitals($directory),
+            'unassigned_doctors' => $directory->filter(fn ($doctor) => count($doctor['training_site_ids']) === 0)->values(),
+        ]);
+    }
+
     public function schedule(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -67,6 +77,7 @@ class CourseDistributionController extends Controller
             return ApiResponse::success([
                 'rotation' => null,
                 'version' => null,
+                'current_published_version' => null,
                 'blocks' => [],
                 'subgroups' => $this->subgroups((int) $data['academic_year_id'], $data['academic_level']),
                 'hospitals' => $this->hospitals($directory),
@@ -76,6 +87,10 @@ class CourseDistributionController extends Controller
             ]);
         }
 
+        $currentPublishedVersion = DistributionVersion::query()
+            ->where('rotation_id', $rotation->id)
+            ->where('status', 'published')->where('is_current', true)
+            ->latest('id')->first();
         $version = DistributionVersion::query()
             ->where('rotation_id', $rotation->id)
             ->orderByRaw("CASE WHEN status = 'published' THEN 1 ELSE 0 END")
@@ -111,6 +126,7 @@ class CourseDistributionController extends Controller
         return ApiResponse::success([
             'rotation' => $rotation,
             'version' => $version,
+            'current_published_version' => $currentPublishedVersion,
             'blocks' => $rotation->blocks->sortBy('from_week')->values(),
             'subgroups' => $this->subgroups($rotation->academic_year_id, $rotation->academic_level),
             'hospitals' => $this->hospitals($directory),
@@ -168,8 +184,8 @@ class CourseDistributionController extends Controller
 
     public function assignCell(Request $request, DistributionVersion $version): JsonResponse
     {
-        if ($version->status === 'published') {
-            throw ValidationException::withMessages(['version' => ['لا يمكن تعديل جدول منشور.']]);
+        if (in_array($version->status, ['published', 'withdrawn'], true)) {
+            throw ValidationException::withMessages(['version' => ['أنشئ نسخة تعديل قبل تغيير جدول منشور أو ملغى النشر.']]);
         }
         $data = $request->validate([
             'rotation_block_id' => ['required', 'integer', 'exists:rotation_blocks,id'],
@@ -242,8 +258,8 @@ class CourseDistributionController extends Controller
 
     public function clearCell(Request $request, DistributionVersion $version): JsonResponse
     {
-        if ($version->status === 'published') {
-            throw ValidationException::withMessages(['version' => ['لا يمكن تعديل جدول منشور.']]);
+        if (in_array($version->status, ['published', 'withdrawn'], true)) {
+            throw ValidationException::withMessages(['version' => ['أنشئ نسخة تعديل قبل تغيير جدول منشور أو ملغى النشر.']]);
         }
         $data = $request->validate([
             'rotation_block_id' => ['required', 'integer', 'exists:rotation_blocks,id'],
@@ -304,6 +320,107 @@ class CourseDistributionController extends Controller
         $this->recordCellChange($request, $version, 'course_schedule.row_deleted', ['row_id' => $row->id]);
 
         return ApiResponse::success(null, 'تم حذف صف الجدول وما يحتويه من توزيعات.');
+    }
+
+    public function reviseSchedule(Request $request, DistributionVersion $version): JsonResponse
+    {
+        if (! in_array($version->status, ['published', 'withdrawn'], true)) {
+            throw ValidationException::withMessages(['version' => ['يمكن إنشاء نسخة تعديل من جدول منشور أو ملغى النشر فقط.']]);
+        }
+
+        $existing = DistributionVersion::query()
+            ->where('source_version_id', $version->id)
+            ->whereIn('status', ['draft', 'suggested', 'manual'])
+            ->latest('id')->first();
+        if ($existing) {
+            return ApiResponse::success($existing, 'توجد نسخة تعديل مفتوحة مسبقاً.');
+        }
+
+        $revision = DB::transaction(function () use ($request, $version) {
+            $revision = DistributionVersion::create([
+                'rotation_id' => $version->rotation_id,
+                'source_version_id' => $version->id,
+                'name' => trim(($version->name ?: 'جدول سريري').' — نسخة تعديل'),
+                'status' => 'manual',
+                'is_current' => false,
+            ]);
+
+            $rowMap = [];
+            foreach (CourseScheduleRow::where('distribution_version_id', $version->id)->orderBy('id')->get() as $row) {
+                $copy = $row->replicate();
+                $copy->distribution_version_id = $revision->id;
+                $copy->save();
+                $rowMap[$row->id] = $copy->id;
+            }
+
+            foreach (StudentClinicalAssignment::where('distribution_version_id', $version->id)->orderBy('id')->get() as $assignment) {
+                $copy = $assignment->replicate();
+                $copy->distribution_version_id = $revision->id;
+                $copy->course_schedule_row_id = $assignment->course_schedule_row_id
+                    ? ($rowMap[$assignment->course_schedule_row_id] ?? null)
+                    : null;
+                $copy->save();
+            }
+
+            AuditLog::create([
+                'user_id' => $request->user()->id,
+                'action' => 'version.revision_created',
+                'entity_type' => DistributionVersion::class,
+                'entity_id' => $revision->id,
+                'distribution_version_id' => $revision->id,
+                'changes' => ['source_version_id' => $version->id],
+                'is_override' => false,
+            ]);
+
+            return $revision;
+        });
+
+        return ApiResponse::success($revision, 'تم إنشاء نسخة قابلة للتعديل مع إبقاء الجدول المنشور فعالاً.');
+    }
+
+    public function unpublishSchedule(Request $request, DistributionVersion $version): JsonResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:1000']]);
+        if ($version->status !== 'published' || ! $version->is_current) {
+            throw ValidationException::withMessages(['version' => ['هذا الجدول ليس النسخة المنشورة الحالية.']]);
+        }
+
+        DB::transaction(function () use ($request, $version, $data) {
+            $version->update(['status' => 'withdrawn', 'is_current' => false]);
+            AuditLog::create([
+                'user_id' => $request->user()->id,
+                'action' => 'version.unpublished',
+                'entity_type' => DistributionVersion::class,
+                'entity_id' => $version->id,
+                'distribution_version_id' => $version->id,
+                'changes' => ['status' => ['from' => 'published', 'to' => 'withdrawn']],
+                'is_override' => false,
+                'override_reason' => $data['reason'],
+            ]);
+        });
+
+        return ApiResponse::success($version->fresh(), 'تم إلغاء نشر الجدول وإخفاؤه عن الطلبة والمشرفين.');
+    }
+
+    public function destroySchedule(Request $request, Rotation $rotation): JsonResponse
+    {
+        if ($rotation->distributionVersions()->where('status', 'published')->where('is_current', true)->exists()) {
+            throw ValidationException::withMessages(['rotation' => ['يجب إلغاء نشر الجدول قبل حذفه.']]);
+        }
+
+        $data = $request->validate(['reason' => ['nullable', 'string', 'max:1000']]);
+        AuditLog::create([
+            'user_id' => $request->user()->id,
+            'action' => 'course_schedule.deleted',
+            'entity_type' => Rotation::class,
+            'entity_id' => $rotation->id,
+            'changes' => ['name' => $rotation->name, 'course_id' => $rotation->course_id],
+            'is_override' => false,
+            'override_reason' => $data['reason'] ?? null,
+        ]);
+        $rotation->delete();
+
+        return ApiResponse::success(null, 'تم حذف الجدول ومسوداته وتوزيعاته التابعة.');
     }
 
     public function storeDoctor(Request $request): JsonResponse
@@ -445,8 +562,8 @@ class CourseDistributionController extends Controller
 
     private function ensureEditableVersion(DistributionVersion $version): void
     {
-        if ($version->status === 'published') {
-            throw ValidationException::withMessages(['version' => ['لا يمكن تعديل جدول منشور.']]);
+        if (in_array($version->status, ['published', 'withdrawn'], true)) {
+            throw ValidationException::withMessages(['version' => ['أنشئ نسخة تعديل قبل تغيير جدول منشور أو ملغى النشر.']]);
         }
     }
 

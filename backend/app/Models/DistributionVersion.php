@@ -11,6 +11,7 @@ class DistributionVersion extends Model
 
     protected $fillable = [
         'rotation_id',
+        'source_version_id',
         'name',
         'status',
         'is_current',
@@ -23,6 +24,16 @@ class DistributionVersion extends Model
     public function rotation()
     {
         return $this->belongsTo(Rotation::class);
+    }
+
+    public function sourceVersion()
+    {
+        return $this->belongsTo(self::class, 'source_version_id');
+    }
+
+    public function revisions()
+    {
+        return $this->hasMany(self::class, 'source_version_id');
     }
 
     public function assignments()

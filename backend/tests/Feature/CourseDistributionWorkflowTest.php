@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\AcademicYear;
 use App\Models\Course;
+use App\Models\CourseScheduleRow;
+use App\Models\DistributionVersion;
 use App\Models\Permission;
 use App\Models\Person;
 use App\Models\Role;
@@ -32,7 +34,7 @@ class CourseDistributionWorkflowTest extends TestCase
         parent::setUp();
         $this->seed([\Database\Seeders\PermissionSeeder::class, \Database\Seeders\Phase3PermissionSeeder::class, \Database\Seeders\RoleSeeder::class]);
         $role = Role::create(['code' => 'COURSE_DISTRIBUTOR_TEST', 'name_key' => 'test', 'name_ar' => 'Test', 'name_en' => 'Test']);
-        $ids = Permission::whereIn('code', ['distribution.view', 'distribution.update', 'distribution.schedule_rows.manage', 'distribution.approve', 'rotations.create', 'people.manage'])->pluck('id');
+        $ids = Permission::whereIn('code', ['distribution.view', 'distribution.update', 'distribution.schedule_rows.manage', 'distribution.approve', 'distribution.publish', 'distribution.revise', 'distribution.unpublish', 'distribution.delete', 'rotations.create', 'people.manage'])->pluck('id');
         $role->permissions()->sync($ids->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all());
         $this->user = User::factory()->create();
         $this->user->roles()->attach($role);
@@ -185,5 +187,46 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->actingAs($this->user)->deleteJson("/api/v1/course-distribution/versions/{$versionId}/rows/{$rowId}")
             ->assertOk();
         $this->assertDatabaseMissing('course_schedule_rows', ['id' => $rowId]);
+    }
+
+    public function test_published_schedule_can_be_revised_unpublished_and_deleted(): void
+    {
+        $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'course_id' => $this->course->id,
+            'start_date' => '2026-09-01',
+            'weeks_count' => 2,
+        ])->assertCreated();
+        $version = DistributionVersion::findOrFail($created->json('data.version.id'));
+        $rowId = $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$version->id}/rows", [
+            'row_type' => 'doctor',
+            'person_id' => $this->doctor->id,
+            'training_site_id' => $this->doctor->primary_site_id,
+        ])->assertCreated()->json('data.id');
+        $blockId = $version->rotation->blocks()->firstOrFail()->id;
+        $this->actingAs($this->user)->putJson("/api/v1/course-distribution/versions/{$version->id}/cell", [
+            'rotation_block_id' => $blockId,
+            'course_schedule_row_id' => $rowId,
+            'subgroup_id' => $this->subgroup->id,
+        ])->assertOk();
+        $version->update(['status' => 'published', 'is_current' => true]);
+
+        $revisionId = $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$version->id}/revise")
+            ->assertOk()->assertJsonPath('data.source_version_id', $version->id)->json('data.id');
+        $this->assertDatabaseHas('distribution_versions', ['id' => $revisionId, 'status' => 'manual']);
+        $this->assertSame(1, CourseScheduleRow::where('distribution_version_id', $revisionId)->count());
+        $this->assertSame(2, StudentClinicalAssignment::where('distribution_version_id', $revisionId)->count());
+
+        $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$version->id}/unpublish", [
+            'reason' => 'جدول تجريبي للفحص',
+        ])->assertOk()->assertJsonPath('data.status', 'withdrawn');
+
+        $rotationId = $version->rotation_id;
+        $this->actingAs($this->user)->deleteJson("/api/v1/course-distribution/rotations/{$rotationId}", [
+            'reason' => 'حذف الجدول التجريبي',
+        ])->assertOk();
+        $this->assertDatabaseMissing('rotations', ['id' => $rotationId]);
+        $this->assertDatabaseMissing('distribution_versions', ['id' => $revisionId]);
     }
 }

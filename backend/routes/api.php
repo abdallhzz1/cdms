@@ -210,6 +210,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         // Clinical Supervisors Routes
         Route::get('clinical-supervisors', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'index'])
             ->middleware('permission:people.view');
+        Route::get('clinical-workforce', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'clinicalWorkforce'])
+            ->middleware('permission.any:people.view,training_sites.view');
+        Route::post('clinical-workforce/doctors', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'storeDoctor'])
+            ->middleware('permission:people.manage');
+        Route::put('clinical-workforce/doctors/{user}/hospital', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'assignDoctorHospital'])
+            ->middleware('permission:people.manage');
         Route::get('clinical-supervisors/{id}', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'show']);
         Route::put('clinical-supervisors/{id}', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'update']);
         Route::post('clinical-supervisors/{id}/evaluation', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'saveEvaluation']);
@@ -403,6 +409,13 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('distribution-versions/{version}/publish', [\App\Http\Controllers\Api\V1\DistributionPublicationController::class, 'store'])
             ->middleware('permission:distribution.publish')
             ->name('distribution-versions.publish');
+
+        Route::post('course-distribution/versions/{version}/revise', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'reviseSchedule'])
+            ->middleware('permission:distribution.revise')->name('course-distribution.versions.revise');
+        Route::post('course-distribution/versions/{version}/unpublish', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'unpublishSchedule'])
+            ->middleware('permission:distribution.unpublish')->name('course-distribution.versions.unpublish');
+        Route::delete('course-distribution/rotations/{rotation}', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'destroySchedule'])
+            ->middleware('permission:distribution.delete')->name('course-distribution.schedules.destroy');
             
         Route::get('distribution-versions/{version}/compare/{otherVersion}', [\App\Http\Controllers\Api\V1\DistributionVersionComparisonController::class, 'show'])
             ->middleware('permission:distribution.view')

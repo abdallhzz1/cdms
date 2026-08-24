@@ -272,6 +272,8 @@ const en = {
     distribution_validate: { description: 'Check conflicts' },
     distribution_approve: { description: 'Approve distribution' },
     distribution_publish: { description: 'Publish distribution' },
+    distribution_revise: { description: 'Create an editable revision of a published schedule' },
+    distribution_unpublish: { description: 'Unpublish the clinical schedule' },
     distribution_delete: { description: 'Remove draft distribution assignments' },
     distribution_override: { description: 'Override distribution constraints' },
     attendance_view: { description: 'View attendance' },
