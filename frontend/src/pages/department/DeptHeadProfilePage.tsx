@@ -660,7 +660,7 @@ export function DeptHeadProfilePage() {
         <div>
           {!isOwnProfile && canViewRoster && (
             <Link 
-              to="/staff-allocations" 
+              to="/department-heads"
               className="w-9 h-9 rounded-full bg-white border border-slate-200/90 shadow-2xs text-slate-700 hover:bg-slate-50 flex items-center justify-center transition-all cursor-pointer"
               title="العودة لدليل رؤساء الأقسام"
             >

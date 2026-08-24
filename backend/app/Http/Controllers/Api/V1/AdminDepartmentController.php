@@ -12,6 +12,7 @@ use App\Models\Role;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class AdminDepartmentController extends Controller
 {
@@ -334,6 +335,20 @@ class AdminDepartmentController extends Controller
             }
         }
 
+        if ($personId) {
+            $otherCurrentAssignment = DepartmentHeadAssignment::query()
+                ->where('person_id', $personId)->where('role_type', $roleType)
+                ->where('is_current', true)->where('department_id', '!=', $departmentId)
+                ->with('department:id,name_ar')->first();
+            if ($otherCurrentAssignment) {
+                throw ValidationException::withMessages([
+                    $roleType === 'head' ? 'head_person_id' : 'rta_person_id' => [
+                        'هذا الشخص مكلف حاليًا في '.$otherCurrentAssignment->department->name_ar.'. أنهِ التكليف السابق أولًا.',
+                    ],
+                ]);
+            }
+        }
+
         // 2. End previous current assignment for this department & role_type
         $currentAssignment = DepartmentHeadAssignment::where('department_id', $departmentId)
             ->where('role_type', $roleType)
@@ -351,7 +366,7 @@ class AdminDepartmentController extends Controller
                 'ended_at'   => now()->toDateString(),
             ]);
 
-            // Clear old person's user role scope if linked
+            // Remove the operational role when its authoritative assignment ends.
             $oldPerson = Person::find($currentAssignment->person_id);
             if ($oldPerson && $oldPerson->user_id) {
                 $roleCode = $roleType === 'head' ? 'DEPARTMENT_HEAD' : 'RTA';
@@ -360,8 +375,7 @@ class AdminDepartmentController extends Controller
                     DB::table('user_roles')
                         ->where('user_id', $oldPerson->user_id)
                         ->where('role_id', $role->id)
-                        ->where('scope_id', $departmentId)
-                        ->update(['scope_id' => null, 'scope_type' => 'global']);
+                        ->delete();
                 }
             }
         }
@@ -389,20 +403,10 @@ class AdminDepartmentController extends Controller
                 if ($role) {
                     $user = User::find($userId);
                     if ($user) {
-                        if (!$user->hasRole($roleCode)) {
-                            $user->roles()->attach($role->id, [
-                                'scope_type' => 'department',
-                                'scope_id'   => $departmentId,
-                            ]);
-                        } else {
-                            DB::table('user_roles')
-                                ->where('user_id', $user->id)
-                                ->where('role_id', $role->id)
-                                ->update([
-                                    'scope_type' => 'department',
-                                    'scope_id'   => $departmentId,
-                                ]);
-                        }
+                        DB::table('user_roles')->updateOrInsert(
+                            ['user_id' => $user->id, 'role_id' => $role->id],
+                            ['scope_type' => 'department', 'scope_id' => $departmentId, 'updated_at' => now(), 'created_at' => now()],
+                        );
                     }
                 }
             }

@@ -89,7 +89,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         title: locale === 'ar' ? 'الكادر ورؤساء الأقسام' : 'Staff & Department Heads',
         items: [
           { path: '/dept-heads/me', label: locale === 'ar' ? 'بروفايلي الأكاديمي والـ Score' : 'My Academic Profile', icon: GraduationCap, customCheck: () => isDeptHead || isClinicalDirector || isClinicalSupervisor },
-          { path: '/staff-allocations', label: locale === 'ar' ? 'دليل رؤساء الأقسام' : 'Department Heads Directory', icon: Users, permission: 'people.manage' },
+          { path: '/department-heads', label: locale === 'ar' ? 'دليل رؤساء الأقسام' : 'Department Heads Directory', icon: Users, permission: 'people.view' },
           { path: '/clinical-supervisors', label: locale === 'ar' ? 'المستشفيات والمشرفون' : 'Hospitals & Supervisors', icon: ShieldCheck, permission: 'people.view' },
           { path: '/rta-assignments', label: locale === 'ar' ? 'تخصيص دفعات مساعدي البحث والتدريس (TA)' : 'Assign TA Cohorts', icon: Users, customCheck: () => can('students.view') && (isClinicalDirector || isDeptHead || isRTA || isSuperAdmin) },
         ]

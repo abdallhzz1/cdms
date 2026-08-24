@@ -195,7 +195,8 @@ export function App() {
                 <Route path="/external-electives" element={<ExternalElectivesPage />} />
                 <Route path="/research-projects" element={<ResearchProjectsPage />} />
                 <Route path="/skill-logbook" element={<SkillLogbookPage />} />
-                <Route path="/staff-allocations" element={<StaffAllocationsPage />} />
+                <Route path="/department-heads" element={<StaffAllocationsPage />} />
+                <Route path="/staff-allocations" element={<Navigate to="/department-heads" replace />} />
                 <Route path="/dept-heads/:id" element={<DeptHeadProfilePage />} />
                 <Route path="/dept-heads/me" element={<DeptHeadProfilePage />} />
                 

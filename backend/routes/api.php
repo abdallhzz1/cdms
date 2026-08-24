@@ -197,6 +197,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         // Department Heads Routes
         Route::get('dept-heads', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'index'])
             ->middleware('permission:people.view');
+        // ProfileAuthorizationService allows a head to manage their own profile,
+        // while people.manage/performance.view govern administrative operations.
         Route::get('dept-heads/{id}', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'show']);
         Route::put('dept-heads/{id}', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'update']);
         Route::post('dept-heads/{id}/evaluation', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'saveEvaluation']);

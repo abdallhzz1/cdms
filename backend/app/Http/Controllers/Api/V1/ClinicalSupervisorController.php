@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\DepartmentHeadProfile;
+use App\Models\ClinicalSupervisorProfile;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\ProfileAuthorizationService;
@@ -23,7 +23,7 @@ class ClinicalSupervisorController extends Controller
     {
         $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->first();
 
-        $query = User::with(['roles', 'person.department', 'departmentHeadProfile.department']);
+        $query = User::with(['roles', 'person.department', 'clinicalSupervisorProfile.department']);
 
         if ($supervisorRole) {
             $query->whereHas('roles', function ($q) use ($supervisorRole) {
@@ -45,18 +45,11 @@ class ClinicalSupervisorController extends Controller
         })->values();
 
         $data = $uniqueUsers->map(function ($u) {
-            $profile = $u->departmentHeadProfile ?: new DepartmentHeadProfile([
-                    'user_id'          => $u->id,
-                    'academic_title'   => 'مشرف سريري',
-                    'specialty'        => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'مشرف سريري',
-                    'contract_type'    => 'عقد سريري',
-                    'appointment_date' => '2024-09-01',
-                    'phone'            => $u->person ? $u->person->primary_phone : null,
-                ]);
+            $profile = $u->clinicalSupervisorProfile ?: new ClinicalSupervisorProfile(['user_id' => $u->id]);
 
             // Present a safe fallback without mutating data during a GET request.
-            if (str_contains($profile->academic_title, '??')) {
-                $profile->academic_title = 'مشرف سريري';
+            if (is_string($profile->academic_title) && str_contains($profile->academic_title, '??')) {
+                $profile->academic_title = null;
             }
 
             $deptName = $this->resolveDeptName($u, $profile);
@@ -68,12 +61,12 @@ class ClinicalSupervisorController extends Controller
                 'name'             => $u->person ? $u->person->full_name_ar : $u->name,
                 'name_en'          => $u->person ? $u->person->full_name_en : $u->name,
                 'email'            => $u->email,
-                'title'            => $profile->academic_title ?: 'مشرف سريري',
+                'title'            => $profile->academic_title ?: 'غير محدد',
                 'department_name'  => $deptName,
-                'contract_type'    => $profile->contract_type ?: 'عقد سريري',
-                'appointment_date' => $profile->appointment_date ?: '2024-09-01',
-                'specialty'        => $profile->specialty ?: ('مشرف ' . $deptName),
-                'phone'            => $profile->phone ?: ($u->person ? $u->person->primary_phone : null),
+                'contract_type'    => $profile->contract_type,
+                'appointment_date' => $profile->appointment_date,
+                'specialty'        => $profile->specialty ?: $u->person?->specialty,
+                'phone'            => $profile->phone ?: ($u->person ? $u->person->phone : null),
                 'avatar_url'       => $profile->avatar_url ?: $u->avatar_url,
                 'cv_summary'       => $profile->cv_summary ?: '',
                 'publications'     => $profile->publications ?: [],
@@ -84,6 +77,7 @@ class ClinicalSupervisorController extends Controller
                 'evaluation'       => $profile->evaluation,
                 'kpi_score'        => $kpi['totalScore'],
                 'kpi_rating'       => $kpi['rating'],
+                'kpi_complete'     => $kpi['isComplete'],
             ];
         });
 
@@ -98,7 +92,7 @@ class ClinicalSupervisorController extends Controller
         $userId = $this->resolveUserId($request, $id);
         $this->profileAuthorization->authorizeView($request->user(), $userId);
 
-        $u = User::with(['roles', 'person.department', 'departmentHeadProfile.department'])->find($userId);
+        $u = User::with(['roles', 'person.department', 'clinicalSupervisorProfile.department'])->find($userId);
 
         if (!$u) {
             return response()->json([
@@ -107,17 +101,10 @@ class ClinicalSupervisorController extends Controller
             ], 404);
         }
 
-        $profile = $u->departmentHeadProfile ?: new DepartmentHeadProfile([
-                'user_id'          => $u->id,
-                'academic_title'   => 'مشرف سريري',
-                'specialty'        => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'مشرف سريري',
-                'contract_type'    => 'عقد سريري',
-                'appointment_date' => '2024-09-01',
-                'phone'            => $u->person ? $u->person->primary_phone : null,
-            ]);
+        $profile = $u->clinicalSupervisorProfile ?: new ClinicalSupervisorProfile(['user_id' => $u->id]);
 
-        if (str_contains($profile->academic_title, '??')) {
-            $profile->academic_title = 'مشرف سريري';
+        if (is_string($profile->academic_title) && str_contains($profile->academic_title, '??')) {
+            $profile->academic_title = null;
         }
 
         $deptName = $this->resolveDeptName($u, $profile);
@@ -131,12 +118,12 @@ class ClinicalSupervisorController extends Controller
                 'name'             => $u->person ? $u->person->full_name_ar : $u->name,
                 'name_en'          => $u->person ? $u->person->full_name_en : $u->name,
                 'email'            => $u->email,
-                'title'            => $profile->academic_title ?: 'مشرف سريري',
+                'title'            => $profile->academic_title ?: 'غير محدد',
                 'department_name'  => $deptName,
-                'contract_type'    => $profile->contract_type ?: 'عقد سريري',
-                'appointment_date' => $profile->appointment_date ?: '2024-09-01',
-                'specialty'        => $profile->specialty ?: ('مشرف ' . $deptName),
-                'phone'            => $profile->phone ?: ($u->person ? $u->person->primary_phone : null),
+                'contract_type'    => $profile->contract_type,
+                'appointment_date' => $profile->appointment_date,
+                'specialty'        => $profile->specialty ?: $u->person?->specialty,
+                'phone'            => $profile->phone ?: ($u->person ? $u->person->phone : null),
                 'avatar_url'       => $profile->avatar_url ?: $u->avatar_url,
                 'cv_summary'       => $profile->cv_summary ?: '',
                 'publications'     => $profile->publications ?: [],
@@ -147,6 +134,7 @@ class ClinicalSupervisorController extends Controller
                 'evaluation'       => $profile->evaluation,
                 'kpi_score'        => $kpi['totalScore'],
                 'kpi_rating'       => $kpi['rating'],
+                'kpi_complete'     => $kpi['isComplete'],
                 'kpi_breakdown'    => $kpi,
             ],
         ]);
@@ -156,7 +144,7 @@ class ClinicalSupervisorController extends Controller
     {
         $userId  = $this->resolveUserId($request, $id);
         $this->profileAuthorization->authorizeEdit($request->user(), $userId);
-        $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
+        $profile = ClinicalSupervisorProfile::firstOrCreate(['user_id' => $userId]);
         $payload = $request->all();
 
         $profile->update([
@@ -177,7 +165,7 @@ class ClinicalSupervisorController extends Controller
     {
         $userId  = $this->resolveUserId($request, $id);
         $this->profileAuthorization->authorizeEvaluation($request->user());
-        $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
+        $profile = ClinicalSupervisorProfile::firstOrCreate(['user_id' => $userId]);
         $eval    = $request->input('evaluation', $request->all());
 
         $profile->update([
@@ -198,7 +186,7 @@ class ClinicalSupervisorController extends Controller
     {
         $userId  = $this->resolveUserId($request, $id);
         $this->profileAuthorization->authorizeEdit($request->user(), $userId);
-        $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
+        $profile = ClinicalSupervisorProfile::firstOrCreate(['user_id' => $userId]);
 
         $source = $request->file('avatar') ?: $request->input('avatar_base64');
         if (!$source) {
@@ -222,7 +210,7 @@ class ClinicalSupervisorController extends Controller
     {
         $userId      = $this->resolveUserId($request, $id);
         $this->profileAuthorization->authorizeEdit($request->user(), $userId);
-        $profile     = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
+        $profile     = ClinicalSupervisorProfile::firstOrCreate(['user_id' => $userId]);
         $docName     = $request->input('name', 'وثيقة رسمية');
         $docCategory = $request->input('category', 'أخرى');
         $source = $request->file('file') ?: $request->input('file_base64');
@@ -254,7 +242,7 @@ class ClinicalSupervisorController extends Controller
     {
         $userId      = $this->resolveUserId($request, $id);
         $this->profileAuthorization->authorizeEdit($request->user(), $userId);
-        $profile     = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
+        $profile     = ClinicalSupervisorProfile::firstOrCreate(['user_id' => $userId]);
         $currentDocs = is_array($profile->documents) ? $profile->documents : [];
 
         $deleted = collect($currentDocs)->first(fn ($doc) => (string) ($doc['id'] ?? '') === (string) $docId);
@@ -275,7 +263,7 @@ class ClinicalSupervisorController extends Controller
     {
         $userId = $this->resolveUserId($request, $id);
         $this->profileAuthorization->authorizeView($request->user(), $userId);
-        $profile = DepartmentHeadProfile::where('user_id', $userId)->firstOrFail();
+        $profile = ClinicalSupervisorProfile::where('user_id', $userId)->firstOrFail();
         $document = collect($profile->documents ?: [])->first(
             fn ($doc) => (string) ($doc['id'] ?? '') === (string) $docId
         );
@@ -293,7 +281,7 @@ class ClinicalSupervisorController extends Controller
         ]);
     }
 
-    private function resolveDeptName(User $u, DepartmentHeadProfile $profile): string
+    private function resolveDeptName(User $u, ClinicalSupervisorProfile $profile): string
     {
         $deptName = $u->person && $u->person->department
             ? $u->person->department->name_ar
@@ -317,7 +305,7 @@ class ClinicalSupervisorController extends Controller
         ];
     }
 
-    private function calculateKpi(DepartmentHeadProfile $profile): array
+    private function calculateKpi(ClinicalSupervisorProfile $profile): array
     {
         $w    = $profile->kpi_weights ?: $this->defaultWeights();
         $ov   = $profile->kpi_overrides ?: [];
@@ -329,9 +317,7 @@ class ClinicalSupervisorController extends Controller
         $wEval     = (float) ($w['evaluationWeight'] ?? 20);
         $wFeedback = (float) ($w['studentFeedbackWeight'] ?? 15);
 
-        $sessionScore = isset($ov['sessionAttendanceScore'])
-            ? (float) $ov['sessionAttendanceScore']
-            : round(0.9 * $wSession, 1);
+        $sessionScore = isset($ov['sessionAttendanceScore']) ? (float) $ov['sessionAttendanceScore'] : 0.0;
 
         $pubCount = is_array($profile->publications) ? count($profile->publications) : 0;
         $resScore = isset($ov['researchScore'])
@@ -343,21 +329,21 @@ class ClinicalSupervisorController extends Controller
             ? (float) $ov['confScore']
             : min($wConf, $confCount * 5);
 
-        $rawEvalSum = $eval
-            ? ((float) ($eval['leadership_score'] ?? 0) + (float) ($eval['clinical_score'] ?? 0))
-            : 15.0;
-        $eScore = round(($rawEvalSum / 15.0) * $wEval, 1);
+        $rawEvalSum = $eval ? ((float) ($eval['leadership_score'] ?? 0) + (float) ($eval['clinical_score'] ?? 0)) : 0.0;
+        $eScore = $eval ? round(($rawEvalSum / 15.0) * $wEval, 1) : 0.0;
 
-        $feedbackScore = isset($ov['studentFeedbackScore'])
-            ? (float) $ov['studentFeedbackScore']
-            : round(0.85 * $wFeedback, 1);
+        $feedbackScore = isset($ov['studentFeedbackScore']) ? (float) $ov['studentFeedbackScore'] : 0.0;
 
         $totalScore = min(100.0, round($sessionScore + $resScore + $cScore + $eScore + $feedbackScore, 1));
 
-        $rating = 'مقبول';
-        if ($totalScore >= 90)      $rating = 'ممتاز';
-        elseif ($totalScore >= 80)  $rating = 'جيد جداً';
-        elseif ($totalScore >= 70)  $rating = 'جيد';
+        $isComplete = isset($ov['sessionAttendanceScore'], $ov['studentFeedbackScore']) && is_array($eval);
+        $rating = 'غير مكتمل';
+        if ($isComplete) {
+            $rating = 'مقبول';
+            if ($totalScore >= 90) $rating = 'ممتاز';
+            elseif ($totalScore >= 80) $rating = 'جيد جداً';
+            elseif ($totalScore >= 70) $rating = 'جيد';
+        }
 
         return [
             'sessionAttendanceScore' => $sessionScore,
@@ -365,8 +351,9 @@ class ClinicalSupervisorController extends Controller
             'confScore'              => $cScore,
             'directorEvalScore'      => $eScore,
             'studentFeedbackScore'   => $feedbackScore,
-            'totalScore'             => $totalScore,
+            'totalScore'             => $isComplete ? $totalScore : null,
             'rating'                 => $rating,
+            'isComplete'             => $isComplete,
             'weights'                => $w,
             'overrides'              => $ov,
         ];

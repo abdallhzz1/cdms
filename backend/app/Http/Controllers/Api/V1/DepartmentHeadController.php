@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\DepartmentHeadProfile;
-use App\Models\Role;
+use App\Models\DepartmentHeadAssignment;
 use App\Models\User;
 use App\Services\ProfileAuthorizationService;
 use App\Services\SecureFileUploadService;
@@ -22,56 +22,32 @@ class DepartmentHeadController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $headRole = Role::where('code', 'DEPARTMENT_HEAD')->first();
+        $assignments = DepartmentHeadAssignment::query()->current()->heads()
+            ->whereHas('person.user', fn ($query) => $query->where('is_active', true))
+            ->with(['department:id,name_ar,name_en', 'person.user.departmentHeadProfile', 'person.user.roles'])
+            ->orderBy('department_id')->get();
 
-        $query = User::with(['roles', 'person.department', 'departmentHeadProfile.department']);
-
-        if ($headRole) {
-            $query->whereHas('roles', function ($q) use ($headRole) {
-                $q->where('roles.id', $headRole->id);
-            });
-        }
-
-        $users = $query->get();
-
-        // Deduplicate by email
-        $uniqueUsers = $users->unique(function ($u) {
-            return strtolower($u->email);
-        })->values();
-
-        $data = $uniqueUsers->map(function ($u) {
-            $profile = $u->departmentHeadProfile ?: new DepartmentHeadProfile([
-                'user_id' => $u->id,
-                'academic_title' => 'أستاذ مشارك — استشاري سريري',
-                'specialty' => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'استشاري سريري',
-                'contract_type' => 'عقد دائم — متفرغ',
-                'appointment_date' => '2024-09-01',
-                'phone' => $u->person ? $u->person->primary_phone : '+970 599 000000',
-            ]);
-
-            $deptName = $u->person && $u->person->department 
-                ? $u->person->department->name_ar 
-                : ($profile->department ? $profile->department->name_ar : 'القسم السريري');
-
-            if (str_starts_with($deptName, 'قسم ')) {
-                $deptName = preg_replace('/^قسم\s+/', '', $deptName);
-            }
-
-            // Calculate KPI score
+        $data = $assignments->map(function (DepartmentHeadAssignment $assignment) {
+            $person = $assignment->person;
+            $user = $person->user;
+            $profile = $user->departmentHeadProfile ?: new DepartmentHeadProfile(['user_id' => $user->id]);
             $kpi = $this->calculateKpi($profile);
+            $deptName = preg_replace('/^قسم\s+/', '', $assignment->department?->name_ar ?: 'غير محدد');
 
             return [
-                'id' => (string)$u->id,
-                'user_id' => $u->id,
-                'name' => $u->person ? $u->person->full_name_ar : $u->name,
-                'email' => $u->email,
-                'title' => $profile->academic_title ?: 'أستاذ مشارك — استشاري سريري',
+                'id' => (string) $user->id,
+                'user_id' => $user->id,
+                'assignment_id' => $assignment->id,
+                'name' => $person->full_name_ar ?: $user->name,
+                'email' => $user->email,
+                'title' => $profile->academic_title ?: 'غير محدد',
+                'department_id' => $assignment->department_id,
                 'department_name' => $deptName,
-                'contract_type' => $profile->contract_type ?: 'عقد دائم — متفرغ',
-                'appointment_date' => $profile->appointment_date ?: '2024-09-01',
-                'specialty' => $profile->specialty ?: ('استشاري ' . $deptName),
-                'phone' => $profile->phone ?: ($u->person ? $u->person->primary_phone : '+970 599 000000'),
-                'avatar_url' => $profile->avatar_url ?: $u->avatar_url,
+                'contract_type' => $profile->contract_type ?: 'غير محدد',
+                'appointment_date' => $profile->appointment_date,
+                'specialty' => $profile->specialty,
+                'phone' => $profile->phone ?: $person->phone,
+                'avatar_url' => $profile->avatar_url ?: $user->avatar_url,
                 'cv_summary' => $profile->cv_summary ?: '',
                 'publications' => $profile->publications ?: [],
                 'conferences' => $profile->conferences ?: [],
@@ -81,8 +57,9 @@ class DepartmentHeadController extends Controller
                 'evaluation' => $profile->evaluation,
                 'kpi_score' => $kpi['totalScore'],
                 'kpi_rating' => $kpi['rating'],
+                'kpi_complete' => $kpi['isComplete'],
             ];
-        });
+        })->values();
 
         return response()->json([
             'success' => true,
@@ -98,7 +75,7 @@ class DepartmentHeadController extends Controller
         $userId = $this->resolveUserId($request, $id);
         $this->profileAuthorization->authorizeView($request->user(), $userId);
 
-        $u = User::with(['roles', 'person.department', 'departmentHeadProfile.department'])->find($userId);
+        $u = User::with(['roles', 'person.department', 'person.headAssignments' => fn ($query) => $query->current()->heads()->with('department'), 'departmentHeadProfile.department'])->find($userId);
 
         if (!$u) {
             return response()->json([
@@ -107,18 +84,10 @@ class DepartmentHeadController extends Controller
             ], 404);
         }
 
-        $profile = $u->departmentHeadProfile ?: new DepartmentHeadProfile([
-            'user_id' => $u->id,
-            'academic_title' => 'أستاذ مشارك — استشاري سريري',
-            'specialty' => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'استشاري سريري',
-            'contract_type' => 'عقد دائم — متفرغ',
-            'appointment_date' => '2024-09-01',
-            'phone' => $u->person ? $u->person->primary_phone : '+970 599 000000',
-        ]);
-
-        $deptName = $u->person && $u->person->department 
-            ? $u->person->department->name_ar 
-            : ($profile->department ? $profile->department->name_ar : 'القسم السريري');
+        $profile = $u->departmentHeadProfile ?: new DepartmentHeadProfile(['user_id' => $u->id]);
+        $currentAssignment = $u->person?->headAssignments?->first();
+        $deptName = $currentAssignment?->department?->name_ar
+            ?: ($profile->department?->name_ar ?: ($u->person?->department?->name_ar ?: 'غير محدد'));
 
         if (str_starts_with($deptName, 'قسم ')) {
             $deptName = preg_replace('/^قسم\s+/', '', $deptName);
@@ -133,12 +102,13 @@ class DepartmentHeadController extends Controller
                 'user_id' => $u->id,
                 'name' => $u->person ? $u->person->full_name_ar : $u->name,
                 'email' => $u->email,
-                'title' => $profile->academic_title ?: 'أستاذ مشارك — استشاري سريري',
+                'title' => $profile->academic_title ?: 'غير محدد',
+                'department_id' => $currentAssignment?->department_id,
                 'department_name' => $deptName,
-                'contract_type' => $profile->contract_type ?: 'عقد دائم — متفرغ',
-                'appointment_date' => $profile->appointment_date ?: '2024-09-01',
-                'specialty' => $profile->specialty ?: ('استشاري ' . $deptName),
-                'phone' => $profile->phone ?: ($u->person ? $u->person->primary_phone : '+970 599 000000'),
+                'contract_type' => $profile->contract_type ?: 'غير محدد',
+                'appointment_date' => $profile->appointment_date,
+                'specialty' => $profile->specialty,
+                'phone' => $profile->phone ?: $u->person?->phone,
                 'avatar_url' => $profile->avatar_url ?: $u->avatar_url,
                 'cv_summary' => $profile->cv_summary ?: '',
                 'publications' => $profile->publications ?: [],
@@ -149,6 +119,7 @@ class DepartmentHeadController extends Controller
                 'evaluation' => $profile->evaluation,
                 'kpi_score' => $kpi['totalScore'],
                 'kpi_rating' => $kpi['rating'],
+                'kpi_complete' => $kpi['isComplete'],
                 'kpi_breakdown' => $kpi,
             ]
         ]);
@@ -396,8 +367,8 @@ class DepartmentHeadController extends Controller
         $wConf = (float)($w['confWeight'] ?? 15);
         $wEval = (float)($w['evaluationWeight'] ?? 15);
 
-        $gScore = isset($ov['gradeTimelinessScore']) ? (float)$ov['gradeTimelinessScore'] : $wGrades;
-        $rScore = isset($ov['rotationMgmtScore']) ? (float)$ov['rotationMgmtScore'] : round(0.96 * $wRotations, 1);
+        $gScore = isset($ov['gradeTimelinessScore']) ? (float)$ov['gradeTimelinessScore'] : 0.0;
+        $rScore = isset($ov['rotationMgmtScore']) ? (float)$ov['rotationMgmtScore'] : 0.0;
 
         $pubCount = is_array($profile->publications) ? count($profile->publications) : 0;
         $resScore = isset($ov['researchScore']) ? (float)$ov['researchScore'] : min($wResearch, $pubCount * 5);
@@ -405,15 +376,18 @@ class DepartmentHeadController extends Controller
         $confCount = is_array($profile->conferences) ? count($profile->conferences) : 0;
         $cScore = isset($ov['confScore']) ? (float)$ov['confScore'] : min($wConf, $confCount * 5);
 
-        $rawEvalSum = $eval ? ((float)($eval['leadership_score'] ?? 0) + (float)($eval['clinical_score'] ?? 0)) : 15.0;
-        $eScore = round(($rawEvalSum / 15.0) * $wEval, 1);
+        $rawEvalSum = $eval ? ((float)($eval['leadership_score'] ?? 0) + (float)($eval['clinical_score'] ?? 0)) : 0.0;
+        $eScore = $eval ? round(($rawEvalSum / 15.0) * $wEval, 1) : 0.0;
 
         $totalScore = min(100.0, round($gScore + $rScore + $resScore + $cScore + $eScore, 1));
-
-        $rating = 'مقبول';
-        if ($totalScore >= 90) $rating = 'ممتاز';
-        else if ($totalScore >= 80) $rating = 'جيد جداً';
-        else if ($totalScore >= 70) $rating = 'جيد';
+        $isComplete = isset($ov['gradeTimelinessScore'], $ov['rotationMgmtScore']) && is_array($eval);
+        $rating = 'غير مكتمل';
+        if ($isComplete) {
+            $rating = 'مقبول';
+            if ($totalScore >= 90) $rating = 'ممتاز';
+            else if ($totalScore >= 80) $rating = 'جيد جداً';
+            else if ($totalScore >= 70) $rating = 'جيد';
+        }
 
         return [
             'gradeTimelinessScore' => $gScore,
@@ -421,8 +395,9 @@ class DepartmentHeadController extends Controller
             'researchScore' => $resScore,
             'confScore' => $cScore,
             'directorDeanEvalScore' => $eScore,
-            'totalScore' => $totalScore,
+            'totalScore' => $isComplete ? $totalScore : null,
             'rating' => $rating,
+            'isComplete' => $isComplete,
             'weights' => $w,
             'overrides' => $ov,
         ];

@@ -26,7 +26,7 @@ interface SupervisorProfileData {
   publications: PublicationItem[]; conferences: ConferenceItem[];
   documents?: DocumentItem[]; evaluation?: OfficialEvaluation;
   kpi_weights?: KpiWeights; kpi_overrides?: KpiOverrides;
-  kpi_score?: number; kpi_rating?: string; kpi_breakdown?: any;
+  kpi_score?: number | null; kpi_rating?: string; kpi_complete?: boolean; kpi_breakdown?: any;
 }
 
 const getCategoryLabel = (cat: string) => {
@@ -108,14 +108,14 @@ export function ClinicalSupervisorProfilePage() {
       user_id: rawProfile.user_id || rawProfile.id,
       name: rawProfile.name || "",
       name_en: rawProfile.name_en,
-      title: rawProfile.title || "مشرف سريري",
+      title: rawProfile.title || "غير محدد",
       department_name: rawProfile.department_name || "القسم السريري",
       specialty: rawProfile.specialty || "",
       avatar_url: rawProfile.avatar_url,
       email: rawProfile.email || "",
       phone: rawProfile.phone,
-      contract_type: rawProfile.contract_type || "عقد سريري",
-      appointment_date: rawProfile.appointment_date || "2024-09-01",
+      contract_type: rawProfile.contract_type || "",
+      appointment_date: rawProfile.appointment_date || "",
       cv_summary: rawProfile.cv_summary || "",
       publications: rawProfile.publications || [],
       conferences: rawProfile.conferences || [],
@@ -125,6 +125,7 @@ export function ClinicalSupervisorProfilePage() {
       kpi_overrides: rawProfile.kpi_overrides,
       kpi_score: rawProfile.kpi_score,
       kpi_rating: rawProfile.kpi_rating,
+      kpi_complete: Boolean(rawProfile.kpi_complete),
       kpi_breakdown: rawProfile.kpi_breakdown,
     });
     if (rawProfile.evaluation) {
@@ -151,17 +152,18 @@ export function ClinicalSupervisorProfilePage() {
     const w = profileData?.kpi_weights || { sessionAttendanceWeight:30, researchWeight:20, confWeight:15, evaluationWeight:20, studentFeedbackWeight:15 };
     const ov = profileData?.kpi_overrides || {};
     const ev = profileData?.evaluation;
-    const sessionScore = ov.sessionAttendanceScore !== undefined ? ov.sessionAttendanceScore : Math.round(0.9 * (w.sessionAttendanceWeight||30) * 10)/10;
+    const sessionScore = ov.sessionAttendanceScore !== undefined ? ov.sessionAttendanceScore : 0;
     const pubCount = profileData?.publications?.length || 0;
     const resScore = ov.researchScore !== undefined ? ov.researchScore : Math.min(w.researchWeight||20, pubCount * 5);
     const confCount = profileData?.conferences?.length || 0;
     const confScore = ov.confScore !== undefined ? ov.confScore : Math.min(w.confWeight||15, confCount * 5);
-    const rawEval = ev ? ((ev.leadership_score||0) + (ev.clinical_score||0)) : 15;
-    const evalScore = Math.round((rawEval/15) * (w.evaluationWeight||20) * 10)/10;
-    const feedbackScore = ov.studentFeedbackScore !== undefined ? ov.studentFeedbackScore : Math.round(0.85*(w.studentFeedbackWeight||15)*10)/10;
+    const rawEval = ev ? ((ev.leadership_score||0) + (ev.clinical_score||0)) : 0;
+    const evalScore = ev ? Math.round((rawEval/15) * (w.evaluationWeight||20) * 10)/10 : 0;
+    const feedbackScore = ov.studentFeedbackScore !== undefined ? ov.studentFeedbackScore : 0;
     const total = Math.min(100, Math.round((sessionScore+resScore+confScore+evalScore+feedbackScore)*10)/10);
-    let rating="مقبول"; if(total>=90) rating="ممتاز"; else if(total>=80) rating="جيد جداً"; else if(total>=70) rating="جيد";
-    return { sessionAttendanceScore:sessionScore, researchScore:resScore, confScore, directorEvalScore:evalScore, studentFeedbackScore:feedbackScore, totalScore:total, rating, weights:w };
+    const isComplete = ov.sessionAttendanceScore !== undefined && ov.studentFeedbackScore !== undefined && Boolean(ev);
+    let rating="غير مكتمل"; if (isComplete) { rating="مقبول"; if(total>=90) rating="ممتاز"; else if(total>=80) rating="جيد جداً"; else if(total>=70) rating="جيد"; }
+    return { sessionAttendanceScore:sessionScore, researchScore:resScore, confScore, directorEvalScore:evalScore, studentFeedbackScore:feedbackScore, totalScore:isComplete ? total : null, rating, isComplete, weights:w };
   }, [profileData]);
 
   const handleAvatarUpload = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -301,7 +303,7 @@ export function ClinicalSupervisorProfilePage() {
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-50 border border-teal-200 text-[11px] font-bold text-teal-700">
                   <ShieldCheck className="w-3.5 h-3.5" /> مشرف سريري
                 </span>
-                {profileData.kpi_rating && (
+                {profileData.kpi_complete && profileData.kpi_rating && (
                   <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${ratingColors[profileData.kpi_rating]||ratingColors["مقبول"]}`}>
                     <Star className="w-3 h-3 inline mr-0.5 fill-current" />
                     {profileData.kpi_rating} — {kpiBreakdown.totalScore} / 100
@@ -467,8 +469,8 @@ export function ClinicalSupervisorProfilePage() {
             <div className="space-y-5">
               <div className="bg-teal-50 rounded-2xl border border-teal-100 p-6 flex flex-col sm:flex-row items-center gap-5">
                 <div className="text-center">
-                  <div className="text-4xl font-black text-teal-700 font-mono">{kpiBreakdown.totalScore}</div>
-                  <div className="text-xs text-teal-500 font-bold mt-0.5">من أصل 100</div>
+                  <div className="text-4xl font-black text-teal-700 font-mono">{kpiBreakdown.isComplete ? kpiBreakdown.totalScore : '—'}</div>
+                  <div className="text-xs text-teal-500 font-bold mt-0.5">{kpiBreakdown.isComplete ? 'من أصل 100' : 'بانتظار استكمال بيانات التقييم'}</div>
                 </div>
                 <div className="flex-1 w-full space-y-2">
                   <div className="flex items-center justify-between">
@@ -476,7 +478,7 @@ export function ClinicalSupervisorProfilePage() {
                     <span className={`text-xs font-black px-2.5 py-1 rounded-full border ${ratingColors[kpiBreakdown.rating]||ratingColors["مقبول"]}`}>{kpiBreakdown.rating}</span>
                   </div>
                   <div className="h-3 bg-white rounded-full overflow-hidden border border-teal-100">
-                    <div className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 rounded-full transition-all" style={{width:`${kpiBreakdown.totalScore}%`}} />
+                    <div className="h-full bg-teal-500 rounded-full transition-all" style={{width:`${kpiBreakdown.totalScore ?? 0}%`}} />
                   </div>
                 </div>
               </div>

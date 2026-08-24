@@ -70,4 +70,9 @@ class User extends Authenticatable
     {
         return $this->hasOne(DepartmentHeadProfile::class);
     }
+
+    public function clinicalSupervisorProfile()
+    {
+        return $this->hasOne(ClinicalSupervisorProfile::class);
+    }
 }

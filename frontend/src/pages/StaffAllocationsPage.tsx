@@ -1,246 +1,76 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { Building2, Search, ShieldCheck, UserRound } from 'lucide-react';
 import { apiFetch } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { Button } from '@/components/ui/Button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
-import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { Search, Star, ExternalLink, Building, ChevronRight, ChevronLeft } from 'lucide-react';
 
-export interface DepartmentHeadSummary {
+type DepartmentHead = {
   id: string;
   user_id: number;
+  assignment_id: number;
   name: string;
   email: string;
   title: string;
+  department_id: number;
   department_name: string;
   contract_type: string;
-  kpi_score: number;
+  phone?: string | null;
+  avatar_url?: string | null;
+  kpi_score: number | null;
   kpi_rating: string;
-  avatar_url?: string;
-}
+  kpi_complete: boolean;
+};
 
 export function StaffAllocationsPage() {
   const navigate = useNavigate();
+  const { can } = useAuth();
+  const [search, setSearch] = useState('');
+  const [departmentId, setDepartmentId] = useState('all');
 
-  // Search & Pagination State matching DirectoryPage.tsx
-  const [searchInput, setSearchInput] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const perPage = 25;
-
-  // Debounce search input by 250ms
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedSearch(searchInput);
-      setPage(1);
-    }, 250);
-    return () => clearTimeout(handler);
-  }, [searchInput]);
-
-  // Query Department Heads directly from Laravel MySQL Database API
-  const { data: deptHeadsResponse, isLoading: isHeadsLoading } = useQuery({
+  const headsQuery = useQuery({
     queryKey: ['db-dept-heads-directory-v1'],
     queryFn: async () => {
-      const res = await apiFetch<any>('/dept-heads');
-      return Array.isArray(res) ? res : res?.data || [];
-    }
+      const response = await apiFetch<any>('/dept-heads');
+      return (Array.isArray(response) ? response : response?.data ?? []) as DepartmentHead[];
+    },
   });
+  const heads = headsQuery.data ?? [];
+  const departments = useMemo(() => {
+    const map = new Map<number, string>();
+    heads.forEach((head) => map.set(Number(head.department_id), head.department_name));
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1], 'ar'));
+  }, [heads]);
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return heads.filter((head) => {
+      const matchesSearch = !query || head.name.toLowerCase().includes(query) || head.email.toLowerCase().includes(query) || head.department_name.toLowerCase().includes(query) || head.title.toLowerCase().includes(query);
+      return matchesSearch && (departmentId === 'all' || Number(departmentId) === Number(head.department_id));
+    });
+  }, [departmentId, heads, search]);
 
-  const departmentHeadsList: DepartmentHeadSummary[] = useMemo(() => {
-    if (!deptHeadsResponse || !Array.isArray(deptHeadsResponse)) return [];
-    return deptHeadsResponse.map((item: any) => ({
-      id: String(item.id || item.user_id),
-      user_id: item.user_id || Number(item.id),
-      name: item.name,
-      email: item.email,
-      title: item.title || 'أستاذ مشارك — استشاري سريري',
-      department_name: item.department_name || 'القسم السريري',
-      contract_type: item.contract_type || 'عقد دائم — متفرغ',
-      kpi_score: item.kpi_score || 0,
-      kpi_rating: item.kpi_rating || 'مقبول',
-      avatar_url: item.avatar_url
-    }));
-  }, [deptHeadsResponse]);
+  if (headsQuery.isLoading) return <LoadingState />;
+  if (headsQuery.isError) return <ErrorState title="تعذر تحميل رؤساء الأقسام" message="لم نتمكن من تحميل التكليفات الحالية. حاول مرة أخرى." onRetry={() => headsQuery.refetch()} />;
 
-  // Filter department heads based on search input
-  const filteredHeads = useMemo(() => {
-    if (!debouncedSearch.trim()) return departmentHeadsList;
-    const q = debouncedSearch.toLowerCase();
-    return departmentHeadsList.filter(h => 
-      h.name.toLowerCase().includes(q) ||
-      h.department_name.toLowerCase().includes(q) ||
-      h.title.toLowerCase().includes(q) ||
-      h.email.toLowerCase().includes(q)
-    );
-  }, [departmentHeadsList, debouncedSearch]);
+  return <div className="space-y-5 pb-20">
+    <PageHeader title="دليل رؤساء الأقسام" description="يعرض رؤساء الأقسام المكلفين حاليًا فقط، ويفتح ملفاتهم القيادية والتقييمات الموثقة.">
+      {(can('departments.manage') || can('users.manage')) && <Link to="/admin/departments" className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800"><Building2 className="h-4 w-4" />إدارة الأقسام والتكليفات</Link>}
+    </PageHeader>
 
-  const paginatedHeads = useMemo(() => {
-    const start = (page - 1) * perPage;
-    return filteredHeads.slice(start, start + perPage);
-  }, [filteredHeads, page, perPage]);
+    <section className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_16rem_auto]">
+      <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3"><Search className="h-4 w-4 shrink-0 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} className="h-11 w-full bg-transparent text-xs font-bold text-slate-800 outline-none" placeholder="البحث بالاسم أو القسم أو البريد..." /></label>
+      <select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"><option value="all">جميع الأقسام</option>{departments.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
+      <div className="flex items-center justify-center rounded-xl bg-teal-50 px-4 text-xs font-bold text-teal-800">المعروضون: {filtered.length}</div>
+    </section>
 
-  const totalPages = Math.ceil(filteredHeads.length / perPage) || 1;
+    {filtered.length === 0 ? <section className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center"><UserRound className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-3 font-black text-slate-700">لا يوجد رؤساء أقسام مطابقون</h2><p className="mt-1 text-xs text-slate-500">إن كانت الأقسام بلا رؤساء، عيّنهم من شاشة إدارة الأقسام والتكليفات.</p></section> : <>
+      <section className="grid gap-3 md:hidden">{filtered.map((head) => <article key={head.assignment_id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm" onClick={() => navigate(`/dept-heads/${head.id}`)}><div className="flex items-start gap-3"><div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-teal-100 bg-teal-50 text-sm font-black text-teal-700">{head.avatar_url ? <img src={head.avatar_url} alt={head.name} className="h-full w-full object-cover" /> : head.name.slice(0, 1)}</div><div className="min-w-0 flex-1"><h2 className="truncate text-sm font-black text-slate-800">{head.name}</h2><p dir="ltr" className="mt-1 truncate text-left text-[10px] text-slate-500">{head.email}</p><div className="mt-2 flex flex-wrap gap-1.5"><span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-700">{head.department_name}</span><span className="rounded-lg bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">{head.title || 'غير محدد'}</span></div></div></div><div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-[11px]"><span className="font-bold text-slate-500">مؤشر الأداء</span><span className={`rounded-lg px-2 py-1 font-black ${head.kpi_complete ? 'bg-teal-50 text-teal-700' : 'bg-slate-100 text-slate-600'}`}>{head.kpi_complete && head.kpi_score !== null ? `${head.kpi_score}/100 · ${head.kpi_rating}` : 'غير مكتمل'}</span></div></article>)}</section>
 
-  return (
-    <div className="space-y-6 pb-20">
-      
-      {/* Page Header */}
-      <PageHeader 
-        title="دليل ورؤساء الأقسام السريرية بالكلية"
-        description="استعراض ورصد جميع مستخدمي النظام المكلفين برئاسة الأقسام السريرية، البروفايل، الأبحاث، والمؤشرات (KPIs) مباشرة من قاعدة البيانات"
-      />
-
-      {/* ========================================================================= */}
-      {/* DEPARTMENT HEADS DIRECTORY TABLE */}
-      {/* ========================================================================= */}
-      <div className="space-y-4">
-        
-        {/* Search & Filter Bar */}
-        <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-200 w-full sm:w-80">
-            <Search className="w-4 h-4 text-slate-400 mr-2 shrink-0" />
-            <input
-              type="text"
-              placeholder="بحث في دليل رؤساء الأقسام بالاسم أو القسم..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full text-xs font-bold text-slate-800 bg-transparent border-none focus:outline-hidden"
-            />
-          </div>
-
-          <div className="flex items-center gap-3 text-xs text-slate-500 font-bold">
-            <span>عدد رؤساء الأقسام بقاعدة البيانات: <strong className="text-teal-800 font-mono text-sm">{filteredHeads.length}</strong></span>
-          </div>
-        </div>
-
-        {/* Directory Table */}
-        {isHeadsLoading ? <LoadingState /> : (
-          <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
-            {filteredHeads.length === 0 ? (
-              <EmptyState message="لا يوجد رؤساء أقسام مسجلين بقاعدة البيانات حالياً" />
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-slate-50">
-                    <TableHead className="w-12 text-center font-bold">#</TableHead>
-                    <TableHead className="font-bold text-slate-900 min-w-[220px]">رئيس القسم</TableHead>
-                    <TableHead className="font-bold text-slate-900 min-w-[200px]">القسم السريري</TableHead>
-                    <TableHead className="font-bold text-slate-900 min-w-[180px]">الدرجة والعقد</TableHead>
-                    <TableHead className="font-bold text-slate-900 text-center w-36">تقييم الأداء (Score)</TableHead>
-                    <TableHead className="text-center font-bold w-40">إجراءات</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedHeads.map((head, idx) => (
-                    <TableRow 
-                      key={head.id} 
-                      className="hover:bg-teal-50/40 cursor-pointer transition-colors"
-                      onClick={() => navigate(`/dept-heads/${head.id}`)}
-                    >
-                      <TableCell className="text-center font-mono font-bold text-slate-400">
-                        {(page - 1) * perPage + idx + 1}
-                      </TableCell>
-
-                      {/* Head Name & Avatar */}
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-2xl bg-teal-50 text-teal-700 font-black text-xs border border-teal-100 flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
-                            {head.avatar_url ? (
-                              <img src={head.avatar_url} alt={head.name} className="w-full h-full object-cover" />
-                            ) : (
-                              head.name.split(' ').map(n => n[0]).join('').slice(0, 2) || 'د.'
-                            )}
-                          </div>
-
-                          <div>
-                            <span className="font-black text-xs text-slate-900 block hover:text-teal-700">{head.name}</span>
-                            <span className="text-[11px] font-mono text-slate-400 font-medium block">{head.email}</span>
-                          </div>
-                        </div>
-                      </TableCell>
-
-                      {/* Clinical Department */}
-                      <TableCell>
-                        <span className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
-                          <Building className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-                          <span>قسم {head.department_name}</span>
-                        </span>
-                      </TableCell>
-
-                      {/* Academic Title */}
-                      <TableCell>
-                        <div>
-                          <span className="font-bold text-xs text-slate-800 block">{head.title}</span>
-                          <span className="text-[10.5px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-100 inline-block mt-0.5">
-                            {head.contract_type}
-                          </span>
-                        </div>
-                      </TableCell>
-
-                      {/* KPI Score Badge */}
-                      <TableCell className="text-center">
-                        <div className="inline-flex items-center gap-1 bg-amber-50 px-3 py-1 rounded-xl border border-amber-200">
-                          <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-                          <span className="font-mono font-black text-xs text-amber-900">{head.kpi_score} / 100</span>
-                          <span className="text-[10px] font-bold text-emerald-700 mr-1">({head.kpi_rating})</span>
-                        </div>
-                      </TableCell>
-
-                      {/* Actions */}
-                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/dept-heads/${head.id}`)}
-                          className="px-3.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-1.5 mx-auto transition-all shadow-2xs cursor-pointer"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                          <span>فتح البروفايل الكامل</span>
-                        </button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
-                <span className="text-xs text-slate-500 font-medium">
-                  عرض الصفحة {page} من أصل {totalPages}
-                </span>
-
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    disabled={page <= 1}
-                    onClick={() => setPage(p => p - 1)}
-                    className="rounded-xl text-xs flex items-center gap-1"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                    <span>السابق</span>
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    disabled={page >= totalPages}
-                    onClick={() => setPage(p => p + 1)}
-                    className="rounded-xl text-xs flex items-center gap-1"
-                  >
-                    <span>التالي</span>
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-      </div>
-
-    </div>
-  );
+      <section className="hidden overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm md:block"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-right text-xs"><thead><tr className="border-b border-slate-200 bg-slate-50 text-slate-500"><th className="px-5 py-4">رئيس القسم</th><th className="px-5 py-4">القسم الحالي</th><th className="px-5 py-4">الدرجة والعقد</th><th className="px-5 py-4 text-center">مؤشر الأداء</th><th className="px-5 py-4 text-center">الإجراء</th></tr></thead><tbody className="divide-y divide-slate-100">{filtered.map((head) => <tr key={head.assignment_id} className="cursor-pointer hover:bg-teal-50/40" onClick={() => navigate(`/dept-heads/${head.id}`)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-teal-100 bg-teal-50 font-black text-teal-700">{head.avatar_url ? <img src={head.avatar_url} alt={head.name} className="h-full w-full object-cover" /> : head.name.slice(0, 1)}</div><div><p className="font-black text-slate-800">{head.name}</p><p dir="ltr" className="mt-1 text-left font-mono text-[10px] text-slate-400">{head.email}</p></div></div></td><td className="px-5 py-4"><span className="inline-flex items-center gap-1.5 font-bold text-slate-700"><Building2 className="h-4 w-4 text-teal-600" />{head.department_name}</span></td><td className="px-5 py-4"><p className="font-bold text-slate-700">{head.title || 'غير محدد'}</p><p className="mt-1 text-[10px] text-slate-500">{head.contract_type || 'غير محدد'}</p></td><td className="px-5 py-4 text-center"><span className={`rounded-lg px-2.5 py-1.5 font-black ${head.kpi_complete ? 'bg-teal-50 text-teal-700' : 'bg-slate-100 text-slate-600'}`}>{head.kpi_complete && head.kpi_score !== null ? `${head.kpi_score}/100 · ${head.kpi_rating}` : 'غير مكتمل'}</span></td><td className="px-5 py-4 text-center" onClick={(event) => event.stopPropagation()}><Button size="sm" onClick={() => navigate(`/dept-heads/${head.id}`)}><ShieldCheck className="ml-1 h-4 w-4" />فتح الملف</Button></td></tr>)}</tbody></table></div></section>
+    </>}
+  </div>;
 }
