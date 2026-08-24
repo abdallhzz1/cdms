@@ -54,7 +54,37 @@ export interface RotationListItem {
   name: string;
   academic_level: 'fourth' | 'fifth' | 'sixth';
   status: string;
-  academic_year?: { id: number; name: string };
+  academic_year?: { id: number; code: string; name?: string };
+}
+
+export interface RotationSetupOptions {
+  academic_years: Array<{
+    id: number;
+    code: string;
+    start_date: string;
+    end_date: string;
+    is_current: boolean;
+  }>;
+  training_sites: Array<{
+    id: number;
+    site_code: string;
+    name_ar: string;
+    name_en?: string | null;
+    max_students_per_period?: number | null;
+  }>;
+}
+
+export interface CreateRotationPayload {
+  academic_year_id: number;
+  code: string;
+  name: string;
+  academic_level: 'fourth' | 'fifth' | 'sixth';
+  duration_weeks: number;
+  start_date?: string | null;
+  end_date?: string | null;
+  status: 'draft' | 'active';
+  blocks: Array<{ block_code: string; from_week: number; to_week: number }>;
+  site_capacity_rules: Array<{ site_id: number; max_students: number }>;
 }
 
 export interface DistributionSubgroupAllocation {
@@ -253,6 +283,14 @@ export function getRotations(params?: { academic_level?: string; status?: string
   if (params?.academic_level) query.set('academic_level', params.academic_level);
   if (params?.status) query.set('status', params.status);
   return apiFetch<RotationListItem[]>(`/rotations${query.toString() ? `?${query.toString()}` : ''}`);
+}
+
+export function getRotationSetupOptions(): Promise<RotationSetupOptions> {
+  return apiFetch<RotationSetupOptions>('/rotations/setup-options');
+}
+
+export function createRotation(payload: CreateRotationPayload): Promise<RotationListItem> {
+  return apiFetch<RotationListItem>('/rotations', { method: 'POST', body: payload });
 }
 
 export function createDistributionVersion(payload: { rotation_id: number; name?: string }): Promise<DistributionVersionListItem> {

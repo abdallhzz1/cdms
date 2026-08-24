@@ -6,13 +6,30 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreRotationRequest;
 use App\Http\Requests\UpdateRotationRequest;
 use App\Http\Responses\ApiResponse;
+use App\Models\AcademicYear;
 use App\Models\Rotation;
+use App\Models\TrainingSite;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class RotationController extends Controller
 {
+    public function setupOptions(): JsonResponse
+    {
+        return ApiResponse::success([
+            'academic_years' => AcademicYear::query()
+                ->active()
+                ->orderByDesc('is_current')
+                ->orderByDesc('start_date')
+                ->get(['id', 'code', 'start_date', 'end_date', 'is_current']),
+            'training_sites' => TrainingSite::query()
+                ->active()
+                ->orderBy('name_ar')
+                ->get(['id', 'site_code', 'name_ar', 'name_en', 'max_students_per_period']),
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $query = Rotation::query()->with(['academicYear', 'departments']);
@@ -45,7 +62,11 @@ class RotationController extends Controller
                 $rotation->blocks()->createMany($request->blocks);
             }
 
-            return $rotation->load(['blocks', 'departments']);
+            if ($request->has('site_capacity_rules')) {
+                $rotation->siteCapacityRules()->createMany($request->validated('site_capacity_rules'));
+            }
+
+            return $rotation->load(['academicYear', 'blocks', 'departments', 'siteCapacityRules.site']);
         });
 
         return ApiResponse::success($rotation, 'Rotation created successfully', [], 201);
@@ -72,7 +93,12 @@ class RotationController extends Controller
                 $rotation->blocks()->createMany($request->blocks);
             }
 
-            return $rotation->load(['blocks', 'departments', 'siteCapacityRules']);
+            if ($request->has('site_capacity_rules')) {
+                $rotation->siteCapacityRules()->delete();
+                $rotation->siteCapacityRules()->createMany($request->validated('site_capacity_rules'));
+            }
+
+            return $rotation->load(['academicYear', 'blocks', 'departments', 'siteCapacityRules.site']);
         });
 
         return ApiResponse::success($updatedRotation, 'Rotation updated successfully');

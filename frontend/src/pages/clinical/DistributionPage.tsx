@@ -22,6 +22,7 @@ import { ConflictsTab } from '@/components/distribution/ConflictsTab';
 import { AuditHistoryTab } from '@/components/distribution/AuditHistoryTab';
 import { ComparisonTab } from '@/components/distribution/ComparisonTab';
 import { SubgroupAssignmentModal } from '@/components/distribution/SubgroupAssignmentModal';
+import { RotationSetupModal } from '@/components/distribution/RotationSetupModal';
 
 type WorkbenchTab = 'board' | 'conflicts' | 'history' | 'comparison';
 type GroupFilter = 'all' | 'unassigned' | 'attention';
@@ -50,6 +51,7 @@ export function DistributionPage() {
   const [selectedSubgroup, setSelectedSubgroup] = useState<DistributionSubgroupItem | null>(null);
   const [expandedSubgroupId, setExpandedSubgroupId] = useState<number | null>(null);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [rotationSetupOpen, setRotationSetupOpen] = useState(false);
 
   const rotationsQuery = useQuery({
     queryKey: ['distribution-rotations'],
@@ -185,6 +187,7 @@ export function DistributionPage() {
   return (
     <div className="mx-auto max-w-[1500px] space-y-4 pb-12">
       <PageHeader title={t('distribution.workspace.title')} description={t('distribution.workspace.description')}>
+        {can('rotations.create') && <button type="button" onClick={() => setRotationSetupOpen(true)} className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-teal-800"><Plus className="h-4 w-4" />إعداد دورة سريرية</button>}
         <Link to="/distribution/groups" className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800 hover:bg-teal-100"><Users className="h-4 w-4" />{t('distribution.workspace.manageGroups')}</Link>
         <Link to="/clinical/schedule" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><CalendarDays className="h-4 w-4" />{t('distribution.workspace.publishedSchedule')}</Link>
       </PageHeader>
@@ -193,14 +196,14 @@ export function DistributionPage() {
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid gap-3 md:grid-cols-[minmax(240px,1.2fr)_minmax(220px,1fr)_auto] md:items-end">
-          <label><span className="mb-1.5 block text-[11px] font-bold text-slate-500">{t('distribution.workspace.rotation')}</span><select value={rotationId ?? ''} onChange={(event) => { const next = Number(event.target.value); setRotationId(next); setVersionId(null); navigate('/distribution', { replace: true }); }} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100">{rotations.map((rotation) => <option key={rotation.id} value={rotation.id}>{rotation.academic_year?.name} — {t(`distribution.levels.${rotation.academic_level}`)} — {rotation.name}</option>)}</select></label>
+          <label><span className="mb-1.5 block text-[11px] font-bold text-slate-500">{t('distribution.workspace.rotation')}</span><select value={rotationId ?? ''} onChange={(event) => { const next = Number(event.target.value); setRotationId(next); setVersionId(null); navigate('/distribution', { replace: true }); }} disabled={rotations.length === 0} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none disabled:bg-slate-100 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"><option value="">{rotations.length === 0 ? 'لا توجد دورات سريرية' : 'اختر الدورة السريرية'}</option>{rotations.map((rotation) => <option key={rotation.id} value={rotation.id}>{rotation.academic_year?.code || rotation.academic_year?.name} — {t(`distribution.levels.${rotation.academic_level}`)} — {rotation.name}</option>)}</select></label>
           <label><span className="mb-1.5 block text-[11px] font-bold text-slate-500">{t('distribution.workspace.version')}</span><select value={versionId ?? ''} onChange={(event) => { const next = Number(event.target.value); setVersionId(next); navigate(`/distribution/workbench/${next}`, { replace: true }); }} disabled={versions.length === 0} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none disabled:bg-slate-100 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"><option value="">{versions.length === 0 ? t('distribution.workspace.noVersions') : t('distribution.workspace.selectVersion')}</option>{versions.map((item) => <option key={item.id} value={item.id}>#{item.id} — {item.name || t('distribution.workspace.unnamedVersion')} — {t(`distribution.status.${item.status}`)}</option>)}</select></label>
           <div className="flex flex-wrap gap-2">{can('distribution.create') && <button type="button" disabled={!rotationId || createMutation.isPending} onClick={() => createMutation.mutate()} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Plus className="h-4 w-4" />{t('distribution.workspace.newManualVersion')}</button>}{can('distribution.generate') && <button type="button" disabled={!rotationId || generateMutation.isPending} onClick={() => generateMutation.mutate()} className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-3 py-2.5 text-xs font-bold text-white hover:bg-teal-800 disabled:opacity-50"><Sparkles className="h-4 w-4" />{t('distribution.workspace.autoSuggestion')}</button>}</div>
         </div>
       </section>
 
       {rotations.length === 0 ? (
-        <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-white p-10 text-center"><BookOpenCheck className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-3 text-sm font-bold text-slate-800">{t('distribution.workspace.noRotations')}</h2><p className="mt-1 text-xs text-slate-500">{t('distribution.workspace.noRotationsHint')}</p></div>
+        <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-white p-10 text-center"><BookOpenCheck className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-3 text-sm font-bold text-slate-800">{t('distribution.workspace.noRotations')}</h2><p className="mx-auto mt-1 max-w-xl text-xs leading-6 text-slate-500">ابدأ بتعريف العام والمستوى والفترات السريرية ومواقع التدريب وسعاتها. بعدها ستظهر مجموعات الطلبة المطابقة تلقائيًا.</p>{can('rotations.create') ? <button type="button" onClick={() => setRotationSetupOpen(true)} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-teal-800"><Plus className="h-4 w-4" />إعداد أول دورة سريرية</button> : <p className="mt-4 text-xs font-bold text-amber-700">تحتاج صلاحية إنشاء الدورات السريرية. تواصل مع مدير الدائرة السريرية.</p>}</div>
       ) : versionsQuery.isLoading || (versionId && versionQuery.isLoading) ? <LoadingState />
       : versionsQuery.isError || versionQuery.isError ? <ErrorState onRetry={() => { versionsQuery.refetch(); versionQuery.refetch(); }} />
       : !version ? (
@@ -254,6 +257,7 @@ export function DistributionPage() {
       )}
 
       {selectedSubgroup && version && <SubgroupAssignmentModal version={version} subgroup={selectedSubgroup} supervisors={optionsQuery.data?.supervisors ?? []} onClose={() => setSelectedSubgroup(null)} onSuccess={async () => { setSelectedSubgroup(null); await refreshWorkbench(); setNotice({ type: 'success', text: t('distribution.workspace.assignmentSaved') }); }} />}
+      <RotationSetupModal isOpen={rotationSetupOpen} onClose={() => setRotationSetupOpen(false)} onCreated={async (rotation) => { await queryClient.invalidateQueries({ queryKey: ['distribution-rotations'] }); setRotationId(rotation.id); setVersionId(null); navigate('/distribution', { replace: true }); setNotice({ type: 'success', text: 'تم إنشاء الدورة السريرية. يمكنك الآن إنشاء نسخة التوزيع.' }); }} />
     </div>
   );
 }

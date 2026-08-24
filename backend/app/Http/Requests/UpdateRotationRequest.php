@@ -39,6 +39,10 @@ class UpdateRotationRequest extends FormRequest
             'blocks.*.from_week'  => 'required_with:blocks|integer|min:1',
             'blocks.*.to_week'    => 'required_with:blocks|integer|gte:blocks.*.from_week',
             'blocks.*.department_id' => 'nullable|exists:departments,id',
+            'site_capacity_rules' => 'nullable|array',
+            'site_capacity_rules.*.site_id' => 'required_with:site_capacity_rules|integer|distinct|exists:training_sites,id',
+            'site_capacity_rules.*.max_students' => 'required_with:site_capacity_rules|integer|min:1|max:500',
+            'site_capacity_rules.*.notes' => 'nullable|string|max:1000',
         ];
     }
 }

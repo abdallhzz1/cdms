@@ -537,6 +537,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->middleware('permission:distribution.view')
             ->name('operational.supervisors.assignments');
 
+        Route::get('rotations/setup-options', [App\Http\Controllers\Api\V1\RotationController::class, 'setupOptions'])
+            ->middleware('permission:rotations.create')
+            ->name('rotations.setup-options');
+
         Route::apiResource('rotations', App\Http\Controllers\Api\V1\RotationController::class)
             // Distribution users need the reference list to open the
             // workbench, but they still cannot manage rotation settings.
