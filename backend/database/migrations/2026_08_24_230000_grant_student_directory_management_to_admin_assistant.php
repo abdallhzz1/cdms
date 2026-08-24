@@ -17,7 +17,7 @@ return new class extends Migration
         foreach ($permissionIds as $permissionId) {
             DB::table('role_permissions')->updateOrInsert(
                 ['role_id' => $roleId, 'permission_id' => $permissionId],
-                ['scope_type' => 'global', 'scope_id' => null, 'created_at' => now(), 'updated_at' => now()],
+                ['scope_type' => 'global', 'created_at' => now(), 'updated_at' => now()],
             );
         }
     }
