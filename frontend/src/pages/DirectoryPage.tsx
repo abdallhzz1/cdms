@@ -251,7 +251,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     const csvContent = "\uFEFF" + 
       "الرقم_الجامعي,الاسم_بالعربية,الاسم_بالانجليزية,السنة_السريرية,المعدل_التراكمي,عدد_الإنذارات,سنة_الدفعة,الجنس,رقم_الهاتف,المدينة,الحالة_النظامية,حالة_التسجيل_الأكاديمي,المجموعة_الرئيسية\n" +
       "22011001,محمد أحمد إبراهيم القواسمي,Mohammad A. Qawasmi,fourth,78.50,0,2022,male,0599111222,الخليل,active,registered,L\n" +
-      "22011002,سارة محمود علي التميمي,Sara M. Tamimi,fifth,71.25,1,2021,female,0599222333,الخليل,active,unregistered,A\n";
+      "22011002,سارة محمود علي التميمي,Sara M. Tamimi,fourth,71.25,1,2022,female,0599222333,الخليل,active,unregistered,M\n";
     
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -289,7 +289,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
             const col4 = cols[4] || '';
             const col5 = cols[5] || '';
             
-            // Default template with 11 cols: 0:UnivNum, 1:NameAr, 2:NameEn, 3:Level, 4:GPA, 5:Warnings, 6:Batch, 7:Gender, 8:Phone, 9:City, 10:Status
+            // Official template: student data, academic registration status, then main group.
             if (cols.length >= 10) {
               parsed.push({
                 university_number: cols[0],
