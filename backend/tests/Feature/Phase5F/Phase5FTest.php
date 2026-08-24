@@ -178,6 +178,22 @@ class Phase5FTest extends TestCase
             ->assertStatus(403);
     }
 
+    public function test_public_schedule_excludes_internal_identifiers_and_contact_data()
+    {
+        $response = $this->getJson('/api/v1/public/clinical-schedule');
+
+        $response->assertOk();
+        $item = $response->json('data.data.0');
+
+        $this->assertIsArray($item);
+        $this->assertArrayNotHasKey('assignment_id', $item);
+        $this->assertArrayNotHasKey('distribution_version_id', $item);
+        $this->assertArrayNotHasKey('university_number', $item['student']);
+        $this->assertArrayNotHasKey('email', $item['supervisor']);
+        $this->assertNotSame((string) $this->student->id, (string) $item['student']['id']);
+        $this->assertNotSame((string) $this->supervisor->id, (string) $item['supervisor']['id']);
+    }
+
     /* ---------------------------------------------------------------------- */
     /* 2. OBJECT-LEVEL AUTHORIZATION & IDOR PREVENTION                        */
     /* ---------------------------------------------------------------------- */
@@ -195,6 +211,66 @@ class Phase5FTest extends TestCase
         $this->actingAs($this->viewer)
             ->getJson("/api/v1/students/99999/current-clinical-schedule")
             ->assertStatus(404);
+    }
+
+    public function test_department_scoped_user_cannot_access_another_departments_distribution(): void
+    {
+        $this->rotation->departments()->syncWithoutDetaching([$this->department->id]);
+
+        $rtaRole = Role::where('code', 'RTA')->firstOrFail();
+        $viewPermission = Permission::where('code', 'distribution.view')->firstOrFail();
+        $rtaRole->permissions()->syncWithoutDetaching([
+            $viewPermission->id => ['scope_type' => 'global'],
+        ]);
+
+        $rta = User::factory()->create(['assigned_levels' => ['fourth']]);
+        $rta->roles()->attach($rtaRole->id, [
+            'scope_type' => 'department',
+            'scope_id' => $this->department->id,
+        ]);
+
+        $otherDepartment = Department::factory()->create();
+        $otherRotation = Rotation::factory()->create([
+            'academic_year_id' => $this->rotation->academic_year_id,
+            'academic_level' => 'fourth',
+        ]);
+        $otherRotation->departments()->attach($otherDepartment->id);
+        $outsideVersion = DistributionVersion::create([
+            'rotation_id' => $otherRotation->id,
+            'version_number' => 1,
+            'status' => 'published',
+            'is_current' => true,
+            'created_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($rta)->getJson('/api/v1/distribution-versions')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.data')
+            ->assertJsonPath('data.data.0.id', $this->currentPublishedVersion->id);
+
+        $this->actingAs($rta)->getJson("/api/v1/distribution-versions/{$outsideVersion->id}")
+            ->assertStatus(403);
+
+        $this->actingAs($rta)->getJson("/api/v1/departments/{$otherDepartment->id}/current-distribution")
+            ->assertStatus(403);
+    }
+
+    public function test_payload_permissions_are_enforced_per_key_namespace(): void
+    {
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/distribution-payload', [
+            'key' => 'cdms_group_letters',
+            'payload' => ['A', 'B'],
+        ])->assertOk();
+
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/distribution-payload', [
+            'key' => 'cdms_grades_fourth',
+            'payload' => ['score' => 90],
+        ])->assertStatus(403);
+
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/distribution-payload', [
+            'key' => 'unregistered_namespace',
+            'payload' => ['value' => true],
+        ])->assertStatus(403);
     }
 
     /* ---------------------------------------------------------------------- */

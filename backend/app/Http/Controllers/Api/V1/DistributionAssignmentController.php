@@ -6,17 +6,21 @@ use App\Http\Controllers\Controller;
 use App\Models\DistributionVersion;
 use App\Models\StudentClinicalAssignment;
 use App\Services\Distribution\DistributionManualAssignmentService;
+use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
 class DistributionAssignmentController extends Controller
 {
+    use ScopesByDepartmentAndLevel;
+
     public function __construct(
         private DistributionManualAssignmentService $manualAssignmentService
     ) {}
 
     public function index(Request $request, DistributionVersion $version): JsonResponse
     {
+        $this->authorizeVersionAccess($version);
 
         $query = StudentClinicalAssignment::with(['student', 'studentSubgroup', 'rotationBlock', 'trainingSite', 'supervisor'])
             ->where('distribution_version_id', $version->id);
@@ -38,6 +42,7 @@ class DistributionAssignmentController extends Controller
 
     public function store(Request $request, DistributionVersion $version): JsonResponse
     {
+        $this->authorizeVersionAccess($version);
 
         $data = $request->validate([
             'student_id' => 'required|exists:students,id',
@@ -48,6 +53,7 @@ class DistributionAssignmentController extends Controller
             'force' => 'boolean',
             'override_reason' => 'nullable|string'
         ]);
+        $this->authorizeStudentAccess(\App\Models\Student::findOrFail($data['student_id']));
 
         $assignment = $this->manualAssignmentService->createAssignment(
             $version,
@@ -65,6 +71,8 @@ class DistributionAssignmentController extends Controller
 
     public function update(Request $request, DistributionVersion $version, StudentClinicalAssignment $assignment): JsonResponse
     {
+        $this->authorizeVersionAccess($version);
+        $this->authorizeStudentAccess($assignment->student);
 
         $data = $request->validate([
             'rotation_block_id' => 'sometimes|exists:rotation_blocks,id',
@@ -91,6 +99,8 @@ class DistributionAssignmentController extends Controller
 
     public function destroy(Request $request, DistributionVersion $version, StudentClinicalAssignment $assignment): JsonResponse
     {
+        $this->authorizeVersionAccess($version);
+        $this->authorizeStudentAccess($assignment->student);
 
         $this->manualAssignmentService->deleteAssignment(
             $version,
@@ -101,5 +111,16 @@ class DistributionAssignmentController extends Controller
         return response()->json([
             'message' => 'Assignment removed successfully.'
         ]);
+    }
+
+    private function authorizeVersionAccess(DistributionVersion $version): void
+    {
+        $departmentId = $this->getUserDepartmentId();
+        if ($departmentId && !$version->rotation()->whereHas(
+            'departments',
+            fn ($q) => $q->whereKey($departmentId)
+        )->exists()) {
+            throw new \Illuminate\Auth\Access\AuthorizationException('This action is unauthorized.');
+        }
     }
 }

@@ -8,6 +8,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\StudentGroup;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentSubgroup;
+use App\Models\Student;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -38,19 +39,37 @@ class StudentGroupAssignmentController extends Controller
             }
         }
 
-        $assignment = DB::transaction(function () use ($data) {
+        $approvedBy = $request->user()?->name;
+        $assignment = DB::transaction(function () use ($data, $approvedBy) {
             $effectiveFrom = $data['valid_from'] ?? now()->toDateString();
 
-            StudentGroupAssignment::query()
+            // Lock the stable parent row to serialize assignments even when
+            // no current assignment exists yet for this student/year.
+            Student::whereKey($data['student_id'])->lockForUpdate()->firstOrFail();
+
+            $currentAssignments = StudentGroupAssignment::query()
                 ->where('student_id', $data['student_id'])
                 ->where('academic_year_id', $data['academic_year_id'])
                 ->whereNull('valid_until')
+                ->lockForUpdate()
+                ->get();
+
+            if ($currentAssignments->contains(
+                fn (StudentGroupAssignment $current) => $current->valid_from?->gt($effectiveFrom)
+            )) {
+                throw ValidationException::withMessages([
+                    'valid_from' => ['The effective date cannot precede the current assignment start date.'],
+                ]);
+            }
+
+            StudentGroupAssignment::query()
+                ->whereIn('id', $currentAssignments->pluck('id')->all())
                 ->update(['valid_until' => $effectiveFrom]);
 
             return StudentGroupAssignment::create([
                 ...$data,
                 'valid_from' => $effectiveFrom,
-                'approved_by' => optional($request->user())->name,
+                'approved_by' => $approvedBy,
             ]);
         });
 

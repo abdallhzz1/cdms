@@ -11,17 +11,17 @@ use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\TrainingSite;
 use App\Models\ClinicalDistributionPayload;
-use App\Models\Role;
-use App\Models\User;
 use App\Services\Distribution\CurrentDistributionResolver;
 use App\Services\Distribution\DistributionApprovalService;
+use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Gate;
 
 class OperationalDistributionController extends Controller
 {
+    use ScopesByDepartmentAndLevel;
+
     public function __construct(
         private CurrentDistributionResolver $currentResolver,
         private DistributionApprovalService $approvalService,
@@ -44,10 +44,83 @@ class OperationalDistributionController extends Controller
     }
 
     /**
+     * Public lobby view of the current schedule. Internal database IDs,
+     * university numbers, account email addresses and workflow identifiers
+     * are deliberately excluded from this response.
+     */
+    public function publicSchedule(Request $request): JsonResponse
+    {
+        $paginator = $this->scheduleQueryService->getAdministrativeSchedule($request);
+
+        $paginator->getCollection()->transform(function (array $item): array {
+            $student = $item['student'] ?? null;
+            $supervisor = $item['supervisor'] ?? null;
+            $site = $item['training_site'] ?? null;
+            $department = $item['department'] ?? null;
+            $rotation = $item['rotation'] ?? null;
+            $block = $item['block'] ?? null;
+
+            return [
+                'student' => $student ? [
+                    'id' => $this->publicIdentifier('student', $student['id']),
+                    'full_name_ar' => $student['full_name_ar'],
+                    'full_name_en' => $student['full_name_en'],
+                    'full_name' => $student['full_name'],
+                ] : null,
+                'rotation' => $rotation ? [
+                    'code' => $rotation['code'],
+                    'name' => $rotation['name'],
+                    'academic_level' => $rotation['academic_level'],
+                    'start_date' => $rotation['start_date'],
+                    'end_date' => $rotation['end_date'],
+                ] : null,
+                'block' => $block ? [
+                    'id' => $this->publicIdentifier('block', $block['id']),
+                    'block_code' => $block['block_code'],
+                    'from_week' => $block['from_week'],
+                    'to_week' => $block['to_week'],
+                    'start_date' => $block['start_date'],
+                    'end_date' => $block['end_date'],
+                ] : null,
+                'training_site' => $site ? [
+                    'id' => $this->publicIdentifier('site', $site['id']),
+                    'name' => $site['name'],
+                    'name_en' => $site['name_en'],
+                    'name_ar' => $site['name_ar'],
+                ] : null,
+                'department' => $department ? [
+                    'id' => $this->publicIdentifier('department', $department['id']),
+                    'name' => $department['name'],
+                    'name_en' => $department['name_en'],
+                    'name_ar' => $department['name_ar'],
+                ] : null,
+                'supervisor' => $supervisor ? [
+                    'id' => $this->publicIdentifier('supervisor', $supervisor['id']),
+                    'full_name_ar' => $supervisor['full_name_ar'],
+                    'full_name_en' => $supervisor['full_name_en'],
+                    'name' => $supervisor['name'],
+                ] : null,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Public clinical schedule retrieved successfully.',
+            'data' => $paginator,
+        ]);
+    }
+
+    private function publicIdentifier(string $type, int|string $id): string
+    {
+        return substr(hash_hmac('sha256', $type.':'.$id, (string) config('app.key')), 0, 16);
+    }
+
+    /**
      * GET /api/v1/rotations/{rotation}/current-distribution
      */
     public function currentDistribution(Rotation $rotation): JsonResponse
     {
+        $this->authorizeRotationAccess($rotation);
         $currentVersion = $this->currentResolver->resolveForRotation($rotation->id);
 
         if (!$currentVersion) {
@@ -73,6 +146,7 @@ class OperationalDistributionController extends Controller
      */
     public function currentDistributionSummary(Rotation $rotation): JsonResponse
     {
+        $this->authorizeRotationAccess($rotation);
         $currentVersion = $this->currentResolver->resolveForRotation($rotation->id);
 
         if (!$currentVersion) {
@@ -116,6 +190,7 @@ class OperationalDistributionController extends Controller
      */
     public function studentSchedule(Student $student): JsonResponse
     {
+        $this->authorizeStudentAccess($student);
         $assignments = StudentClinicalAssignment::where('student_id', $student->id)
             ->whereHas('distributionVersion', function ($q) {
                 $q->where('status', 'published')->where('is_current', true);
@@ -141,7 +216,12 @@ class OperationalDistributionController extends Controller
      */
     public function supervisorSchedule(Person $person): JsonResponse
     {
-        $assignments = StudentClinicalAssignment::where('supervisor_id', $person->id)
+        $this->authorizeDepartmentAccess($person->department_id ? (int) $person->department_id : null);
+
+        $assignments = $this->applyDepartmentAccessScope(
+            StudentClinicalAssignment::where('supervisor_id', $person->id),
+            'student_clinical_assignments.department_id'
+        )
             ->whereHas('distributionVersion', function ($q) {
                 $q->where('status', 'published')->where('is_current', true);
             })
@@ -166,6 +246,7 @@ class OperationalDistributionController extends Controller
      */
     public function departmentDistribution(Department $department, Request $request): JsonResponse
     {
+        $this->authorizeDepartmentAccess($department->id);
         $assignments = StudentClinicalAssignment::where('department_id', $department->id)
             ->whereHas('distributionVersion', function ($q) {
                 $q->where('status', 'published')->where('is_current', true);
@@ -192,7 +273,10 @@ class OperationalDistributionController extends Controller
      */
     public function trainingSiteDistribution(TrainingSite $trainingSite, Request $request): JsonResponse
     {
-        $assignments = StudentClinicalAssignment::where('training_site_id', $trainingSite->id)
+        $assignments = $this->applyDepartmentAccessScope(
+            StudentClinicalAssignment::where('training_site_id', $trainingSite->id),
+            'student_clinical_assignments.department_id'
+        )
             ->whereHas('distributionVersion', function ($q) {
                 $q->where('status', 'published')->where('is_current', true);
             })
@@ -258,6 +342,8 @@ class OperationalDistributionController extends Controller
     public function getDistributionPayload(Request $request, ?string $key = null): JsonResponse
     {
         $targetKey = $key ?: $request->query('key');
+        $request->validate(['key' => ['nullable', 'string', 'max:190']]);
+        $this->authorizePayloadKey($request, (string) $targetKey, false);
         $payloadRecord = ClinicalDistributionPayload::where('key', $targetKey)->first();
 
         return response()->json([
@@ -278,87 +364,51 @@ class OperationalDistributionController extends Controller
 
         $key = $request->input('key');
         $payload = $request->input('payload');
+        $this->authorizePayloadKey($request, $key, true);
 
         $record = ClinicalDistributionPayload::updateOrCreate(
             ['key' => $key],
             ['payload' => $payload]
         );
 
-        // If key is cdms_hospital_doctors, auto sync doctors to training_sites, people, and users tables!
-        if ($key === 'cdms_hospital_doctors' && is_array($payload)) {
-            $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->first();
-
-            foreach ($payload as $hospGroup) {
-                $siteNameAr = $hospGroup['name'] ?? $hospGroup['name_ar'] ?? 'مستشفى التدريب';
-                $siteNameEn = $hospGroup['name_en'] ?? 'Training Site';
-
-                try {
-                    TrainingSite::firstOrCreate(
-                        ['name_ar' => $siteNameAr],
-                        [
-                            'site_code' => 'SITE_' . rand(1000, 9999),
-                            'name_en' => $siteNameEn,
-                            'site_type' => 'hospital_public',
-                            'city' => 'الخليل',
-                            'agreement_status' => 'active',
-                            'is_active' => true,
-                        ]
-                    );
-                } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::error('TrainingSite creation error: ' . $e->getMessage());
-                }
-
-                if (isset($hospGroup['doctors']) && is_array($hospGroup['doctors'])) {
-                    foreach ($hospGroup['doctors'] as $docData) {
-                        $docNameAr = $docData['name'] ?? $docData['doctorName'] ?? $docData['name_ar'] ?? null;
-                        if (!$docNameAr) continue;
-
-                        $docNameEn = $docData['name_en'] ?? $docData['doctorName_en'] ?? $docNameAr;
-
-                        $email = $docData['email'] ?? null;
-                        if (!$email) {
-                            $clean = preg_replace('/[^\w]/', '', strtolower($docNameEn));
-                            $email = ($clean ?: 'doc' . rand(100, 999)) . '@hebron.edu';
-                        }
-
-                        $person = Person::firstOrCreate(
-                            ['full_name_ar' => $docNameAr],
-                            [
-                                'full_name_en' => $docNameEn,
-                                'email' => $email,
-                                'person_type' => 'staff',
-                                'primary_phone' => '0590000000',
-                            ]
-                        );
-
-                        $user = User::where('email', $email)->orWhere('name', $docNameAr)->first();
-                        if (!$user) {
-                            $user = User::create([
-                                'name' => $docNameAr,
-                                'email' => $email,
-                                'password' => Hash::make($docData['password'] ?? 'password123'),
-                                'person_id' => $person->id,
-                                'is_active' => true,
-                            ]);
-                        } else {
-                            $user->update([
-                                'person_id' => $person->id,
-                                'is_active' => true,
-                            ]);
-                        }
-
-                        if ($supervisorRole && !$user->roles->contains($supervisorRole->id)) {
-                            $user->roles()->syncWithoutDetaching([$supervisorRole->id]);
-                        }
-                    }
-                }
-            }
-        }
-
         return response()->json([
             'success' => true,
-            'message' => 'Distribution payload saved and synced to MySQL database successfully.',
+            'message' => 'Operational payload saved successfully.',
             'data' => $record,
         ]);
+    }
+
+    private function authorizePayloadKey(Request $request, string $key, bool $write): void
+    {
+        $permission = match (true) {
+            str_starts_with($key, 'cdms_grades_'),
+            $key === 'cdms_student_grades',
+            $key === 'cdms_submitted_grade_sheets' => $write ? 'grades.create' : 'grades.view',
+            $key === 'cdms_supervisor_evaluations' => $write ? 'assessment.create' : 'assessment.view',
+            $key === 'cdms_supervisor_attendance' => $write ? 'attendance.record' : 'attendance.view',
+            $key === 'cdms_advising_official_forms' => $write ? 'advising.manage' : 'advising.view',
+            str_starts_with($key, 'cdms_dept_head_profile_') => $write ? 'people.manage' : 'people.view',
+            $key === 'cdms_academic_years' => $write ? 'academic_years.manage' : 'academic_years.view',
+            str_starts_with($key, 'cdms_course_schedules_'),
+            str_starts_with($key, 'cdms_clinical_partition_'),
+            str_starts_with($key, 'cdms_public_reg_enabled_'),
+            str_starts_with($key, 'cdms_cleared_'),
+            $key === 'cdms_group_letters',
+            $key === 'cdms_hospital_doctors' => $write ? 'distribution.update' : 'distribution.view',
+            default => null,
+        };
+
+        $user = $request->user();
+        if (!$permission || !$user || !Gate::forUser($user)->allows('permission', [$permission])) {
+            throw new \Illuminate\Auth\Access\AuthorizationException('This action is unauthorized.');
+        }
+    }
+
+    private function authorizeRotationAccess(Rotation $rotation): void
+    {
+        $departmentId = $this->getUserDepartmentId();
+        if ($departmentId && !$rotation->departments()->whereKey($departmentId)->exists()) {
+            throw new \Illuminate\Auth\Access\AuthorizationException('This action is unauthorized.');
+        }
     }
 }

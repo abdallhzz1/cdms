@@ -6,6 +6,13 @@
 **Date:** 2026-08-15
 **Status:** APPROVED
 
+> **Repository readiness warning (24 Aug 2026):** backup configuration is present,
+> but the current `composer.lock` does not contain `spatie/laravel-backup` or the
+> S3 Flysystem adapter. Automatic backups therefore remain disabled by default.
+> Before production, install both packages, commit the updated lock file, configure
+> S3 and `BACKUP_ARCHIVE_PASSWORD`, set `BACKUP_ENABLED=true`, then run
+> `php artisan cdms:readiness`, `backup:run --only-db`, `backup:list`, and a restore drill.
+
 > This document is the authoritative operations reference for the Clinical Distribution Management System (CDMS). It covers environment configuration, deployment, queue workers, scheduled tasks, backup and disaster recovery, monitoring, and incident response. All operators and DevOps personnel responsible for CDMS production environments MUST read this document before performing any production operation.
 
 ---

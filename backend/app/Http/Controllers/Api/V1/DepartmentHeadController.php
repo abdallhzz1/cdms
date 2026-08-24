@@ -6,11 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\DepartmentHeadProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\ProfileAuthorizationService;
+use App\Services\SecureFileUploadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class DepartmentHeadController extends Controller
 {
+    public function __construct(private readonly ProfileAuthorizationService $profileAuthorization) {}
+
     /**
      * GET /api/v1/dept-heads
      * List all Department Heads with their database profile and KPI calculations.
@@ -19,7 +24,7 @@ class DepartmentHeadController extends Controller
     {
         $headRole = Role::where('code', 'DEPARTMENT_HEAD')->first();
 
-        $query = User::with(['roles', 'person.department', 'departmentHeadProfile']);
+        $query = User::with(['roles', 'person.department', 'departmentHeadProfile.department']);
 
         if ($headRole) {
             $query->whereHas('roles', function ($q) use ($headRole) {
@@ -35,9 +40,8 @@ class DepartmentHeadController extends Controller
         })->values();
 
         $data = $uniqueUsers->map(function ($u) {
-            $profile = $u->departmentHeadProfile ?: DepartmentHeadProfile::firstOrCreate([
-                'user_id' => $u->id
-            ], [
+            $profile = $u->departmentHeadProfile ?: new DepartmentHeadProfile([
+                'user_id' => $u->id,
                 'academic_title' => 'أستاذ مشارك — استشاري سريري',
                 'specialty' => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'استشاري سريري',
                 'contract_type' => 'عقد دائم — متفرغ',
@@ -92,15 +96,9 @@ class DepartmentHeadController extends Controller
     public function show(Request $request, string $id): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeView($request->user(), $userId);
 
-        $u = User::with(['roles', 'person.department', 'departmentHeadProfile'])->find($userId);
-
-        if (!$u) {
-            // Check by email or fallback to first head
-            $u = User::with(['roles', 'person.department', 'departmentHeadProfile'])
-                ->where('email', 'like', '%iyad%')
-                ->first();
-        }
+        $u = User::with(['roles', 'person.department', 'departmentHeadProfile.department'])->find($userId);
 
         if (!$u) {
             return response()->json([
@@ -109,9 +107,8 @@ class DepartmentHeadController extends Controller
             ], 404);
         }
 
-        $profile = DepartmentHeadProfile::firstOrCreate([
-            'user_id' => $u->id
-        ], [
+        $profile = $u->departmentHeadProfile ?: new DepartmentHeadProfile([
+            'user_id' => $u->id,
             'academic_title' => 'أستاذ مشارك — استشاري سريري',
             'specialty' => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'استشاري سريري',
             'contract_type' => 'عقد دائم — متفرغ',
@@ -164,6 +161,7 @@ class DepartmentHeadController extends Controller
     public function update(Request $request, string $id): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeEdit($request->user(), $userId);
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
@@ -175,11 +173,9 @@ class DepartmentHeadController extends Controller
             'contract_type' => $payload['contract_type'] ?? $profile->contract_type,
             'appointment_date' => $payload['appointment_date'] ?? $profile->appointment_date,
             'phone' => $payload['phone'] ?? $profile->phone,
-            'avatar_url' => $payload['avatar_url'] ?? $profile->avatar_url,
             'cv_summary' => $payload['cv_summary'] ?? $profile->cv_summary,
             'publications' => isset($payload['publications']) ? $payload['publications'] : $profile->publications,
             'conferences' => isset($payload['conferences']) ? $payload['conferences'] : $profile->conferences,
-            'documents' => isset($payload['documents']) ? $payload['documents'] : $profile->documents,
         ]);
 
         return $this->show($request, (string)$userId);
@@ -192,6 +188,7 @@ class DepartmentHeadController extends Controller
     public function saveEvaluation(Request $request, string $id): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeEvaluation($request->user());
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
@@ -217,6 +214,7 @@ class DepartmentHeadController extends Controller
     public function saveWeights(Request $request, string $id): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeEvaluation($request->user());
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
@@ -235,6 +233,7 @@ class DepartmentHeadController extends Controller
     public function saveOverrides(Request $request, string $id): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeEvaluation($request->user());
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
@@ -251,87 +250,63 @@ class DepartmentHeadController extends Controller
      * POST /api/v1/dept-heads/{id}/avatar
      * Upload profile avatar photo directly to server storage.
      */
-    public function uploadAvatar(Request $request, string $id): JsonResponse
+    public function uploadAvatar(Request $request, string $id, SecureFileUploadService $files): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeEdit($request->user(), $userId);
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
-        if ($request->hasFile('avatar')) {
-            $file = $request->file('avatar');
-            $filename = 'avatar_' . $userId . '_' . time() . '.' . $file->getClientOriginalExtension();
-            $path = $file->storeAs('avatars', $filename, 'public');
-            $avatarUrl = asset('storage/' . $path);
-
-            $profile->update(['avatar_url' => $avatarUrl]);
-
-            return response()->json([
-                'success' => true,
-                'avatar_url' => $avatarUrl,
-                'message' => 'Avatar image uploaded successfully.'
-            ]);
+        $source = $request->file('avatar') ?: $request->input('avatar_base64');
+        if (!$source) {
+            return response()->json(['success' => false, 'message' => 'No image file provided.'], 400);
         }
 
-        if ($request->has('avatar_base64')) {
-            $avatarUrl = $request->input('avatar_base64');
-            $profile->update(['avatar_url' => $avatarUrl]);
-
-            return response()->json([
-                'success' => true,
-                'avatar_url' => $avatarUrl,
-                'message' => 'Avatar image updated successfully.'
-            ]);
+        $stored = $files->storeAvatar($source, 'avatars/department-heads/'.$userId);
+        $oldPath = $profile->avatar_storage_path;
+        $profile->update([
+            'avatar_url' => $stored['url'],
+            'avatar_storage_path' => $stored['path'],
+        ]);
+        if ($oldPath && $oldPath !== $stored['path']) {
+            Storage::disk('public')->delete($oldPath);
         }
 
-        return response()->json([
-            'success' => false,
-            'message' => 'No image file provided.'
-        ], 400);
+        return response()->json(['success' => true, 'avatar_url' => $stored['url']]);
     }
 
     /**
      * POST /api/v1/dept-heads/{id}/documents
      * Upload profile document file or base64 data to server storage and update profile.
      */
-    public function uploadDocument(Request $request, string $id): JsonResponse
+    public function uploadDocument(Request $request, string $id, SecureFileUploadService $files): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeEdit($request->user(), $userId);
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
         $docName = $request->input('name', 'وثيقة رسمية');
         $docCategory = $request->input('category', 'أخرى');
-        $fileUrl = null;
-        $fileType = 'pdf';
-        $fileSize = '1 MB';
-
-        if ($request->hasFile('file')) {
-            $file = $request->file('file');
-            $ext = strtolower($file->getClientOriginalExtension() ?: 'pdf');
-            $filename = 'doc_' . $userId . '_' . time() . '_' . rand(100, 999) . '.' . $ext;
-            $path = $file->storeAs('dept_documents', $filename, 'public');
-            $fileUrl = asset('storage/' . $path);
-            $fileType = $ext;
-            $fileSize = round($file->getSize() / (1024 * 1024), 2) . ' MB';
-        } else if ($request->has('file_base64')) {
-            $fileUrl = $request->input('file_base64');
-            $fileType = $request->input('file_type', 'pdf');
-            $fileSize = $request->input('file_size', '1 MB');
-        }
-
-        if (!$fileUrl) {
+        $source = $request->file('file') ?: $request->input('file_base64');
+        if (!$source) {
             return response()->json([
                 'success' => false,
                 'message' => 'No file provided for upload.'
             ], 400);
         }
 
+        $stored = $files->storeDocument($source, 'profile-documents/department-heads/'.$userId);
+        $docId = 'doc_'.\Illuminate\Support\Str::uuid();
+
         $newDoc = [
-            'id' => 'doc_' . time() . '_' . rand(10, 99),
+            'id' => $docId,
             'name' => $docName,
             'category' => $docCategory,
-            'file_url' => $fileUrl,
-            'file_type' => $fileType,
-            'file_size' => $fileSize,
+            'file_url' => url("/api/v1/dept-heads/{$userId}/documents/{$docId}/download"),
+            'storage_path' => $stored['storage_path'],
+            'mime_type' => $stored['mime_type'],
+            'file_type' => $stored['file_type'],
+            'file_size' => round($stored['size_bytes'] / (1024 * 1024), 2) . ' MB',
             'created_at' => date('Y-m-d'),
         ];
 
@@ -354,9 +329,15 @@ class DepartmentHeadController extends Controller
     public function deleteDocument(Request $request, string $id, string $docId): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeEdit($request->user(), $userId);
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
         $currentDocs = is_array($profile->documents) ? $profile->documents : [];
+        $deleted = collect($currentDocs)->first(fn ($doc) => (string) ($doc['id'] ?? '') === (string) $docId);
+        if (!empty($deleted['storage_path'])) {
+            Storage::disk('local')->delete($deleted['storage_path']);
+        }
+
         $filtered = array_values(array_filter($currentDocs, function ($doc) use ($docId) {
             return isset($doc['id']) ? (string)$doc['id'] !== (string)$docId : true;
         }));
@@ -367,6 +348,28 @@ class DepartmentHeadController extends Controller
             'success' => true,
             'documents' => $filtered,
             'message' => 'Document deleted successfully.'
+        ]);
+    }
+
+    public function downloadDocument(Request $request, string $id, string $docId)
+    {
+        $userId = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeView($request->user(), $userId);
+        $profile = DepartmentHeadProfile::where('user_id', $userId)->firstOrFail();
+        $document = collect($profile->documents ?: [])->first(
+            fn ($doc) => (string) ($doc['id'] ?? '') === (string) $docId
+        );
+
+        if (!$document || empty($document['storage_path']) || !Storage::disk('local')->exists($document['storage_path'])) {
+            abort(404);
+        }
+
+        $filename = preg_replace('/[^\pL\pN._-]+/u', '_', (string) ($document['name'] ?? 'document'))
+            .'.'.($document['file_type'] ?? 'bin');
+
+        return Storage::disk('local')->download($document['storage_path'], $filename, [
+            'Content-Type' => $document['mime_type'] ?? 'application/octet-stream',
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 
@@ -428,11 +431,7 @@ class DepartmentHeadController extends Controller
     private function resolveUserId(Request $request, string $id): int
     {
         if ($id === 'me') {
-            if ($request->user()) {
-                return $request->user()->id;
-            }
-            $iyad = User::where('email', 'like', '%iyad%')->first();
-            return $iyad ? $iyad->id : 69;
+            return $request->user() ? $request->user()->id : 0;
         }
 
         $val = (int)$id;
@@ -440,7 +439,7 @@ class DepartmentHeadController extends Controller
             return $val;
         }
 
-        $iyad = User::where('email', 'like', '%iyad%')->first();
-        return $iyad ? $iyad->id : 69;
+        return 0;
     }
+
 }

@@ -18,6 +18,7 @@ class DepartmentHeadProfile extends Model
         'appointment_date',
         'phone',
         'avatar_url',
+        'avatar_storage_path',
         'cv_summary',
         'publications',
         'conferences',

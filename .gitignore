@@ -13,6 +13,27 @@ vendor/
 dist/
 build/
 *.tsbuildinfo
+/assets/
+/index.html
+/favicon.svg
+/templates/
+
+# One-off repair/extraction artifacts (real maintained scripts belong in tools/)
+backend/fix_*.py
+backend/scratch_*.php
+backend/update_*.py
+backend/clean_*.py
+frontend/fix_*.py
+frontend/refactor_*.py
+frontend/extract*.py
+frontend/read_*.cjs
+frontend/restored_*
+frontend/dabang_*
+frontend/best_*.txt
+*.bak
+analysis_output.txt
+spec_dump.json
+requirements_text.txt
 
 # Logs
 *.log

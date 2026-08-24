@@ -43,36 +43,41 @@ class DistributionApprovalService
             ]);
         }
 
-        // Fetch all current assignments for the version
-        $assignments = StudentClinicalAssignment::where('distribution_version_id', $version->id)->get()->toArray();
-
-        // Check for unassigned students
-        $unassignedIds = $this->getUnassignedStudentIds($version, array_column($assignments, 'student_id'));
-
-        if (!empty($unassignedIds)) {
-            if (!$force) {
+        return DB::transaction(function () use ($user, $version, $force, $overrideReason) {
+            $version = DistributionVersion::whereKey($version->id)->lockForUpdate()->firstOrFail();
+            if (!in_array($version->status, ['suggested', 'manual'], true)) {
                 throw ValidationException::withMessages([
-                    'unassigned' => ['There are unassigned students in this rotation.']
+                    'version' => ['Only suggested or manual versions can be approved.'],
                 ]);
             }
-            if (empty($overrideReason)) {
-                throw ValidationException::withMessages([
-                    'override_reason' => ['An override reason is required to approve with unassigned students.']
-                ]);
+
+            $assignments = StudentClinicalAssignment::where('distribution_version_id', $version->id)
+                ->lockForUpdate()
+                ->get()
+                ->toArray();
+            $unassignedIds = $this->getUnassignedStudentIds($version, array_column($assignments, 'student_id'));
+
+            if (!empty($unassignedIds)) {
+                if (!$force) {
+                    throw ValidationException::withMessages([
+                        'unassigned' => ['There are unassigned students in this rotation.'],
+                    ]);
+                }
+                if (empty($overrideReason)) {
+                    throw ValidationException::withMessages([
+                        'override_reason' => ['An override reason is required to approve with unassigned students.'],
+                    ]);
+                }
+                if (!Gate::allows('permission', 'distribution.override')) {
+                    throw ValidationException::withMessages([
+                        'authorization' => ['You do not have permission to override unassigned students.'],
+                    ]);
+                }
             }
-            if (!Gate::allows('permission', 'distribution.override')) {
-                throw ValidationException::withMessages([
-                    'authorization' => ['You do not have permission to override unassigned students.']
-                ]);
-            }
-        }
 
-        // Run final validation
-        $this->stateValidator->validateState($version, $assignments, $force, $overrideReason);
+            $this->stateValidator->validateState($version, $assignments, $force, $overrideReason);
+            $fingerprint = $this->generateFingerprint($assignments);
 
-        $fingerprint = $this->generateFingerprint($assignments);
-
-        return DB::transaction(function () use ($user, $version, $fingerprint, $force, $overrideReason) {
             return AuditLog::create([
                 'user_id' => $user->id,
                 'action' => 'version.approved',

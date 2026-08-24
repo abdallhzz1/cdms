@@ -5,15 +5,22 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AdvisingRecord;
+use App\Models\Student;
+use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class AdvisingRecordController extends Controller
 {
+    use ScopesByDepartmentAndLevel;
+
     public function index(Request $request): JsonResponse
     {
+        $studentIds = $this->applyStudentAccessScope(Student::query())->select('students.id');
+
         $items = AdvisingRecord::with(['student', 'advisor'])
+            ->whereIn('student_id', $studentIds)
             ->when($request->filled('student_id'), fn ($query) => $query->where('student_id', $request->integer('student_id')))
             ->latest('meeting_date')->paginate($request->integer('per_page', 25));
         return ApiResponse::success($items->items(), null, ['current_page' => $items->currentPage(), 'last_page' => $items->lastPage(), 'total' => $items->total()]);
@@ -29,6 +36,9 @@ class AdvisingRecordController extends Controller
             'notes' => ['required', 'string', 'max:5000'],
             'action_plan' => ['nullable', 'string', 'max:5000'],
         ]);
+
+        $student = Student::findOrFail($data['student_id']);
+        $this->authorizeStudentAccess($student);
 
         if (!empty($data['advisor_person_id'])) {
             $val = $data['advisor_person_id'];
@@ -52,9 +62,16 @@ class AdvisingRecordController extends Controller
 
     public function update(Request $request, AdvisingRecord $advisingRecord): JsonResponse
     {
+        $this->authorizeStudentAccess($advisingRecord->student);
+
         $data = $request->validate(['notes' => ['sometimes', 'string', 'max:5000'], 'action_plan' => ['nullable', 'string', 'max:5000'], 'status' => ['sometimes', Rule::in(['open', 'closed'])]]);
         $advisingRecord->update($data);
         return ApiResponse::success($advisingRecord->fresh());
     }
-    public function show(AdvisingRecord $advisingRecord): JsonResponse { return ApiResponse::success($advisingRecord->load(['student','advisor','participants.student'])); }
+    public function show(AdvisingRecord $advisingRecord): JsonResponse
+    {
+        $this->authorizeStudentAccess($advisingRecord->student);
+
+        return ApiResponse::success($advisingRecord->load(['student','advisor','participants.student']));
+    }
 }

@@ -49,6 +49,10 @@ class AuthorizationMiddlewareTest extends TestCase
             Route::get('/__test/needs-users-manage', function () {
                 return ApiResponse::success(message: 'ok');
             })->middleware('permission:users.manage');
+
+            Route::get('/__test/needs-any-operational-permission', function () {
+                return ApiResponse::success(message: 'ok');
+            })->middleware('permission.any:distribution.view,grades.view,advising.view');
         });
     }
 
@@ -95,5 +99,34 @@ class AuthorizationMiddlewareTest extends TestCase
         $this->actingAs($user, 'web');
 
         $this->getJson('/__test/needs-users-manage')->assertStatus(403);
+    }
+
+    public function test_any_permission_middleware_allows_one_matching_permission(): void
+    {
+        $role = Role::factory()->create();
+        $permission = Permission::factory()->create(['code' => 'grades.view']);
+        $role->permissions()->attach($permission->id, ['scope_type' => 'global']);
+
+        $user = User::factory()->create();
+        $user->roles()->attach($role->id);
+
+        $this->actingAs($user, 'web')
+            ->getJson('/__test/needs-any-operational-permission')
+            ->assertOk();
+    }
+
+    public function test_any_permission_middleware_denies_when_none_match(): void
+    {
+        $role = Role::factory()->create();
+        $permission = Permission::factory()->create(['code' => 'tasks.view']);
+        $role->permissions()->attach($permission->id, ['scope_type' => 'global']);
+
+        $user = User::factory()->create();
+        $user->roles()->attach($role->id);
+
+        $this->actingAs($user, 'web')
+            ->getJson('/__test/needs-any-operational-permission')
+            ->assertStatus(403)
+            ->assertJson(['success' => false]);
     }
 }

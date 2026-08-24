@@ -247,7 +247,9 @@ class Phase6DTest extends TestCase
             return str_contains($event->command ?? '', 'backup:run');
         });
 
-        $this->assertTrue($backupRunFound, 'backup:run must be registered in the Laravel scheduler.');
+        $expected = config('operations.backup.enabled')
+            && class_exists(\Spatie\Backup\Commands\BackupCommand::class);
+        $this->assertSame($expected, $backupRunFound, 'backup:run scheduling must match actual backup availability.');
     }
 
     public function test_backup_clean_command_is_scheduled(): void
@@ -259,7 +261,9 @@ class Phase6DTest extends TestCase
             return str_contains($event->command ?? '', 'backup:clean');
         });
 
-        $this->assertTrue($backupCleanFound, 'backup:clean must be registered in the Laravel scheduler.');
+        $expected = config('operations.backup.enabled')
+            && class_exists(\Spatie\Backup\Commands\BackupCommand::class);
+        $this->assertSame($expected, $backupCleanFound, 'backup:clean scheduling must match actual backup availability.');
     }
 
     // -------------------------------------------------------------------------

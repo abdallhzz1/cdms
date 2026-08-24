@@ -59,12 +59,25 @@ class DistributionPublicationService
             ]);
         }
 
-        $result = DB::transaction(function () use ($version, $user, $force, $overrideReason) {
+        $result = DB::transaction(function () use ($version, $user, $lastUpdatedAt, $force, $overrideReason) {
             // Lock all version rows for this rotation to prevent concurrent publication races
             DistributionVersion::where('rotation_id', $version->rotation_id)->lockForUpdate()->get();
 
             // Re-fetch target version
             $version = DistributionVersion::where('id', $version->id)->firstOrFail();
+
+            if ($version->updated_at->toIso8601String() !== $lastUpdatedAt
+                && $version->updated_at->toDateTimeString() !== $lastUpdatedAt) {
+                throw ValidationException::withMessages([
+                    'concurrency' => ['The version changed while publication was waiting for a lock. Please reload and try again.'],
+                ]);
+            }
+
+            if (!in_array($version->status, ['suggested', 'manual'], true)) {
+                throw ValidationException::withMessages([
+                    'version' => ['Only suggested or manual versions can be published.'],
+                ]);
+            }
 
             // 1. Verify approval validity
             $approvalLog = $this->approvalService->getValidApproval($version);

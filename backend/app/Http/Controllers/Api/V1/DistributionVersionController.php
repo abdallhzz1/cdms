@@ -9,12 +9,15 @@ use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Services\Distribution\DistributionApprovalService;
 use App\Services\Distribution\DistributionStateValidator;
+use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class DistributionVersionController extends Controller
 {
+    use ScopesByDepartmentAndLevel;
+
     public function __construct(
         private DistributionApprovalService $approvalService,
         private DistributionStateValidator $stateValidator
@@ -23,6 +26,7 @@ class DistributionVersionController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = DistributionVersion::with(['rotation.academicYear']);
+        $this->applyDistributionVersionScope($query);
 
         if ($request->has('rotation_id')) {
             $query->where('rotation_id', $request->input('rotation_id'));
@@ -87,6 +91,7 @@ class DistributionVersionController extends Controller
 
     public function show(DistributionVersion $version): JsonResponse
     {
+        $this->authorizeDistributionVersionAccess($version);
         $version->load(['rotation.academicYear', 'rotation.blocks']);
 
         $latestPublishedId = DistributionVersion::where('rotation_id', $version->rotation_id)
@@ -133,6 +138,7 @@ class DistributionVersionController extends Controller
 
     public function auditLogs(DistributionVersion $version, Request $request): JsonResponse
     {
+        $this->authorizeDistributionVersionAccess($version);
         $logs = AuditLog::where('distribution_version_id', $version->id)
             ->with(['user', 'student'])
             ->orderBy('id', 'desc')
@@ -146,6 +152,7 @@ class DistributionVersionController extends Controller
 
     public function unassigned(DistributionVersion $version): JsonResponse
     {
+        $this->authorizeDistributionVersionAccess($version);
         $assignments = StudentClinicalAssignment::where('distribution_version_id', $version->id)->get();
         $assignedStudentIds = $assignments->pluck('student_id')->unique()->toArray();
 
@@ -166,6 +173,7 @@ class DistributionVersionController extends Controller
 
     public function conflicts(DistributionVersion $version): JsonResponse
     {
+        $this->authorizeDistributionVersionAccess($version);
         $assignments = StudentClinicalAssignment::where('distribution_version_id', $version->id)->get()->toArray();
         $violations = $this->stateValidator->getViolations($version, $assignments);
 
@@ -173,5 +181,24 @@ class DistributionVersionController extends Controller
             'message' => 'Conflicts retrieved successfully.',
             'data' => $violations
         ]);
+    }
+
+    private function applyDistributionVersionScope($query): void
+    {
+        $departmentId = $this->getUserDepartmentId();
+        if ($departmentId) {
+            $query->whereHas('rotation.departments', fn ($q) => $q->whereKey($departmentId));
+        }
+    }
+
+    private function authorizeDistributionVersionAccess(DistributionVersion $version): void
+    {
+        $departmentId = $this->getUserDepartmentId();
+        if ($departmentId && !$version->rotation()->whereHas(
+            'departments',
+            fn ($q) => $q->whereKey($departmentId)
+        )->exists()) {
+            throw new \Illuminate\Auth\Access\AuthorizationException('This action is unauthorized.');
+        }
     }
 }

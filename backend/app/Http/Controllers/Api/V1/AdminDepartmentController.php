@@ -96,13 +96,13 @@ class AdminDepartmentController extends Controller
     public function candidates()
     {
         // 1. Head candidates: Users with role DEPARTMENT_HEAD
-        $headUsers = User::whereHas('roles', function ($q) {
+        $headUsers = User::with('person')->whereHas('roles', function ($q) {
             $q->whereIn('code', ['DEPARTMENT_HEAD', 'department_head']);
         })->orderBy('name')->get();
 
         $headCandidates = [];
         foreach ($headUsers as $u) {
-            $person = Person::where('user_id', $u->id)->first();
+            $person = $u->person;
             $headCandidates[] = [
                 'id'              => $person ? $person->id : ('user_' . $u->id),
                 'person_id'       => $person?->id,
@@ -116,13 +116,13 @@ class AdminDepartmentController extends Controller
         }
 
         // 2. TA candidates: Users with role RTA
-        $rtaUsers = User::whereHas('roles', function ($q) {
+        $rtaUsers = User::with('person')->whereHas('roles', function ($q) {
             $q->whereIn('code', ['RTA', 'rta']);
         })->orderBy('name')->get();
 
         $rtaCandidates = [];
         foreach ($rtaUsers as $u) {
-            $person = Person::where('user_id', $u->id)->first();
+            $person = $u->person;
             $rtaCandidates[] = [
                 'id'              => $person ? $person->id : ('user_' . $u->id),
                 'person_id'       => $person?->id,

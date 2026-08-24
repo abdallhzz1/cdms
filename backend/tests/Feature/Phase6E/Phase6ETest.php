@@ -352,8 +352,10 @@ class Phase6ETest extends TestCase
         $backupRunFound = collect($events)->contains(fn($e) => str_contains($e->command ?? '', 'backup:run'));
         $backupCleanFound = collect($events)->contains(fn($e) => str_contains($e->command ?? '', 'backup:clean'));
 
-        $this->assertTrue($backupRunFound, 'backup:run must remain in the scheduler.');
-        $this->assertTrue($backupCleanFound, 'backup:clean must remain in the scheduler.');
+        $expected = config('operations.backup.enabled')
+            && class_exists(\Spatie\Backup\Commands\BackupCommand::class);
+        $this->assertSame($expected, $backupRunFound, 'backup:run must only be scheduled when it can execute.');
+        $this->assertSame($expected, $backupCleanFound, 'backup:clean must only be scheduled when it can execute.');
     }
 
     // -------------------------------------------------------------------------

@@ -6,14 +6,15 @@ An internal administrative and academic platform that replaces fragmented
 Excel/Word/email workflows with one system of record for the Clinical
 Department. Core principle: **enter data once, reuse it everywhere.**
 
-This repository is currently at **Phase 2 — Authentication & Authorization
-Foundation**: a working login/logout/session system, roles, permissions, and
-a reusable Role+Permission+Scope authorization mechanism. No business
-modules (Students, Staff, Courses, Distribution, Grades, Advising, Quality,
-Correspondence, Meetings, Reports) exist yet — there is nothing for a
-logged-in user to actually do beyond seeing the Foundation status page. See
-[`PROJECT_RULES.md`](./PROJECT_RULES.md) and [`ARCHITECTURE.md`](./ARCHITECTURE.md)
-for why, and for the rules every future phase follows.
+The repository now contains an advanced UAT-ready implementation: students,
+staff, courses, clinical rotations and distribution, grades, attendance,
+assessments, advising, correspondence, quality, meetings, reports, RBAC,
+record-level scopes, audit logs, secure document storage, and operational
+health checks. It is **not yet certified for production**: PHP tests and
+migrations must pass in CI, backup dependencies must be installed, and a real
+backup/restore drill must be completed. See the
+[Arabic comprehensive audit](./docs/SYSTEM_COMPREHENSIVE_AUDIT_AR.md) and
+[production operations guide](./docs/PRODUCTION_OPERATIONS.md).
 
 ## Project documentation
 
@@ -107,8 +108,8 @@ GRANT ALL PRIVILEGES ON cdms.* TO 'cdms_user'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-Run the migrations (auth/authz tables — users, roles, permissions,
-role_permissions, user_roles, sessions, cache; still zero business tables):
+Run all authentication, academic, clinical, workflow, audit, and operational
+migrations:
 
 ```bash
 php artisan migrate
@@ -168,7 +169,13 @@ Expected response once MySQL is reachable:
 ```json
 {
   "success": true,
-  "data": { "application": "ok", "database": "ok" },
+  "data": {
+    "application": "ok",
+    "database": "ok",
+    "queue": "ok",
+    "storage": "ok",
+    "failed_jobs_count": 0
+  },
   "message": null,
   "meta": { "checked_at": "2026-08-13T12:00:00+00:00" }
 }
@@ -200,9 +207,9 @@ Start the dev server:
 npm run dev
 ```
 
-Open the printed local URL (default `http://localhost:5173`). The Foundation
-page calls the backend health endpoint through the centralized API client —
-if it shows "Database: OK", the whole stack is wired correctly end to end.
+Open the printed local URL (default `http://localhost:5173`) and sign in with
+an authorized account. The dashboard calls the backend health endpoint through
+the centralized API client.
 
 Run the frontend test suite:
 
@@ -210,11 +217,10 @@ Run the frontend test suite:
 npm run test
 ```
 
-Type-check and lint:
+Type-check:
 
 ```bash
 npm run typecheck
-npm run lint
 ```
 
 ## Development commands reference
@@ -224,7 +230,18 @@ npm run lint
 | Install dependencies | `composer install` | `npm install` |
 | Run dev server | `php artisan serve` | `npm run dev` |
 | Run tests | `php artisan test` | `npm run test` |
-| Type-check | — (PHP is dynamically typed; rely on tests + static analysis in a later phase) | `npm run typecheck` |
+| Type-check | PHPUnit + framework boot/cache checks in CI | `npm run typecheck` |
+
+Before any production deployment, run from `/backend`:
+
+```bash
+php artisan cdms:readiness
+php artisan migrate:status
+php artisan test
+```
+
+`cdms:readiness` intentionally fails until production security, queue, CORS,
+S3, encrypted backups, and the backup package are configured.
 
 ## API response format
 

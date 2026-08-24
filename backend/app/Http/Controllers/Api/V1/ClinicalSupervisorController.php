@@ -6,19 +6,24 @@ use App\Http\Controllers\Controller;
 use App\Models\DepartmentHeadProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\ProfileAuthorizationService;
+use App\Services\SecureFileUploadService;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class ClinicalSupervisorController extends Controller
 {
     use ScopesByDepartmentAndLevel;
 
+    public function __construct(private readonly ProfileAuthorizationService $profileAuthorization) {}
+
     public function index(Request $request): JsonResponse
     {
         $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->first();
 
-        $query = User::with(['roles', 'person.department', 'departmentHeadProfile']);
+        $query = User::with(['roles', 'person.department', 'departmentHeadProfile.department']);
 
         if ($supervisorRole) {
             $query->whereHas('roles', function ($q) use ($supervisorRole) {
@@ -40,21 +45,7 @@ class ClinicalSupervisorController extends Controller
         })->values();
 
         $data = $uniqueUsers->map(function ($u) {
-            $profile = $u->departmentHeadProfile ?: DepartmentHeadProfile::firstOrCreate(
-                ['user_id' => $u->id],
-                [
-                    'academic_title'   => 'مشرف سريري',
-                    'specialty'        => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'مشرف سريري',
-                    'contract_type'    => 'عقد سريري',
-                    'appointment_date' => '2024-09-01',
-                    'phone'            => $u->person ? $u->person->primary_phone : null,
-                ]
-            );
-
-            // Auto-heal corrupted encoding from previous bug
-            if (str_contains($profile->academic_title, '??')) {
-                $profile->delete();
-                $profile = DepartmentHeadProfile::create([
+            $profile = $u->departmentHeadProfile ?: new DepartmentHeadProfile([
                     'user_id'          => $u->id,
                     'academic_title'   => 'مشرف سريري',
                     'specialty'        => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'مشرف سريري',
@@ -62,6 +53,10 @@ class ClinicalSupervisorController extends Controller
                     'appointment_date' => '2024-09-01',
                     'phone'            => $u->person ? $u->person->primary_phone : null,
                 ]);
+
+            // Present a safe fallback without mutating data during a GET request.
+            if (str_contains($profile->academic_title, '??')) {
+                $profile->academic_title = 'مشرف سريري';
             }
 
             $deptName = $this->resolveDeptName($u, $profile);
@@ -101,8 +96,9 @@ class ClinicalSupervisorController extends Controller
     public function show(Request $request, string $id): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeView($request->user(), $userId);
 
-        $u = User::with(['roles', 'person.department', 'departmentHeadProfile'])->find($userId);
+        $u = User::with(['roles', 'person.department', 'departmentHeadProfile.department'])->find($userId);
 
         if (!$u) {
             return response()->json([
@@ -111,20 +107,7 @@ class ClinicalSupervisorController extends Controller
             ], 404);
         }
 
-        $profile = DepartmentHeadProfile::firstOrCreate(
-            ['user_id' => $u->id],
-            [
-                'academic_title'   => 'مشرف سريري',
-                'specialty'        => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'مشرف سريري',
-                'contract_type'    => 'عقد سريري',
-                'appointment_date' => '2024-09-01',
-                'phone'            => $u->person ? $u->person->primary_phone : null,
-            ]
-        );
-
-        if (str_contains($profile->academic_title, '??')) {
-            $profile->delete();
-            $profile = DepartmentHeadProfile::create([
+        $profile = $u->departmentHeadProfile ?: new DepartmentHeadProfile([
                 'user_id'          => $u->id,
                 'academic_title'   => 'مشرف سريري',
                 'specialty'        => $u->person && $u->person->department ? 'استشاري ' . $u->person->department->name_ar : 'مشرف سريري',
@@ -132,6 +115,9 @@ class ClinicalSupervisorController extends Controller
                 'appointment_date' => '2024-09-01',
                 'phone'            => $u->person ? $u->person->primary_phone : null,
             ]);
+
+        if (str_contains($profile->academic_title, '??')) {
+            $profile->academic_title = 'مشرف سريري';
         }
 
         $deptName = $this->resolveDeptName($u, $profile);
@@ -169,6 +155,7 @@ class ClinicalSupervisorController extends Controller
     public function update(Request $request, string $id): JsonResponse
     {
         $userId  = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeEdit($request->user(), $userId);
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
         $payload = $request->all();
 
@@ -178,11 +165,9 @@ class ClinicalSupervisorController extends Controller
             'contract_type'    => $payload['contract_type'] ?? $profile->contract_type,
             'appointment_date' => $payload['appointment_date'] ?? $profile->appointment_date,
             'phone'            => $payload['phone'] ?? $profile->phone,
-            'avatar_url'       => $payload['avatar_url'] ?? $profile->avatar_url,
             'cv_summary'       => $payload['cv_summary'] ?? $profile->cv_summary,
             'publications'     => isset($payload['publications']) ? $payload['publications'] : $profile->publications,
             'conferences'      => isset($payload['conferences']) ? $payload['conferences'] : $profile->conferences,
-            'documents'        => isset($payload['documents']) ? $payload['documents'] : $profile->documents,
         ]);
 
         return $this->show($request, (string) $userId);
@@ -191,6 +176,7 @@ class ClinicalSupervisorController extends Controller
     public function saveEvaluation(Request $request, string $id): JsonResponse
     {
         $userId  = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeEvaluation($request->user());
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
         $eval    = $request->input('evaluation', $request->all());
 
@@ -208,62 +194,52 @@ class ClinicalSupervisorController extends Controller
         return $this->show($request, (string) $userId);
     }
 
-    public function uploadAvatar(Request $request, string $id): JsonResponse
+    public function uploadAvatar(Request $request, string $id, SecureFileUploadService $files): JsonResponse
     {
         $userId  = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeEdit($request->user(), $userId);
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
-        if ($request->hasFile('avatar')) {
-            $file      = $request->file('avatar');
-            $filename  = 'supervisor_avatar_' . $userId . '_' . time() . '.' . $file->getClientOriginalExtension();
-            $path      = $file->storeAs('avatars/supervisors', $filename, 'public');
-            $avatarUrl = asset('storage/' . $path);
-            $profile->update(['avatar_url' => $avatarUrl]);
-            return response()->json(['success' => true, 'avatar_url' => $avatarUrl]);
+        $source = $request->file('avatar') ?: $request->input('avatar_base64');
+        if (!$source) {
+            return response()->json(['success' => false, 'message' => 'No file provided.'], 400);
         }
 
-        if ($request->has('avatar_base64')) {
-            $avatarUrl = $request->input('avatar_base64');
-            $profile->update(['avatar_url' => $avatarUrl]);
-            return response()->json(['success' => true, 'avatar_url' => $avatarUrl]);
+        $stored = $files->storeAvatar($source, 'avatars/clinical-supervisors/'.$userId);
+        $oldPath = $profile->avatar_storage_path;
+        $profile->update([
+            'avatar_url' => $stored['url'],
+            'avatar_storage_path' => $stored['path'],
+        ]);
+        if ($oldPath && $oldPath !== $stored['path']) {
+            Storage::disk('public')->delete($oldPath);
         }
 
-        return response()->json(['success' => false, 'message' => 'No file provided.'], 400);
+        return response()->json(['success' => true, 'avatar_url' => $stored['url']]);
     }
 
-    public function uploadDocument(Request $request, string $id): JsonResponse
+    public function uploadDocument(Request $request, string $id, SecureFileUploadService $files): JsonResponse
     {
         $userId      = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeEdit($request->user(), $userId);
         $profile     = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
         $docName     = $request->input('name', 'وثيقة رسمية');
         $docCategory = $request->input('category', 'أخرى');
-        $fileUrl     = null;
-        $fileType    = 'pdf';
-        $fileSize    = '1 MB';
+        $source = $request->file('file') ?: $request->input('file_base64');
+        if (!$source) return response()->json(['success' => false], 400);
 
-        if ($request->hasFile('file')) {
-            $file     = $request->file('file');
-            $ext      = strtolower($file->getClientOriginalExtension() ?: 'pdf');
-            $filename = 'sup_doc_' . $userId . '_' . time() . '_' . rand(100, 999) . '.' . $ext;
-            $path     = $file->storeAs('supervisor_documents', $filename, 'public');
-            $fileUrl  = asset('storage/' . $path);
-            $fileType = $ext;
-            $fileSize = round($file->getSize() / (1024 * 1024), 2) . ' MB';
-        } elseif ($request->has('file_base64')) {
-            $fileUrl  = $request->input('file_base64');
-            $fileType = $request->input('file_type', 'pdf');
-            $fileSize = $request->input('file_size', '1 MB');
-        }
-
-        if (!$fileUrl) return response()->json(['success' => false], 400);
+        $stored = $files->storeDocument($source, 'profile-documents/clinical-supervisors/'.$userId);
+        $docId = 'doc_'.\Illuminate\Support\Str::uuid();
 
         $newDoc = [
-            'id'         => 'doc_' . time() . '_' . rand(10, 99),
+            'id'         => $docId,
             'name'       => $docName,
             'category'   => $docCategory,
-            'file_url'   => $fileUrl,
-            'file_type'  => $fileType,
-            'file_size'  => $fileSize,
+            'file_url'   => url("/api/v1/clinical-supervisors/{$userId}/documents/{$docId}/download"),
+            'storage_path' => $stored['storage_path'],
+            'mime_type'  => $stored['mime_type'],
+            'file_type'  => $stored['file_type'],
+            'file_size'  => round($stored['size_bytes'] / (1024 * 1024), 2) . ' MB',
             'created_at' => date('Y-m-d'),
         ];
 
@@ -277,8 +253,14 @@ class ClinicalSupervisorController extends Controller
     public function deleteDocument(Request $request, string $id, string $docId): JsonResponse
     {
         $userId      = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeEdit($request->user(), $userId);
         $profile     = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
         $currentDocs = is_array($profile->documents) ? $profile->documents : [];
+
+        $deleted = collect($currentDocs)->first(fn ($doc) => (string) ($doc['id'] ?? '') === (string) $docId);
+        if (!empty($deleted['storage_path'])) {
+            Storage::disk('local')->delete($deleted['storage_path']);
+        }
 
         $filtered = array_values(array_filter($currentDocs, fn($doc) =>
             isset($doc['id']) ? (string) $doc['id'] !== (string) $docId : true
@@ -287,6 +269,28 @@ class ClinicalSupervisorController extends Controller
         $profile->update(['documents' => $filtered]);
 
         return response()->json(['success' => true, 'documents' => $filtered]);
+    }
+
+    public function downloadDocument(Request $request, string $id, string $docId)
+    {
+        $userId = $this->resolveUserId($request, $id);
+        $this->profileAuthorization->authorizeView($request->user(), $userId);
+        $profile = DepartmentHeadProfile::where('user_id', $userId)->firstOrFail();
+        $document = collect($profile->documents ?: [])->first(
+            fn ($doc) => (string) ($doc['id'] ?? '') === (string) $docId
+        );
+
+        if (!$document || empty($document['storage_path']) || !Storage::disk('local')->exists($document['storage_path'])) {
+            abort(404);
+        }
+
+        $filename = preg_replace('/[^\pL\pN._-]+/u', '_', (string) ($document['name'] ?? 'document'))
+            .'.'.($document['file_type'] ?? 'bin');
+
+        return Storage::disk('local')->download($document['storage_path'], $filename, [
+            'Content-Type' => $document['mime_type'] ?? 'application/octet-stream',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     private function resolveDeptName(User $u, DepartmentHeadProfile $profile): string
@@ -376,4 +380,5 @@ class ClinicalSupervisorController extends Controller
         $val = (int) $id;
         return $val > 0 ? $val : 0;
     }
+
 }

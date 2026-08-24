@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Responses\ApiResponse;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
@@ -35,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'permission' => \App\Http\Middleware\EnsurePermission::class,
+            'permission.any' => \App\Http\Middleware\EnsureAnyPermission::class,
         ]);
 
         $middleware->trustProxies(at: '*');
@@ -53,33 +55,54 @@ return Application::configure(basePath: dirname(__DIR__))
                 return null; // let Laravel's default (non-API) handling take over
             }
 
+            $httpMessage = static fn (int $status): string => match ($status) {
+                400 => 'The request could not be processed.',
+                403 => 'This action is unauthorized.',
+                405 => 'The requested method is not allowed.',
+                409 => 'The request conflicts with the current resource state.',
+                419 => 'Your session has expired. Please refresh and try again.',
+                429 => 'Too many requests. Please try again later.',
+                default => 'Request could not be processed.',
+            };
+
             return match (true) {
-                $e instanceof ValidationException => tap(ApiResponse::error(
+                $e instanceof ValidationException => ApiResponse::error(
                     message: 'Validation Error: ' . collect($e->errors())->flatten()->first(),
                     errors: $e->errors(),
                     status: 422,
-                ), function() use ($e) {
-                    \Log::error('Validation Error: ' . json_encode($e->errors()));
-                }),
+                ),
                 $e instanceof AuthenticationException => ApiResponse::error(
                     message: 'Unauthenticated.',
                     status: 401,
+                ),
+                $e instanceof AuthorizationException => ApiResponse::error(
+                    message: 'This action is unauthorized.',
+                    status: 403,
                 ),
                 $e instanceof ModelNotFoundException, $e instanceof NotFoundHttpException => ApiResponse::error(
                     message: 'The requested resource was not found.',
                     status: 404,
                 ),
                 $e instanceof HttpExceptionInterface => ApiResponse::error(
-                    message: $e->getMessage() ?: 'Request could not be processed.',
+                    message: $httpMessage($e->getStatusCode()),
                     status: $e->getStatusCode(),
                 ),
-                default => ApiResponse::error(
-                    // Never expose the raw exception message/trace outside local/debug mode.
-                    message: config('app.debug')
-                        ? $e->getMessage()
-                        : 'An unexpected error occurred. Please try again later.',
-                    status: 500,
-                ),
+                default => (function () use ($e, $request) {
+                    $referenceId = (string) \Illuminate\Support\Str::uuid();
+                    \Illuminate\Support\Facades\Log::error('Unhandled API exception', [
+                        'reference_id' => $referenceId,
+                        'exception' => $e,
+                        'user_id' => $request->user()?->id,
+                        'method' => $request->method(),
+                        'path' => $request->path(),
+                    ]);
+
+                    return ApiResponse::error(
+                        message: 'An unexpected error occurred. Please try again later.',
+                        meta: ['reference_id' => $referenceId],
+                        status: 500,
+                    );
+                })(),
             };
         });
     })->create();

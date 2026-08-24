@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\HasSafePagination;
 use App\Http\Responses\ApiResponse;
 use App\Models\Course;
 use App\Models\CourseAssessmentComponent;
@@ -14,8 +15,10 @@ use Illuminate\Support\Facades\Schema;
 
 class CourseController extends Controller
 {
+    use HasSafePagination;
+
     public function index(Request $request): JsonResponse {
-        $perPage = $request->integer('per_page', 100);
+        $perPage = $this->perPage($request, 100, 200);
         $hasSemester = Schema::hasColumn('courses', 'semester');
 
         $query = Course::query()
@@ -282,7 +285,12 @@ class CourseController extends Controller
                     $imported++;
                 }
             } catch (\Throwable $e) {
-                $errors[] = "السطر " . ($index + 1) . ": " . $e->getMessage();
+                \Log::warning('Course import row failed', [
+                    'row' => $index + 1,
+                    'exception' => $e,
+                    'user_id' => auth()->id(),
+                ]);
+                $errors[] = "السطر " . ($index + 1) . ": تعذرت معالجة بيانات هذا السطر.";
             }
         }
 

@@ -37,7 +37,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // Public Routes (No authentication required — for lobby displays & student self-lookup)
     // -------------------------------------------------------------------------
     Route::prefix('public')->name('public.')->group(function () {
-        Route::get('clinical-schedule', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'administrativeSchedule'])
+        Route::get('clinical-schedule', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'publicSchedule'])
+            ->middleware('throttle:operational-read')
             ->name('clinical-schedule');
     });
 
@@ -92,6 +93,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::post('/bulk-import', [\App\Http\Controllers\Api\V1\StudentController::class, 'bulkImport'])
                 ->middleware('permission:students.create')->name('bulk-import');
             Route::post('/bulk-assign-advisor', [\App\Http\Controllers\Api\V1\StudentController::class, 'bulkAssignAdvisor'])
+                ->middleware('permission:students.update')
                 ->name('bulk-assign-advisor');
             Route::get('/{student}', [\App\Http\Controllers\Api\V1\StudentController::class, 'show'])
                 ->middleware('permission:students.view')->name('show');
@@ -171,7 +173,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('meetings/{meeting}/actions', [\App\Http\Controllers\Api\V1\MeetingController::class, 'storeAction'])->middleware('permission:meetings.manage');
 
         // Department Heads Routes
-        Route::get('dept-heads', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'index']);
+        Route::get('dept-heads', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'index'])
+            ->middleware('permission:people.view');
         Route::get('dept-heads/{id}', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'show']);
         Route::put('dept-heads/{id}', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'update']);
         Route::post('dept-heads/{id}/evaluation', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'saveEvaluation']);
@@ -179,20 +182,24 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('dept-heads/{id}/overrides', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'saveOverrides']);
         Route::post('dept-heads/{id}/avatar', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'uploadAvatar']);
         Route::post('dept-heads/{id}/documents', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'uploadDocument']);
+        Route::get('dept-heads/{id}/documents/{docId}/download', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'downloadDocument']);
         Route::delete('dept-heads/{id}/documents/{docId}', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'deleteDocument']);
 
         // Clinical Supervisors Routes
-        Route::get('clinical-supervisors', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'index']);
+        Route::get('clinical-supervisors', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'index'])
+            ->middleware('permission:people.view');
         Route::get('clinical-supervisors/{id}', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'show']);
         Route::put('clinical-supervisors/{id}', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'update']);
         Route::post('clinical-supervisors/{id}/evaluation', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'saveEvaluation']);
         Route::post('clinical-supervisors/{id}/avatar', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'uploadAvatar']);
         Route::post('clinical-supervisors/{id}/documents', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'uploadDocument']);
+        Route::get('clinical-supervisors/{id}/documents/{docId}/download', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'downloadDocument']);
         Route::delete('clinical-supervisors/{id}/documents/{docId}', [\App\Http\Controllers\Api\V1\ClinicalSupervisorController::class, 'deleteDocument']);
         Route::get('academic-calendar-events', [\App\Http\Controllers\Api\V1\AcademicCalendarEventController::class, 'index'])->middleware('permission:academic_years.view');
         Route::post('academic-calendar-events', [\App\Http\Controllers\Api\V1\AcademicCalendarEventController::class, 'store'])->middleware('permission:academic_years.manage');
         // Supervisor Annual Workloads
-        Route::get('supervisor-annual-workloads', [\App\Http\Controllers\Api\V1\SupervisorAnnualWorkloadController::class, 'index']);
+        Route::get('supervisor-annual-workloads', [\App\Http\Controllers\Api\V1\SupervisorAnnualWorkloadController::class, 'index'])
+            ->middleware('permission:people.view');
         Route::post('supervisor-annual-workloads', [\App\Http\Controllers\Api\V1\SupervisorAnnualWorkloadController::class, 'store'])->middleware('permission:users.manage');
         Route::put('supervisor-annual-workloads/{workload}', [\App\Http\Controllers\Api\V1\SupervisorAnnualWorkloadController::class, 'update'])->middleware('permission:users.manage');
         Route::post('supervisor-annual-workloads/{workload}/archive', [\App\Http\Controllers\Api\V1\SupervisorAnnualWorkloadController::class, 'archive'])->middleware('permission:users.manage');
@@ -230,7 +237,6 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('weekly-supervisor-allocations/{allocation}/archive', [\App\Http\Controllers\Api\V1\StaffAllocationController::class, 'archiveAllocation'])->middleware('permission:users.manage');
 
         // Workflow transitions — Package C
-        Route::post('correspondence/{correspondence}/return', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'returnCorrespondence'])->middleware('permission:correspondence.submit');
         Route::post('grade-entries/{gradeEntry}/submit', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'submit'])->middleware('permission:grades.create');
         Route::post('grade-entries/{gradeEntry}/return', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'returnGrade'])->middleware('permission:grades.approve');
         Route::post('grade-entries/{gradeEntry}/approve', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'approve'])->middleware('permission:grades.approve');
@@ -243,12 +249,6 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         // Staff Allocations
         Route::get('staff-allocations', [\App\Http\Controllers\Api\V1\StaffAllocationController::class, 'index'])->middleware('permission:people.view');
-
-        // Academic Advising Records
-        Route::get('advising-records', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'index']);
-        Route::post('advising-records', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'store']);
-        Route::get('advising-records/{advisingRecord}', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'show']);
-        Route::put('advising-records/{advisingRecord}', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'update']);
 
         // Audit Logs — Package D
         Route::get('audit-logs', [\App\Http\Controllers\Api\V1\AuditLogController::class, 'index'])->middleware('permission:audit.view');
@@ -362,42 +362,47 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         // Phase 5B — Operational Clinical Schedule APIs
         Route::get('operational/clinical-schedule', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'administrativeSchedule'])
+            ->middleware('permission:distribution.view')
             ->name('operational.clinical-schedule');
 
-        Route::get('users/lookup', [\App\Http\Controllers\Api\V1\UserController::class, 'lookup']);
+        Route::get('users/lookup', [\App\Http\Controllers\Api\V1\UserController::class, 'lookup'])
+            ->middleware('permission.any:people.view,students.view,correspondence.view');
 
-        // User Management & System Administration (SYS_ADMIN only)
-        Route::prefix('admin')->middleware(['permission:users.manage'])->group(function () {
-            Route::get('users/roles', [\App\Http\Controllers\Api\V1\UserController::class, 'getRoles']);
-            Route::get('users/available-people', [\App\Http\Controllers\Api\V1\UserController::class, 'getAvailablePeople']);
-            Route::post('users/{user}/toggle', [\App\Http\Controllers\Api\V1\UserController::class, 'toggleActive']);
-            Route::apiResource('users', \App\Http\Controllers\Api\V1\UserController::class);
+        // Keep static user paths before apiResource('users') so "rta-list"
+        // can never be consumed by the /users/{user} model-binding route.
+        Route::middleware(['permission:students.view'])->group(function () {
+            Route::get('users/rta-list', [\App\Http\Controllers\Api\V1\UserController::class, 'rtaList']);
+            Route::put('users/{user}/assign-levels', [\App\Http\Controllers\Api\V1\UserController::class, 'assignLevels']);
+        });
 
-            // New Technical Admin APIs
-            Route::get('health', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'health']);
-            Route::get('sessions', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'sessions']);
-            Route::post('sessions/{user}/revoke', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'revokeSession']);
-            Route::get('permissions/matrix', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'permissionMatrix']);
-            Route::post('permissions/toggle', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'togglePermission']);
-            Route::get('settings', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'getSettings']);
-            Route::post('settings', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'updateSettings']);
+        // Technical administration. These endpoints intentionally live only
+        // under /admin; the UI routes use the same canonical API namespace.
+        Route::prefix('admin')->name('admin.')->middleware(['permission:users.manage'])->group(function () {
+            Route::get('health', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'health'])
+                ->middleware('permission:settings.manage')->name('health');
+            Route::get('sessions', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'sessions'])->name('sessions.index');
+            Route::post('sessions/{user}/revoke', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'revokeSession'])->name('sessions.revoke');
+            Route::get('permissions/matrix', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'permissionMatrix'])
+                ->middleware('permission:roles.manage')->name('permissions.matrix');
+            Route::post('permissions/toggle', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'togglePermission'])
+                ->middleware('permission:roles.manage')->name('permissions.toggle');
+            Route::get('settings', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'getSettings'])
+                ->middleware('permission:settings.manage')->name('settings.show');
+            Route::post('settings', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'updateSettings'])
+                ->middleware('permission:settings.manage')->name('settings.update');
+        });
+
+        Route::prefix('users')->name('users.')->middleware(['permission:users.manage'])->group(function () {
+            // Static routes must precede /{user} routes to avoid model-binding collisions.
+            Route::get('roles', [\App\Http\Controllers\Api\V1\UserController::class, 'getRoles'])->name('roles');
+            Route::get('departments-for-assignment', [\App\Http\Controllers\Api\V1\UserController::class, 'departmentsForAssignment'])
+                ->name('departments-for-assignment');
+            Route::post('{user}/toggle', [\App\Http\Controllers\Api\V1\UserController::class, 'toggleActive'])->name('toggle');
+            Route::post('{user}/reset-password', [\App\Http\Controllers\Api\V1\UserController::class, 'resetPassword'])->name('reset-password');
         });
 
         Route::middleware(['permission:users.manage'])->group(function () {
-            Route::get('users/roles', [\App\Http\Controllers\Api\V1\UserController::class, 'getRoles']);
-            Route::get('users/available-people', [\App\Http\Controllers\Api\V1\UserController::class, 'getAvailablePeople']);
-            Route::post('users/{user}/toggle', [\App\Http\Controllers\Api\V1\UserController::class, 'toggleActive']);
-            Route::post('users/{user}/reset-password', [\App\Http\Controllers\Api\V1\UserController::class, 'resetPassword']);
-            Route::apiResource('users', \App\Http\Controllers\Api\V1\UserController::class, ['as' => 'direct']);
-
-            // Departments list for admin user-assignment (no departments.view required)
-            Route::get('users/departments-for-assignment', function () {
-                $depts = \DB::table('departments')
-                    ->where('is_active', 1)
-                    ->orderBy('name_ar')
-                    ->get(['id', 'name_ar', 'name_en', 'code', 'dept_type']);
-                return response()->json(['data' => $depts]);
-            });
+            Route::apiResource('users', \App\Http\Controllers\Api\V1\UserController::class);
 
             // Admin Departments Management
             Route::get('departments-manage/candidates', [\App\Http\Controllers\Api\V1\AdminDepartmentController::class, 'candidates']);
@@ -405,17 +410,6 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::post('departments-manage/{department}/toggle', [\App\Http\Controllers\Api\V1\AdminDepartmentController::class, 'toggle']);
             Route::apiResource('departments-manage', \App\Http\Controllers\Api\V1\AdminDepartmentController::class)->parameters(['departments-manage' => 'department']);
 
-            // Direct route aliases
-            Route::get('system-health', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'health']);
-            Route::get('system-sessions', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'sessions']);
-            Route::get('system-permissions-matrix', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'permissionMatrix']);
-            Route::get('system-settings', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'getSettings']);
-        });
-
-        // RTA Level Assignment — accessible by department_head / admin_assistant (students.view)
-        Route::middleware(['permission:students.view'])->group(function () {
-            Route::get('users/rta-list', [\App\Http\Controllers\Api\V1\UserController::class, 'rtaList']);
-            Route::put('users/{user}/assign-levels', [\App\Http\Controllers\Api\V1\UserController::class, 'assignLevels']);
         });
 
         // Phase 5A — Core Operational Read APIs
@@ -431,8 +425,11 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->middleware('permission:distribution.view')
             ->name('rotations.current-distribution.unassigned');
 
-        Route::get('operational/distribution-payload/{key?}', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'getDistributionPayload'])->where('key', '.*');
-        Route::post('operational/distribution-payload', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'saveDistributionPayload']);
+        Route::get('operational/distribution-payload/{key?}', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'getDistributionPayload'])
+            ->middleware('permission.any:distribution.view,grades.view,assessment.view,advising.view')
+            ->where('key', '.*');
+        Route::post('operational/distribution-payload', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'saveDistributionPayload'])
+            ->middleware('permission.any:distribution.update,grades.create,assessment.create,attendance.record,advising.manage');
 
         Route::get('students/{student}/current-clinical-schedule', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'studentSchedule'])
             ->middleware('permission:distribution.view')

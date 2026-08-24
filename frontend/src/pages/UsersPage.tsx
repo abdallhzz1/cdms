@@ -317,7 +317,7 @@ export function UsersPage() {
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور</label>
-            <input type="password" required minLength={6} placeholder="••••••••" value={addForm.password}
+            <input type="password" required minLength={12} placeholder="12+ أحرف مع رقم ورمز" value={addForm.password}
               onChange={(e) => setAddForm({ ...addForm, password: e.target.value })}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium" />
           </div>
@@ -386,7 +386,7 @@ export function UsersPage() {
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور الجديدة</label>
-            <input type="password" required minLength={6} placeholder="أدخل كلمة مرور جديدة..." value={newPassword}
+            <input type="password" required minLength={12} placeholder="12+ أحرف مع حرف كبير وصغير ورقم ورمز" value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium" />
           </div>

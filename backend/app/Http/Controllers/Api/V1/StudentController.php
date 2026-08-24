@@ -27,7 +27,9 @@ class StudentController extends Controller
     {
         $scopedLevels = $this->getUserScopedLevels();
 
-        $students = Student::with(['academicYear', 'academicAdvisor', 'currentGroupAssignments.group'])
+        $query = $this->applyStudentAccessScope(Student::query());
+
+        $students = $query->with(['academicYear', 'academicAdvisor', 'currentGroupAssignments.group'])
             ->when(
                 !empty($scopedLevels) && !$request->query('academic_level'),
                 fn ($q) => $q->whereIn('academic_level', $scopedLevels)
@@ -115,6 +117,8 @@ class StudentController extends Controller
      */
     public function show(Student $student): JsonResponse
     {
+        $this->authorizeStudentAccess($student);
+
         return ApiResponse::success(
             new StudentResource(
                 $student->load('academicYear', 'academicAdvisor', 'currentGroupAssignments.group', 'currentGroupAssignments.subgroup')
@@ -128,6 +132,8 @@ class StudentController extends Controller
      */
     public function update(UpdateStudentRequest $request, Student $student): JsonResponse
     {
+        $this->authorizeStudentAccess($student);
+
         $data = $request->validated();
 
         if (array_key_exists('academic_advisor_id', $data)) {
@@ -161,16 +167,32 @@ class StudentController extends Controller
 
         $assignments = $request->input('assignments', []);
         
-        // Group by advisor_id for instant SQL batch updates
+        // Normalize user IDs to the canonical people.id foreign key before
+        // beginning the transaction. An unresolved advisor rejects the full batch.
         $grouped = [];
         foreach ($assignments as $item) {
-            $advisorId = $item['academic_advisor_id'] ? (int)$item['academic_advisor_id'] : null;
+            $advisorId = null;
+            if (!empty($item['academic_advisor_id'])) {
+                $candidateId = (int) $item['academic_advisor_id'];
+                $person = \App\Models\Person::find($candidateId)
+                    ?: \App\Models\Person::where('user_id', $candidateId)->first();
+                if (!$person) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'assignments' => ["Advisor {$candidateId} does not resolve to a staff profile."],
+                    ]);
+                }
+                $advisorId = $person->id;
+            }
             $grouped[$advisorId][] = (int)$item['student_id'];
         }
 
-        foreach ($grouped as $advisorId => $studentIds) {
-            Student::whereIn('id', $studentIds)->update(['academic_advisor_id' => $advisorId]);
-        }
+        \DB::transaction(function () use ($grouped) {
+            foreach ($grouped as $advisorId => $studentIds) {
+                Student::whereIn('id', $studentIds)
+                    ->lockForUpdate()
+                    ->update(['academic_advisor_id' => $advisorId ?: null]);
+            }
+        });
 
         return ApiResponse::success(null, 'Advisor assignments saved successfully.');
     }
@@ -181,6 +203,8 @@ class StudentController extends Controller
      */
     public function destroy(Student $student): JsonResponse
     {
+        $this->authorizeStudentAccess($student);
+
         $student->delete();
 
         return ApiResponse::success(
@@ -247,7 +271,12 @@ class StudentController extends Controller
                     $imported++;
                 }
             } catch (\Throwable $e) {
-                $errors[] = "Row " . ($index + 1) . ": " . $e->getMessage();
+                \Log::warning('Student import row failed', [
+                    'row' => $index + 1,
+                    'exception' => $e,
+                    'user_id' => auth()->id(),
+                ]);
+                $errors[] = "Row " . ($index + 1) . ": تعذرت معالجة بيانات هذا السطر.";
             }
         }
 

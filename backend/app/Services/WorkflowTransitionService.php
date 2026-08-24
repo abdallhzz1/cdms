@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\WorkflowTransitionLog;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\DB;
 
 class WorkflowTransitionService
 {
@@ -28,17 +29,27 @@ class WorkflowTransitionService
             ]);
         }
 
-        $record->update(['status' => $to]);
+        return DB::transaction(function () use ($record, $from, $to, $reason) {
+            $locked = $record->newQuery()->lockForUpdate()->findOrFail($record->getKey());
 
-        WorkflowTransitionLog::create([
-            'entity_type' => $record::class,
-            'entity_id' => $record->getKey(),
-            'from_state' => $from,
-            'to_state' => $to,
-            'user_id' => auth()->id(),
-            'reason' => $reason
-        ]);
+            if ($locked->status !== $from) {
+                throw ValidationException::withMessages([
+                    'status' => ['The record changed while this request was being processed. Please reload and try again.'],
+                ]);
+            }
 
-        return $record->fresh();
+            $locked->update(['status' => $to]);
+
+            WorkflowTransitionLog::create([
+                'entity_type' => $locked::class,
+                'entity_id' => $locked->getKey(),
+                'from_state' => $from,
+                'to_state' => $to,
+                'user_id' => auth()->id(),
+                'reason' => $reason,
+            ]);
+
+            return $locked->fresh();
+        });
     }
 }

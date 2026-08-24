@@ -8,12 +8,15 @@ use App\Models\User;
 use App\Models\Role;
 use App\Models\Permission;
 use App\Models\AuditLog;
+use App\Services\SecurityAuditService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 
 class SystemAdminController extends Controller
 {
+    public function __construct(private readonly SecurityAuditService $audit) {}
+
     /**
      * System Health & Server Monitoring Data
      */
@@ -71,28 +74,32 @@ class SystemAdminController extends Controller
      */
     public function sessions(Request $request)
     {
-        // Fetch active users with recent tokens/activity
-        $users = User::where('is_active', true)
-            ->with(['roles', 'person'])
-            ->latest('updated_at')
-            ->limit(50)
+        $cutoff = now()->subMinutes((int) config('session.lifetime'))->timestamp;
+        $currentSessionId = $request->hasSession() ? $request->session()->getId() : null;
+        $rows = DB::table(config('session.table', 'sessions'))
+            ->whereNotNull('user_id')
+            ->where('last_activity', '>=', $cutoff)
+            ->orderByDesc('last_activity')
+            ->limit(100)
             ->get();
+        $users = User::with('roles')->whereIn('id', $rows->pluck('user_id')->unique())->get()->keyBy('id');
 
-        $sessions = $users->map(function ($u, $idx) use ($request) {
-            $isCurrent = ($u->id === $request->user()->id);
+        $sessions = $rows->map(function ($session) use ($users, $currentSessionId) {
+            $user = $users->get($session->user_id);
+            if (!$user) return null;
+
             return [
-                'id' => 'sess_' . $u->id . '_' . $idx,
-                'user_id' => $u->id,
-                'name' => $u->name,
-                'email' => $u->email,
-                'roles' => $u->roles->pluck('name'),
-                'ip_address' => $isCurrent ? $request->ip() : '185.190.140.' . (10 + ($u->id % 200)),
-                'user_agent' => $isCurrent ? $request->header('User-Agent') : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
-                'is_current' => $isCurrent,
-                'last_activity' => $u->updated_at ? $u->updated_at->diffForHumans() : 'الآن',
-                'login_time' => $u->created_at ? $u->created_at->format('Y-m-d H:i') : now()->format('Y-m-d H:i'),
+                'id' => $session->id,
+                'user_id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'roles' => $user->roles->pluck('code')->values(),
+                'ip_address' => $session->ip_address,
+                'user_agent' => $session->user_agent,
+                'is_current' => hash_equals((string) $currentSessionId, (string) $session->id),
+                'last_activity' => \Carbon\Carbon::createFromTimestamp($session->last_activity)->toIso8601String(),
             ];
-        });
+        })->filter()->values();
 
         return ApiResponse::success([
             'total_active' => $sessions->count(),
@@ -109,18 +116,16 @@ class SystemAdminController extends Controller
 
         // Disallow revoking own current admin session
         if ($user->id === $request->user()->id) {
-            return ApiResponse::error('لا يمكنك إلغاء جلسة حسابك الحالي أثناء الاستخدام.', 422);
+            return ApiResponse::error('لا يمكنك إلغاء جلسة حسابك الحالي أثناء الاستخدام.', [], [], 422);
         }
 
-        // Revoke all Sanctum tokens if any exist
-        if (method_exists($user, 'tokens')) {
-            $user->tokens()->delete();
-        }
+        DB::table(config('session.table', 'sessions'))
+            ->where('user_id', $user->id)
+            ->delete();
 
-        // Touch user record to reset timestamp
-        $user->touch();
+        $this->audit->record('user.sessions_revoked', User::class, $user->id);
 
-        return ApiResponse::success(null, 'تم إلغاء وطرد الجلسة وإعادة تعيين الحساب بنجاح.');
+        return ApiResponse::success(null, 'تم إلغاء جميع جلسات الحساب بنجاح.');
     }
 
     /**
@@ -179,6 +184,11 @@ class SystemAdminController extends Controller
             $granted = true;
         }
 
+        $this->audit->record('role.permission_changed', Role::class, $role->id, [
+            'permission_id' => (int) $permId,
+            'granted' => $granted,
+        ]);
+
         return ApiResponse::success([
             'role_id' => $role->id,
             'permission_id' => $permId,
@@ -232,6 +242,10 @@ class SystemAdminController extends Controller
         ]);
 
         Cache::forever('system_settings', $settings);
+
+        $this->audit->record('system.settings_updated', self::class, 1, [
+            'changed_keys' => array_keys($settings),
+        ]);
 
         return ApiResponse::success($settings, 'تم حفظ إعدادات النظام وتحديث التخزين السريع بنجاح.');
     }

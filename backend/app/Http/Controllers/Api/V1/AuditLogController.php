@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\HasSafePagination;
 use App\Http\Responses\ApiResponse;
 use App\Models\AuditLog;
 use Illuminate\Http\JsonResponse;
@@ -10,6 +11,8 @@ use Illuminate\Http\Request;
 
 class AuditLogController extends Controller
 {
+    use HasSafePagination;
+
     private const SENSITIVE_KEY_PARTS = ['password', 'secret', 'token', 'remember'];
 
     private function sanitizeValue(mixed $value, ?string $key = null): mixed
@@ -51,7 +54,7 @@ class AuditLogController extends Controller
         $query = AuditLog::with('user:id,name,email')->latest();
         $this->applyFilters($query, $request);
         
-        $items = $query->paginate($request->integer('per_page', 100));
+        $items = $query->paginate($this->perPage($request, 100, 100));
         
         return ApiResponse::success(collect($items->items())->map(fn (AuditLog $log) => $this->sanitize($log))->values(), null, ['total' => $items->total()]);
     }
@@ -67,13 +70,11 @@ class AuditLogController extends Controller
     {
         $query = AuditLog::with('user:id,name')->latest();
         $this->applyFilters($query, $request);
-        $rows = $query->get();
-
-        $callback = function () use ($rows) {
+        $callback = function () use ($query) {
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF");
             fputcsv($out, ['ID', 'Action', 'Entity', 'Entity ID', 'User', 'Timestamp']);
-            foreach ($rows as $row) {
+            foreach ($query->lazyByIdDesc(500, column: 'audit_logs.id') as $row) {
                 fputcsv($out, [
                     $row->id,
                     $row->action,

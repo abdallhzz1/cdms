@@ -16,7 +16,7 @@ return [
 
     'expire_on_close' => false,
 
-    'encrypt' => false,
+    'encrypt' => env('SESSION_ENCRYPT', true),
 
     'files' => storage_path('framework/sessions'),
 
@@ -38,7 +38,7 @@ return [
 
     'http_only' => true,
 
-    'same_site' => 'lax',
+    'same_site' => env('SESSION_SAME_SITE', 'lax'),
 
     'partitioned' => false,
 
