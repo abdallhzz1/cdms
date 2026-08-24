@@ -10,7 +10,7 @@ import {
   Check, X, CheckCircle2, Search, Filter, LayoutGrid,
   ShieldCheck, Users, Monitor, BookOpen, ClipboardCheck,
   GraduationCap, Calendar, FolderGit2, BarChart3,
-  Sliders, Eye, Shield
+  Eye, Shield
 } from 'lucide-react';
 
 const ROLE_LABELS: Record<string, { ar: string; icon?: any; color?: string }> = {
@@ -30,8 +30,7 @@ const MODULE_LABELS: Record<string, { ar: string; icon: any }> = {
   People: { ar: 'الكادر ورؤساء الأقسام والمشرفين', icon: Users },
   Students: { ar: 'شؤون الطلبة والدليل السريري', icon: GraduationCap },
   Grades: { ar: 'العلامات والتقييم الأكاديمي', icon: ClipboardCheck },
-  Distribution: { ar: 'التوزيع والجدول السريري', icon: Calendar },
-  Rotations: { ar: 'الدورات والتناوب السريري', icon: Sliders },
+  Distribution: { ar: 'التوزيع وإعداد الدورات والجدول السريري', icon: Calendar },
   Courses: { ar: 'المساقات والخطط الدراسية', icon: BookOpen },
   'Course Reports': { ar: 'تقارير المساقات السريرية', icon: BookOpen },
   Attendance: { ar: 'سجل حضور وغياب التدريب', icon: ClipboardCheck },
@@ -82,9 +81,9 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   'distribution.override': { ar: 'تجاوز واستثناء قيود التوزيع السريري' },
 
   // Rotations
-  'rotations.view': { ar: 'عرض الدورات والتناوب السريري' },
-  'rotations.create': { ar: 'إضافة دورة سريرية جديدة' },
-  'rotations.update': { ar: 'تعديل بيانات الدورة السريرية' },
+  'rotations.view': { ar: 'عرض الدورات السريرية في شاشة التوزيع' },
+  'rotations.create': { ar: 'إعداد وإضافة دورة سريرية جديدة' },
+  'rotations.update': { ar: 'تعديل الفترات والمواقع وسعات الدورة السريرية' },
   'rotations.delete': { ar: 'حذف دورة سريرية' },
 
   // Attendance
@@ -160,6 +159,10 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   'partnerships.manage': { ar: 'إدارة وتوثيق الشراكات السريرية' },
 };
 
+function displayModule(module: string): string {
+  return module === 'Rotations' ? 'Distribution' : module;
+}
+
 export function PermissionMatrixPage() {
   const [viewMode, setViewMode] = useState<'role_cards' | 'matrix_table'>('role_cards');
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
@@ -189,8 +192,21 @@ export function PermissionMatrixPage() {
     mutationFn: (body: { role_id: number; permission_id: number }) =>
       apiFetch('/admin/permissions/toggle', { method: 'POST', body }),
     onSuccess: (res: any) => {
-      setToastMessage(res?.message || 'تم تحديث الصلاحية بنجاح.');
+      setLocalMatrix((previous) => previous.map((roleEntry) => roleEntry.role_id !== res.role_id
+        ? roleEntry
+        : {
+            ...roleEntry,
+            permissions: roleEntry.permissions.map((permission: any) => permission.permission_id !== res.permission_id
+              ? permission
+              : { ...permission, granted: Boolean(res.granted) }),
+          }));
+      setToastMessage('تم تحديث الصلاحية وحفظها بنجاح.');
       setTimeout(() => setToastMessage(null), 2500);
+    },
+    onError: () => {
+      setToastMessage('تعذر حفظ الصلاحية؛ تمت استعادة الحالة المسجلة في الخادم.');
+      void refetch();
+      setTimeout(() => setToastMessage(null), 3500);
     },
   });
 
@@ -218,7 +234,7 @@ export function PermissionMatrixPage() {
 
   // Group permissions by module
   const modules = useMemo<string[]>(() => {
-    const mods = Array.from(new Set(permissions.map((p: any) => p.module as string))) as string[];
+    const mods = Array.from(new Set(permissions.map((p: any) => displayModule(p.module as string)))) as string[];
     return ['ALL', ...mods];
   }, [permissions]);
 
@@ -230,7 +246,7 @@ export function PermissionMatrixPage() {
         search.trim() === '' ||
         permLabel.ar.includes(search) ||
         perm.code.toLowerCase().includes(search.toLowerCase());
-      const matchesModule = selectedModule === 'ALL' || perm.module === selectedModule;
+      const matchesModule = selectedModule === 'ALL' || displayModule(perm.module) === selectedModule;
       const matchesScreensOnly = !screensOnlyFilter || permLabel.isScreen;
 
       return matchesSearch && matchesModule && matchesScreensOnly;
@@ -241,7 +257,7 @@ export function PermissionMatrixPage() {
   const permissionsByModule = useMemo(() => {
     const map = new Map<string, any[]>();
     for (const p of filteredPermissions) {
-      const mod = p.module || 'Other';
+      const mod = displayModule(p.module || 'Other');
       if (!map.has(mod)) map.set(mod, []);
       map.get(mod)!.push(p);
     }
@@ -420,6 +436,9 @@ export function PermissionMatrixPage() {
                     </h3>
                     <p className="text-xs text-slate-500 font-medium mt-0.5">
                       تفعيل أو إلغاء ظهور الشاشات والعمليات لهذا الدور مباشرة وبدون تأخير.
+                    </p>
+                    <p className="mt-1 text-[11px] font-bold text-amber-700">
+                      المستخدمون المتأثرون يحتاجون تحديث الصفحة أو تسجيل الدخول مجددًا بعد تغيير صلاحيات دورهم.
                     </p>
                   </div>
                 </div>
