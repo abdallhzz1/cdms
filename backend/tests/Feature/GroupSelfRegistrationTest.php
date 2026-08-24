@@ -98,8 +98,12 @@ class GroupSelfRegistrationTest extends TestCase
         $target=$this->group->subgroups()->first();
         $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/select",['access_token'=>$token,'subgroup_id'=>$target->id])->assertOk();
         $this->assertDatabaseHas('student_group_assignments',['student_id'=>$this->student->id,'student_subgroup_id'=>$target->id,'valid_until'=>null]);
+        $replacement=$this->group->subgroups()->where('id','!=',$target->id)->firstOrFail();
+        $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/select",['access_token'=>$token,'subgroup_id'=>$replacement->id])->assertOk();
+        $this->assertNotNull(StudentGroupAssignment::where('student_id',$this->student->id)->where('student_subgroup_id',$target->id)->firstOrFail()->valid_until);
+        $this->assertDatabaseHas('student_group_assignments',['student_id'=>$this->student->id,'student_subgroup_id'=>$replacement->id,'valid_until'=>null]);
         $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/withdraw",['access_token'=>$token])->assertOk();
-        $this->assertSame(0,StudentGroupAssignment::where('student_subgroup_id',$target->id)->whereNull('valid_until')->count());
+        $this->assertSame(0,StudentGroupAssignment::where('student_id',$this->student->id)->whereNull('valid_until')->count());
     }
 
     public function test_full_subgroup_rejects_another_student(): void
@@ -140,6 +144,29 @@ class GroupSelfRegistrationTest extends TestCase
             'student_id'=>$created->id,
             'student_group_id'=>$this->group->id,
         ]);
+    }
+
+    public function test_administrator_sees_registered_student_names_inside_each_subgroup(): void
+    {
+        $subgroup=$this->group->subgroups()->firstOrFail();
+        StudentGroupAssignment::create([
+            'student_id'=>$this->student->id,
+            'academic_year_id'=>$this->year->id,
+            'student_group_id'=>$this->group->id,
+            'student_subgroup_id'=>$subgroup->id,
+            'valid_from'=>now()->toDateString(),
+            'change_reason'=>'test',
+        ]);
+        $permission=Permission::where('code','group_registration.view')->firstOrFail();
+        $role=Role::create(['code'=>'TEST_GROUP_VIEWER','name_key'=>'test.group.viewer']);
+        $role->permissions()->attach($permission->id,['scope_type'=>'global']);
+        $user=User::factory()->create();
+        $user->roles()->attach($role);
+
+        $this->actingAs($user)->getJson('/api/v1/group-registration-cycles')
+            ->assertOk()
+            ->assertJsonPath('data.0.groups.0.subgroups.0.registered_students.0.name',$this->student->full_name_ar)
+            ->assertJsonPath('data.0.groups.0.subgroups.0.registered_students.0.university_number','22210466');
     }
 
     public function test_authorized_administrator_can_create_cycle_import_roster_and_open_it(): void

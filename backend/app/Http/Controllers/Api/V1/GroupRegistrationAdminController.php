@@ -170,7 +170,29 @@ class GroupRegistrationAdminController extends Controller
     private function cycleData(GroupRegistrationCycle $cycle): array
     {
         $groups = StudentGroup::where('academic_year_id', $cycle->academic_year_id)->where('academic_level', $cycle->academic_level)
-            ->where('group_type', 'self_registration')->with(['subgroups' => fn ($q) => $q->withCount(['assignments as current_students_count' => fn ($a) => $a->whereNull('valid_until')])])->orderBy('name')->get();
+            ->where('group_type', 'self_registration')
+            ->with(['subgroups' => fn ($q) => $q
+                ->withCount(['assignments as current_students_count' => fn ($a) => $a->whereNull('valid_until')])
+                ->with(['assignments' => fn ($a) => $a->whereNull('valid_until')->with('student')->orderBy('created_at')])])
+            ->orderBy('name')->get()
+            ->map(fn (StudentGroup $group) => [
+                'id' => $group->id,
+                'name' => $group->name,
+                'subgroups' => $group->subgroups->map(fn (StudentSubgroup $subgroup) => [
+                    'id' => $subgroup->id,
+                    'name' => $subgroup->name,
+                    'capacity' => (int) ($subgroup->capacity ?: $subgroup->max_size ?: $cycle->default_capacity),
+                    'max_size' => (int) ($subgroup->max_size ?: $cycle->default_capacity),
+                    'is_active' => (bool) $subgroup->is_active,
+                    'current_students_count' => (int) $subgroup->current_students_count,
+                    'registered_students' => $subgroup->assignments->map(fn ($assignment) => [
+                        'id' => $assignment->student->id,
+                        'name' => $assignment->student->full_name_ar,
+                        'university_number' => $assignment->student->university_number,
+                        'registered_at' => $assignment->created_at?->toIso8601String(),
+                    ])->values(),
+                ])->values(),
+            ])->values();
         return [
             'id'=>$cycle->id, 'public_id'=>$cycle->public_id, 'academic_year_id'=>$cycle->academic_year_id,
             'academic_year'=>$cycle->academicYear, 'academic_level'=>$cycle->academic_level, 'status'=>$cycle->status,
