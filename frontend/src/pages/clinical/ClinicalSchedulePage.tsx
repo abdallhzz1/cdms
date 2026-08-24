@@ -8,6 +8,7 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Building2, Search, User } from 'lucide-react';
+import type { ClinicalScheduleItem, PaginatedResponse } from '@/api/distribution';
 
 export function ClinicalSchedulePage() {
   const { can, user } = useAuth();
@@ -17,7 +18,7 @@ export function ClinicalSchedulePage() {
 
   const { data: schedule, isLoading, isError, refetch } = useQuery({
     queryKey: ['clinical-schedule', search, siteFilter],
-    queryFn: () => apiFetch<any>(
+    queryFn: () => apiFetch<PaginatedResponse<ClinicalScheduleItem>>(
       `/operational/clinical-schedule?per_page=50${search ? `&search=${search}` : ''}${siteFilter ? `&training_site_id=${siteFilter}` : ''}`
     ),
   });
@@ -48,8 +49,8 @@ export function ClinicalSchedulePage() {
   if (isLoading) return <LoadingState />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
-  const items = Array.isArray(schedule) ? schedule : schedule?.items || [];
-  const sitesList = Array.isArray(sites) ? sites : sites?.items || [];
+  const items = Array.isArray(schedule) ? schedule : schedule?.data ?? [];
+  const sitesList = Array.isArray(sites) ? sites : sites?.data ?? sites?.items ?? [];
 
   return (
     <div className="mx-auto max-w-[1200px] space-y-6 pb-12">
@@ -82,7 +83,10 @@ export function ClinicalSchedulePage() {
       </div>
 
       {!items.length ? (
-        <EmptyState message={locale === 'ar' ? 'لا توجد تعيينات سريرية منشورة حالياً' : 'No published clinical assignments found'} />
+        <EmptyState message={locale === 'ar'
+          ? 'لا توجد تعيينات طلاب منشورة. تأكد من وضع مجموعة طلاب في خلية أسبوعية داخل شاشة التوزيع ثم نشر النسخة.'
+          : 'No published student assignments. Assign a student group to a weekly cell in Distribution, then publish the version.'}
+        />
       ) : (
         <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
@@ -97,8 +101,8 @@ export function ClinicalSchedulePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {items.map((a: any, i: number) => (
-                  <tr key={a.id ?? i} className="hover:bg-slate-50 transition-colors">
+                {items.map((a, i) => (
+                  <tr key={a.assignment_id ?? i} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold shrink-0">
@@ -121,8 +125,13 @@ export function ClinicalSchedulePage() {
                       {a.subgroup?.name && <span className="text-slate-400"> / {a.subgroup.name}</span>}
                     </td>
                     <td className="px-6 py-4">
-                      {a.rotation_block?.block_code ? (
-                        <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg">{a.rotation_block.block_code}</span>
+                      {a.block?.block_code ? (
+                        <div className="space-y-1">
+                          <span className="inline-flex px-2 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg">{a.block.block_code}</span>
+                          <div className="text-xs text-slate-400">
+                            {locale === 'ar' ? `الأسبوع ${a.block.from_week}–${a.block.to_week}` : `Weeks ${a.block.from_week}–${a.block.to_week}`}
+                          </div>
+                        </div>
                       ) : <span className="text-slate-400">—</span>}
                     </td>
                     <td className="px-6 py-4">

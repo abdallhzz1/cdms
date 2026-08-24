@@ -307,6 +307,11 @@ class Phase5FTest extends TestCase
         $studentIds = collect($response->json('data.data'))->pluck('student.id')->toArray();
         $this->assertContains($this->student->id, $studentIds);
         $this->assertNotContains($student2->id, $studentIds);
+        $response
+            ->assertJsonPath('data.data.0.assignment_id', StudentClinicalAssignment::where('distribution_version_id', $this->currentPublishedVersion->id)->value('id'))
+            ->assertJsonPath('data.data.0.group.id', $this->subgroup->student_group_id)
+            ->assertJsonPath('data.data.0.subgroup.id', $this->subgroup->id)
+            ->assertJsonPath('data.data.0.block.id', $this->block1->id);
     }
 
     /* ---------------------------------------------------------------------- */

@@ -40,6 +40,7 @@ class DepartmentRosterService
             ->with([
                 'student',
                 'rotationBlock.rotation.academicYear',
+                'studentSubgroup.group',
                 'trainingSite',
                 'department',
                 'supervisor',

@@ -35,6 +35,7 @@ class ClinicalScheduleQueryService
             ->with([
                 'student',
                 'rotationBlock.rotation.academicYear',
+                'studentSubgroup.group',
                 'trainingSite',
                 'department',
                 'supervisor',
@@ -127,6 +128,7 @@ class ClinicalScheduleQueryService
             ->with([
                 'student',
                 'rotationBlock.rotation.academicYear',
+                'studentSubgroup.group',
                 'trainingSite',
                 'department',
                 'supervisor',

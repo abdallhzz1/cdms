@@ -456,6 +456,18 @@ export interface ClinicalScheduleItem {
     full_name: string;
     registration_status: string;
   } | null;
+  group: {
+    id: number;
+    name: string;
+  } | null;
+  subgroup: {
+    id: number;
+    name: string;
+    group: {
+      id: number;
+      name: string;
+    } | null;
+  } | null;
   rotation: {
     id: number;
     code: string;

@@ -21,6 +21,8 @@ class ClinicalScheduleItemDTO
         $block = $assignment->rotationBlock;
         $rotation = $block?->rotation;
         $student = $assignment->student;
+        $subgroup = $assignment->studentSubgroup;
+        $group = $subgroup?->group;
         $site = $assignment->trainingSite;
         $department = $assignment->department ?? $block?->department;
         $supervisor = $assignment->supervisor;
@@ -46,6 +48,18 @@ class ClinicalScheduleItemDTO
                 'full_name_en' => $student->full_name_en,
                 'full_name' => $student->full_name_en ?? $student->full_name_ar,
                 'registration_status' => $student->registration_status,
+            ] : null,
+            'group' => $group ? [
+                'id' => $group->id,
+                'name' => $group->name,
+            ] : null,
+            'subgroup' => $subgroup ? [
+                'id' => $subgroup->id,
+                'name' => $subgroup->name,
+                'group' => $group ? [
+                    'id' => $group->id,
+                    'name' => $group->name,
+                ] : null,
             ] : null,
             'rotation' => $rotation ? [
                 'id' => $rotation->id,
