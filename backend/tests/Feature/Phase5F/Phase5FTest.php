@@ -171,8 +171,6 @@ class Phase5FTest extends TestCase
         $this->actingAs($this->viewer)
             ->getJson('/api/v1/operational/clinical-schedule-options')
             ->assertOk()
-            ->assertJsonPath('data.summary.students', 1)
-            ->assertJsonPath('data.summary.sites', 1)
             ->assertJsonCount(1, 'data.rotations')
             ->assertJsonCount(1, 'data.sites');
 

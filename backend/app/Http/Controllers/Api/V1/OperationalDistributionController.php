@@ -80,13 +80,6 @@ class OperationalDistributionController extends Controller
             'success' => true,
             'message' => 'Clinical schedule options retrieved successfully.',
             'data' => [
-                'summary' => [
-                    'assignments' => (clone $assignments)->count(),
-                    'students' => (clone $assignments)->distinct()->count('student_id'),
-                    'subgroups' => (clone $assignments)->whereNotNull('student_subgroup_id')->distinct()->count('student_subgroup_id'),
-                    'sites' => $siteIds->count(),
-                    'without_supervisor' => (clone $assignments)->whereNull('supervisor_id')->count(),
-                ],
                 'rotations' => $rotations,
                 'sites' => $sites,
             ],

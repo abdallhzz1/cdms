@@ -430,7 +430,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-[1500px] space-y-5 pb-14">
       
       {/* Top Header with Perfectly Aligned Capsule Dock */}
       <div className="flex flex-row items-center justify-between gap-4 py-0.5">
@@ -543,7 +543,22 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       {rows.length === 0 ? (
         <EmptyState message={locale === 'ar' ? 'لا توجد نتائج مطابقة' : 'No matching records'} />
       ) : (
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+        <>
+        <div className="grid gap-3 md:hidden">
+          {rows.map((row) => (
+            <article key={String(row.id)} onClick={() => { if (kind === 'students') navigate(`/students/${String(row.id)}`); else if (kind === 'supervisors') navigate(`/staff/${String(row.id)}`); }} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm active:bg-slate-50">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-teal-100 bg-teal-50 text-sm font-black text-teal-700">
+                  {(row.photo_url || (kind === 'students' && localStorage.getItem(`student_photo_${row.id}`))) ? <img src={row.photo_url || localStorage.getItem(`student_photo_${row.id}`)!} alt={name(row)} className="h-full w-full object-cover"/> : name(row).substring(0,1)}
+                </div>
+                <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-black text-[#102a43]">{name(row)}</h3>{kind==='students'&&<p className="mt-1 font-mono text-[11px] text-slate-500">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span>}{getStatus(row)}</div></div>
+                {kind==='students'&&<div className="flex shrink-0 gap-1" onClick={event=>event.stopPropagation()}>{can('students.update')&&<button type="button" onClick={event=>handleOpenEdit(row,event)} className="rounded-lg bg-slate-50 p-2 text-teal-600"><Pencil className="h-4 w-4"/></button>}{can('students.delete')&&<button type="button" onClick={event=>handleDeleteStudent(row,event)} className="rounded-lg bg-red-50 p-2 text-red-500"><Trash2 className="h-4 w-4"/></button>}</div>}
+              </div>
+              {kind==='students'&&<div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]"><div><span className="text-slate-400">الدفعة</span><p className="mt-1 font-bold text-slate-700">{getBatchLabel(row)}</p></div><div><span className="text-slate-400">المجموعة الرئيسية</span><p className="mt-1 font-bold text-slate-700">{row.registration_main_group||'—'}</p></div></div>}
+            </article>
+          ))}
+        </div>
+        <div className="hidden rounded-3xl border border-slate-100 bg-white shadow-sm md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -648,7 +663,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               ))}
             </TableBody>
           </Table>
-        </div>
+        </div></>
       )}
 
       {/* Pagination Controls */}

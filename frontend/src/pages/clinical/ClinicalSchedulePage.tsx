@@ -10,15 +10,13 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import {
-  Building2, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, FilterX,
-  GraduationCap, Link2, Search, ShieldCheck, Stethoscope, User, UsersRound,
+  Check, ChevronLeft, ChevronRight, Copy, ExternalLink, FilterX,
+  Link2, Search, ShieldCheck,
 } from 'lucide-react';
 import type { ClinicalScheduleItem, PaginatedResponse } from '@/api/distribution';
-import type { LucideIcon } from 'lucide-react';
 
 type PortalStatus={is_enabled:boolean;public_url:string;updated_at:string|null;updated_by:{name:string}|null};
 type DashboardOptions={
-  summary:{assignments:number;students:number;subgroups:number;sites:number;without_supervisor:number};
   rotations:{id:number;name:string;name_en:string;code:string;academic_level:string;academic_year_id:number;academic_year:string}[];
   sites:{id:number;name_ar:string;name_en:string|null}[];
 };
@@ -76,13 +74,6 @@ export function ClinicalSchedulePage() {
   const portal=portalQuery.data;
   const filteredRotations=useMemo(()=>options?.rotations.filter(rotation=>!levelFilter||rotation.academic_level===levelFilter)??[],[options,levelFilter]);
   const formatDate=(value:string|null|undefined)=>value?new Intl.DateTimeFormat(locale==='ar'?'ar-PS':'en-GB',{day:'numeric',month:'short'}).format(new Date(`${value}T00:00:00`)):'—';
-  const summaryCards:{label:string;value:number;icon:LucideIcon;color:string}[]=[
-    {label:'التعيينات المنشورة',value:options?.summary.assignments??0,icon:GraduationCap,color:'bg-blue-50 text-blue-700'},
-    {label:'الطلبة',value:options?.summary.students??0,icon:User,color:'bg-teal-50 text-teal-700'},
-    {label:'المجموعات الفرعية',value:options?.summary.subgroups??0,icon:UsersRound,color:'bg-violet-50 text-violet-700'},
-    {label:'المستشفيات',value:options?.summary.sites??0,icon:Building2,color:'bg-slate-100 text-slate-700'},
-    {label:'دون طبيب',value:options?.summary.without_supervisor??0,icon:Stethoscope,color:'bg-amber-50 text-amber-700'},
-  ];
 
   if(!hasAccess)return <ErrorState title="Access Denied" message={locale==='ar'?'تحتاج صلاحية عرض التوزيع والجدول السريري.':'You need clinical distribution view permission.'}/>;
   if(scheduleQuery.isLoading||optionsQuery.isLoading||portalQuery.isLoading)return <LoadingState/>;
@@ -101,10 +92,6 @@ export function ClinicalSchedulePage() {
       </div>
       <div className="mt-3 flex items-center gap-2 overflow-hidden rounded-xl border border-slate-200/80 bg-white/80 p-3 font-mono text-[11px] text-slate-600"><Link2 className="h-4 w-4 shrink-0"/><span className="truncate" dir="ltr">{location.origin}{portal?.public_url}</span></div>
     </Card>
-
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-      {summaryCards.map(({label,value,icon:Icon,color})=><Card key={label} className="rounded-2xl border border-slate-100 p-4"><div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${color}`}><Icon className="h-4 w-4"/></div><p className="text-2xl font-black text-slate-900">{value}</p><p className="mt-1 text-[11px] font-bold text-slate-500">{label}</p></Card>)}
-    </div>
 
     <Card className="rounded-3xl border border-slate-100 p-4">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_.8fr_1fr_1fr_auto]">
