@@ -37,7 +37,7 @@ class DistributionApprovalService
             ]);
         }
 
-        if (!Gate::allows('permission', 'distribution.approve')) {
+        if (!Gate::allows('permission', ['distribution.approve'])) {
             throw ValidationException::withMessages([
                 'authorization' => ['You do not have permission to approve distributions.']
             ]);
@@ -68,7 +68,7 @@ class DistributionApprovalService
                         'override_reason' => ['An override reason is required to approve with unassigned students.'],
                     ]);
                 }
-                if (!Gate::allows('permission', 'distribution.override')) {
+                if (!Gate::allows('permission', ['distribution.override'])) {
                     throw ValidationException::withMessages([
                         'authorization' => ['You do not have permission to override unassigned students.'],
                     ]);
@@ -209,7 +209,9 @@ class DistributionApprovalService
         $rotation = $version->rotation;
         
         $eligibleStudents = \App\Models\Student::whereHas('groupAssignments', function ($q) use ($rotation) {
-            $q->where('academic_year_id', $rotation->academic_year_id);
+            $q->where('academic_year_id', $rotation->academic_year_id)
+              ->current()
+              ->whereHas('subgroup.group', fn ($group) => $group->where('academic_level', $rotation->academic_level));
         })
         ->where('registration_status', 'active')
         ->pluck('id')

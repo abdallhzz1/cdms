@@ -45,6 +45,7 @@ class DistributionGenerationService
             if (!empty($assignedSubgroupIds)) {
                 $studentAssignments = StudentGroupAssignment::whereIn('student_subgroup_id', $assignedSubgroupIds)
                     ->where('academic_year_id', $rotation->academic_year_id)
+                    ->current()
                     ->whereHas('student', function ($query) {
                         $query->where('registration_status', 'active');
                     })

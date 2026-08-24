@@ -343,10 +343,32 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->name('distribution-versions.assignments.destroy')
             ->scopeBindings();
 
+        // Subgroup-first workbench. Student membership remains authoritative in
+        // the Student Groups module; these endpoints only allocate whole subgroups.
+        Route::get('distribution-versions/{version}/subgroups', [\App\Http\Controllers\Api\V1\DistributionSubgroupController::class, 'index'])
+            ->middleware('permission:distribution.view')
+            ->name('distribution-versions.subgroups.index');
+
+        Route::post('distribution-versions/{version}/subgroups/{subgroup}/assignment', [\App\Http\Controllers\Api\V1\DistributionSubgroupController::class, 'store'])
+            ->middleware('permission:distribution.create')
+            ->name('distribution-versions.subgroups.assignment.store');
+
+        Route::put('distribution-versions/{version}/subgroups/{subgroup}/assignment', [\App\Http\Controllers\Api\V1\DistributionSubgroupController::class, 'update'])
+            ->middleware('permission:distribution.update')
+            ->name('distribution-versions.subgroups.assignment.update');
+
+        Route::delete('distribution-versions/{version}/subgroups/{subgroup}/assignment', [\App\Http\Controllers\Api\V1\DistributionSubgroupController::class, 'destroy'])
+            ->middleware('permission.any:distribution.delete,distribution.update')
+            ->name('distribution-versions.subgroups.assignment.destroy');
+
         // Distribution Versions Workbench Read APIs
         Route::get('distribution-versions', [\App\Http\Controllers\Api\V1\DistributionVersionController::class, 'index'])
             ->middleware('permission:distribution.view')
             ->name('distribution-versions.index');
+
+        Route::post('distribution-versions', [\App\Http\Controllers\Api\V1\DistributionVersionController::class, 'store'])
+            ->middleware('permission:distribution.create')
+            ->name('distribution-versions.store');
 
         Route::get('distribution-versions/{version}', [\App\Http\Controllers\Api\V1\DistributionVersionController::class, 'show'])
             ->middleware('permission:distribution.view')
@@ -363,6 +385,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('distribution-versions/{version}/conflicts', [\App\Http\Controllers\Api\V1\DistributionVersionController::class, 'conflicts'])
             ->middleware('permission:distribution.view')
             ->name('distribution-versions.conflicts');
+
+        Route::get('distribution-versions/{version}/options', [\App\Http\Controllers\Api\V1\DistributionVersionController::class, 'options'])
+            ->middleware('permission:distribution.view')
+            ->name('distribution-versions.options');
 
         // Distribution Version Lifecycle & Comparison
         Route::post('distribution-versions/{version}/approve', [\App\Http\Controllers\Api\V1\DistributionApprovalController::class, 'store'])

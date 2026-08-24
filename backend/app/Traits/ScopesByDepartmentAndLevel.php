@@ -112,13 +112,18 @@ trait ScopesByDepartmentAndLevel
         $user = auth()->user();
         if (!$user) return null;
 
+        $roleCodes = $user->relationLoaded('roles')
+            ? $user->roles->pluck('code')
+            : $user->roles()->pluck('code');
+
         // Global roles have unscoped access across all departments
-        if (
-            $user->hasRole('SYS_ADMIN') || 
-            $user->hasRole('DEAN') || 
-            $user->hasRole('VICE_DEAN') || 
-            $user->hasRole('CLINICAL_DIRECTOR')
-        ) {
+        if ($roleCodes->intersect(['SYS_ADMIN', 'DEAN', 'VICE_DEAN', 'CLINICAL_DIRECTOR'])->isNotEmpty()) {
+            return null;
+        }
+
+        // Users without a department-scoped role are global for record
+        // scoping purposes; avoid unnecessary pivot and people lookups.
+        if ($roleCodes->intersect(['DEPARTMENT_HEAD', 'RTA'])->isEmpty()) {
             return null;
         }
 

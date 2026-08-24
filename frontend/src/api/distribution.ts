@@ -27,7 +27,7 @@ export interface DistributionVersionListItem {
   id: number;
   rotation_id: number;
   name: string | null;
-  status: 'suggested' | 'manual' | 'published';
+  status: 'draft' | 'suggested' | 'manual' | 'published';
   created_at: string;
   updated_at: string;
   is_current_published: boolean;
@@ -39,7 +39,7 @@ export interface DistributionVersionListItem {
     id: number;
     code: string;
     name: string;
-    academic_level: number;
+    academic_level: 'fourth' | 'fifth' | 'sixth';
     academic_year?: {
       id: number;
       name: string;
@@ -47,22 +47,82 @@ export interface DistributionVersionListItem {
   };
 }
 
+export interface RotationListItem {
+  id: number;
+  academic_year_id: number;
+  code: string;
+  name: string;
+  academic_level: 'fourth' | 'fifth' | 'sixth';
+  status: string;
+  academic_year?: { id: number; name: string };
+}
+
+export interface DistributionSubgroupAllocation {
+  rotation_block_id: number;
+  training_site_id: number;
+  department_id: number | null;
+  supervisor_id: number | null;
+  student_count: number;
+  rotation_block?: { id: number; name?: string; block_code?: string; from_week?: number; to_week?: number; start_week?: number; end_week?: number };
+  training_site?: { id: number; name?: string; name_ar?: string; name_en?: string };
+  supervisor?: { id: number; full_name_ar?: string; full_name_en?: string; first_name?: string; last_name?: string } | null;
+}
+
+export interface DistributionSubgroupItem {
+  id: number;
+  name: string;
+  main_group: { id: number; name: string };
+  capacity: number;
+  student_count: number;
+  students: Array<{ id: number; university_number: string; full_name_ar: string; full_name_en?: string | null }>;
+  allocations: DistributionSubgroupAllocation[];
+  roster_changed: boolean;
+  status: 'assigned' | 'unassigned' | 'attention';
+}
+
+export interface TrainingSiteOption {
+  id: number;
+  site_code: string;
+  name_ar: string;
+  name_en?: string | null;
+  primary_site_id?: number | null;
+  is_active: boolean;
+}
+
+export interface SupervisorOption {
+  id: number;
+  full_name_ar: string;
+  full_name_en?: string | null;
+  primary_site_id?: number | null;
+  department_id?: number | null;
+  is_active: boolean;
+}
+
 export interface DistributionVersionDetail extends DistributionVersionListItem {
   rotation: {
     id: number;
     code: string;
     name: string;
-    academic_level: number;
+    academic_level: 'fourth' | 'fifth' | 'sixth';
     academic_year?: {
       id: number;
       name: string;
     };
     blocks?: Array<{
       id: number;
-      name: string;
+      name?: string;
+      block_code?: string;
       department_id: number;
-      start_week: number;
-      end_week: number;
+      start_week?: number;
+      end_week?: number;
+      from_week?: number;
+      to_week?: number;
+    }>;
+    site_capacity_rules?: Array<{
+      id: number;
+      site_id: number;
+      max_students: number | null;
+      site?: TrainingSiteOption;
     }>;
   };
   summary: {
@@ -186,6 +246,57 @@ export function getDistributionVersions(params?: {
 
   const url = `/distribution-versions${query.toString() ? `?${query.toString()}` : ''}`;
   return apiFetch<PaginatedResponse<DistributionVersionListItem>>(url);
+}
+
+export function getRotations(params?: { academic_level?: string; status?: string }): Promise<RotationListItem[]> {
+  const query = new URLSearchParams();
+  if (params?.academic_level) query.set('academic_level', params.academic_level);
+  if (params?.status) query.set('status', params.status);
+  return apiFetch<RotationListItem[]>(`/rotations${query.toString() ? `?${query.toString()}` : ''}`);
+}
+
+export function createDistributionVersion(payload: { rotation_id: number; name?: string }): Promise<DistributionVersionListItem> {
+  return apiFetch<DistributionVersionListItem>('/distribution-versions', { method: 'POST', body: payload });
+}
+
+export function generateDistribution(rotationId: number): Promise<{ distribution_version_id: number }> {
+  return apiFetch<{ distribution_version_id: number }>(`/rotations/${rotationId}/distribution/generate`, { method: 'POST', body: {} });
+}
+
+export function getDistributionSubgroups(versionId: number): Promise<DistributionSubgroupItem[]> {
+  return apiFetch<DistributionSubgroupItem[]>(`/distribution-versions/${versionId}/subgroups`);
+}
+
+export function createSubgroupAssignment(
+  versionId: number,
+  subgroupId: number,
+  payload: { rotation_block_id: number; training_site_id: number; supervisor_id?: number | null; force?: boolean; override_reason?: string },
+): Promise<DistributionSubgroupAllocation> {
+  return apiFetch<DistributionSubgroupAllocation>(`/distribution-versions/${versionId}/subgroups/${subgroupId}/assignment`, { method: 'POST', body: payload });
+}
+
+export function updateSubgroupAssignment(
+  versionId: number,
+  subgroupId: number,
+  payload: { rotation_block_id: number; training_site_id: number; supervisor_id?: number | null; force?: boolean; override_reason?: string },
+): Promise<DistributionSubgroupAllocation> {
+  return apiFetch<DistributionSubgroupAllocation>(`/distribution-versions/${versionId}/subgroups/${subgroupId}/assignment`, { method: 'PUT', body: payload });
+}
+
+export function deleteSubgroupAssignment(versionId: number, subgroupId: number): Promise<void> {
+  return apiFetch<void>(`/distribution-versions/${versionId}/subgroups/${subgroupId}/assignment`, { method: 'DELETE' });
+}
+
+export function getTrainingSiteOptions(): Promise<TrainingSiteOption[]> {
+  return apiFetch<TrainingSiteOption[]>('/training-sites?active=1&per_page=200');
+}
+
+export function getSupervisorOptions(): Promise<SupervisorOption[]> {
+  return apiFetch<SupervisorOption[]>('/people?active=1&per_page=200');
+}
+
+export function getDistributionOptions(versionId: number): Promise<{ sites: TrainingSiteOption[]; supervisors: SupervisorOption[] }> {
+  return apiFetch<{ sites: TrainingSiteOption[]; supervisors: SupervisorOption[] }>(`/distribution-versions/${versionId}/options`);
 }
 
 export function getDistributionVersion(id: number): Promise<DistributionVersionDetail> {
@@ -702,4 +813,3 @@ export function getDashboardSummary(filters?: DashboardFilters): Promise<{ succe
     `/operational/dashboard/summary${qs ? `?${qs}` : ''}`
   );
 }
-

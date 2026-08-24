@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -75,5 +76,14 @@ class StudentGroupAssignment extends Model
     public function subgroup(): BelongsTo
     {
         return $this->belongsTo(StudentSubgroup::class, 'student_subgroup_id');
+    }
+
+    /**
+     * Only the membership that is currently authoritative. Closed rows are
+     * history and must never be used by distribution or capacity calculations.
+     */
+    public function scopeCurrent(Builder $query): Builder
+    {
+        return $query->whereNull('valid_until');
     }
 }

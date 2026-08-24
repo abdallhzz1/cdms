@@ -46,7 +46,7 @@ class DistributionPublicationService
             ]);
         }
 
-        if (!Gate::allows('permission', 'distribution.publish')) {
+        if (!Gate::allows('permission', ['distribution.publish'])) {
             throw ValidationException::withMessages([
                 'authorization' => ['You do not have permission to publish distributions.']
             ]);
@@ -103,7 +103,7 @@ class DistributionPublicationService
                         'override_reason' => ['An override reason is required to publish with unassigned students.']
                     ]);
                 }
-                if (!Gate::allows('permission', 'distribution.override')) {
+                if (!Gate::allows('permission', ['distribution.override'])) {
                     throw ValidationException::withMessages([
                         'authorization' => ['You do not have permission to override unassigned students.']
                     ]);

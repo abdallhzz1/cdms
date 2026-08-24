@@ -7,6 +7,9 @@ use App\Models\AuditLog;
 use App\Models\DistributionVersion;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
+use App\Models\StudentGroupAssignment;
+use App\Models\Rotation;
+use App\Models\Person;
 use App\Services\Distribution\DistributionApprovalService;
 use App\Services\Distribution\DistributionStateValidator;
 use App\Traits\ScopesByDepartmentAndLevel;
@@ -48,17 +51,19 @@ class DistributionVersionController extends Controller
         $versionIds = $versions->pluck('id')->toArray();
 
         // Get total eligible students per rotation's academic year
-        $rotationAcademicYears = $versions->pluck('rotation.academic_year_id')->unique()->toArray();
-        
-        $eligibleCountPerAcademicYear = Student::whereHas('groupAssignments', function ($q) use ($rotationAcademicYears) {
-            $q->whereIn('academic_year_id', $rotationAcademicYears);
-        })
-        ->where('registration_status', 'active')
-        ->join('student_group_assignments', 'students.id', '=', 'student_group_assignments.student_id')
-        ->select('student_group_assignments.academic_year_id', DB::raw('COUNT(DISTINCT students.id) as total'))
-        ->groupBy('student_group_assignments.academic_year_id')
-        ->pluck('total', 'academic_year_id')
-        ->toArray();
+        $rotationAcademicYears = $versions->pluck('rotation.academic_year_id')->filter()->unique()->values()->toArray();
+
+        $eligibleCounts = StudentGroupAssignment::query()
+            ->join('students', 'students.id', '=', 'student_group_assignments.student_id')
+            ->join('student_subgroups', 'student_subgroups.id', '=', 'student_group_assignments.student_subgroup_id')
+            ->join('student_groups', 'student_groups.id', '=', 'student_subgroups.student_group_id')
+            ->whereIn('student_group_assignments.academic_year_id', $rotationAcademicYears)
+            ->whereNull('student_group_assignments.valid_until')
+            ->where('students.registration_status', 'active')
+            ->selectRaw('student_group_assignments.academic_year_id, student_groups.academic_level, COUNT(DISTINCT student_group_assignments.student_id) as total')
+            ->groupBy('student_group_assignments.academic_year_id', 'student_groups.academic_level')
+            ->get()
+            ->keyBy(fn ($row) => $row->academic_year_id . '|' . $row->academic_level);
 
         // Assigned student counts per version
         $assignedCounts = StudentClinicalAssignment::whereIn('distribution_version_id', $versionIds)
@@ -67,13 +72,14 @@ class DistributionVersionController extends Controller
             ->pluck('total', 'distribution_version_id')
             ->toArray();
 
-        $versions->getCollection()->transform(function ($v) use ($latestPublishedMap, $eligibleCountPerAcademicYear, $assignedCounts) {
+        $versions->getCollection()->transform(function ($v) use ($latestPublishedMap, $eligibleCounts, $assignedCounts) {
             $latestPublishedId = $latestPublishedMap[$v->rotation_id] ?? null;
             $v->is_current_published = ($v->status === 'published' && $v->id === $latestPublishedId);
             $v->is_superseded = ($v->status === 'published' && $v->id !== $latestPublishedId);
 
             $academicYearId = $v->rotation->academic_year_id ?? null;
-            $totalEligible = $eligibleCountPerAcademicYear[$academicYearId] ?? 0;
+            $academicLevel = $v->rotation->academic_level ?? null;
+            $totalEligible = (int) ($eligibleCounts->get($academicYearId . '|' . $academicLevel)?->total ?? 0);
             $assignedCount = $assignedCounts[$v->id] ?? 0;
 
             $v->total_eligible_students = $totalEligible;
@@ -89,10 +95,35 @@ class DistributionVersionController extends Controller
         ]);
     }
 
+    public function store(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'rotation_id' => ['required', 'integer', 'exists:rotations,id'],
+            'name' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $rotation = Rotation::findOrFail($data['rotation_id']);
+        $departmentId = $this->getUserDepartmentId();
+        if ($departmentId && !$rotation->departments()->whereKey($departmentId)->exists()) {
+            throw new \Illuminate\Auth\Access\AuthorizationException('This action is unauthorized.');
+        }
+
+        $version = DistributionVersion::create([
+            'rotation_id' => $rotation->id,
+            'name' => $data['name'] ?: 'Manual ' . now()->format('Y-m-d H:i'),
+            'status' => 'manual',
+        ]);
+
+        return response()->json([
+            'message' => 'Distribution version created successfully.',
+            'data' => $version->load('rotation.academicYear'),
+        ], 201);
+    }
+
     public function show(DistributionVersion $version): JsonResponse
     {
         $this->authorizeDistributionVersionAccess($version);
-        $version->load(['rotation.academicYear', 'rotation.blocks']);
+        $version->load(['rotation.academicYear', 'rotation.blocks', 'rotation.siteCapacityRules.site']);
 
         $latestPublishedId = DistributionVersion::where('rotation_id', $version->rotation_id)
             ->where('status', 'published')
@@ -160,6 +191,8 @@ class DistributionVersionController extends Controller
 
         $students = Student::with(['groupAssignments' => function ($q) use ($version) {
             $q->where('academic_year_id', $version->rotation->academic_year_id)
+              ->current()
+              ->whereHas('subgroup.group', fn ($group) => $group->where('academic_level', $version->rotation->academic_level))
               ->with('subgroup.group');
         }])
         ->whereIn('id', $unassignedIds)
@@ -180,6 +213,35 @@ class DistributionVersionController extends Controller
         return response()->json([
             'message' => 'Conflicts retrieved successfully.',
             'data' => $violations
+        ]);
+    }
+
+    public function options(DistributionVersion $version): JsonResponse
+    {
+        $this->authorizeDistributionVersionAccess($version);
+        $version->loadMissing('rotation.siteCapacityRules.site');
+
+        $siteRules = $version->rotation->siteCapacityRules;
+        $siteIds = $siteRules->pluck('site_id')->filter()->values();
+        $supervisors = Person::query()
+            ->active()
+            ->whereIn('primary_site_id', $siteIds)
+            ->orderBy('full_name_ar')
+            ->get(['id', 'full_name_ar', 'full_name_en', 'primary_site_id', 'department_id', 'is_active']);
+
+        return response()->json([
+            'message' => 'Distribution options retrieved successfully.',
+            'data' => [
+                'sites' => $siteRules->map(fn ($rule) => [
+                    'id' => $rule->site?->id,
+                    'site_code' => $rule->site?->site_code,
+                    'name_ar' => $rule->site?->name_ar,
+                    'name_en' => $rule->site?->name_en,
+                    'is_active' => (bool) $rule->site?->is_active,
+                    'max_students' => $rule->max_students,
+                ])->filter(fn ($site) => $site['id'])->values(),
+                'supervisors' => $supervisors,
+            ],
         ]);
     }
 

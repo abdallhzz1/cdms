@@ -35,6 +35,8 @@ class DistributionStateValidator
         // Load all students and their group assignments for this rotation's academic year in ONE query
         $students = \App\Models\Student::with(['groupAssignments' => function ($q) use ($version) {
             $q->where('academic_year_id', $version->rotation->academic_year_id)
+              ->current()
+              ->whereHas('subgroup.group', fn ($group) => $group->where('academic_level', $version->rotation->academic_level))
               ->with('subgroup.group');
         }])->whereIn('id', $studentIds)->get()->keyBy('id');
 
@@ -107,7 +109,7 @@ class DistributionStateValidator
                 ]);
             }
 
-            if (!Gate::allows('permission', 'distribution.override')) {
+            if (!Gate::allows('permission', ['distribution.override'])) {
                 throw ValidationException::withMessages([
                     'authorization' => ['You do not have permission to override hard constraints.']
                 ]);
@@ -127,6 +129,8 @@ class DistributionStateValidator
 
         $students = \App\Models\Student::with(['groupAssignments' => function ($q) use ($version) {
             $q->where('academic_year_id', $version->rotation->academic_year_id)
+              ->current()
+              ->whereHas('subgroup.group', fn ($group) => $group->where('academic_level', $version->rotation->academic_level))
               ->with('subgroup.group');
         }])->whereIn('id', $studentIds)->get()->keyBy('id');
 

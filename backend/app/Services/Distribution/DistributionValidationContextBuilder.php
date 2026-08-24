@@ -34,6 +34,8 @@ class DistributionValidationContextBuilder
         if (!empty($subgroupIds)) {
             $subgroupSizes = StudentGroupAssignment::whereIn('student_subgroup_id', $subgroupIds)
                 ->where('academic_year_id', $rotation->academic_year_id)
+                ->current()
+                ->whereHas('student', fn ($query) => $query->where('registration_status', 'active'))
                 ->groupBy('student_subgroup_id')
                 ->selectRaw('student_subgroup_id, count(student_id) as student_count')
                 ->pluck('student_count', 'student_subgroup_id');
@@ -70,6 +72,8 @@ class DistributionValidationContextBuilder
 
             $subgroupSizes = StudentGroupAssignment::whereIn('student_subgroup_id', $subgroupIds)
                 ->where('academic_year_id', $rotation->academic_year_id)
+                ->current()
+                ->whereHas('student', fn ($query) => $query->where('registration_status', 'active'))
                 ->groupBy('student_subgroup_id')
                 ->selectRaw('student_subgroup_id, count(student_id) as student_count')
                 ->pluck('student_count', 'student_subgroup_id');
