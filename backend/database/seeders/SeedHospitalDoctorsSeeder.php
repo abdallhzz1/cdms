@@ -6,7 +6,8 @@ use Illuminate\Database\Seeder;
 use App\Models\User;
 use App\Models\Person;
 use App\Models\Role;
-use Illuminate\Support\Facades\Hash;
+use App\Models\TrainingSite;
+use Illuminate\Support\Str;
 
 class SeedHospitalDoctorsSeeder extends Seeder
 {
@@ -14,23 +15,11 @@ class SeedHospitalDoctorsSeeder extends Seeder
     {
         $supRole = Role::firstOrCreate(
             ['code' => 'CLINICAL_SUPERVISOR'],
-            ['name_ar' => 'مشرف سريري', 'name_en' => 'Clinical Supervisor']
+            ['name_key' => 'roles.CLINICAL_SUPERVISOR.name', 'description_key' => 'roles.CLINICAL_SUPERVISOR.description']
         );
 
-        // 1. Unlink & Clean old supervisor users
-        $usersToDelete = User::whereHas('roles', function ($q) {
-            $q->where('code', 'CLINICAL_SUPERVISOR');
-        })->whereDoesntHave('roles', function ($q) {
-            $q->where('code', '!=', 'CLINICAL_SUPERVISOR');
-        })->get();
-
-        foreach ($usersToDelete as $u) {
-            $u->roles()->detach();
-            Person::where('user_id', $u->id)->update(['user_id' => null]);
-            $u->delete();
-        }
-
-        // 2. Hospital Doctors Directory
+        // Official hospital doctors directory. This seeder is deliberately
+        // non-destructive: existing accounts, emails and passwords are kept.
         $hospitalData = [
             'م. الأهلي' => [
                 ['ar' => 'د. عبد الله قاسم', 'en' => 'Dr. Abdallah Qasim', 'email' => 'abdallah.qasim@hebron.edu'],
@@ -114,24 +103,67 @@ class SeedHospitalDoctorsSeeder extends Seeder
             ],
             'م. يطا' => [
                 ['ar' => 'د. نضال بحيص', 'en' => 'Dr. Nidal Buhais', 'email' => 'nidal.buhais@hebron.edu'],
+                ['ar' => 'د. محمد زهور', 'en' => 'Dr. Mohammad Zhour', 'email' => 'mohammad.zhour@hebron.edu'],
             ]
         ];
 
+        $normalize = static function (?string $name): string {
+            $name = preg_replace('/^(الدكتور|دكتور|د\.)\s*/u', '', trim((string) $name));
+            $name = str_replace(['أ', 'إ', 'آ', 'ى', 'ؤ', 'ئ', 'ة'], ['ا', 'ا', 'ا', 'ي', 'و', 'ي', 'ه'], $name);
+            return preg_replace('/[^\p{Arabic}0-9]/u', '', $name) ?? '';
+        };
+
+        $users = User::query()->with('person')->get();
+        $people = Person::query()->with('user')->get();
+        $primaryAssigned = [];
+
         foreach ($hospitalData as $hospName => $docs) {
+            $site = TrainingSite::query()->where('name_ar', $hospName)->first()
+                ?? TrainingSite::create([
+                    'site_code' => 'DIR-'.strtoupper(substr(md5($hospName), 0, 8)),
+                    'name_ar' => $hospName,
+                    'site_type' => 'hospital_public',
+                    'is_active' => true,
+                ]);
+
             foreach ($docs as $doc) {
-                $user = User::where('email', $doc['email'])->first();
-                if (!$user) {
+                $normalizedName = $normalize($doc['ar']);
+                $email = strtolower($doc['email']);
+                $emailUser = User::query()->whereRaw('LOWER(email) = ?', [$email])->with('person')->first();
+                $nameUser = $users
+                    ->filter(fn (User $item) => $normalize($item->name) === $normalizedName)
+                    ->sortByDesc(fn (User $item) => ($item->person?->staff_code ? 2 : 0) + ($item->person?->department_id ? 1 : 0))
+                    ->first();
+                $hasCanonicalProfile = (bool) ($nameUser?->person?->staff_code || $nameUser?->person?->department_id);
+                $user = $hasCanonicalProfile ? $nameUser : ($emailUser ?? $nameUser);
+                $person = $user?->person
+                    ?? Person::query()->whereRaw('LOWER(email) = ?', [$email])->first()
+                    ?? $people->first(fn (Person $item) => $normalize($item->full_name_ar) === $normalizedName && $item->user_id === null);
+
+                // An older directory seeder created guessed-email duplicates for
+                // some doctors who already had a richer institutional profile.
+                // Keep the account, but remove only its duplicate supervisor role.
+                if ($hasCanonicalProfile && $emailUser && $emailUser->id !== $user?->id
+                    && $emailUser->person?->staff_code === null && $emailUser->person?->notes) {
+                    $emailUser->roles()->detach($supRole->id);
+                    $emailUser->person->trainingSites()->detach();
+                    $emailUser->person->update(['primary_site_id' => null]);
+                }
+
+                if (! $user) {
                     $user = User::create([
                         'name'      => $doc['ar'],
                         'email'     => $doc['email'],
-                        'password'  => Hash::make('password123'),
+                        // No source password exists. A cryptographically random,
+                        // unknown value forces the administrator to set/reset it.
+                        'password'  => Str::random(64),
                         'is_active' => true,
                     ]);
+                    $users->push($user);
                 }
                 $user->roles()->syncWithoutDetaching([$supRole->id]);
 
-                $person = Person::where('email', $doc['email'])->first();
-                if (!$person) {
+                if (! $person) {
                     $person = Person::create([
                         'user_id'       => $user->id,
                         'full_name_ar'  => $doc['ar'],
@@ -140,10 +172,20 @@ class SeedHospitalDoctorsSeeder extends Seeder
                         'notes'         => $hospName,
                         'is_active'     => true,
                     ]);
+                    $people->push($person);
                 } else {
-                    $person->user_id = $user->id;
+                    $person->user_id ??= $user->id;
                     $person->notes = $hospName;
                     $person->save();
+                }
+
+                $isPrimary = ! isset($primaryAssigned[$person->id]);
+                $person->trainingSites()->syncWithoutDetaching([
+                    $site->id => ['is_primary' => $isPrimary],
+                ]);
+                if ($isPrimary) {
+                    $person->update(['primary_site_id' => $site->id]);
+                    $primaryAssigned[$person->id] = true;
                 }
             }
         }

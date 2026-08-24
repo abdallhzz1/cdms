@@ -42,7 +42,7 @@ class CourseDistributionController extends Controller
                 ->orderBy('academic_level')->orderBy('semester')->orderBy('code')
                 ->get(['id', 'code', 'name_ar', 'name_en', 'academic_level', 'semester']),
             'hospitals' => $this->hospitals($directory),
-            'unassigned_doctors' => $directory->whereNull('primary_site_id')->values(),
+            'unassigned_doctors' => $directory->filter(fn ($doctor) => count($doctor['training_site_ids']) === 0)->values(),
         ]);
     }
 
@@ -69,7 +69,7 @@ class CourseDistributionController extends Controller
                 'blocks' => [],
                 'subgroups' => $this->subgroups((int) $data['academic_year_id'], $data['academic_level']),
                 'hospitals' => $this->hospitals($directory),
-                'unassigned_doctors' => $directory->whereNull('primary_site_id')->values(),
+                'unassigned_doctors' => $directory->filter(fn ($doctor) => count($doctor['training_site_ids']) === 0)->values(),
                 'cells' => [],
             ]);
         }
@@ -105,7 +105,7 @@ class CourseDistributionController extends Controller
             'blocks' => $rotation->blocks->sortBy('from_week')->values(),
             'subgroups' => $this->subgroups($rotation->academic_year_id, $rotation->academic_level),
             'hospitals' => $this->hospitals($directory),
-            'unassigned_doctors' => $directory->whereNull('primary_site_id')->values(),
+            'unassigned_doctors' => $directory->filter(fn ($doctor) => count($doctor['training_site_ids']) === 0)->values(),
             'cells' => $cells,
         ]);
     }
@@ -164,11 +164,16 @@ class CourseDistributionController extends Controller
         $data = $request->validate([
             'rotation_block_id' => ['required', 'integer', 'exists:rotation_blocks,id'],
             'supervisor_id' => ['required', 'integer', 'exists:people,id'],
+            'training_site_id' => ['required', 'integer', 'exists:training_sites,id'],
             'subgroup_id' => ['required', 'integer', 'exists:student_subgroups,id'],
         ]);
         $version->loadMissing('rotation');
         $block = RotationBlock::where('rotation_id', $version->rotation_id)->findOrFail($data['rotation_block_id']);
-        $doctor = Person::active()->whereNotNull('primary_site_id')->findOrFail($data['supervisor_id']);
+        $doctor = Person::active()->findOrFail($data['supervisor_id']);
+        if (! $doctor->trainingSites()->whereKey($data['training_site_id'])->exists()
+            && $doctor->primary_site_id !== $data['training_site_id']) {
+            throw ValidationException::withMessages(['training_site_id' => ['الطبيب غير مرتبط بالمستشفى المحدد.']]);
+        }
         $subgroup = StudentSubgroup::with('group')->findOrFail($data['subgroup_id']);
         if (! $subgroup->is_active || ! $subgroup->group
             || $subgroup->group->academic_year_id !== $version->rotation->academic_year_id
@@ -186,7 +191,7 @@ class CourseDistributionController extends Controller
             throw ValidationException::withMessages(['subgroup_id' => ['هذه المجموعة موزعة على طبيب آخر في الأسبوع نفسه.']]);
         }
 
-        DB::transaction(function () use ($version, $block, $doctor, $subgroup) {
+        DB::transaction(function () use ($version, $block, $doctor, $subgroup, $data) {
             StudentClinicalAssignment::where([
                 'distribution_version_id' => $version->id,
                 'rotation_block_id' => $block->id,
@@ -208,7 +213,7 @@ class CourseDistributionController extends Controller
                 'student_id' => $membership->student_id,
                 'student_subgroup_id' => $subgroup->id,
                 'rotation_block_id' => $block->id,
-                'training_site_id' => $doctor->primary_site_id,
+                'training_site_id' => $data['training_site_id'],
                 'department_id' => $doctor->department_id,
                 'supervisor_id' => $doctor->id,
                 'created_at' => $now,
@@ -262,7 +267,7 @@ class CourseDistributionController extends Controller
             ]);
             $role = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
             $user->roles()->attach($role->id);
-            return Person::create([
+            $person = Person::create([
                 'full_name_ar' => $data['full_name_ar'],
                 'full_name_en' => $data['full_name_en'] ?? null,
                 'email' => strtolower($data['email']),
@@ -271,6 +276,9 @@ class CourseDistributionController extends Controller
                 'is_active' => true,
                 'user_id' => $user->id,
             ]);
+            $person->trainingSites()->attach($data['primary_site_id'], ['is_primary' => true]);
+
+            return $person;
         });
 
         return ApiResponse::success($person->load('primarySite'), 'تم إنشاء الطبيب وحساب المشرف السريري.', [], 201);
@@ -307,6 +315,14 @@ class CourseDistributionController extends Controller
                 'is_active' => $user->is_active,
             ])->save();
 
+            if ($person->primary_site_id) {
+                $person->trainingSites()->sync([
+                    $person->primary_site_id => ['is_primary' => true],
+                ]);
+            } else {
+                $person->trainingSites()->detach();
+            }
+
             return $person;
         });
 
@@ -338,12 +354,16 @@ class CourseDistributionController extends Controller
         return User::query()
             ->where('is_active', true)
             ->whereHas('roles', fn ($query) => $query->where('code', 'CLINICAL_SUPERVISOR'))
-            ->with('person:id,user_id,full_name_ar,full_name_en,email,specialty,primary_site_id,is_active')
+            ->with('person.trainingSites:id')
             ->orderBy('name')
             ->get(['id', 'name', 'email', 'is_active'])
             ->map(function (User $user) use ($activeSiteIds) {
                 $person = $user->person;
                 $siteId = $person?->primary_site_id;
+                $siteIds = $person?->trainingSites->pluck('id')->filter(fn ($id) => $activeSiteIds->contains($id))->values() ?? collect();
+                if ($siteId && $activeSiteIds->contains($siteId) && ! $siteIds->contains($siteId)) {
+                    $siteIds->push($siteId);
+                }
 
                 return [
                     'id' => $person?->id,
@@ -353,6 +373,7 @@ class CourseDistributionController extends Controller
                     'email' => $user->email,
                     'specialty' => $person?->specialty,
                     'primary_site_id' => $siteId && $activeSiteIds->contains($siteId) ? $siteId : null,
+                    'training_site_ids' => $siteIds->values(),
                 ];
             });
     }
@@ -363,7 +384,7 @@ class CourseDistributionController extends Controller
             ->get(['id', 'site_code', 'name_ar', 'name_en', 'site_type', 'city'])
             ->map(function (TrainingSite $site) use ($directory) {
                 $site->setAttribute('supervisors', $directory
-                    ->where('primary_site_id', $site->id)
+                    ->filter(fn ($doctor) => collect($doctor['training_site_ids'])->contains($site->id))
                     ->filter(fn ($doctor) => $doctor['id'] !== null)
                     ->values());
 

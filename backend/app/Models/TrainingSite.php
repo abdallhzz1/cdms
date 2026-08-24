@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 /**
  * @property int $id
@@ -102,6 +103,12 @@ class TrainingSite extends Model
     public function supervisors(): HasMany
     {
         return $this->hasMany(Person::class, 'primary_site_id');
+    }
+
+    public function clinicalSupervisors(): BelongsToMany
+    {
+        return $this->belongsToMany(Person::class, 'person_training_site')
+            ->withPivot('is_primary')->withTimestamps();
     }
 
     // -------------------------------------------------------------------------

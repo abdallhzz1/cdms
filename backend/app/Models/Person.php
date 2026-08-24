@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 /**
  * Person — the unified staff/people record.
@@ -92,6 +93,13 @@ class Person extends Model
     public function primarySite(): BelongsTo
     {
         return $this->belongsTo(TrainingSite::class, 'primary_site_id');
+    }
+
+    /** Hospitals where this clinical supervisor currently works. */
+    public function trainingSites(): BelongsToMany
+    {
+        return $this->belongsToMany(TrainingSite::class, 'person_training_site')
+            ->withPivot('is_primary')->withTimestamps();
     }
 
     /** @return BelongsTo<User, $this> */

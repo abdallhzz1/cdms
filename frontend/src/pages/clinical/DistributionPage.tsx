@@ -14,7 +14,7 @@ import { Modal } from '@/components/ui/Modal';
 type Level = 'fourth' | 'fifth' | 'sixth';
 type Year = { id: number; code: string; start_date: string; end_date: string; is_current: boolean };
 type Course = { id: number; code: string; name_ar: string; name_en?: string | null; academic_level: Level; semester?: number };
-type Doctor = { id: number | null; user_id: number; full_name_ar: string; full_name_en?: string | null; email?: string; specialty?: string; primary_site_id?: number | null };
+type Doctor = { id: number | null; user_id: number; full_name_ar: string; full_name_en?: string | null; email?: string; specialty?: string; primary_site_id?: number | null; training_site_ids?: number[] };
 type Hospital = { id: number; site_code: string; name_ar: string; name_en?: string | null; site_type?: string; city?: string | null; supervisors: Doctor[] };
 type Block = { id: number; block_code: string; from_week: number; to_week: number };
 type Subgroup = { id: number; name: string; capacity: number; students_count: number; group?: { id: number; name: string } };
@@ -75,7 +75,7 @@ export function DistributionPage() {
   const schedule = scheduleQuery.data;
   const hospitals = schedule?.hospitals ?? optionsQuery.data?.hospitals ?? [];
   const unassignedDoctors = schedule?.unassigned_doctors ?? optionsQuery.data?.unassigned_doctors ?? [];
-  const doctorsCount = hospitals.reduce((total, hospital) => total + hospital.supervisors.length, 0);
+  const doctorsCount = new Set(hospitals.flatMap((hospital) => hospital.supervisors.map((doctor) => doctor.user_id))).size;
   const cellMap = useMemo(() => new Map((schedule?.cells ?? []).map((cell) => [`${cell.supervisor_id}|${cell.rotation_block_id}`, cell])), [schedule?.cells]);
   const refresh = async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['course-distribution-schedule'] }), queryClient.invalidateQueries({ queryKey: ['course-distribution-options'] })]); };
 
@@ -85,7 +85,7 @@ export function DistributionPage() {
     onError: (error) => setNotice({ type: 'error', text: message(error, 'تعذر إنشاء جدول المساق.') }),
   });
   const saveCell = useMutation({
-    mutationFn: () => apiFetch(`/course-distribution/versions/${schedule!.version!.id}/cell`, { method: 'PUT', body: { rotation_block_id: editingCell!.block.id, supervisor_id: editingCell!.doctor.id, subgroup_id: Number(editingCell!.subgroupId) } }),
+    mutationFn: () => apiFetch(`/course-distribution/versions/${schedule!.version!.id}/cell`, { method: 'PUT', body: { rotation_block_id: editingCell!.block.id, supervisor_id: editingCell!.doctor.id, training_site_id: editingCell!.hospital.id, subgroup_id: Number(editingCell!.subgroupId) } }),
     onSuccess: async () => { setEditingCell(null); await refresh(); },
     onError: (error) => setNotice({ type: 'error', text: message(error, 'تعذر حفظ الخلية.') }),
   });

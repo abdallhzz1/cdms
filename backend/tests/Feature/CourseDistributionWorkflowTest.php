@@ -54,6 +54,7 @@ class CourseDistributionWorkflowTest extends TestCase
             'primary_site_id' => $site->id,
             'is_active' => true,
         ]);
+        $this->doctor->trainingSites()->attach($site->id, ['is_primary' => true]);
     }
 
     public function test_options_expose_courses_by_their_academic_level_and_hospital_doctors(): void
@@ -82,6 +83,7 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->actingAs($this->user)->putJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
             'rotation_block_id' => $blockId,
             'supervisor_id' => $this->doctor->id,
+            'training_site_id' => $this->doctor->primary_site_id,
             'subgroup_id' => $this->subgroup->id,
         ])->assertOk();
 
