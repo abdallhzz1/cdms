@@ -12,4 +12,5 @@ class Course extends Model
     public function assessmentComponents(): HasMany { return $this->hasMany(CourseAssessmentComponent::class); }
     public function learningOutcomes(): HasMany { return $this->hasMany(CourseLearningOutcome::class); }
     public function programOutcomeMappings(): HasMany { return $this->hasMany(CourseProgramOutcomeMapping::class); }
+    public function rotations(): HasMany { return $this->hasMany(Rotation::class); }
 }

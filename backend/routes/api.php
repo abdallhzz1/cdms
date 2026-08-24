@@ -541,6 +541,21 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->middleware('permission:rotations.create')
             ->name('rotations.setup-options');
 
+        Route::prefix('course-distribution')->name('course-distribution.')->group(function () {
+            Route::get('options', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'options'])
+                ->middleware('permission:distribution.view')->name('options');
+            Route::get('schedule', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'schedule'])
+                ->middleware('permission:distribution.view')->name('schedule');
+            Route::post('schedules', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'createSchedule'])
+                ->middleware('permission:rotations.create')->name('schedules.store');
+            Route::put('versions/{version}/cell', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'assignCell'])
+                ->middleware('permission:distribution.update')->name('cells.update');
+            Route::delete('versions/{version}/cell', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'clearCell'])
+                ->middleware('permission:distribution.update')->name('cells.destroy');
+            Route::post('doctors', [App\Http\Controllers\Api\V1\CourseDistributionController::class, 'storeDoctor'])
+                ->middleware('permission:people.manage')->name('doctors.store');
+        });
+
         Route::apiResource('rotations', App\Http\Controllers\Api\V1\RotationController::class)
             // Distribution users need the reference list to open the
             // workbench, but they still cannot manage rotation settings.

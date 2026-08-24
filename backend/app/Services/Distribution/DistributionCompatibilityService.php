@@ -24,8 +24,9 @@ class DistributionCompatibilityService
                 ];
             }
 
-            // Rule: TrainingSite must be authorized for the Rotation via site_capacity_rules
-            if (!$context->capacityRules->has($assignment->site_id)) {
+            // Legacy rotations use explicit capacity rules. Course-linked weekly
+            // schedules derive the site from the selected doctor's hospital.
+            if (!$context->rotation->course_id && !$context->capacityRules->has($assignment->site_id)) {
                 $violations[] = [
                     'code' => 'INVALID_SITE',
                     'message' => "Site {$assignment->site_id} is not configured for this rotation.",

@@ -82,8 +82,8 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
 
   // Rotations
   'rotations.view': { ar: 'عرض الدورات السريرية في شاشة التوزيع' },
-  'rotations.create': { ar: 'إعداد وإضافة دورة سريرية جديدة' },
-  'rotations.update': { ar: 'تعديل الفترات والمواقع وسعات الدورة السريرية' },
+  'rotations.create': { ar: 'إنشاء جدول الأسابيع لمساق سريري' },
+  'rotations.update': { ar: 'تعديل إعدادات جدول المساق السريري' },
   'rotations.delete': { ar: 'حذف دورة سريرية' },
 
   // Attendance
@@ -148,7 +148,7 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   'departments.view': { ar: 'عرض دليل الأقسام الأكاديمية', isScreen: true },
   'departments.manage': { ar: 'إدارة الهيكل التنظيمي للأقسام' },
   'people.view': { ar: 'دخول شاشة المشرفين السريريين والكادر', isScreen: true },
-  'people.manage': { ar: 'دخول وإدارة شاشة دليل رؤساء الأقسام', isScreen: true },
+  'people.manage': { ar: 'إدارة الكادر وإضافة أطباء المستشفيات وحسابات المشرفين', isScreen: true },
 
   // Groups & Sites & Partnerships
   'groups.view': { ar: 'عرض المجموعات والشعب الطلابية' },
