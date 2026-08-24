@@ -85,6 +85,13 @@ class DistributionSubgroupWorkbenchTest extends TestCase
             ->assertJsonPath('data.0.status', 'unassigned');
     }
 
+    public function test_distribution_view_permission_can_read_rotation_reference_list(): void
+    {
+        $this->actingAs($this->user)->getJson('/api/v1/rotations')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $this->version->rotation_id);
+    }
+
     public function test_assigning_a_subgroup_creates_assignments_for_all_current_members(): void
     {
         $response = $this->actingAs($this->user)->postJson(

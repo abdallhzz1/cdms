@@ -538,13 +538,13 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->name('operational.supervisors.assignments');
 
         Route::apiResource('rotations', App\Http\Controllers\Api\V1\RotationController::class)
-            ->middleware([
-                'index' => 'permission:rotations.view',
-                'show' => 'permission:rotations.view',
-                'store' => 'permission:rotations.create',
-                'update' => 'permission:rotations.update',
-                'destroy' => 'permission:rotations.delete',
-            ]);
+            // Distribution users need the reference list to open the
+            // workbench, but they still cannot manage rotation settings.
+            ->middlewareFor('index', 'permission.any:rotations.view,distribution.view')
+            ->middlewareFor('show', 'permission:rotations.view')
+            ->middlewareFor('store', 'permission:rotations.create')
+            ->middlewareFor('update', 'permission:rotations.update')
+            ->middlewareFor('destroy', 'permission:rotations.delete');
 
     });
 });
