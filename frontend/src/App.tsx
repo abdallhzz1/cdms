@@ -65,6 +65,8 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/public/student-registration" element={<PublicStudentRegistrationPage />} />
       <Route path="/student-registration" element={<PublicStudentRegistrationPage />} />
+      <Route path="/student-registration/:publicId" element={<PublicStudentRegistrationPage />} />
+      <Route path="/public/student-registration/:publicId" element={<PublicStudentRegistrationPage />} />
       <Route path="/portal/clinical-schedule" element={<PublicClinicalSchedulePage />} />
       <Route path="/portal/student-lookup" element={<PublicClinicalSchedulePage />} />
       <Route
@@ -87,6 +89,7 @@ export function App() {
                 <Route path="/directory" element={<DirectoryPage kind="students" />} />
                 <Route path="/students/:id" element={<StudentProfilePage />} />
                 <Route path="/students/groups" element={<StudentGroupsPage />} />
+                <Route path="/distribution/groups" element={<StudentGroupsPage />} />
                 <Route path="/staff/:id" element={<StaffProfilePage />} />
 
                 {/* System Admin Routes (SYS_ADMIN Only) */}

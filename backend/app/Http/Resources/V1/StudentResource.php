@@ -30,6 +30,7 @@ class StudentResource extends JsonResource
             'academic_year_id'        => $this->academic_year_id,
             'study_plan_code'         => $this->study_plan_code,
             'registration_status'     => $this->registration_status,
+            'academic_registration_status' => $this->academic_registration_status,
             'gpa'                     => $this->gpa,
             'credit_hours_passed'     => $this->credit_hours_passed,
             'warning_count'           => $this->warning_count,

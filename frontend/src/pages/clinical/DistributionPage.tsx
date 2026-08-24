@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -238,7 +239,7 @@ const defaultHospitalGroups: HospitalGroup[] = [
 ];
 
 export function DistributionPage() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const { locale } = useI18n();
   const queryClient = useQueryClient();
 
@@ -2460,6 +2461,7 @@ export function DistributionPage() {
       {/* ========================================================================= */}
       {activeMainView === 'partition' && (
         <div className="space-y-6">
+          {can('group_registration.view') && <div className="flex items-center justify-between rounded-2xl border border-teal-200 bg-teal-50 p-4"><div><p className="font-bold text-teal-950">{locale === 'ar' ? 'التسجيل الذاتي الرسمي للمجموعات' : 'Official student self-registration'}</p><p className="text-xs text-teal-700">{locale === 'ar' ? 'إدارة القوائم والمجموعات الفارغة ورابط OTP من قاعدة البيانات.' : 'Manage rosters, empty groups, and the OTP portal.'}</p></div><Link to="/distribution/groups" className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold text-white">{locale === 'ar' ? 'فتح شاشة الإدارة' : 'Open management'}</Link></div>}
           
           {/* Swap Active Mode Alert Banner */}
           {swapStudent && (

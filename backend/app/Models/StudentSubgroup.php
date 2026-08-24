@@ -27,6 +27,9 @@ class StudentSubgroup extends Model
         'min_size',
         'max_size',
         'is_active',
+        'capacity',
+        'description',
+        'notes',
     ];
 
     protected function casts(): array

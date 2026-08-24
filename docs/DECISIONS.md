@@ -289,6 +289,7 @@ it — it is simply now actually covered by executing tests.
 **Result:** 16 passed, 66 assertions, 0 failures.
 
 **Status:** Adopted 2026-08-14.
+
 ## ADR-022 — vite.config.ts typing fixed so the production build compiles
 
 **Context:** Consolidation ran `npm run build` for the first time. It failed
@@ -331,6 +332,7 @@ be deleted when it happens.
 `npm run typecheck` and `npm run test` (19 tests) remain green.
 
 **Status:** Adopted 2026-08-14.
+
 ## ADR-023 — `php artisan serve` needs `--no-reload` on Windows + Herd
 
 **Symptom:** `php artisan serve` fails on every port it tries:
@@ -375,3 +377,13 @@ because `README.md` instructs developers to run `php artisan serve`, and
 that instruction fails as written on a Windows + Herd setup.
 
 **Status:** Adopted 2026-08-14.
+
+## ADR-024 — Public student group registration uses email OTP and normalized records
+
+**Date:** 2026-08-24.
+
+**Decision:** The approved fourth-year group letters are L/M/N and fifth-year letters are A/B/C. Academic registration is a general student attribute (`registered`/`unregistered`). Students do not receive accounts; the public cycle link requires a one-time code delivered to `{university_number}@students.hebron.edu` through Gmail SMTP. Credentials exist only in `.env`. Group rosters, cycles, challenges, and assignments are persisted in normalized MySQL tables rather than browser storage or generic JSON payloads.
+
+**Security:** SMTP delivery failure is fail-closed. OTP and access tokens are stored hashed, expire quickly, and are rate-limited. No student identity or group option is returned before OTP verification. Capacity is enforced inside a locking transaction.
+
+**Status:** Adopted 2026-08-24 by explicit Clinical Department direction.

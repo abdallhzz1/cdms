@@ -14,6 +14,7 @@ export interface StudentProfile {
   university_email: string | null;
   academic_level: string;
   registration_status: string;
+  academic_registration_status: 'registered' | 'unregistered';
   gpa: string | null;
   credit_hours_passed: number | null;
   warning_count: number;

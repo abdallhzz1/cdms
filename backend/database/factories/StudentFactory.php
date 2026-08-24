@@ -36,6 +36,7 @@ class StudentFactory extends Factory
             'academic_year_id'        => null,
             'study_plan_code'         => null,
             'registration_status'     => 'active',
+            'academic_registration_status' => 'registered',
             'gpa'                     => null,
             'credit_hours_passed'     => null,
             'warning_count'           => 0,

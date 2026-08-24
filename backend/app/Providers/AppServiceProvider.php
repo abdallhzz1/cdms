@@ -58,5 +58,11 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perMinute(20)->by($key);
         });
+
+        RateLimiter::for('student-otp-request', fn (Request $request) => [
+            Limit::perMinute(5)->by('otp-ip:'.$request->ip()),
+            Limit::perHour(5)->by('otp-student:'.hash('sha256',(string)$request->input('university_number'))),
+        ]);
+        RateLimiter::for('student-otp-verify', fn (Request $request) => Limit::perMinute(10)->by('otp-verify:'.$request->ip()));
     }
 }

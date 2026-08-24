@@ -33,6 +33,7 @@ class UpdateStudentRequest extends FormRequest
             'academic_year_id'        => ['nullable', 'exists:academic_years,id'],
             'study_plan_code'         => ['nullable', 'string', 'max:50'],
             'registration_status'     => ['sometimes', 'in:active,suspended,on_leave,transferred,graduated,repeating,deferred'],
+            'academic_registration_status' => ['sometimes', 'in:registered,unregistered'],
             'gpa'                     => ['nullable', 'numeric', 'min:0', 'max:100'],
             'credit_hours_passed'     => ['nullable', 'integer', 'min:0', 'max:500'],
             'warning_count'           => ['integer', 'min:0', 'max:10'],

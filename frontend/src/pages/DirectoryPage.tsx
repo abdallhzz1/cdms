@@ -77,6 +77,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     academic_level: 'fourth',
     batch_year: 2022,
     registration_status: 'active',
+    academic_registration_status: 'registered',
     gender: 'male',
     university_email: '',
     phone: '',
@@ -95,6 +96,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       academic_level: 'fourth',
       batch_year: 2022,
       registration_status: 'active',
+      academic_registration_status: 'registered',
       gender: 'male',
       university_email: '',
       phone: '',
@@ -196,6 +198,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       academic_level: student.academic_level || 'fourth',
       batch_year: student.batch_year || (student.academic_level === 'fourth' ? 2022 : student.academic_level === 'fifth' ? 2021 : 2020),
       registration_status: student.registration_status || 'active',
+      academic_registration_status: student.academic_registration_status || 'registered',
       gender: student.gender || 'male',
       university_email: student.university_email || '',
       phone: student.phone || '',
@@ -221,7 +224,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     const payload = {
       ...studentForm,
       batch_year: studentForm.batch_year ? Number(studentForm.batch_year) : undefined,
-      university_email: studentForm.university_email || `${studentForm.university_number}@hebron.edu`,
+      university_email: studentForm.university_email || `${studentForm.university_number}@students.hebron.edu`,
       gpa: studentForm.gpa !== '' ? Number(studentForm.gpa) : null,
       warning_count: Number(studentForm.warning_count || 0),
     };
@@ -236,10 +239,9 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   // Download CSV Template with GPA and Warning Count
   const handleDownloadTemplate = () => {
     const csvContent = "\uFEFF" + 
-      "الرقم_الجامعي,الاسم_بالعربية,الاسم_بالانجليزية,السنة_السريرية,المعدل_التراكمي,عدد_الإنذارات,سنة_الدفعة,الجنس,رقم_الهاتف,المدينة,الحالة\n" +
-      "22011001,محمد أحمد إبراهيم القواسمي,Mohammad A. Qawasmi,fourth,2.45,0,2022,male,0599111222,الخليل,active\n" +
-      "22011002,سارة محمود علي التميمي,Sara M. Tamimi,fifth,1.85,1,2021,female,0599222333,الخليل,active\n" +
-      "22011003,خالد عمر حسن النتشة,Khaled O. Natsheh,sixth,3.10,0,2020,male,0599333444,يطا,active\n";
+      "الرقم_الجامعي,الاسم_بالعربية,الاسم_بالانجليزية,السنة_السريرية,المعدل_التراكمي,عدد_الإنذارات,سنة_الدفعة,الجنس,رقم_الهاتف,المدينة,الحالة_النظامية,حالة_التسجيل_الأكاديمي\n" +
+      "22011001,محمد أحمد إبراهيم القواسمي,Mohammad A. Qawasmi,fourth,2.45,0,2022,male,0599111222,الخليل,active,registered\n" +
+      "22011002,سارة محمود علي التميمي,Sara M. Tamimi,fifth,1.85,1,2021,female,0599222333,الخليل,active,unregistered\n";
     
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -291,6 +293,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                 phone: cols[8] || '',
                 city: cols[9] || 'الخليل',
                 registration_status: cols[10] || 'active',
+                academic_registration_status: cols[11] || 'registered',
               });
             } else {
               // Legacy 9 cols support
@@ -304,6 +307,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                 phone: cols[6] || '',
                 city: cols[7] || 'الخليل',
                 registration_status: cols[8] || 'active',
+                academic_registration_status: 'registered',
               });
             }
           }
@@ -338,15 +342,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
 
   const getStatus = (row: RecordItem) => {
     if (kind === 'students') {
-      const isAct = row.registration_status === 'active';
-      const labelMap: Record<string, string> = {
-        active: locale === 'ar' ? 'منتظم' : 'Active',
-        graduated: locale === 'ar' ? 'خريج' : 'Graduated',
-        delayed: locale === 'ar' ? 'مؤجل' : 'Delayed',
-        suspended: locale === 'ar' ? 'موقوف' : 'Suspended',
-        withdrawn: locale === 'ar' ? 'منسحب' : 'Withdrawn',
-      };
-      return <StatusBadge active={isAct} text={labelMap[row.registration_status] || String(row.registration_status || (locale === 'ar' ? 'منتظم' : 'Active'))} />;
+      const isAct = row.academic_registration_status === 'registered';
+      return <StatusBadge active={isAct} text={isAct ? (locale === 'ar' ? 'مسجل' : 'Registered') : (locale === 'ar' ? 'غير مسجل' : 'Unregistered')} />;
     }
     return <StatusBadge active={!!row.is_active} text={row.is_active ? (locale === 'ar' ? 'نشط' : 'Active') : (locale === 'ar' ? 'غير نشط' : 'Inactive')} />;
   };
@@ -736,6 +733,14 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                     <option value="fourth">{locale === 'ar' ? 'سنة رابعة (Fourth Year)' : '4th Year'}</option>
                     <option value="fifth">{locale === 'ar' ? 'سنة خامسة (Fifth Year)' : '5th Year'}</option>
                     <option value="sixth">{locale === 'ar' ? 'سنة سادسة (Sixth Year)' : '6th Year'}</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">{locale === 'ar' ? 'حالة التسجيل الأكاديمي' : 'Academic Registration'}</label>
+                  <select value={studentForm.academic_registration_status} onChange={(e) => setStudentForm({ ...studentForm, academic_registration_status: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm bg-white">
+                    <option value="registered">{locale === 'ar' ? 'مسجل' : 'Registered'}</option>
+                    <option value="unregistered">{locale === 'ar' ? 'غير مسجل' : 'Unregistered'}</option>
                   </select>
                 </div>
               </div>

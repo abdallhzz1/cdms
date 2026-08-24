@@ -29,6 +29,8 @@ class StudentGroup extends Model
         'distribution_manager',
         'approved_at',
         'notes',
+        'capacity',
+        'group_type',
     ];
 
     protected function casts(): array

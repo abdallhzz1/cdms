@@ -63,6 +63,7 @@ class Student extends Model
         'academic_year_id',
         'study_plan_code',
         'registration_status',
+        'academic_registration_status',
         'gpa',
         'credit_hours_passed',
         'warning_count',

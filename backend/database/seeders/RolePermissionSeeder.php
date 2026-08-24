@@ -77,5 +77,12 @@ class RolePermissionSeeder extends Seeder
                 $permission->id => ['scope_type' => 'global'],
             ]);
         }
+
+        $groupRegistrationGrants = Permission::where('code', 'like', 'group_registration.%')->get();
+        foreach (Role::whereIn('code', ['SYS_ADMIN', 'ADMIN_ASSISTANT', 'CLINICAL_DIRECTOR'])->get() as $role) {
+            foreach ($groupRegistrationGrants as $permission) {
+                $role->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
+            }
+        }
     }
 }

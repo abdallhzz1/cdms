@@ -40,6 +40,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('clinical-schedule', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'publicSchedule'])
             ->middleware('throttle:operational-read')
             ->name('clinical-schedule');
+        Route::get('group-registration/{cycle:public_id}', [\App\Http\Controllers\Api\V1\PublicGroupRegistrationController::class, 'cycle']);
+        Route::post('group-registration/{cycle:public_id}/request-otp', [\App\Http\Controllers\Api\V1\PublicGroupRegistrationController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
+        Route::post('group-registration/{cycle:public_id}/verify-otp', [\App\Http\Controllers\Api\V1\PublicGroupRegistrationController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
+        Route::post('group-registration/{cycle:public_id}/options', [\App\Http\Controllers\Api\V1\PublicGroupRegistrationController::class, 'options'])->middleware('throttle:operational-read');
+        Route::post('group-registration/{cycle:public_id}/select', [\App\Http\Controllers\Api\V1\PublicGroupRegistrationController::class, 'select'])->middleware('throttle:operational-read');
+        Route::post('group-registration/{cycle:public_id}/withdraw', [\App\Http\Controllers\Api\V1\PublicGroupRegistrationController::class, 'withdraw'])->middleware('throttle:operational-read');
     });
 
     // -------------------------------------------------------------------------
@@ -47,6 +53,17 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // All routes: auth:sanctum (authentication) + permission:<code> (authorization)
     // -------------------------------------------------------------------------
     Route::middleware('auth:sanctum')->group(function () {
+
+        Route::prefix('group-registration-cycles')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'index'])->middleware('permission:group_registration.view');
+            Route::post('/', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'store'])->middleware('permission:group_registration.manage_groups');
+            Route::get('/{cycle}', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'show'])->middleware('permission:group_registration.view');
+            Route::put('/{cycle}', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'update'])->middleware('permission:group_registration.open_close');
+            Route::post('/{cycle}/roster', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'importRoster'])->middleware('permission:group_registration.manage_roster');
+            Route::post('/{cycle}/groups/{group}/subgroups', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'storeSubgroup'])->middleware('permission:group_registration.manage_groups');
+            Route::put('/{cycle}/subgroups/{subgroup}', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'updateSubgroup'])->middleware('permission:group_registration.manage_groups');
+            Route::delete('/{cycle}/subgroups/{subgroup}', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'archiveSubgroup'])->middleware('permission:group_registration.manage_groups');
+        });
 
         // Academic Years
         Route::prefix('academic-years')->name('academic-years.')->group(function () {

@@ -46,6 +46,7 @@ class StudentController extends Controller
                 $request->query('registration_status'),
                 fn ($q, $s) => $q->where('registration_status', $s)
             )
+            ->when($request->query('academic_registration_status'), fn ($q, $s) => $q->where('academic_registration_status', $s))
             ->when(
                 $request->query('academic_advisor_id'),
                 function ($q, $advisorParam) {
@@ -252,6 +253,8 @@ class StudentController extends Controller
                     'batch_year'          => !empty($row['batch_year']) ? (int)$row['batch_year'] : date('Y') - 3,
                     'academic_level'      => $level,
                     'registration_status' => !empty($row['registration_status']) ? strtolower((string)$row['registration_status']) : 'active',
+                    'academic_registration_status' => in_array(strtolower((string)($row['academic_registration_status'] ?? 'registered')), ['registered', 'unregistered'], true)
+                        ? strtolower((string)($row['academic_registration_status'] ?? 'registered')) : 'registered',
                 ];
 
                 if (isset($row['gpa']) && $row['gpa'] !== '' && $row['gpa'] !== null) {
