@@ -21,6 +21,7 @@ class ClinicalScheduleItemDTO
         $block = $assignment->rotationBlock;
         $rotation = $block?->rotation;
         $student = $assignment->student;
+        $course = $rotation?->course;
         $subgroup = $assignment->studentSubgroup;
         $group = $subgroup?->group;
         $site = $assignment->trainingSite;
@@ -69,6 +70,12 @@ class ClinicalScheduleItemDTO
                 'academic_level' => $rotation->academic_level,
                 'start_date' => $rotationStartDate,
                 'end_date' => $rotationEndDate,
+            ] : null,
+            'course' => $course ? [
+                'id' => $course->id,
+                'code' => $course->code,
+                'name_ar' => $course->name_ar,
+                'name_en' => $course->name_en,
             ] : null,
             'block' => $block ? [
                 'id' => $block->id,

@@ -35,6 +35,7 @@ class ClinicalScheduleQueryService
             ->with([
                 'student',
                 'rotationBlock.rotation.academicYear',
+                'rotationBlock.rotation.course',
                 'studentSubgroup.group',
                 'trainingSite',
                 'department',
@@ -53,6 +54,16 @@ class ClinicalScheduleQueryService
             $query->whereHas('rotationBlock', function ($q) use ($rotationId) {
                 $q->where('rotation_id', $rotationId);
             });
+        }
+
+        if ($request->filled('academic_year_id')) {
+            $academicYearId = (int) $request->input('academic_year_id');
+            $query->whereHas('rotationBlock.rotation', fn ($q) => $q->where('academic_year_id', $academicYearId));
+        }
+
+        if ($request->filled('academic_level')) {
+            $academicLevel = (string) $request->input('academic_level');
+            $query->whereHas('rotationBlock.rotation', fn ($q) => $q->where('academic_level', $academicLevel));
         }
 
         if ($request->filled('rotation_block_id')) {
@@ -128,6 +139,7 @@ class ClinicalScheduleQueryService
             ->with([
                 'student',
                 'rotationBlock.rotation.academicYear',
+                'rotationBlock.rotation.course',
                 'studentSubgroup.group',
                 'trainingSite',
                 'department',

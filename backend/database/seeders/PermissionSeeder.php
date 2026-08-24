@@ -39,6 +39,7 @@ class PermissionSeeder extends Seeder
             ['code' => 'distribution.generate', 'module' => 'Distribution', 'action' => 'GENERATE', 'description_key' => 'permissions.distribution_generate.description'],
             ['code' => 'distribution.update', 'module' => 'Distribution', 'action' => 'UPDATE', 'description_key' => 'permissions.distribution_update.description'],
             ['code' => 'distribution.schedule_rows.manage', 'module' => 'Distribution', 'action' => 'MANAGE_SCHEDULE_ROWS', 'description_key' => 'permissions.distribution_schedule_rows_manage.description'],
+            ['code' => 'distribution.student_portal.manage', 'module' => 'Distribution', 'action' => 'MANAGE_STUDENT_PORTAL', 'description_key' => 'permissions.distribution_student_portal_manage.description'],
             ['code' => 'distribution.validate', 'module' => 'Distribution', 'action' => 'VALIDATE', 'description_key' => 'permissions.distribution_validate.description'],
             ['code' => 'distribution.approve', 'module' => 'Distribution', 'action' => 'APPROVE', 'description_key' => 'permissions.distribution_approve.description'],
             ['code' => 'distribution.publish', 'module' => 'Distribution', 'action' => 'PUBLISH', 'description_key' => 'permissions.distribution_publish.description'],

@@ -1,154 +1,125 @@
-import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { apiFetch } from '@/api/client';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { Building2, Search, User } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import {
+  Building2, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, FilterX,
+  GraduationCap, Link2, Search, ShieldCheck, Stethoscope, User, UsersRound,
+} from 'lucide-react';
 import type { ClinicalScheduleItem, PaginatedResponse } from '@/api/distribution';
+import type { LucideIcon } from 'lucide-react';
+
+type PortalStatus={is_enabled:boolean;public_url:string;updated_at:string|null;updated_by:{name:string}|null};
+type DashboardOptions={
+  summary:{assignments:number;students:number;subgroups:number;sites:number;without_supervisor:number};
+  rotations:{id:number;name:string;name_en:string;code:string;academic_level:string;academic_year_id:number;academic_year:string}[];
+  sites:{id:number;name_ar:string;name_en:string|null}[];
+};
+const levels:Record<string,string>={fourth:'السنة الرابعة',fifth:'السنة الخامسة',sixth:'السنة السادسة'};
 
 export function ClinicalSchedulePage() {
-  const { can, user } = useAuth();
-  const { locale } = useI18n();
-  const [search, setSearch] = useState('');
-  const [siteFilter, setSiteFilter] = useState('');
+  const {can}=useAuth();
+  const {locale}=useI18n();
+  const qc=useQueryClient();
+  const [search,setSearch]=useState('');
+  const [siteFilter,setSiteFilter]=useState('');
+  const [levelFilter,setLevelFilter]=useState('');
+  const [rotationFilter,setRotationFilter]=useState('');
+  const [page,setPage]=useState(1);
+  const [notice,setNotice]=useState('');
+  const [actionError,setActionError]=useState('');
+  const hasAccess=can('distribution.view');
+  const canManagePortal=can('distribution.student_portal.manage');
 
-  const { data: schedule, isLoading, isError, refetch } = useQuery({
-    queryKey: ['clinical-schedule', search, siteFilter],
-    queryFn: () => apiFetch<PaginatedResponse<ClinicalScheduleItem>>(
-      `/operational/clinical-schedule?per_page=50${search ? `&search=${search}` : ''}${siteFilter ? `&training_site_id=${siteFilter}` : ''}`
-    ),
+  const params=new URLSearchParams({page:String(page),per_page:'50'});
+  if(search.trim())params.set('search',search.trim());
+  if(siteFilter)params.set('training_site_id',siteFilter);
+  if(levelFilter)params.set('academic_level',levelFilter);
+  if(rotationFilter)params.set('rotation_id',rotationFilter);
+
+  const scheduleQuery=useQuery({
+    queryKey:['clinical-schedule',page,search,siteFilter,levelFilter,rotationFilter],
+    queryFn:()=>apiFetch<PaginatedResponse<ClinicalScheduleItem>>(`/operational/clinical-schedule?${params}`),
+    enabled:hasAccess,
+  });
+  const optionsQuery=useQuery({
+    queryKey:['clinical-schedule-options'],
+    queryFn:()=>apiFetch<DashboardOptions>('/operational/clinical-schedule-options'),
+    enabled:hasAccess,
+  });
+  const portalQuery=useQuery({
+    queryKey:['student-schedule-portal'],
+    queryFn:()=>apiFetch<PortalStatus>('/student-schedule-portal'),
+    enabled:hasAccess,
+  });
+  const togglePortal=useMutation({
+    mutationFn:(is_enabled:boolean)=>apiFetch<PortalStatus>('/student-schedule-portal',{method:'PUT',body:{is_enabled}}),
+    onSuccess:async(data)=>{setActionError('');setNotice(data.is_enabled?'تم تفعيل رابط الطالب بنجاح.':'تم تعطيل رابط الطالب ومنع الاستعلام فوراً.');await qc.invalidateQueries({queryKey:['student-schedule-portal']});},
+    onError:(error)=>{setNotice('');setActionError(error instanceof ApiError?error.message:'تعذر تحديث حالة الرابط.');},
   });
 
-  const { data: sites } = useQuery({
-    queryKey: ['training-sites-filter'],
-    queryFn: () => apiFetch<any>('/training-sites?per_page=100'),
-  });
+  const copyLink=async()=>{
+    const url=`${location.origin}${portalQuery.data?.public_url||'/portal/student-lookup'}`;
+    await navigator.clipboard.writeText(url);setNotice('تم نسخ رابط الطالب.');setActionError('');
+  };
+  const resetFilters=()=>{setSearch('');setSiteFilter('');setLevelFilter('');setRotationFilter('');setPage(1)};
+  const options=optionsQuery.data;
+  const schedule=scheduleQuery.data;
+  const items=schedule?.data??[];
+  const portal=portalQuery.data;
+  const filteredRotations=useMemo(()=>options?.rotations.filter(rotation=>!levelFilter||rotation.academic_level===levelFilter)??[],[options,levelFilter]);
+  const formatDate=(value:string|null|undefined)=>value?new Intl.DateTimeFormat(locale==='ar'?'ar-PS':'en-GB',{day:'numeric',month:'short'}).format(new Date(`${value}T00:00:00`)):'—';
+  const summaryCards:{label:string;value:number;icon:LucideIcon;color:string}[]=[
+    {label:'التعيينات المنشورة',value:options?.summary.assignments??0,icon:GraduationCap,color:'bg-blue-50 text-blue-700'},
+    {label:'الطلبة',value:options?.summary.students??0,icon:User,color:'bg-teal-50 text-teal-700'},
+    {label:'المجموعات الفرعية',value:options?.summary.subgroups??0,icon:UsersRound,color:'bg-violet-50 text-violet-700'},
+    {label:'المستشفيات',value:options?.summary.sites??0,icon:Building2,color:'bg-slate-100 text-slate-700'},
+    {label:'دون طبيب',value:options?.summary.without_supervisor??0,icon:Stethoscope,color:'bg-amber-50 text-amber-700'},
+  ];
 
-  const hasAccess = useMemo(() => {
-    if (!user) return false;
-    const roles = user.roles ? user.roles.map(r => (typeof r === 'string' ? r : (r as any).name || '').toUpperCase()) : [];
-    const isAcademicUser = roles.some(r => [
-      'RTA', 
-      'CLINICAL_SUPERVISOR', 
-      'ACADEMIC_ADVISOR', 
-      'DEPARTMENT_HEAD', 
-      'CLINICAL_DIRECTOR', 
-      'ADMIN_ASSISTANT', 
-      'SYS_ADMIN', 
-      'DEAN', 
-      'VICE_DEAN'
-    ].includes(r));
-    return can('distribution.view') || can('students.view') || can('courses.view') || isAcademicUser;
-  }, [user, can]);
+  if(!hasAccess)return <ErrorState title="Access Denied" message={locale==='ar'?'تحتاج صلاحية عرض التوزيع والجدول السريري.':'You need clinical distribution view permission.'}/>;
+  if(scheduleQuery.isLoading||optionsQuery.isLoading||portalQuery.isLoading)return <LoadingState/>;
+  if(scheduleQuery.isError||optionsQuery.isError||portalQuery.isError)return <ErrorState onRetry={()=>{scheduleQuery.refetch();optionsQuery.refetch();portalQuery.refetch()}}/>;
 
-  if (!hasAccess) return <ErrorState title="Access Denied" message={locale === 'ar' ? 'غير مصرح للوصول لهذه الصفحة' : 'Access Denied'} />;
-  if (isLoading) return <LoadingState />;
-  if (isError) return <ErrorState onRetry={refetch} />;
+  return <div className="mx-auto max-w-[1400px] space-y-5 pb-12">
+    <PageHeader title={locale==='ar'?'الجدول السريري الإداري':'Administrative Clinical Schedule'} description={locale==='ar'?'مركز متابعة التعيينات المنشورة وإدارة بوابة استعلام الطلبة.':'Monitor published assignments and manage the student lookup portal.'}/>
 
-  const items = Array.isArray(schedule) ? schedule : schedule?.data ?? [];
-  const sitesList = Array.isArray(sites) ? sites : sites?.data ?? sites?.items ?? [];
+    {notice&&<div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-800"><Check className="h-4 w-4"/>{notice}</div>}
+    {actionError&&<div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-800">{actionError}</div>}
 
-  return (
-    <div className="mx-auto max-w-[1200px] space-y-6 pb-12">
-      <PageHeader
-        title={locale === 'ar' ? 'الجدول السريري الإداري' : 'Administrative Clinical Schedule'}
-        description={locale === 'ar' ? 'عرض شامل لجميع تعيينات التدريب السريري المنشورة' : 'Comprehensive view of all published clinical training assignments'}
-      />
-
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder={locale === 'ar' ? 'بحث عن طالب...' : 'Search student...'}
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 text-sm focus:ring-1 focus:ring-indigo-500 bg-white"
-          />
-        </div>
-        <select
-          value={siteFilter}
-          onChange={e => setSiteFilter(e.target.value)}
-          className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-1 focus:ring-indigo-500 bg-white"
-        >
-          <option value="">{locale === 'ar' ? 'كل المواقع' : 'All Sites'}</option>
-          {sitesList.map((s: any) => (
-            <option key={s.id} value={s.id}>{locale === 'ar' ? s.name_ar : s.name_en || s.name_ar}</option>
-          ))}
-        </select>
+    <Card className={`rounded-3xl border p-5 ${portal?.is_enabled?'border-emerald-200 bg-gradient-to-l from-emerald-50 to-white':'border-amber-200 bg-gradient-to-l from-amber-50 to-white'}`}>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-3"><div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${portal?.is_enabled?'bg-emerald-600 text-white':'bg-amber-500 text-white'}`}><ShieldCheck className="h-5 w-5"/></div><div><div className="flex flex-wrap items-center gap-2"><h2 className="font-black">بوابة استعلام الطلبة</h2><span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${portal?.is_enabled?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-800'}`}>{portal?.is_enabled?'مفعّلة':'متوقفة'}</span></div><p className="mt-1 text-xs leading-5 text-slate-500">الدخول برقم الطالب ثم OTP على البريد الجامعي. عند التعطيل تتوقف جميع جلسات الاستعلام فوراً.</p>{portal?.updated_at&&<p className="mt-1 text-[10px] text-slate-400">آخر تعديل: {new Date(portal.updated_at).toLocaleString(locale==='ar'?'ar-PS':'en-GB')} {portal.updated_by?.name?`· ${portal.updated_by.name}`:''}</p>}</div></div>
+        <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={copyLink}><Copy className="ml-1 h-4 w-4"/>نسخ الرابط</Button><Button variant="outline" onClick={()=>window.open(portal?.public_url||'/portal/student-lookup','_blank','noopener,noreferrer')}><ExternalLink className="ml-1 h-4 w-4"/>فتح الرابط</Button>{canManagePortal?<Button variant={portal?.is_enabled?'danger':'primary'} isLoading={togglePortal.isPending} onClick={()=>togglePortal.mutate(!portal?.is_enabled)}>{portal?.is_enabled?'تعطيل الرابط':'تفعيل الرابط'}</Button>:<span className="flex items-center rounded-xl bg-white/70 px-3 text-[11px] font-bold text-slate-500">التفعيل يحتاج صلاحية من مدير النظام</span>}</div>
       </div>
+      <div className="mt-3 flex items-center gap-2 overflow-hidden rounded-xl border border-slate-200/80 bg-white/80 p-3 font-mono text-[11px] text-slate-600"><Link2 className="h-4 w-4 shrink-0"/><span className="truncate" dir="ltr">{location.origin}{portal?.public_url}</span></div>
+    </Card>
 
-      {!items.length ? (
-        <EmptyState message={locale === 'ar'
-          ? 'لا توجد تعيينات طلاب منشورة. تأكد من وضع مجموعة طلاب في خلية أسبوعية داخل شاشة التوزيع ثم نشر النسخة.'
-          : 'No published student assignments. Assign a student group to a weekly cell in Distribution, then publish the version.'}
-        />
-      ) : (
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wider text-slate-500">
-                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'الطالب' : 'Student'}</th>
-                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'الموقع / المستشفى' : 'Site / Hospital'}</th>
-                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'المجموعة / المجموعة الفرعية' : 'Group / Subgroup'}</th>
-                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'الكتلة' : 'Block'}</th>
-                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'المشرف' : 'Supervisor'}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {items.map((a, i) => (
-                  <tr key={a.assignment_id ?? i} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold shrink-0">
-                          {(a.student?.full_name_ar || a.student?.full_name_en || '?')[0]}
-                        </div>
-                        <div>
-                          <div className="text-sm font-bold text-slate-900">{locale === 'ar' ? a.student?.full_name_ar : a.student?.full_name_en || a.student?.full_name_ar}</div>
-                          <div className="text-xs text-slate-500">{a.student?.university_number}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
-                        <span className="text-sm text-slate-700">{locale === 'ar' ? a.training_site?.name_ar : a.training_site?.name_en || a.training_site?.name_ar}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {a.subgroup?.group?.name ?? a.group?.name ?? '—'}
-                      {a.subgroup?.name && <span className="text-slate-400"> / {a.subgroup.name}</span>}
-                    </td>
-                    <td className="px-6 py-4">
-                      {a.block?.block_code ? (
-                        <div className="space-y-1">
-                          <span className="inline-flex px-2 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg">{a.block.block_code}</span>
-                          <div className="text-xs text-slate-400">
-                            {locale === 'ar' ? `الأسبوع ${a.block.from_week}–${a.block.to_week}` : `Weeks ${a.block.from_week}–${a.block.to_week}`}
-                          </div>
-                        </div>
-                      ) : <span className="text-slate-400">—</span>}
-                    </td>
-                    <td className="px-6 py-4">
-                      {a.supervisor ? (
-                        <div className="flex items-center gap-2">
-                          <User className="w-3.5 h-3.5 text-slate-400" />
-                          <span className="text-sm text-slate-700">{locale === 'ar' ? a.supervisor?.full_name_ar : a.supervisor?.full_name_en || a.supervisor?.full_name_ar}</span>
-                        </div>
-                      ) : <span className="text-slate-400 text-sm">—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      {summaryCards.map(({label,value,icon:Icon,color})=><Card key={label} className="rounded-2xl border border-slate-100 p-4"><div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${color}`}><Icon className="h-4 w-4"/></div><p className="text-2xl font-black text-slate-900">{value}</p><p className="mt-1 text-[11px] font-bold text-slate-500">{label}</p></Card>)}
     </div>
-  );
+
+    <Card className="rounded-3xl border border-slate-100 p-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_.8fr_1fr_1fr_auto]">
+        <div className="relative"><Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><input value={search} onChange={event=>{setSearch(event.target.value);setPage(1)}} placeholder="بحث باسم الطالب أو رقمه..." className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pr-10 pl-3 text-xs outline-none focus:border-teal-500 focus:bg-white"/></div>
+        <select value={levelFilter} onChange={event=>{setLevelFilter(event.target.value);setRotationFilter('');setPage(1)}} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs"><option value="">كل المستويات</option>{Object.entries(levels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select>
+        <select value={rotationFilter} onChange={event=>{setRotationFilter(event.target.value);setPage(1)}} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs"><option value="">كل المساقات المنشورة</option>{filteredRotations.map(rotation=><option key={rotation.id} value={rotation.id}>{rotation.code} — {rotation.name} ({rotation.academic_year})</option>)}</select>
+        <select value={siteFilter} onChange={event=>{setSiteFilter(event.target.value);setPage(1)}} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs"><option value="">كل المستشفيات</option>{options?.sites.map(site=><option key={site.id} value={site.id}>{locale==='ar'?site.name_ar:site.name_en||site.name_ar}</option>)}</select>
+        <Button variant="outline" onClick={resetFilters}><FilterX className="ml-1 h-4 w-4"/>مسح</Button>
+      </div>
+    </Card>
+
+    {!items.length?<EmptyState title="لا توجد نتائج" message="لا توجد تعيينات منشورة تطابق الفلاتر. تأكد من توزيع مجموعة طلاب داخل خلية أسبوعية ثم نشر النسخة."/>:<>
+      <div className="grid gap-3 md:hidden">{items.map(item=><Card key={item.assignment_id} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-start justify-between"><div><h3 className="font-black">{item.student?.full_name_ar}</h3><p className="mt-1 font-mono text-[11px] text-slate-400">{item.student?.university_number}</p></div><span className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">{item.block?.block_code||'—'}</span></div><div className="mt-4 grid grid-cols-2 gap-2 text-[11px]"><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-400">المساق</span><p className="mt-1 font-bold">{item.course?.name_ar||item.rotation?.name||'—'}</p></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-400">المجموعة</span><p className="mt-1 font-bold">{item.group?.name||'—'} / {item.subgroup?.name||'—'}</p></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-400">المستشفى</span><p className="mt-1 font-bold">{item.training_site?.name_ar||'—'}</p></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-400">الطبيب</span><p className="mt-1 font-bold">{item.supervisor?.full_name_ar||'شاغر'}</p></div></div></Card>)}</div>
+      <div className="hidden overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm md:block"><div className="overflow-x-auto"><table className="w-full text-right"><thead><tr className="border-b border-slate-100 bg-slate-50 text-[11px] font-bold text-slate-500"><th className="px-5 py-4">الطالب</th><th className="px-5 py-4">المساق</th><th className="px-5 py-4">المجموعة</th><th className="px-5 py-4">الفترة</th><th className="px-5 py-4">المستشفى</th><th className="px-5 py-4">الطبيب</th></tr></thead><tbody className="divide-y divide-slate-100">{items.map(item=><tr key={item.assignment_id} className="hover:bg-slate-50"><td className="px-5 py-4"><p className="text-xs font-black">{locale==='ar'?item.student?.full_name_ar:item.student?.full_name_en||item.student?.full_name_ar}</p><p className="mt-1 font-mono text-[10px] text-slate-400">{item.student?.university_number}</p></td><td className="px-5 py-4"><p className="text-xs font-bold">{locale==='ar'?item.course?.name_ar:item.course?.name_en||item.course?.name_ar||item.rotation?.name}</p><p className="mt-1 text-[10px] text-teal-600">{item.course?.code||item.rotation?.code}</p></td><td className="px-5 py-4 text-xs font-bold">{item.group?.name||'—'} <span className="text-slate-400">/ {item.subgroup?.name||'—'}</span></td><td className="px-5 py-4"><span className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">{item.block?.block_code||'—'}</span><p className="mt-1 text-[10px] text-slate-400">{formatDate(item.block?.start_date)} — {formatDate(item.block?.end_date)}</p></td><td className="px-5 py-4 text-xs font-bold text-slate-700">{locale==='ar'?item.training_site?.name_ar:item.training_site?.name_en||item.training_site?.name_ar||'—'}</td><td className="px-5 py-4 text-xs font-bold text-slate-700">{locale==='ar'?item.supervisor?.full_name_ar:item.supervisor?.full_name_en||item.supervisor?.full_name_ar||'شاغر'}</td></tr>)}</tbody></table></div></div>
+      <div className="flex flex-col items-center justify-between gap-3 rounded-2xl bg-white p-3 sm:flex-row"><p className="text-[11px] text-slate-500">عرض {schedule?.from??0}–{schedule?.to??0} من {schedule?.total??0} تعيين</p><div className="flex items-center gap-2"><Button variant="outline" size="sm" disabled={!schedule?.prev_page_url} onClick={()=>setPage(value=>Math.max(1,value-1))}><ChevronRight className="h-4 w-4"/>السابق</Button><span className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-black">{schedule?.current_page} / {schedule?.last_page}</span><Button variant="outline" size="sm" disabled={!schedule?.next_page_url} onClick={()=>setPage(value=>value+1)}>التالي<ChevronLeft className="h-4 w-4"/></Button></div></div>
+    </>}
+  </div>;
 }

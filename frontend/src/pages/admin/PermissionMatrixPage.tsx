@@ -75,6 +75,7 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   'distribution.generate': { ar: 'توليد التوزيع السريري آلياً' },
   'distribution.update': { ar: 'تعديل وتحديث بيانات التوزيع السريري' },
   'distribution.schedule_rows.manage': { ar: 'إضافة وتعديل وحذف صفوف الأطباء والشواغر في الجدول' },
+  'distribution.student_portal.manage': { ar: 'تفعيل وتعطيل رابط استعلام الطلبة عن الجدول السريري' },
   'distribution.validate': { ar: 'التحقق من صحة التوزيع وتفادي التعارض' },
   'distribution.approve': { ar: 'اعتماد التوزيع السريري رسمياً' },
   'distribution.publish': { ar: 'نشر وتعميم التوزيع السريري للطلبة' },

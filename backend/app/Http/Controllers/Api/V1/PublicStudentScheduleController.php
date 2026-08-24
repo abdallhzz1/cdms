@@ -10,6 +10,7 @@ use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentScheduleOtpChallenge;
+use App\Models\StudentSchedulePortalSetting;
 use App\Services\Distribution\ClinicalScheduleDateCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,6 +27,7 @@ class PublicStudentScheduleController extends Controller
 
     public function requestOtp(Request $request): JsonResponse
     {
+        $this->ensurePortalEnabled();
         $data = $request->validate([
             'university_number' => ['required', 'string', 'max:20', 'regex:/^[0-9]+$/'],
         ]);
@@ -86,6 +88,7 @@ class PublicStudentScheduleController extends Controller
 
     public function verifyOtp(Request $request): JsonResponse
     {
+        $this->ensurePortalEnabled();
         $data = $request->validate([
             'challenge_token' => ['required', 'string', 'size:64'],
             'otp' => ['required', 'digits:6'],
@@ -129,6 +132,7 @@ class PublicStudentScheduleController extends Controller
 
     public function schedule(Request $request): JsonResponse
     {
+        $this->ensurePortalEnabled();
         $data = $request->validate(['access_token' => ['required', 'string', 'size:80']]);
         $challenge = StudentScheduleOtpChallenge::with('student')
             ->where('access_token_hash', hash('sha256', $data['access_token']))
@@ -243,5 +247,12 @@ class PublicStudentScheduleController extends Controller
             ]),
             'schedule' => $schedule,
         ]);
+    }
+
+    private function ensurePortalEnabled(): void
+    {
+        if (!StudentSchedulePortalSetting::current()->is_enabled) {
+            abort(403, 'بوابة جدول الطالب متوقفة حالياً من إدارة الدائرة السريرية. يرجى المحاولة لاحقاً.');
+        }
     }
 }

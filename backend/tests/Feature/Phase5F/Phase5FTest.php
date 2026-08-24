@@ -168,6 +168,13 @@ class Phase5FTest extends TestCase
         $this->actingAs($this->viewer)
             ->getJson("/api/v1/operational/clinical-schedule")
             ->assertStatus(200);
+        $this->actingAs($this->viewer)
+            ->getJson('/api/v1/operational/clinical-schedule-options')
+            ->assertOk()
+            ->assertJsonPath('data.summary.students', 1)
+            ->assertJsonPath('data.summary.sites', 1)
+            ->assertJsonCount(1, 'data.rotations')
+            ->assertJsonCount(1, 'data.sites');
 
         // Viewer cannot execute supervisor reassignment (requires distribution.update)
         $assignment = StudentClinicalAssignment::first();

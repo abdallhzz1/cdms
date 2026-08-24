@@ -477,6 +477,12 @@ export interface ClinicalScheduleItem {
     start_date: string | null;
     end_date: string | null;
   } | null;
+  course: {
+    id: number;
+    code: string;
+    name_ar: string;
+    name_en?: string;
+  } | null;
   block: {
     id: number;
     block_code: string;
@@ -488,6 +494,8 @@ export interface ClinicalScheduleItem {
   training_site: {
     id: number;
     name: string;
+    name_en?: string;
+    name_ar?: string;
   } | null;
   department: {
     id: number;

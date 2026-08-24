@@ -43,6 +43,56 @@ class OperationalDistributionController extends Controller
         ]);
     }
 
+    public function clinicalScheduleOptions(): JsonResponse
+    {
+        $assignments = StudentClinicalAssignment::query()
+            ->whereHas('distributionVersion', fn ($query) => $query
+                ->where('status', 'published')->where('is_current', true));
+
+        $scopedDepartmentId = $this->getUserDepartmentId();
+        if ($scopedDepartmentId) {
+            $assignments->where('department_id', $scopedDepartmentId);
+        }
+
+        $rotationIds = (clone $assignments)
+            ->join('rotation_blocks', 'student_clinical_assignments.rotation_block_id', '=', 'rotation_blocks.id')
+            ->distinct()->pluck('rotation_blocks.rotation_id');
+        $siteIds = (clone $assignments)->distinct()->pluck('training_site_id')->filter();
+
+        $rotations = Rotation::whereIn('id', $rotationIds)
+            ->with(['academicYear:id,code', 'course:id,code,name_ar,name_en'])
+            ->orderBy('academic_year_id')->orderBy('academic_level')->orderBy('name')
+            ->get()
+            ->map(fn (Rotation $rotation) => [
+                'id' => $rotation->id,
+                'name' => $rotation->course?->name_ar ?: $rotation->name,
+                'name_en' => $rotation->course?->name_en ?: $rotation->name,
+                'code' => $rotation->course?->code ?: $rotation->code,
+                'academic_level' => $rotation->academic_level,
+                'academic_year_id' => $rotation->academic_year_id,
+                'academic_year' => $rotation->academicYear?->code,
+            ]);
+
+        $sites = TrainingSite::whereIn('id', $siteIds)
+            ->orderBy('name_ar')->get(['id', 'name_ar', 'name_en']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Clinical schedule options retrieved successfully.',
+            'data' => [
+                'summary' => [
+                    'assignments' => (clone $assignments)->count(),
+                    'students' => (clone $assignments)->distinct()->count('student_id'),
+                    'subgroups' => (clone $assignments)->whereNotNull('student_subgroup_id')->distinct()->count('student_subgroup_id'),
+                    'sites' => $siteIds->count(),
+                    'without_supervisor' => (clone $assignments)->whereNull('supervisor_id')->count(),
+                ],
+                'rotations' => $rotations,
+                'sites' => $sites,
+            ],
+        ]);
+    }
+
     /**
      * GET /api/v1/rotations/{rotation}/current-distribution
      */

@@ -54,6 +54,11 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // -------------------------------------------------------------------------
     Route::middleware('auth:sanctum')->group(function () {
 
+        Route::get('student-schedule-portal', [\App\Http\Controllers\Api\V1\StudentSchedulePortalController::class, 'show'])
+            ->middleware('permission:distribution.view');
+        Route::put('student-schedule-portal', [\App\Http\Controllers\Api\V1\StudentSchedulePortalController::class, 'update'])
+            ->middleware('permission:distribution.student_portal.manage');
+
         Route::prefix('group-registration-cycles')->group(function () {
             Route::get('/', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'index'])->middleware('permission:group_registration.view');
             Route::post('/', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'store'])->middleware('permission:group_registration.manage_groups');
@@ -407,6 +412,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('operational/clinical-schedule', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'administrativeSchedule'])
             ->middleware('permission:distribution.view')
             ->name('operational.clinical-schedule');
+        Route::get('operational/clinical-schedule-options', [\App\Http\Controllers\Api\V1\OperationalDistributionController::class, 'clinicalScheduleOptions'])
+            ->middleware('permission:distribution.view')
+            ->name('operational.clinical-schedule-options');
 
         Route::get('users/lookup', [\App\Http\Controllers\Api\V1\UserController::class, 'lookup'])
             ->middleware('permission.any:people.view,students.view,correspondence.view');

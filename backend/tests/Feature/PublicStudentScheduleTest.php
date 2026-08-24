@@ -7,6 +7,8 @@ use App\Models\Course;
 use App\Models\Department;
 use App\Models\DistributionVersion;
 use App\Models\Person;
+use App\Models\Permission;
+use App\Models\Role;
 use App\Models\Rotation;
 use App\Models\RotationBlock;
 use App\Models\Student;
@@ -14,7 +16,9 @@ use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroup;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentScheduleOtpChallenge;
+use App\Models\StudentSchedulePortalSetting;
 use App\Models\TrainingSite;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -140,6 +144,43 @@ class PublicStudentScheduleTest extends TestCase
             ->assertJsonMissing(['schedule', 'members']);
 
         $this->assertDatabaseCount('student_schedule_otp_challenges', 0);
+    }
+
+    public function test_disabled_portal_stops_otp_and_existing_sessions_immediately(): void
+    {
+        Mail::fake();
+        StudentSchedulePortalSetting::current()->update(['is_enabled' => false]);
+
+        $this->postJson('/api/v1/public/student-schedule/request-otp', [
+            'university_number' => '22210466',
+        ])->assertForbidden()->assertJsonMissing(['schedule', 'challenge_token']);
+
+        $this->postJson('/api/v1/public/student-schedule', [
+            'access_token' => Str::random(80),
+        ])->assertForbidden()->assertJsonMissing(['schedule', 'members']);
+        $this->assertDatabaseCount('student_schedule_otp_challenges', 0);
+    }
+
+    public function test_portal_toggle_requires_its_dedicated_permission(): void
+    {
+        $view = Permission::where('code', 'distribution.view')->firstOrFail();
+        $manage = Permission::where('code', 'distribution.student_portal.manage')->firstOrFail();
+        $viewerRole = Role::create(['code' => 'PORTAL_VIEWER', 'name_key' => 'portal.viewer']);
+        $viewerRole->permissions()->attach($view->id, ['scope_type' => 'global']);
+        $managerRole = Role::create(['code' => 'PORTAL_MANAGER', 'name_key' => 'portal.manager']);
+        $managerRole->permissions()->attach([$view->id, $manage->id], ['scope_type' => 'global']);
+        $viewer = User::factory()->create();
+        $viewer->roles()->attach($viewerRole);
+        $manager = User::factory()->create();
+        $manager->roles()->attach($managerRole);
+
+        $this->actingAs($viewer)->getJson('/api/v1/student-schedule-portal')
+            ->assertOk()->assertJsonPath('data.is_enabled', true);
+        $this->actingAs($viewer)->putJson('/api/v1/student-schedule-portal', ['is_enabled' => false])
+            ->assertForbidden();
+        $this->actingAs($manager)->putJson('/api/v1/student-schedule-portal', ['is_enabled' => false])
+            ->assertOk()->assertJsonPath('data.is_enabled', false);
+        $this->assertFalse(StudentSchedulePortalSetting::current()->is_enabled);
     }
 
     public function test_otp_verification_limits_attempts_and_issues_only_a_hashed_session_token(): void
