@@ -360,7 +360,7 @@ export function StudentProfilePage() {
       </div>
 
       {/* 2. Pristine Profile Header Card */}
-      <div className="rounded-3xl border border-slate-100 bg-gradient-to-l from-teal-50/60 via-white to-white p-5 shadow-sm sm:p-8">
+      <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm sm:p-8">
         <div className="flex flex-col sm:flex-row items-center sm:items-start justify-between gap-5 sm:gap-6 text-center sm:text-start">
           
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 sm:gap-6">
@@ -403,7 +403,7 @@ export function StudentProfilePage() {
             {/* Student Core Info */}
             <div className="space-y-2 flex-1">
               <div>
-                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-800">
                   {name}
                 </h1>
                 {student.full_name_en && locale === 'ar' && (
@@ -425,7 +425,7 @@ export function StudentProfilePage() {
                   {getLevelName(student.academic_level)}
                 </span>
 
-                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-xl border border-emerald-100">
+                <span className="text-xs font-semibold text-teal-700 bg-teal-50 px-3 py-1 rounded-xl border border-teal-100">
                   {student.registration_status === 'active' ? (locale === 'ar' ? 'منتظم' : 'Active') : student.registration_status}
                 </span>
               </div>
@@ -491,11 +491,11 @@ export function StudentProfilePage() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
               <div className="p-3 rounded-2xl bg-teal-50/70 border border-teal-100/80">
                 <span className="text-[11px] text-teal-800 font-semibold block mb-1">{locale === 'ar' ? 'المعدل التراكمي' : 'GPA'}</span>
-                <span className="text-base font-bold text-teal-900">{student.gpa ? `%${student.gpa}` : '—'}</span>
+                <span className="text-base font-bold text-teal-800">{student.gpa ? `%${student.gpa}` : '—'}</span>
               </div>
 
-              <div className="p-3 rounded-2xl bg-amber-50/70 border border-amber-100/80">
-                <span className="text-[11px] text-amber-800 font-semibold block mb-1">{locale === 'ar' ? 'الإنذارات الأكاديمية' : 'Warnings'}</span>
+              <div className="p-3 rounded-2xl bg-slate-50/70 border border-slate-100/80">
+                <span className="text-[11px] text-slate-800 font-semibold block mb-1">{locale === 'ar' ? 'الإنذارات الأكاديمية' : 'Warnings'}</span>
                 <span className={`text-base font-bold ${student.warning_count > 0 ? 'text-red-600 font-black' : 'text-slate-800'}`}>
                   {student.warning_count || 0} {locale === 'ar' ? 'إنذارات' : 'Warnings'}
                 </span>
@@ -663,7 +663,7 @@ export function StudentProfilePage() {
                     <span className="text-slate-400 text-[11px] block">{item.department || 'التدريب السريري'}</span>
                   </div>
                   <span className={`px-2.5 py-0.5 rounded-md font-bold text-[11px] ${
-                    item.status === 'present' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                    item.status === 'present' ? 'bg-teal-50 text-teal-700' : 'bg-red-50 text-red-700'
                   }`}>
                     {item.status === 'present' ? (locale === 'ar' ? 'حاضر' : 'Present') : (locale === 'ar' ? 'غائب' : 'Absent')}
                   </span>
@@ -731,7 +731,7 @@ export function StudentProfilePage() {
 
       {/* Edit Student Modal for Admin Assistant / Admins */}
       {isEditModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-500/25 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-xl border border-slate-200 p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
@@ -844,7 +844,7 @@ export function StudentProfilePage() {
               {/* GPA percentage and Warning count row */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-teal-50/60 p-3.5 rounded-2xl border border-teal-100">
                 <div>
-                  <label className="block text-xs font-bold text-teal-900 mb-1">{locale === 'ar' ? 'المعدل التراكمي السابق (من %100):' : 'Cumulative GPA (out of 100%):'}</label>
+                  <label className="block text-xs font-bold text-teal-800 mb-1">{locale === 'ar' ? 'المعدل التراكمي السابق (من %100):' : 'Cumulative GPA (out of 100%):'}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -858,7 +858,7 @@ export function StudentProfilePage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-amber-900 mb-1">{locale === 'ar' ? 'عدد الإنذارات الأكاديمية:' : 'Warning Count:'}</label>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">{locale === 'ar' ? 'عدد الإنذارات الأكاديمية:' : 'Warning Count:'}</label>
                   <input
                     type="number"
                     min="0"
@@ -866,7 +866,7 @@ export function StudentProfilePage() {
                     placeholder="0"
                     value={studentForm.warning_count}
                     onChange={e => setStudentForm({ ...studentForm, warning_count: Number(e.target.value) })}
-                    className="w-full rounded-xl border border-amber-200 p-2 text-xs font-bold bg-white focus:ring-1 focus:ring-amber-500"
+                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-bold bg-white focus:ring-1 focus:ring-slate-500"
                   />
                 </div>
               </div>
@@ -941,7 +941,7 @@ export function StudentProfilePage() {
 
       {/* Upload Document Modal */}
       {isDocModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-500/25 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-3xl shadow-xl border border-slate-200 p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-800">
@@ -1011,7 +1011,7 @@ export function StudentProfilePage() {
 
       {/* Document Preview Modal */}
       {previewDoc && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-500/30 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-xl border border-slate-200 p-5 space-y-4 max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-800">{previewDoc.title}</h3>

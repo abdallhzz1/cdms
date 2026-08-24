@@ -435,7 +435,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       {/* Top Header with Perfectly Aligned Capsule Dock */}
       <div className="flex flex-row items-center justify-between gap-4 py-0.5">
         <div className="min-w-0">
-          <h1 className="text-base sm:text-2xl font-black text-slate-900 leading-tight truncate">
+          <h1 className="text-base sm:text-2xl font-black text-slate-800 leading-tight truncate">
             {pageTitle}
           </h1>
           <p className="text-xs text-slate-500 font-medium mt-0.5 hidden sm:block">
@@ -473,7 +473,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
             <button 
               type="button"
               onClick={handleOpenAdd}
-              className="h-9 px-3 sm:px-4 rounded-full bg-gradient-to-tr from-teal-500 to-teal-400 text-white font-bold text-xs shadow-sm hover:opacity-95 flex items-center justify-center gap-1.5 transition-all"
+              className="h-9 px-3 sm:px-4 rounded-full bg-teal-600 text-white font-bold text-xs shadow-sm hover:opacity-95 flex items-center justify-center gap-1.5 transition-all"
               title={locale === 'ar' ? 'إضافة طالب سريري جديد' : 'Add Student'}
             >
               <UserPlus className="w-4 h-4 shrink-0" />
@@ -492,7 +492,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               onClick={() => { setLevelFilter(c.value); setPage(1); }}
               className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
                 levelFilter === c.value
-                  ? 'bg-gradient-to-tr from-teal-500 to-teal-400 text-white shadow-md shadow-teal-500/20 font-bold'
+                  ? 'bg-teal-600 text-white shadow-md shadow-teal-500/20 font-bold'
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
@@ -551,7 +551,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-teal-100 bg-teal-50 text-sm font-black text-teal-700">
                   {(row.photo_url || (kind === 'students' && localStorage.getItem(`student_photo_${row.id}`))) ? <img src={row.photo_url || localStorage.getItem(`student_photo_${row.id}`)!} alt={name(row)} className="h-full w-full object-cover"/> : name(row).substring(0,1)}
                 </div>
-                <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-black text-[#102a43]">{name(row)}</h3>{kind==='students'&&<p className="mt-1 font-mono text-[11px] text-slate-500">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span>}{getStatus(row)}</div></div>
+                <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-black text-slate-800">{name(row)}</h3>{kind==='students'&&<p className="mt-1 font-mono text-[11px] text-slate-500">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span>}{getStatus(row)}</div></div>
                 {kind==='students'&&<div className="flex shrink-0 gap-1" onClick={event=>event.stopPropagation()}>{can('students.update')&&<button type="button" onClick={event=>handleOpenEdit(row,event)} className="rounded-lg bg-slate-50 p-2 text-teal-600"><Pencil className="h-4 w-4"/></button>}{can('students.delete')&&<button type="button" onClick={event=>handleDeleteStudent(row,event)} className="rounded-lg bg-red-50 p-2 text-red-500"><Trash2 className="h-4 w-4"/></button>}</div>}
               </div>
               {kind==='students'&&<div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]"><div><span className="text-slate-400">الدفعة</span><p className="mt-1 font-bold text-slate-700">{getBatchLabel(row)}</p></div><div><span className="text-slate-400">المجموعة الرئيسية</span><p className="mt-1 font-bold text-slate-700">{row.registration_main_group||'—'}</p></div></div>}
@@ -701,13 +701,13 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       {/* 1. ADD / EDIT STUDENT MODAL */}
       {/* ========================================================================= */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-500/25 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 w-full max-w-xl overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
             
             {/* Modal Header */}
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-teal-500 to-teal-400 text-white flex items-center justify-center shadow-md shadow-teal-500/25">
+                <div className="w-10 h-10 rounded-2xl bg-teal-600 text-white flex items-center justify-center shadow-md shadow-teal-500/25">
                   {editingStudent ? <Pencil className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />}
                 </div>
                 <div>
@@ -734,8 +734,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
             {/* Modal Form */}
             <form onSubmit={handleStudentFormSubmit} className="p-6 space-y-4 overflow-y-auto">
               {modalSuccessMsg && (
-                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-100 text-xs font-bold text-emerald-700 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div className="p-3.5 rounded-2xl bg-teal-50 border border-teal-100 text-xs font-bold text-teal-700 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-teal-600 shrink-0" />
                   <span>{modalSuccessMsg}</span>
                 </div>
               )}
@@ -791,7 +791,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               {/* Registration cycle and main group */}
               <div className="rounded-2xl border border-teal-100 bg-teal-50/50 p-4 space-y-3">
                 <div>
-                  <h4 className="text-xs font-bold text-teal-950">دورة التسجيل والمجموعة الرئيسية</h4>
+                  <h4 className="text-xs font-bold text-teal-800">دورة التسجيل والمجموعة الرئيسية</h4>
                   <p className="mt-1 text-[11px] text-teal-800">اختياري: اترك الدورة فارغة لحفظ الطالب في الدليل فقط، أو اخترها لإتاحته في رابط التسجيل الذاتي.</p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -820,7 +820,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                     </select>
                   </div>
                 </div>
-                {manualRegistrationCycles.length===0&&<p className="text-[11px] font-bold text-amber-700">لا توجد دورة تسجيل لهذه السنة السريرية. أنشئ المجموعات الفارغة أولاً من شاشة إدارة المجموعات.</p>}
+                {manualRegistrationCycles.length===0&&<p className="text-[11px] font-bold text-slate-700">لا توجد دورة تسجيل لهذه السنة السريرية. أنشئ المجموعات الفارغة أولاً من شاشة إدارة المجموعات.</p>}
               </div>
 
               {/* Row 2: Full Name Arabic & English */}
@@ -930,7 +930,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               {/* Row 5: Baseline GPA (Out of 100%) & Academic Warning Count */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-teal-50/50 p-3.5 rounded-2xl border border-teal-100/80">
                 <div className="space-y-1">
-                  <label className="block text-xs font-bold text-teal-900">
+                  <label className="block text-xs font-bold text-teal-800">
                     {locale === 'ar' ? 'المعدل التراكمي السابق (من %100)' : 'Cumulative GPA (out of 100%)'}
                   </label>
                   <input
@@ -946,7 +946,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-xs font-bold text-amber-900">
+                  <label className="block text-xs font-bold text-slate-800">
                     {locale === 'ar' ? 'عدد الإنذارات الأكاديمية التراكمية' : 'Warning Count'}
                   </label>
                   <input
@@ -956,7 +956,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                     placeholder="0"
                     value={studentForm.warning_count}
                     onChange={(e) => setStudentForm({ ...studentForm, warning_count: Number(e.target.value) })}
-                    className="w-full rounded-xl border border-amber-200 px-3.5 py-2 text-sm bg-white font-bold text-slate-800 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                    className="w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm bg-white font-bold text-slate-800 focus:border-slate-500 focus:ring-2 focus:ring-slate-500/20"
                   />
                 </div>
               </div>
@@ -977,7 +977,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                 <Button 
                   type="submit" 
                   isLoading={createStudentMutation.isPending || updateStudentMutation.isPending}
-                  className="rounded-xl bg-gradient-to-tr from-teal-500 to-teal-400 text-white font-bold shadow-md shadow-teal-500/25"
+                  className="rounded-xl bg-teal-600 text-white font-bold shadow-md shadow-teal-500/25"
                 >
                   {editingStudent ? (locale === 'ar' ? 'تحديث البيانات' : 'Update Student') : (locale === 'ar' ? 'حفظ الطالب' : 'Save Student')}
                 </Button>
@@ -991,7 +991,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       {/* 2. BULK IMPORT EXCEL / CSV MODAL */}
       {/* ========================================================================= */}
       {isImportModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-500/25 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
             
             {/* Modal Header */}
@@ -1028,8 +1028,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               
               {/* Notification Alerts */}
               {importSuccessMsg && (
-                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-100 text-xs font-bold text-emerald-700 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div className="p-3.5 rounded-2xl bg-teal-50 border border-teal-100 text-xs font-bold text-teal-700 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-teal-600 shrink-0" />
                   <span>{importSuccessMsg}</span>
                 </div>
               )}
@@ -1043,7 +1043,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
 
               {/* Registration cycle binding */}
               <div className="space-y-2 rounded-2xl border border-teal-100 bg-teal-50/50 p-4">
-                <label className="block text-xs font-bold text-teal-950">
+                <label className="block text-xs font-bold text-teal-800">
                   {locale === 'ar' ? 'ربط القائمة بدورة التسجيل والمجموعات الرئيسية' : 'Link to registration cycle and main groups'}
                 </label>
                 <select
@@ -1182,7 +1182,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                   disabled={importRows.length === 0 || (Boolean(importCycleId) && importRows.some(r=>!r.main_group_code))}
                   isLoading={bulkImportMutation.isPending}
                   onClick={() => bulkImportMutation.mutate({students:importRows,cycleId:importCycleId})}
-                  className="rounded-xl bg-gradient-to-tr from-teal-500 to-teal-400 text-white font-bold shadow-md shadow-teal-500/25 disabled:opacity-50"
+                  className="rounded-xl bg-teal-600 text-white font-bold shadow-md shadow-teal-500/25 disabled:opacity-50"
                 >
                   {locale === 'ar' ? `استيراد وحفظ (${importRows.length}) طالب` : `Import (${importRows.length}) Students`}
                 </Button>
