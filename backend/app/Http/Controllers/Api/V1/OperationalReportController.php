@@ -31,6 +31,40 @@ class OperationalReportController extends Controller
         return $version;
     }
 
+    private function excelDownload(object $export, string $baseName, string $format)
+    {
+        $isCsv = $format === 'csv';
+        if ($isCsv) {
+            $headings = $export->headings();
+            $rows = $export instanceof DistributionReportExport
+                ? $export->csvRows()
+                : $export->array();
+
+            return response()->streamDownload(function () use ($headings, $rows) {
+                $stream = fopen('php://output', 'wb');
+                fwrite($stream, "\xEF\xBB\xBF");
+                $writeRow = static function ($stream, array $row): void {
+                    fwrite($stream, implode(',', array_map(
+                        static fn ($value) => '"'.str_replace('"', '""', (string) $value).'"',
+                        $row,
+                    ))."\n");
+                };
+                $writeRow($stream, $headings);
+                foreach ($rows as $row) {
+                    $writeRow($stream, array_values((array) $row));
+                }
+                fclose($stream);
+            }, $baseName.'.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
+        }
+
+        $response = Excel::download(
+            $export,
+            $baseName.'.xlsx',
+            \Maatwebsite\Excel\Excel::XLSX,
+        );
+        return $response;
+    }
+
     public function studentDistribution(Request $request)
     {
         $request->validate(['rotation_id' => 'required|exists:rotations,id']);
@@ -46,8 +80,7 @@ class OperationalReportController extends Controller
         }
 
         $export = new DistributionReportExport($query);
-        $ext = $format === 'csv' ? \Maatwebsite\Excel\Excel::CSV : \Maatwebsite\Excel\Excel::XLSX;
-        return Excel::download($export, 'student_distribution.' . ($format === 'csv' ? 'csv' : 'xlsx'), $ext);
+        return $this->excelDownload($export, 'student_distribution', $format);
     }
 
     public function departmentDistribution(Request $request, int $departmentId)
@@ -65,8 +98,7 @@ class OperationalReportController extends Controller
         }
 
         $export = new DistributionReportExport($query);
-        $ext = $format === 'csv' ? \Maatwebsite\Excel\Excel::CSV : \Maatwebsite\Excel\Excel::XLSX;
-        return Excel::download($export, 'department_distribution.' . ($format === 'csv' ? 'csv' : 'xlsx'), $ext);
+        return $this->excelDownload($export, 'department_distribution', $format);
     }
 
     public function supervisorDistribution(Request $request, int $supervisorId)
@@ -84,8 +116,7 @@ class OperationalReportController extends Controller
         }
 
         $export = new DistributionReportExport($query);
-        $ext = $format === 'csv' ? \Maatwebsite\Excel\Excel::CSV : \Maatwebsite\Excel\Excel::XLSX;
-        return Excel::download($export, 'supervisor_distribution.' . ($format === 'csv' ? 'csv' : 'xlsx'), $ext);
+        return $this->excelDownload($export, 'supervisor_distribution', $format);
     }
 
     public function trainingSiteCapacity(Request $request)
@@ -105,8 +136,7 @@ class OperationalReportController extends Controller
         $export = new GenericArrayExport($data, [
             'Site Name (EN)', 'Site Name (AR)', 'Capacity Limit', 'Assigned Count', 'Remaining', 'Utilization %', 'Status'
         ]);
-        $ext = $format === 'csv' ? \Maatwebsite\Excel\Excel::CSV : \Maatwebsite\Excel\Excel::XLSX;
-        return Excel::download($export, 'training_site_capacity.' . ($format === 'csv' ? 'csv' : 'xlsx'), $ext);
+        return $this->excelDownload($export, 'training_site_capacity', $format);
     }
 
     public function unassignedStudents(Request $request)
@@ -126,7 +156,6 @@ class OperationalReportController extends Controller
         $export = new GenericArrayExport($data, [
             'Student Name (EN)', 'Student Name (AR)', 'Univ. Number', 'Status'
         ]);
-        $ext = $format === 'csv' ? \Maatwebsite\Excel\Excel::CSV : \Maatwebsite\Excel\Excel::XLSX;
-        return Excel::download($export, 'unassigned_students.' . ($format === 'csv' ? 'csv' : 'xlsx'), $ext);
+        return $this->excelDownload($export, 'unassigned_students', $format);
     }
 }

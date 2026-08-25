@@ -18,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Str;
 
 /**
  * SupervisorController — Phase 5C
@@ -317,6 +318,63 @@ class SupervisorController extends Controller
         });
 
         return ApiResponse::success($assessment->load('student', 'session'), 'Clinical assessment saved successfully.');
+    }
+
+    public function storeAssessmentBatch(Request $request, WorkflowTransitionService $workflow): JsonResponse
+    {
+        [, $person] = $this->supervisorIdentity($request);
+        $data = $request->validate([
+            'assignment_id' => ['required', 'integer'],
+            'session_date' => ['required', 'date'],
+            'assessments' => ['required', 'array', 'min:1'],
+            'assessments.*.student_id' => ['required', 'integer', 'distinct', 'exists:students,id'],
+            'assessments.*.score' => ['required', 'numeric', 'min:0', 'max:20'],
+            'assessments.*.notes' => ['nullable', 'string', 'max:3000'],
+        ]);
+
+        $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
+        $allowedIds = $this->assignmentGroupQuery($assignment)->pluck('student_id')->map(fn ($id) => (int) $id)->sort()->values();
+        $submittedIds = collect($data['assessments'])->pluck('student_id')->map(fn ($id) => (int) $id)->sort()->values();
+        if ($allowedIds->all() !== $submittedIds->all()) {
+            throw ValidationException::withMessages(['assessments' => ['Every student in the selected group must be evaluated exactly once.']]);
+        }
+
+        $batchUuid = (string) Str::uuid();
+        $items = DB::transaction(function () use ($assignment, $data, $person, $workflow, $batchUuid) {
+            $session = $this->resolveSession($assignment, $data['session_date']);
+            return collect($data['assessments'])->map(function (array $row) use ($session, $person, $workflow, $batchUuid) {
+                $assessment = ClinicalAssessment::query()
+                    ->where('student_id', $row['student_id'])
+                    ->where('clinical_session_id', $session->id)
+                    ->where('evaluator_person_id', $person->id)
+                    ->lockForUpdate()->first();
+
+                if ($assessment && ! in_array($assessment->status, ['draft', 'returned'], true)) {
+                    throw ValidationException::withMessages(['assessments' => ["Student {$row['student_id']} already has an assessment awaiting review or approved for this session."]]);
+                }
+
+                if ($assessment) {
+                    $assessment->update(['assessment_batch_uuid' => $batchUuid, 'score' => $row['score'], 'max_score' => 20, 'notes' => $row['notes'] ?? null]);
+                    $workflow->transition($assessment->fresh(), 'submitted');
+                    $assessment->newQuery()->whereKey($assessment->id)->update(['submitted_at' => now()]);
+                    return $assessment->fresh();
+                }
+
+                $assessment = ClinicalAssessment::create([
+                    'student_id' => $row['student_id'], 'clinical_session_id' => $session->id,
+                    'evaluator_person_id' => $person->id, 'assessment_batch_uuid' => $batchUuid,
+                    'score' => $row['score'], 'max_score' => 20, 'notes' => $row['notes'] ?? null,
+                    'status' => 'submitted', 'submitted_at' => now(),
+                ]);
+                WorkflowTransitionLog::create([
+                    'entity_type' => ClinicalAssessment::class, 'entity_id' => $assessment->id,
+                    'from_state' => null, 'to_state' => 'submitted', 'user_id' => auth()->id(),
+                ]);
+                return $assessment;
+            });
+        });
+
+        return ApiResponse::success(['batch_uuid' => $batchUuid, 'assessments' => $items], 'The group assessment batch was submitted successfully.');
     }
 
     private function supervisorIdentity(Request $request): array

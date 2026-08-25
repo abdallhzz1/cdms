@@ -81,7 +81,7 @@ export function App() {
                 <Route path="/study-plans/*" element={<Navigate to="/courses" replace />} />
                 <Route path="/courses/:courseId" element={<CourseDetailsPage />} />
                 <Route path="/grades" element={<GradesPage />} />
-                <Route path="/rta-assignments" element={<RtaAssignmentsPage />} />
+                <Route path="/rta-assignments" element={<ProtectedRoute requiredPermission="rta_assignments.manage"><RtaAssignmentsPage /></ProtectedRoute>} />
                 
                 {/* Students & Staff */}
                 <Route path="/directory" element={<DirectoryPage kind="students" />} />

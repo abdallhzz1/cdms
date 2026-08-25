@@ -59,7 +59,7 @@ class AuthorizationMiddlewareTest extends TestCase
     public function test_permission_middleware_allows_a_user_with_the_required_permission(): void
     {
         $role = Role::factory()->create();
-        $permission = Permission::factory()->create(['code' => 'users.manage']);
+        $permission = Permission::firstOrCreate(['code' => 'users.manage'], ['module' => 'Security', 'action' => 'MANAGE', 'description_key' => 'permissions.users_manage.description']);
         $role->permissions()->attach($permission->id, ['scope_type' => 'global']);
 
         $user = User::factory()->create();
@@ -90,7 +90,7 @@ class AuthorizationMiddlewareTest extends TestCase
         // resolver for (Phase 2 has no business module to resolve against)
         // — this proves that mechanism, not a specific business scope rule.
         $role = Role::factory()->create();
-        $permission = Permission::factory()->create(['code' => 'users.manage']);
+        $permission = Permission::firstOrCreate(['code' => 'users.manage'], ['module' => 'Security', 'action' => 'MANAGE', 'description_key' => 'permissions.users_manage.description']);
         $role->permissions()->attach($permission->id, ['scope_type' => 'department']);
 
         $user = User::factory()->create();
@@ -104,7 +104,7 @@ class AuthorizationMiddlewareTest extends TestCase
     public function test_any_permission_middleware_allows_one_matching_permission(): void
     {
         $role = Role::factory()->create();
-        $permission = Permission::factory()->create(['code' => 'grades.view']);
+        $permission = Permission::firstOrCreate(['code' => 'grades.view'], ['module' => 'Grades', 'action' => 'VIEW', 'description_key' => 'permissions.grades_view.description']);
         $role->permissions()->attach($permission->id, ['scope_type' => 'global']);
 
         $user = User::factory()->create();
@@ -118,7 +118,7 @@ class AuthorizationMiddlewareTest extends TestCase
     public function test_any_permission_middleware_denies_when_none_match(): void
     {
         $role = Role::factory()->create();
-        $permission = Permission::factory()->create(['code' => 'tasks.view']);
+        $permission = Permission::firstOrCreate(['code' => 'tasks.view'], ['module' => 'Tasks', 'action' => 'VIEW', 'description_key' => 'permissions.tasks_view.description']);
         $role->permissions()->attach($permission->id, ['scope_type' => 'global']);
 
         $user = User::factory()->create();

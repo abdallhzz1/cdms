@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\DB;
 
 class ClinicalAssessmentController extends Controller
 {
@@ -93,6 +94,35 @@ class ClinicalAssessmentController extends Controller
         }
         $workflow->transition($clinicalAssessment, 'approved');
         return ApiResponse::success($clinicalAssessment->fresh(), 'Assessment approved.');
+    }
+
+    public function approveBatch(Request $request, string $batchUuid, WorkflowTransitionService $workflow): JsonResponse
+    {
+        $items = ClinicalAssessment::with('session.rotationBlock.rotation')->where('assessment_batch_uuid', $batchUuid)->get();
+        abort_if($items->isEmpty(), 404, 'Assessment batch not found.');
+        foreach ($items as $assessment) {
+            $this->preventSelfApproval($request, $assessment);
+            if ($assessment->status !== 'submitted' || $assessment->score === null || ! $assessment->evaluator_person_id || ! $assessment->session?->rotationBlock?->rotation?->course_id) {
+                throw ValidationException::withMessages(['batch' => ['Every assessment in the batch must be complete and awaiting review.']]);
+            }
+        }
+        DB::transaction(fn () => $items->each(fn ($assessment) => $workflow->transition($assessment, 'approved')));
+        return ApiResponse::success(['batch_uuid' => $batchUuid, 'count' => $items->count()], 'Assessment batch approved.');
+    }
+
+    public function returnBatch(Request $request, string $batchUuid, WorkflowTransitionService $workflow): JsonResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:2000']]);
+        $items = ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->get();
+        abort_if($items->isEmpty(), 404, 'Assessment batch not found.');
+        foreach ($items as $assessment) {
+            $this->preventSelfApproval($request, $assessment);
+            if ($assessment->status !== 'submitted') {
+                throw ValidationException::withMessages(['batch' => ['Every assessment in the batch must be awaiting review.']]);
+            }
+        }
+        DB::transaction(fn () => $items->each(fn ($assessment) => $workflow->transition($assessment, 'returned', $data['reason'])));
+        return ApiResponse::success(['batch_uuid' => $batchUuid, 'count' => $items->count()], 'Assessment batch returned.');
     }
 
     private function preventSelfApproval(Request $request, ClinicalAssessment $clinicalAssessment): void

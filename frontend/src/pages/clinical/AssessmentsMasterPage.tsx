@@ -28,10 +28,11 @@ export function AssessmentsMasterPage() {
     mutationFn: (id: number) => apiFetch(`/clinical-assessments/${id}/approve`, { method: 'POST' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clinical-assessments'] }),
   });
+  const approveBatchMutation=useMutation({mutationFn:(batchUuid:string)=>apiFetch(`/clinical-assessment-batches/${batchUuid}/approve`,{method:'POST'}),onSuccess:()=>queryClient.invalidateQueries({queryKey:['clinical-assessments']})});
 
   const returnMutation = useMutation({
-    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
-      apiFetch(`/clinical-assessments/${id}/return`, { method: 'POST', body: { reason } }),
+    mutationFn: ({ id, batchUuid, reason }: { id?: number; batchUuid?:string; reason: string }) =>
+      apiFetch(batchUuid?`/clinical-assessment-batches/${batchUuid}/return`:`/clinical-assessments/${id}/return`, { method: 'POST', body: { reason } }),
     onSuccess: async () => {setReturning(null);setReturnReason('');await queryClient.invalidateQueries({ queryKey: ['clinical-assessments'] });},
   });
 
@@ -70,7 +71,7 @@ export function AssessmentsMasterPage() {
         <select className="input" value={statusFilter} onChange={event=>setStatusFilter(event.target.value)}><option value="">{locale==='ar'?'جميع الحالات':'All statuses'}</option><option value="submitted">{locale==='ar'?'بانتظار المراجعة':'Awaiting review'}</option><option value="returned">{locale==='ar'?'مُعاد للتعديل':'Returned'}</option><option value="approved">{locale==='ar'?'معتمد':'Approved'}</option></select>
       </section>
 
-      {returning&&<section className="rounded-3xl border border-teal-200 bg-teal-50 p-4"><h2 className="text-sm font-black text-slate-900">{locale==='ar'?'إعادة التقييم للمشرف':'Return assessment to supervisor'}</h2><p className="mt-1 text-xs text-slate-600">{locale==='ar'?`الطالب: ${returning.student?.full_name_ar??''}`:`Student: ${returning.student?.full_name_en||returning.student?.full_name_ar||''}`}</p><textarea className="input mt-3 min-h-24" value={returnReason} onChange={event=>setReturnReason(event.target.value)} placeholder={locale==='ar'?'اكتب سبب الإرجاع والتعديل المطلوب بوضوح…':'Clearly state the return reason and required revision…'}/><div className="mt-3 flex gap-2"><Button disabled={returnReason.trim().length<3||returnMutation.isPending} isLoading={returnMutation.isPending} onClick={()=>returnMutation.mutate({id:returning.id,reason:returnReason.trim()})}>{locale==='ar'?'تأكيد الإرجاع':'Confirm return'}</Button><Button variant="outline" onClick={()=>{setReturning(null);setReturnReason('')}}>{locale==='ar'?'إلغاء':'Cancel'}</Button></div></section>}
+      {returning&&<section className="rounded-3xl border border-teal-200 bg-teal-50 p-4"><h2 className="text-sm font-black text-slate-900">{returning.assessment_batch_uuid?(locale==='ar'?'إعادة تقييم المجموعة كاملة':'Return full group assessment'):(locale==='ar'?'إعادة التقييم للمشرف':'Return assessment to supervisor')}</h2><p className="mt-1 text-xs text-slate-600">{returning.assessment_batch_uuid?(locale==='ar'?'سيتم إرجاع جميع تقييمات هذه المجموعة بنفس السبب.':'Every assessment in this group batch will be returned with the same reason.'):(locale==='ar'?`الطالب: ${returning.student?.full_name_ar??''}`:`Student: ${returning.student?.full_name_en||returning.student?.full_name_ar||''}`)}</p><textarea className="input mt-3 min-h-24" value={returnReason} onChange={event=>setReturnReason(event.target.value)} placeholder={locale==='ar'?'اكتب سبب الإرجاع والتعديل المطلوب بوضوح…':'Clearly state the return reason and required revision…'}/><div className="mt-3 flex gap-2"><Button disabled={returnReason.trim().length<3||returnMutation.isPending} isLoading={returnMutation.isPending} onClick={()=>returnMutation.mutate({id:returning.assessment_batch_uuid?undefined:returning.id,batchUuid:returning.assessment_batch_uuid||undefined,reason:returnReason.trim()})}>{locale==='ar'?'تأكيد الإرجاع':'Confirm return'}</Button><Button variant="outline" onClick={()=>{setReturning(null);setReturnReason('')}}>{locale==='ar'?'إلغاء':'Cancel'}</Button></div></section>}
 
       {!items.length ? (
         <EmptyState message={locale === 'ar' ? 'لا توجد تقييمات سريرية بعد' : 'No clinical assessments yet'} />
@@ -89,7 +90,7 @@ export function AssessmentsMasterPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {items.map((a: any, i: number) => (
+                {items.map((a: any, i: number) => {const batchLeader=!a.assessment_batch_uuid||!items.slice(0,i).some((previous:any)=>previous.assessment_batch_uuid===a.assessment_batch_uuid);return (
                   <tr key={a.id ?? i} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="text-sm font-bold text-slate-900">{locale === 'ar' ? a.student?.full_name_ar : a.student?.full_name_en || a.student?.full_name_ar}</div>
@@ -109,14 +110,14 @@ export function AssessmentsMasterPage() {
                     <td className="px-6 py-4 text-xs text-slate-600"><div className="font-bold text-slate-800">{locale==='ar'?a.session?.rotation_block?.rotation?.course?.name_ar:a.session?.rotation_block?.rotation?.course?.name_en||a.session?.rotation_block?.rotation?.course?.name_ar||'—'}</div><div className="mt-1 text-slate-400">{String(a.session?.session_date??'').slice(0,10)}</div></td>
                     <td className="px-6 py-4">{getStatusBadge(a.status)}</td>
                     <td className="px-6 py-4">
-                      {a.status === 'submitted' && can('assessment.approve') && a.evaluator?.user_id!==user?.id && (
+                      {a.status === 'submitted' && can('assessment.approve') && a.evaluator?.user_id!==user?.id && batchLeader && (
                         <div className="flex items-center gap-2">
                           <Button
-                            onClick={() => approveMutation.mutate(a.id)}
-                            isLoading={approveMutation.isPending}
+                            onClick={() => a.assessment_batch_uuid?approveBatchMutation.mutate(a.assessment_batch_uuid):approveMutation.mutate(a.id)}
+                            isLoading={approveMutation.isPending||approveBatchMutation.isPending}
                             className="!py-1.5 !px-3 !text-xs"
                           >
-                            {locale === 'ar' ? 'اعتماد' : 'Approve'}
+                            {a.assessment_batch_uuid?(locale==='ar'?'اعتماد المجموعة':'Approve group'):(locale === 'ar' ? 'اعتماد' : 'Approve')}
                           </Button>
                           <Button
                             variant="outline"
@@ -124,16 +125,17 @@ export function AssessmentsMasterPage() {
                             isLoading={returnMutation.isPending}
                             className="!py-1.5 !px-3 !text-xs"
                           >
-                            {locale === 'ar' ? 'إعادة' : 'Return'}
+                            {a.assessment_batch_uuid?(locale==='ar'?'إعادة المجموعة':'Return group'):(locale === 'ar' ? 'إعادة' : 'Return')}
                           </Button>
                         </div>
                       )}
+                      {a.status==='submitted'&&a.assessment_batch_uuid&&!batchLeader&&<span className="text-[10px] font-bold text-teal-700">{locale==='ar'?'ضمن حزمة المجموعة':'Part of group batch'}</span>}
                       {a.status === 'submitted' && can('assessment.approve') && a.evaluator?.user_id===user?.id && <span className="text-xs font-bold text-slate-400">{locale==='ar'?'لا يمكن اعتماد تقييمك':'Cannot approve your own'}</span>}
                       {a.status === 'returned' && a.return_reason && <p className="max-w-xs text-xs text-slate-500">{locale==='ar'?'سبب الإرجاع: ':'Return reason: '}{a.return_reason}</p>}
                       {a.status !== 'submitted' && !(a.status === 'returned' && a.return_reason) && <span className="text-slate-400 text-sm">—</span>}
                     </td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>

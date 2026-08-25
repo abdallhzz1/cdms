@@ -513,6 +513,46 @@ class Phase5CTest extends TestCase
         ])->assertUnprocessable();
     }
 
+    public function test_supervisor_can_submit_and_reviewer_can_approve_a_complete_group_batch(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $this->assignment2->update(['supervisor_id' => $this->supervisor1->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::whereIn('code', ['assessment.create'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessment-batches'), [
+            'assignment_id' => $this->assignment1->id,
+            'session_date' => '2026-09-15',
+            'assessments' => [['student_id' => $this->student1->id, 'score' => 17]],
+        ])->assertUnprocessable()->assertJsonValidationErrors('assessments');
+
+        $response = $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessment-batches'), [
+            'assignment_id' => $this->assignment1->id,
+            'session_date' => '2026-09-15',
+            'assessments' => [
+                ['student_id' => $this->student1->id, 'score' => 17, 'notes' => 'Good'],
+                ['student_id' => $this->student2->id, 'score' => 18, 'notes' => 'Very good'],
+            ],
+        ])->assertOk()->assertJsonCount(2, 'data.assessments');
+
+        $batchUuid = $response->json('data.batch_uuid');
+        $this->assertDatabaseCount('clinical_assessments', 2);
+        $this->assertSame(2, \App\Models\ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->where('status', 'submitted')->count());
+
+        $reviewerRole = Role::where('code', 'TEST_ADMIN_5C')->firstOrFail();
+        $reviewerRole->permissions()->syncWithoutDetaching(
+            Permission::where('code', 'assessment.approve')->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $reviewer = User::factory()->create();
+        $reviewer->roles()->attach($reviewerRole);
+        $this->actingAs($reviewer)->postJson("/api/v1/clinical-assessment-batches/{$batchUuid}/approve")
+            ->assertOk()->assertJsonPath('data.count', 2);
+        $this->assertSame(2, \App\Models\ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->where('status', 'approved')->count());
+    }
+
     // =========================================================================
     // 6. Performance — No N+1 queries
     // =========================================================================
@@ -529,5 +569,18 @@ class Phase5CTest extends TestCase
 
         $queryCount = count(DB::getQueryLog());
         $this->assertLessThanOrEqual(15, $queryCount);
+    }
+
+    public function test_student_schedule_exposes_complete_nested_clinical_context(): void
+    {
+        $this->actingAs($this->admin)
+            ->getJson("/api/v1/students/{$this->student1->id}/current-clinical-schedule")
+            ->assertOk()
+            ->assertJsonPath('data.0.training_site.id', $this->site1->id)
+            ->assertJsonPath('data.0.supervisor.id', $this->supervisor1->id)
+            ->assertJsonPath('data.0.course.id', $this->course->id)
+            ->assertJsonPath('data.0.subgroup.id', $this->subgroup->id)
+            ->assertJsonPath('data.0.distribution_version_id', $this->publishedVersion->id)
+            ->assertJsonPath('data.0.academic_year.id', $this->rotation->academic_year_id);
     }
 }

@@ -61,6 +61,7 @@ class HealthEndpointTest extends TestCase
             'database.connections.mysql.host' => '127.0.0.1',
             'database.connections.mysql.port' => 1,
         ]);
+        DB::purge('mysql');
 
         $response = $this->getJson('/api/v1/health');
 

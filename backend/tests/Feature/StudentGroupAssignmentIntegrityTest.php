@@ -21,7 +21,7 @@ class StudentGroupAssignmentIntegrityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->seed([\Database\Seeders\PermissionSeeder::class]);
+        $this->seed([\Database\Seeders\PermissionSeeder::class, \Database\Seeders\Phase3PermissionSeeder::class]);
 
         $role = Role::create([
             'code' => 'GROUP_INTEGRITY_TEST',

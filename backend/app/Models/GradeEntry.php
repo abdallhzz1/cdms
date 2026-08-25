@@ -10,6 +10,7 @@ class GradeEntry extends Model
     protected $fillable = [
         'student_course_enrollment_id', 'score', 'max_score', 'status',
         'clinical_score', 'osce_score', 'written_score', 'notes',
+        'prepared_by_user_id', 'submitted_at', 'approved_by_user_id', 'approved_at', 'return_reason',
     ];
 
     protected function casts(): array
@@ -20,6 +21,8 @@ class GradeEntry extends Model
             'clinical_score' => 'decimal:2',
             'osce_score' => 'decimal:2',
             'written_score' => 'decimal:2',
+            'submitted_at' => 'datetime',
+            'approved_at' => 'datetime',
         ];
     }
 

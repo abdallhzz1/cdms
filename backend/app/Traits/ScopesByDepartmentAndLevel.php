@@ -27,14 +27,32 @@ trait ScopesByDepartmentAndLevel
             return $query->whereRaw('1 = 0');
         }
 
-        if ($user->hasRole('ACADEMIC_ADVISOR')) {
+        $roleCodes = $user->relationLoaded('roles')
+            ? $user->roles->pluck('code')
+            : $user->roles()->pluck('code');
+
+        if ($roleCodes->intersect(['SYS_ADMIN', 'DEAN', 'VICE_DEAN', 'CLINICAL_DIRECTOR'])->isNotEmpty()) {
+            return $query;
+        }
+
+        // A management/cohort role takes precedence over an additional personal
+        // supervisor/advisor role. Personal workspace controllers still apply
+        // their own assignment ownership checks.
+        if ($roleCodes->intersect(['DEPARTMENT_HEAD', 'RTA'])->isNotEmpty()) {
+            $levels = $this->getUserScopedLevels();
+            return empty($levels)
+                ? $query->whereRaw('1 = 0')
+                : $query->whereIn('academic_level', $levels);
+        }
+
+        if ($roleCodes->contains('ACADEMIC_ADVISOR')) {
             $advisorIds = $this->userPersonIds($user);
             return empty($advisorIds)
                 ? $query->whereRaw('1 = 0')
                 : $query->whereIn('academic_advisor_id', $advisorIds);
         }
 
-        if ($user->hasRole('CLINICAL_SUPERVISOR')) {
+        if ($roleCodes->contains('CLINICAL_SUPERVISOR')) {
             $supervisorIds = $this->userPersonIds($user);
             if (empty($supervisorIds)) {
                 return $query->whereRaw('1 = 0');
@@ -48,13 +66,6 @@ trait ScopesByDepartmentAndLevel
                     ->where('distribution_versions.status', 'published')
                     ->where('distribution_versions.is_current', true);
             });
-        }
-
-        if ($user->hasRole('DEPARTMENT_HEAD') || $user->hasRole('RTA')) {
-            $levels = $this->getUserScopedLevels();
-            return empty($levels)
-                ? $query->whereRaw('1 = 0')
-                : $query->whereIn('academic_level', $levels);
         }
 
         return $query;
@@ -177,9 +188,12 @@ trait ScopesByDepartmentAndLevel
             return [];
         }
 
-        // If RTA has specific assigned_levels (e.g. ['fourth', 'sixth'])
-        if (!empty($user->assigned_levels) && is_array($user->assigned_levels)) {
-            return $this->normalizeLevels($user->assigned_levels);
+        // RTA assignment is authoritative: without an explicit cohort the RTA
+        // must not inherit every cohort served by the department.
+        if ($user->hasRole('RTA')) {
+            return !empty($user->assigned_levels) && is_array($user->assigned_levels)
+                ? $this->normalizeLevels($user->assigned_levels)
+                : [];
         }
 
         // Otherwise get from department serves_academic_levels

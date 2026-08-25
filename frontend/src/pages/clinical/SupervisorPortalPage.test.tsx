@@ -58,4 +58,20 @@ describe('SupervisorPortalPage',()=>{
     await userEvent.click(screen.getByRole('button',{name:'Save & resubmit'}));
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessments')&&String(init?.body).includes('"assessment_id":44')&&String(init?.body).includes('"score":16'))).toBe(true));
   });
+
+  it('submits every student in a group as one assessment batch',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope({id:1,name:'Supervisor',email:'doctor@hebron.edu',roles:['CLINICAL_SUPERVISOR'],permissions});
+      if(url.includes('/my-supervisor-workspace'))return envelope(workspace);
+      if(url.includes('/my-supervisor-assessment-batches'))return envelope({batch_uuid:'batch-1',assessments:[{id:1}]});
+      throw new Error(`Unmocked request: ${url} ${init?.method}`);
+    });
+    renderWithProviders(<SupervisorPortalPage/>,{route:'/supervisor/portal?tab=group_assessments'});
+    const score=await screen.findByRole('spinbutton',{name:'22010001 score'});
+    await userEvent.type(score,'18');
+    await userEvent.click(screen.getByRole('button',{name:'Submit full group for approval'}));
+    await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessment-batches')&&String(init?.body).includes('"student_id":7')&&String(init?.body).includes('"score":18'))).toBe(true));
+  });
 });

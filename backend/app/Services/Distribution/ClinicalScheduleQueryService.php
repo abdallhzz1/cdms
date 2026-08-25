@@ -5,6 +5,10 @@ namespace App\Services\Distribution;
 use App\DTOs\ClinicalScheduleItemDTO;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
+use App\Models\Course;
+use App\Models\AcademicYear;
+use App\Models\StudentGroup;
+use App\Models\StudentSubgroup;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
@@ -33,10 +37,7 @@ class ClinicalScheduleQueryService
                 $q->where('status', 'published')->where('is_current', true);
             })
             ->with([
-                'student',
-                'rotationBlock.rotation.academicYear',
-                'rotationBlock.rotation.course',
-                'studentSubgroup.group',
+                'rotationBlock.rotation',
                 'trainingSite',
                 'department',
                 'supervisor',
@@ -105,7 +106,18 @@ class ClinicalScheduleQueryService
         $query->join('rotation_blocks', 'student_clinical_assignments.rotation_block_id', '=', 'rotation_blocks.id')
             ->join('rotations', 'rotation_blocks.rotation_id', '=', 'rotations.id')
             ->join('students', 'student_clinical_assignments.student_id', '=', 'students.id')
+            ->leftJoin('courses', 'rotations.course_id', '=', 'courses.id')
+            ->leftJoin('academic_years', 'rotations.academic_year_id', '=', 'academic_years.id')
+            ->leftJoin('student_subgroups', 'student_clinical_assignments.student_subgroup_id', '=', 'student_subgroups.id')
+            ->leftJoin('student_groups', 'student_subgroups.student_group_id', '=', 'student_groups.id')
             ->select('student_clinical_assignments.*')
+            ->addSelect([
+                'students.university_number as dto_student_number', 'students.full_name_ar as dto_student_name_ar',
+                'students.full_name_en as dto_student_name_en', 'students.registration_status as dto_student_status',
+                'courses.code as dto_course_code', 'courses.name_ar as dto_course_name_ar', 'courses.name_en as dto_course_name_en',
+                'academic_years.code as dto_year_code',
+                'student_subgroups.name as dto_subgroup_name', 'student_groups.id as dto_group_id', 'student_groups.name as dto_group_name',
+            ])
             ->orderBy('rotations.start_date', 'asc')
             ->orderBy('rotation_blocks.from_week', 'asc')
             ->orderBy('students.full_name_ar', 'asc')
@@ -118,6 +130,7 @@ class ClinicalScheduleQueryService
 
         // Transform collection to DTOs
         $paginator->getCollection()->transform(function (StudentClinicalAssignment $assignment) {
+            $this->hydrateJoinedReferences($assignment);
             return ClinicalScheduleItemDTO::fromAssignment($assignment, $this->dateCalculator);
         });
 
@@ -137,24 +150,65 @@ class ClinicalScheduleQueryService
                 $q->where('status', 'published')->where('is_current', true);
             })
             ->with([
-                'student',
-                'rotationBlock.rotation.academicYear',
-                'rotationBlock.rotation.course',
-                'studentSubgroup.group',
+                'rotationBlock.rotation',
                 'trainingSite',
                 'department',
                 'supervisor',
             ])
             ->join('rotation_blocks', 'student_clinical_assignments.rotation_block_id', '=', 'rotation_blocks.id')
             ->join('rotations', 'rotation_blocks.rotation_id', '=', 'rotations.id')
+            ->join('students', 'student_clinical_assignments.student_id', '=', 'students.id')
+            ->leftJoin('courses', 'rotations.course_id', '=', 'courses.id')
+            ->leftJoin('academic_years', 'rotations.academic_year_id', '=', 'academic_years.id')
+            ->leftJoin('student_subgroups', 'student_clinical_assignments.student_subgroup_id', '=', 'student_subgroups.id')
+            ->leftJoin('student_groups', 'student_subgroups.student_group_id', '=', 'student_groups.id')
             ->select('student_clinical_assignments.*')
+            ->addSelect([
+                'students.university_number as dto_student_number', 'students.full_name_ar as dto_student_name_ar',
+                'students.full_name_en as dto_student_name_en', 'students.registration_status as dto_student_status',
+                'courses.code as dto_course_code', 'courses.name_ar as dto_course_name_ar', 'courses.name_en as dto_course_name_en',
+                'academic_years.code as dto_year_code',
+                'student_subgroups.name as dto_subgroup_name', 'student_groups.id as dto_group_id', 'student_groups.name as dto_group_name',
+            ])
             ->orderBy('rotations.start_date', 'asc')
             ->orderBy('rotation_blocks.from_week', 'asc')
             ->orderBy('student_clinical_assignments.id', 'asc')
             ->get();
 
         return $assignments->map(function (StudentClinicalAssignment $assignment) {
+            $this->hydrateJoinedReferences($assignment);
             return ClinicalScheduleItemDTO::fromAssignment($assignment, $this->dateCalculator);
         });
+    }
+
+    private function hydrateJoinedReferences(StudentClinicalAssignment $assignment): void
+    {
+        $assignment->setRelation('student', (new Student())->forceFill([
+            'id' => $assignment->student_id,
+            'university_number' => $assignment->dto_student_number,
+            'full_name_ar' => $assignment->dto_student_name_ar,
+            'full_name_en' => $assignment->dto_student_name_en,
+            'registration_status' => $assignment->dto_student_status,
+        ]));
+
+        $rotation = $assignment->rotationBlock?->rotation;
+        if ($rotation && $rotation->course_id) {
+            $rotation->setRelation('course', (new Course())->forceFill([
+                'id' => $rotation->course_id, 'code' => $assignment->dto_course_code,
+                'name_ar' => $assignment->dto_course_name_ar, 'name_en' => $assignment->dto_course_name_en,
+            ]));
+        }
+        if ($rotation && $rotation->academic_year_id) {
+            $rotation->setRelation('academicYear', (new AcademicYear())->forceFill([
+                'id' => $rotation->academic_year_id, 'code' => $assignment->dto_year_code,
+            ]));
+        }
+
+        if ($assignment->student_subgroup_id) {
+            $group = $assignment->dto_group_id ? (new StudentGroup())->forceFill(['id' => $assignment->dto_group_id, 'name' => $assignment->dto_group_name]) : null;
+            $subgroup = (new StudentSubgroup())->forceFill(['id' => $assignment->student_subgroup_id, 'name' => $assignment->dto_subgroup_name]);
+            $subgroup->setRelation('group', $group);
+            $assignment->setRelation('studentSubgroup', $subgroup);
+        }
     }
 }

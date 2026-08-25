@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiFetch } from '@/api/client';
+import { apiFetch, ApiError } from '@/api/client';
 import { useI18n } from '@/i18n/I18nContext';
 import { Users, Check, Lock, Unlock, AlertCircle } from 'lucide-react';
 
@@ -11,6 +11,8 @@ interface RTAUser {
   assigned_levels: string[] | null;
   is_active: boolean;
   roles: string[];
+  student_count: number;
+  course_count: number;
 }
 
 const COHORT_LEVELS = [
@@ -25,8 +27,9 @@ export function RtaAssignmentsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [pendingLevels, setPendingLevels] = useState<string[]>([]);
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['rta-list'],
     queryFn: () => apiFetch<any>('/users/rta-list'),
   });
@@ -44,8 +47,12 @@ export function RtaAssignmentsPage() {
       setEditingId(null);
       setPendingLevels([]);
       setSavingId(null);
+      setErrorMessage('');
     },
-    onError: () => setSavingId(null),
+    onError: error => {
+      setSavingId(null);
+      setErrorMessage(error instanceof ApiError ? error.message : (locale === 'ar' ? 'تعذر حفظ التكليف.' : 'Could not save assignment.'));
+    },
   });
 
   const startEdit = (u: RTAUser) => {
@@ -83,12 +90,16 @@ export function RtaAssignmentsPage() {
         </p>
       </div>
 
+      {errorMessage && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{errorMessage}</div>}
+
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         {isLoading ? (
           <div className="p-16 text-center text-slate-400">
             <div className="w-9 h-9 border-3 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
             <p className="text-xs font-bold">{locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
           </div>
+        ) : isError ? (
+          <div className="p-16 text-center text-sm font-bold text-red-600">{locale === 'ar' ? 'تعذر تحميل تكليفات المساعدين. تحقق من الصلاحية ثم أعد المحاولة.' : 'Could not load RTA assignments. Check your permission and retry.'}</div>
         ) : users.length === 0 ? (
           <div className="p-16 text-center text-slate-400">
             <Users className="w-10 h-10 mx-auto mb-3 text-slate-300" />
@@ -129,6 +140,9 @@ export function RtaAssignmentsPage() {
                         {locale === 'ar' ? 'غير محدد — لا يرى طلاب' : 'Not assigned'}
                       </span>
                     )}
+                    <span className="px-2 py-0.5 rounded-full bg-slate-50 text-slate-600 text-[10.5px] font-bold border border-slate-200">
+                      {u.student_count} {locale === 'ar' ? 'طالب' : 'students'} · {u.course_count} {locale === 'ar' ? 'مساق' : 'courses'}
+                    </span>
                   </div>
                 </div>
 

@@ -39,7 +39,7 @@ class TransactionIntegrityTest extends TestCase
 
     public function test_invalid_batch_rolls_back_without_creating_any_enrollment_or_grade(): void
     {
-        $year = AcademicYear::factory()->create(['code' => '2026/2027']);
+        $year = AcademicYear::factory()->create(['code' => '2096/2097']);
         $course = Course::factory()->create(['code' => 'TX-101']);
         $studentA = Student::factory()->create();
         $studentB = Student::factory()->create();

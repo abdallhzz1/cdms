@@ -78,7 +78,7 @@ class PublicStudentScheduleTest extends TestCase
             'academic_level' => 'fourth',
             'start_date' => '2026-09-01',
             'end_date' => '2026-11-30',
-            'status' => 'published',
+            'status' => 'active',
         ]);
         $department = Department::factory()->create(['name_ar' => 'الجراحة']);
         $block = RotationBlock::factory()->create([

@@ -82,9 +82,21 @@ class OperationalDashboardService
             ->where('registration_status', 'active')
             ->count();
 
-        $assignedStudentsCount = (clone $assignmentQuery)
-            ->distinct('student_id')
-            ->count('student_id');
+        $assignmentRows = (clone $assignmentQuery)
+            ->leftJoin('departments', 'student_clinical_assignments.department_id', '=', 'departments.id')
+            ->leftJoin('training_sites', 'student_clinical_assignments.training_site_id', '=', 'training_sites.id')
+            ->leftJoin('people', 'student_clinical_assignments.supervisor_id', '=', 'people.id')
+            ->get([
+                'student_clinical_assignments.student_id', 'student_clinical_assignments.rotation_block_id',
+                'student_clinical_assignments.department_id', 'student_clinical_assignments.training_site_id',
+                'student_clinical_assignments.supervisor_id',
+                'departments.name_ar as department_name_ar', 'departments.name_en as department_name_en',
+                'training_sites.name_ar as site_name_ar', 'training_sites.name_en as site_name_en',
+                'people.full_name_ar as supervisor_name_ar', 'people.full_name_en as supervisor_name_en',
+                'people.max_students as supervisor_max_students', 'people.is_active as supervisor_is_active',
+            ]);
+
+        $assignedStudentsCount = $assignmentRows->pluck('student_id')->unique()->count();
 
         $unassignedStudentsCount = max(0, $totalActiveStudents - $assignedStudentsCount);
         $coveragePercentage = $totalActiveStudents > 0
@@ -92,53 +104,33 @@ class OperationalDashboardService
             : 0.0;
 
         // 4. Distribution Overview Metrics
-        $totalPlacementsCount = (clone $assignmentQuery)->count();
+        $totalPlacementsCount = $assignmentRows->count();
         $activeRotationsCount = count(array_unique($activeVersions->pluck('rotation_id')->toArray()));
         
-        $activeBlocksCount = RotationBlock::whereIn('id', function ($q) use ($versionIds) {
-            $q->select('rotation_block_id')
-              ->from('student_clinical_assignments')
-              ->whereIn('distribution_version_id', $versionIds);
-        })->count();
+        $activeBlocksCount = $assignmentRows->pluck('rotation_block_id')->unique()->count();
 
         $latestPublishedAt = $activeVersions->max('updated_at')?->toIso8601String();
 
         // 5. Department Distribution Aggregations
-        $deptRows = (clone $assignmentQuery)
-            ->whereNotNull('department_id')
-            ->selectRaw('department_id, COUNT(*) as assigned_count')
-            ->groupBy('department_id')
-            ->get();
-
-        $deptIds = $deptRows->pluck('department_id')->toArray();
-        $departments = Department::whereIn('id', $deptIds)->get()->keyBy('id');
-
         $departmentDist = [];
-        foreach ($deptRows as $row) {
-            $dept = $departments->get($row->department_id);
-            if (!$dept) continue;
-
+        foreach ($assignmentRows->whereNotNull('department_id')->groupBy('department_id') as $departmentId => $rows) {
+            $row = $rows->first();
             $sharePct = $totalPlacementsCount > 0
-                ? round(($row->assigned_count / $totalPlacementsCount) * 100, 1)
+                ? round(($rows->count() / $totalPlacementsCount) * 100, 1)
                 : 0.0;
 
             $departmentDist[] = [
-                'department_id'    => $dept->id,
-                'name_ar'          => $dept->name_ar,
-                'name_en'          => $dept->name_en,
-                'assigned_count'   => (int) $row->assigned_count,
+                'department_id'    => (int) $departmentId,
+                'name_ar'          => $row->department_name_ar,
+                'name_en'          => $row->department_name_en,
+                'assigned_count'   => $rows->count(),
                 'share_percentage' => $sharePct,
             ];
         }
 
         // 6. Training Site Capacity Utilization Aggregations
-        $siteRows = (clone $assignmentQuery)
-            ->selectRaw('training_site_id, COUNT(*) as assigned_count')
-            ->groupBy('training_site_id')
-            ->get();
-
-        $siteIds = $siteRows->pluck('training_site_id')->toArray();
-        $sites = TrainingSite::whereIn('id', $siteIds)->get()->keyBy('id');
+        $siteRows = $assignmentRows->whereNotNull('training_site_id')->groupBy('training_site_id');
+        $siteIds = $siteRows->keys()->all();
 
         $rotationIds = array_unique($activeVersions->pluck('rotation_id')->toArray());
         $capacityRules = SiteCapacityRule::whereIn('site_id', $siteIds)
@@ -150,14 +142,12 @@ class OperationalDashboardService
         $sitesNearCapacity = 0;
         $sitesOverCapacity = 0;
 
-        foreach ($siteRows as $row) {
-            $site = $sites->get($row->training_site_id);
-            if (!$site) continue;
-
-            $assigned = (int) $row->assigned_count;
+        foreach ($siteRows as $siteId => $rows) {
+            $row = $rows->first();
+            $assigned = $rows->count();
             
             // Sum max capacity limit across active rotations for this site
-            $siteRules = $capacityRules->get($site->id);
+            $siteRules = $capacityRules->get($siteId);
             $capacityLimit = $siteRules ? $siteRules->sum('max_students') : null;
 
             $statusData = $this->calculateCapacityStatus($assigned, $capacityLimit);
@@ -169,9 +159,9 @@ class OperationalDashboardService
             }
 
             $siteCapacity[] = [
-                'site_id'                => $site->id,
-                'name_ar'                => $site->name_ar,
-                'name_en'                => $site->name_en,
+                'site_id'                => (int) $siteId,
+                'name_ar'                => $row->site_name_ar,
+                'name_en'                => $row->site_name_en,
                 'capacity_limit'         => $capacityLimit,
                 'assigned_count'         => $assigned,
                 'available_capacity'     => $statusData['available'],
@@ -181,34 +171,23 @@ class OperationalDashboardService
         }
 
         // 7. Supervisor Workload Summary Aggregations
-        $supRows = (clone $assignmentQuery)
-            ->whereNotNull('supervisor_id')
-            ->selectRaw('supervisor_id, COUNT(*) as assigned_count')
-            ->groupBy('supervisor_id')
-            ->get();
-
-        $supIds = $supRows->pluck('supervisor_id')->toArray();
-        $supervisors = Person::whereIn('id', $supIds)->get()->keyBy('id');
-
         $supervisorWorkload = [];
         $inactiveSupervisorAssignments = 0;
 
-        foreach ($supRows as $row) {
-            $person = $supervisors->get($row->supervisor_id);
-            if (!$person) continue;
-
-            $assigned = (int) $row->assigned_count;
-            $maxStudents = $person->max_students;
+        foreach ($assignmentRows->whereNotNull('supervisor_id')->groupBy('supervisor_id') as $supervisorId => $rows) {
+            $row = $rows->first();
+            $assigned = $rows->count();
+            $maxStudents = $row->supervisor_max_students;
             $workloadWarning = $maxStudents !== null && $assigned >= $maxStudents;
 
-            if (!$person->is_active) {
+            if (! $row->supervisor_is_active) {
                 $inactiveSupervisorAssignments += $assigned;
             }
 
             $supervisorWorkload[] = [
-                'supervisor_id'    => $person->id,
-                'full_name_ar'     => $person->full_name_ar,
-                'full_name_en'     => $person->full_name_en,
+                'supervisor_id'    => (int) $supervisorId,
+                'full_name_ar'     => $row->supervisor_name_ar,
+                'full_name_en'     => $row->supervisor_name_en,
                 'assigned_count'   => $assigned,
                 'max_students'     => $maxStudents,
                 'workload_warning' => $workloadWarning,
@@ -216,7 +195,7 @@ class OperationalDashboardService
         }
 
         // Unsupervised assignments count
-        $unsupervisedCount = (clone $assignmentQuery)->whereNull('supervisor_id')->count();
+        $unsupervisedCount = $assignmentRows->whereNull('supervisor_id')->count();
 
         // 8. Construct Response DTO
         return DashboardSummaryDTO::toArray(

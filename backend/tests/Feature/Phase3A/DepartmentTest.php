@@ -31,13 +31,14 @@ class DepartmentTest extends TestCase
 
     public function test_can_list_departments()
     {
+        $baseline = Department::count();
         Department::factory()->count(5)->create();
 
         $response = $this->actingAs($this->admin)->getJson('/api/v1/departments');
 
         $response->assertStatus(200)
             ->assertJsonPath('success', true)
-            ->assertJsonCount(5, 'data');
+            ->assertJsonCount($baseline + 5, 'data');
     }
 
     public function test_can_create_department()

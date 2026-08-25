@@ -168,6 +168,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('student-course-enrollments', [\App\Http\Controllers\Api\V1\StudentCourseEnrollmentController::class, 'index'])->middleware('permission:students.view');
         Route::post('student-course-enrollments', [\App\Http\Controllers\Api\V1\StudentCourseEnrollmentController::class, 'store'])->middleware('permission:courses.manage');
         Route::get('grade-entries', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'index'])->middleware('permission:grades.view');
+        Route::get('grade-entries/roster', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'roster'])->middleware('permission:grades.view');
         Route::get('grade-entries/clinical-assessment-summary', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'clinicalAssessmentSummary'])->middleware('permission:grades.view');
         Route::post('grade-entries', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'store'])->middleware('permission:grades.create');
         Route::post('grade-entries/batch', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'batchStore'])->middleware('permission:grades.create');
@@ -182,6 +183,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('clinical-assessments', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'store'])->middleware('permission:assessment.create');
         Route::post('clinical-assessments/{clinicalAssessment}/submit', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'submit'])->middleware('permission:assessment.submit');
         Route::post('clinical-assessments/{clinicalAssessment}/approve', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'approve'])->middleware('permission:assessment.approve');
+        Route::post('clinical-assessment-batches/{batchUuid}/approve', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'approveBatch'])->middleware('permission:assessment.approve');
+        Route::post('clinical-assessment-batches/{batchUuid}/return', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'returnBatch'])->middleware('permission:assessment.approve');
         Route::get('advising-records', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'index'])->middleware('permission:advising.view');
         Route::get('advising-records/{advisingRecord}', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'show'])->middleware('permission:advising.view');
         Route::post('advising-records', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'store'])->middleware('permission:advising.manage');
@@ -458,10 +461,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         // Keep static user paths before apiResource('users') so "rta-list"
         // can never be consumed by the /users/{user} model-binding route.
-        Route::middleware(['permission:students.view'])->group(function () {
-            Route::get('users/rta-list', [\App\Http\Controllers\Api\V1\UserController::class, 'rtaList']);
-            Route::put('users/{user}/assign-levels', [\App\Http\Controllers\Api\V1\UserController::class, 'assignLevels']);
-        });
+        Route::get('users/rta-list', [\App\Http\Controllers\Api\V1\UserController::class, 'rtaList'])
+            ->middleware('permission:rta_assignments.manage');
+        Route::put('users/{user}/assign-levels', [\App\Http\Controllers\Api\V1\UserController::class, 'assignLevels'])
+            ->middleware('permission:rta_assignments.manage');
 
         // Technical administration. These endpoints intentionally live only
         // under /admin; the UI routes use the same canonical API namespace.
@@ -586,6 +589,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('operational/my-supervisor-assessments', [\App\Http\Controllers\Api\V1\SupervisorController::class, 'storeAssessment'])
             ->middleware('permission:assessment.create')
             ->name('operational.my-supervisor-assessments');
+        Route::post('operational/my-supervisor-assessment-batches', [\App\Http\Controllers\Api\V1\SupervisorController::class, 'storeAssessmentBatch'])
+            ->middleware('permission:assessment.create')
+            ->name('operational.my-supervisor-assessment-batches');
 
         // GET: admin view of any supervisor's current assignments
         Route::get('operational/supervisors/{person}/assignments', [\App\Http\Controllers\Api\V1\SupervisorController::class, 'supervisorAssignments'])

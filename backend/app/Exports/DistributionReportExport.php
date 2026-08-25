@@ -26,6 +26,30 @@ class DistributionReportExport implements FromQuery, WithHeadings, WithMapping, 
         return $this->query;
     }
 
+    public function csvRows(): array
+    {
+        return (clone $this->query)
+            ->without(['student', 'rotationBlock', 'trainingSite', 'department', 'supervisor'])
+            ->leftJoin('rotations', 'rotation_blocks.rotation_id', '=', 'rotations.id')
+            ->leftJoin('departments', 'student_clinical_assignments.department_id', '=', 'departments.id')
+            ->leftJoin('training_sites', 'student_clinical_assignments.training_site_id', '=', 'training_sites.id')
+            ->leftJoin('people as supervisors', 'student_clinical_assignments.supervisor_id', '=', 'supervisors.id')
+            ->addSelect([
+                'students.university_number as export_student_number', 'students.full_name_en as export_student_name_en',
+                'students.full_name_ar as export_student_name_ar', 'rotations.name as export_rotation_name',
+                'rotation_blocks.block_code as export_block_code', 'rotation_blocks.from_week as export_from_week',
+                'rotation_blocks.to_week as export_to_week', 'departments.name_en as export_department_name',
+                'training_sites.name_en as export_site_name', 'supervisors.full_name_en as export_supervisor_name_en',
+                'supervisors.full_name_ar as export_supervisor_name_ar',
+            ])->get()->map(fn ($row) => [
+                $row->export_student_number ?? 'N/A', $row->export_student_name_en ?? '', $row->export_student_name_ar ?? '',
+                $row->export_rotation_name ?? 'N/A', $row->export_block_code ?? 'N/A',
+                'Week '.($row->export_from_week ?? 1), 'Week '.($row->export_to_week ?? 4),
+                $row->export_department_name ?? 'N/A', $row->export_site_name ?? 'N/A',
+                $row->export_supervisor_name_en ?: ($row->export_supervisor_name_ar ?: 'Unassigned'),
+            ])->all();
+    }
+
     public function headings(): array
     {
         return [

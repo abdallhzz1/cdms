@@ -29,6 +29,9 @@ interface StudentDoc {
   fileType?: string;
 }
 
+function ProfileClinicalField({label,value}:{label:string;value:string}){return <div className="rounded-xl bg-slate-50 px-3 py-2"><p className="text-[10px] font-bold text-slate-400">{label}</p><p className="mt-1 truncate text-xs font-black text-slate-700">{value}</p></div>}
+function attendanceStatusLabel(status:string,locale:string){const labels:Record<string,[string,string]>={present:['حاضر','Present'],absent:['غائب','Absent'],late:['متأخر','Late'],excused:['مبرر','Excused']};const value=labels[status]??[status,status];return value[locale==='ar'?0:1]}
+
 export function StudentProfilePage() {
   const { id: studentId } = useParams<{ id: string }>();
   const { locale } = useI18n();
@@ -110,7 +113,7 @@ export function StudentProfilePage() {
   // Enrollments & Grades
   const { data: enrollments = [] } = useQuery({
     queryKey: ['student-enrollments', studentId],
-    queryFn: () => apiFetch<any[]>(`/student-course-enrollments?student_id=${studentId}`),
+    queryFn: () => apiFetch<any[]>(`/student-course-enrollments?student_id=${studentId}&include_grades=1&per_page=100`),
     enabled: Boolean(studentId)
   });
 
@@ -319,9 +322,11 @@ export function StudentProfilePage() {
   const stats = {
     present: attendanceItems.filter((r: any) => r.status === 'present').length,
     absent: attendanceItems.filter((r: any) => r.status === 'absent').length,
+    late: attendanceItems.filter((r: any) => r.status === 'late').length,
+    excused: attendanceItems.filter((r: any) => r.status === 'excused').length,
   };
   const totalSessions = attendanceItems.length;
-  const attendanceRate = totalSessions > 0 ? Math.round((stats.present / totalSessions) * 100) : 100;
+  const attendanceRate = totalSessions > 0 ? Math.round(((stats.present + stats.late + stats.excused) / totalSessions) * 100) : 100;
 
   const getLevelName = (lvl: string) => {
     if (lvl === 'fourth') return locale === 'ar' ? 'سنة رابعة' : '4th Year';
@@ -599,11 +604,11 @@ export function StudentProfilePage() {
               {enrollments.map((item: any) => (
                 <div key={item.id} className="py-3 flex justify-between items-center text-xs">
                   <div>
-                    <div className="font-bold text-slate-800">{item.course?.name || item.course_code}</div>
-                    <div className="text-slate-400 text-[11px]">{item.semester || 'الفصل الحالي'}</div>
+                    <div className="font-bold text-slate-800">{locale==='ar'?item.course?.name_ar:item.course?.name_en||item.course?.name_ar||item.course?.code}</div>
+                    <div className="text-slate-400 text-[11px]">{item.course?.code} · {item.academic_year?.code||'—'}</div>
                   </div>
                   <span className="font-bold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-lg">
-                    {item.final_score ? `${item.final_score}%` : (locale === 'ar' ? 'مسجل' : 'Enrolled')}
+                    {item.grade_entry?.score!=null ? `${Number(item.grade_entry.score).toFixed(1)} / ${Number(item.grade_entry.max_score||100).toFixed(0)}` : (locale === 'ar' ? 'مسجل' : 'Enrolled')}
                   </span>
                 </div>
               ))}
@@ -623,18 +628,12 @@ export function StudentProfilePage() {
             <EmptyState title={locale === 'ar' ? 'لا يوجد توزيع سريري موثق حالياً' : 'No Clinical Rotations'} />
           ) : (
             <div className="space-y-3">
-              {clinicalItems.map((item: any, idx: number) => (
-                <div key={idx} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-xs space-y-2">
-                  <div className="flex justify-between font-bold text-slate-800">
-                    <span>{item.department_name || item.group_name}</span>
-                    <span className="text-teal-700 font-semibold">{item.hospital_name || 'مستشفى الخليل'}</span>
-                  </div>
-                  <div className="text-slate-500 flex gap-4 text-[11px]">
-                    <span>{locale === 'ar' ? 'المشرف:' : 'Supervisor:'} {item.supervisor_name || '—'}</span>
-                    <span>{locale === 'ar' ? 'الفترة:' : 'Dates:'} {item.start_date} إلى {item.end_date}</span>
-                  </div>
-                </div>
-              ))}
+              {clinicalItems.map((item: any) => {const block=item.block||item.rotation_block;const rotation=item.rotation||block?.rotation||item.distribution_version?.rotation;const course=item.course||rotation?.course;const supervisor=locale==='ar'?item.supervisor?.full_name_ar:item.supervisor?.full_name_en||item.supervisor?.full_name_ar;const site=locale==='ar'?item.training_site?.name_ar:item.training_site?.name_en||item.training_site?.name_ar;const department=locale==='ar'?item.department?.name_ar:item.department?.name_en||item.department?.name_ar;const group=item.group?.name||item.subgroup?.group?.name||item.student_subgroup?.group?.name;const subgroup=item.subgroup?.name||item.student_subgroup?.name;return (
+                <article key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-xs shadow-sm">
+                  <header className="flex flex-col gap-2 border-b border-teal-100 bg-teal-50/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h4 className="font-black text-slate-900">{locale==='ar'?course?.name_ar:course?.name_en||course?.name_ar||rotation?.name||'—'}</h4><p className="mt-1 text-[11px] font-bold text-teal-700">{course?.code||rotation?.code||'—'} · {item.academic_year?.code||rotation?.academic_year?.code||'—'}</p></div><span className="w-fit rounded-xl bg-white px-3 py-1 font-black text-teal-700">{[group,subgroup].filter(Boolean).join(' / ')||(locale==='ar'?'دون مجموعة':'No group')}</span></header>
+                  <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4"><ProfileClinicalField label={locale==='ar'?'المستشفى':'Hospital'} value={site||'—'}/><ProfileClinicalField label={locale==='ar'?'المشرف السريري':'Clinical supervisor'} value={supervisor||'—'}/><ProfileClinicalField label={locale==='ar'?'الفترة':'Period'} value={block?.from_week&&block?.to_week?(locale==='ar'?`الأسبوع ${block.from_week}–${block.to_week}`:`Weeks ${block.from_week}–${block.to_week}`):block?.block_code||'—'}/><ProfileClinicalField label={locale==='ar'?'القسم':'Department'} value={department||'—'}/></div>
+                </article>
+              )})}
             </div>
           )}
         </div>
@@ -657,16 +656,9 @@ export function StudentProfilePage() {
           ) : (
             <div className="divide-y divide-slate-100">
               {attendanceItems.map((item: any) => (
-                <div key={item.id} className="py-2.5 flex justify-between items-center text-xs">
-                  <div>
-                    <span className="font-bold text-slate-800">{item.session_date || item.date}</span>
-                    <span className="text-slate-400 text-[11px] block">{item.department || 'التدريب السريري'}</span>
-                  </div>
-                  <span className={`px-2.5 py-0.5 rounded-md font-bold text-[11px] ${
-                    item.status === 'present' ? 'bg-teal-50 text-teal-700' : 'bg-red-50 text-red-700'
-                  }`}>
-                    {item.status === 'present' ? (locale === 'ar' ? 'حاضر' : 'Present') : (locale === 'ar' ? 'غائب' : 'Absent')}
-                  </span>
+                <div key={item.id} className="flex flex-col gap-3 py-3 text-xs sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0"><span className="font-bold text-slate-800">{String(item.session?.session_date||'—').slice(0,10)} · {item.session?.title||''}</span><span className="mt-1 block text-[11px] text-slate-500">{locale==='ar'?item.session?.rotation_block?.rotation?.course?.name_ar:item.session?.rotation_block?.rotation?.course?.name_en||item.session?.rotation_block?.rotation?.course?.name_ar||'—'} · {locale==='ar'?item.session?.training_site?.name_ar:item.session?.training_site?.name_en||item.session?.training_site?.name_ar||'—'}</span>{item.excuse_note&&<span className="mt-1 block text-[10px] text-slate-400">{item.excuse_note}</span>}</div>
+                  <div className="flex items-center gap-2"><span className="text-[10px] text-slate-400">{item.recorder?.name||''}</span><span className={`rounded-lg px-2.5 py-1 text-[11px] font-bold ${item.status==='absent'?'bg-red-50 text-red-700':'bg-teal-50 text-teal-700'}`}>{attendanceStatusLabel(item.status,locale)}</span></div>
                 </div>
               ))}
             </div>

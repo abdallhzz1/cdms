@@ -41,6 +41,7 @@ class AcademicYearTest extends TestCase
 
     public function test_can_list_academic_years()
     {
+        $baseline = AcademicYear::count();
         AcademicYear::factory()->count(3)->create();
 
         $response = $this->actingAs($this->admin)
@@ -48,7 +49,7 @@ class AcademicYearTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJsonPath('success', true)
-            ->assertJsonCount(3, 'data');
+            ->assertJsonCount($baseline + 3, 'data');
     }
 
     public function test_can_create_academic_year()
@@ -76,7 +77,7 @@ class AcademicYearTest extends TestCase
         $old = AcademicYear::factory()->create(['is_current' => true, 'code' => '2025/2026']);
         
         $payload = [
-            'code' => '2026/2027',
+            'code' => '2036/2037',
             'start_date' => '2026-09-01',
             'end_date' => '2027-08-31',
             'status' => 'active',
@@ -87,7 +88,7 @@ class AcademicYearTest extends TestCase
             ->postJson('/api/v1/academic-years', $payload);
 
         $response->assertStatus(201);
-        $this->assertDatabaseHas('academic_years', ['code' => '2026/2027', 'is_current' => 1]);
+        $this->assertDatabaseHas('academic_years', ['code' => '2036/2037', 'is_current' => 1]);
         $this->assertDatabaseHas('academic_years', ['code' => '2025/2026', 'is_current' => 0]);
     }
 

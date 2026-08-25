@@ -8,6 +8,8 @@ use App\Models\User;
 use App\Models\Role;
 use App\Models\ClinicalSupervisorProfile;
 use App\Models\Person;
+use App\Models\Course;
+use App\Models\Student;
 use App\Services\SecurityAuditService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -351,6 +353,9 @@ class UserController extends Controller
      */
     public function assignLevels(Request $request, User $user)
     {
+        if (! $user->hasRole('RTA')) {
+            return ApiResponse::error('This user does not have the RTA role.', [], [], 422);
+        }
         $validated = $request->validate([
             'assigned_levels' => 'nullable|array',
             'assigned_levels.*' => 'string|in:fourth,fifth,sixth',
@@ -358,6 +363,9 @@ class UserController extends Controller
 
         $user->assigned_levels = !empty($validated['assigned_levels']) ? $validated['assigned_levels'] : null;
         $user->save();
+        $this->audit->record('rta.cohorts_assigned', User::class, $user->id, [
+            'assigned_levels' => $user->assigned_levels ?? [],
+        ]);
 
         return ApiResponse::success(
             $user->only(['id', 'name', 'email', 'assigned_levels']),
@@ -374,13 +382,18 @@ class UserController extends Controller
             ->whereHas('roles', fn($q) => $q->where('code', 'RTA'))
             ->get(['id', 'name', 'email', 'assigned_levels', 'is_active']);
 
-        return ApiResponse::success($users->map(fn($u) => [
-            'id' => $u->id,
-            'name' => $u->name,
-            'email' => $u->email,
-            'assigned_levels' => $u->assigned_levels,
-            'is_active' => $u->is_active,
-            'roles' => $u->roles->pluck('code'),
-        ]));
+        return ApiResponse::success($users->map(function ($u) {
+            $levels = $u->assigned_levels ?? [];
+            return [
+                'id' => $u->id,
+                'name' => $u->name,
+                'email' => $u->email,
+                'assigned_levels' => $u->assigned_levels,
+                'is_active' => $u->is_active,
+                'roles' => $u->roles->pluck('code'),
+                'student_count' => empty($levels) ? 0 : Student::whereIn('academic_level', $levels)->whereIn('registration_status', ['active', 'registered'])->count(),
+                'course_count' => empty($levels) ? 0 : Course::whereIn('academic_level', $levels)->where('is_active', true)->count(),
+            ];
+        }));
     }
 }

@@ -64,6 +64,7 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   // Grades
   'grades.view': { ar: 'دخول شاشة سجل العلامات والاعتماد', isScreen: true },
   'grades.create': { ar: 'رصد وإدخال العلامات للمساقات' },
+  'rta_assignments.manage': { ar: 'إدارة تكليف مساعدي البحث والتدريس بالدفعات', isScreen: true },
   'grades.update': { ar: 'تعديل وتحديث مسودات العلامات' },
   'grades.lock': { ar: 'قفل العلامات ومنع التعديل' },
   'grades.approve': { ar: 'اعتماد العلامات رسمياً' },

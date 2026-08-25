@@ -162,18 +162,7 @@ class OperationalDistributionController extends Controller
     public function studentSchedule(Student $student): JsonResponse
     {
         $this->authorizeStudentAccess($student);
-        $assignments = StudentClinicalAssignment::where('student_id', $student->id)
-            ->whereHas('distributionVersion', function ($q) {
-                $q->where('status', 'published')->where('is_current', true);
-            })
-            ->with([
-                'rotationBlock',
-                'trainingSite',
-                'department',
-                'supervisor',
-                'distributionVersion.rotation.academicYear'
-            ])
-            ->get();
+        $assignments = $this->scheduleQueryService->getStudentSchedule($student);
 
         return response()->json([
             'success' => true,

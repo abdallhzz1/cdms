@@ -16,7 +16,9 @@ class AuditLogControllerTest extends TestCase
     private function userWithAuditPermission(): User
     {
         $role = Role::factory()->create();
-        $permission = Permission::factory()->create(['code' => 'audit.view']);
+        $permission = Permission::firstOrCreate(['code' => 'audit.view'], [
+            'module' => 'Security', 'action' => 'VIEW_AUDIT', 'description_key' => 'permissions.audit_view.description',
+        ]);
         $role->permissions()->attach($permission->id, ['scope_type' => 'global']);
         $user = User::factory()->create();
         $user->roles()->attach($role->id, ['scope_type' => 'global']);

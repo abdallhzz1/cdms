@@ -7,6 +7,7 @@ use App\Models\StudentClinicalAssignment;
 use App\Models\TrainingSite;
 use App\Models\SiteCapacityRule;
 use App\Models\Person;
+use App\Models\Student;
 use App\Services\Distribution\CurrentDistributionResolver;
 use App\Services\Distribution\DistributionApprovalService;
 use Illuminate\Database\Eloquent\Builder;
@@ -34,7 +35,7 @@ class OperationalReportService
         return StudentClinicalAssignment::where('distribution_version_id', $versionId)
             ->with([
                 'student',
-                'rotationBlock',
+                'rotationBlock.rotation',
                 'trainingSite',
                 'department',
                 'supervisor'
@@ -83,7 +84,7 @@ class OperationalReportService
         
         // Deterministic sort: block from_week ASC, student name ASC
         return $query->join('rotation_blocks', 'student_clinical_assignments.rotation_block_id', '=', 'rotation_blocks.id')
-                     ->join('people as students', 'student_clinical_assignments.student_id', '=', 'students.id')
+                     ->join('students', 'student_clinical_assignments.student_id', '=', 'students.id')
                      ->orderBy('rotation_blocks.from_week', 'asc')
                      ->orderBy('students.full_name_ar', 'asc')
                      ->select('student_clinical_assignments.*');
@@ -99,7 +100,7 @@ class OperationalReportService
         $query = $this->applyFilters($query, $filters);
         
         return $query->join('rotation_blocks', 'student_clinical_assignments.rotation_block_id', '=', 'rotation_blocks.id')
-                     ->join('people as students', 'student_clinical_assignments.student_id', '=', 'students.id')
+                     ->join('students', 'student_clinical_assignments.student_id', '=', 'students.id')
                      ->orderBy('rotation_blocks.from_week', 'asc')
                      ->orderBy('students.full_name_ar', 'asc')
                      ->select('student_clinical_assignments.*');
@@ -206,7 +207,7 @@ class OperationalReportService
         $assignedStudentIds = $assignments->pluck('student_id')->unique()->toArray();
         $unassignedIds = $this->approvalService->getUnassignedStudentIds($version, $assignedStudentIds);
         
-        $query = Person::whereIn('id', $unassignedIds);
+        $query = Student::whereIn('id', $unassignedIds);
 
         if (!empty($filters['search'])) {
             $search = '%' . $filters['search'] . '%';

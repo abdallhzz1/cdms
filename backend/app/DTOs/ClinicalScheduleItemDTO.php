@@ -22,6 +22,7 @@ class ClinicalScheduleItemDTO
         $rotation = $block?->rotation;
         $student = $assignment->student;
         $course = $rotation?->course;
+        $academicYear = $rotation?->academicYear;
         $subgroup = $assignment->studentSubgroup;
         $group = $subgroup?->group;
         $site = $assignment->trainingSite;
@@ -76,6 +77,11 @@ class ClinicalScheduleItemDTO
                 'code' => $course->code,
                 'name_ar' => $course->name_ar,
                 'name_en' => $course->name_en,
+            ] : null,
+            'academic_year' => $academicYear ? [
+                'id' => $academicYear->id,
+                'code' => $academicYear->code,
+                'name' => $academicYear->name,
             ] : null,
             'block' => $block ? [
                 'id' => $block->id,

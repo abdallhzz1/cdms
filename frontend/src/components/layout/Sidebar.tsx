@@ -35,7 +35,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
   const isClinicalSupervisor = userRoles.includes('CLINICAL_SUPERVISOR');
   const isDeptHead = userRoles.includes('DEPARTMENT_HEAD');
   const isClinicalDirector = userRoles.includes('CLINICAL_DIRECTOR');
-  const isRTA = userRoles.includes('RTA');
 
   const getNavigation = (): NavSection[] => {
     // If user is purely a Supervisor and has no administrative roles
@@ -48,6 +47,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
             { path: '/supervisor/portal', label: locale === 'ar' ? 'مساحة عملي السريرية' : 'My Clinical Workspace', icon: Users, permission: 'supervisor.workspace.view' },
             { path: '/supervisor/portal?tab=attendance', label: locale === 'ar' ? 'رصد حضور مجموعاتي' : 'My Groups Attendance', icon: Clock, customCheck: () => can('supervisor.workspace.view') && can('attendance.record') },
             { path: '/supervisor/portal?tab=assessments', label: locale === 'ar' ? 'التقييم السريري (20)' : 'Clinical Assessment (/20)', icon: ClipboardCheck, customCheck: () => can('supervisor.workspace.view') && can('assessment.create') },
+            { path: '/supervisor/portal?tab=group_assessments', label: locale === 'ar' ? 'تقييم مجموعة كاملة' : 'Assess Full Group', icon: Users, customCheck: () => can('supervisor.workspace.view') && can('assessment.create') },
             { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: GraduationCap, permission: 'advising.view' },
           ]
         },
@@ -92,7 +92,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           { path: '/dept-heads/me', label: locale === 'ar' ? 'بروفايلي الأكاديمي والـ Score' : 'My Academic Profile', icon: GraduationCap, customCheck: () => isDeptHead || isClinicalDirector },
           { path: '/department-heads', label: locale === 'ar' ? 'دليل رؤساء الأقسام' : 'Department Heads Directory', icon: Users, permission: 'people.view' },
           { path: '/clinical-supervisors', label: locale === 'ar' ? 'المستشفيات والمشرفون' : 'Hospitals & Supervisors', icon: ShieldCheck, permission: 'people.view' },
-          { path: '/rta-assignments', label: locale === 'ar' ? 'تخصيص دفعات مساعدي البحث والتدريس (TA)' : 'Assign TA Cohorts', icon: Users, customCheck: () => can('students.view') && (isClinicalDirector || isDeptHead || isRTA || isSuperAdmin) },
+          { path: '/rta-assignments', label: locale === 'ar' ? 'تكليف مساعدي البحث والتدريس' : 'RTA Cohort Assignments', icon: Users, permission: 'rta_assignments.manage' },
         ]
       },
       {

@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\Models\Course;
+use App\Observers\BusinessRecordAuditObserver;
 use App\Services\AuthorizationService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -25,6 +27,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Course::observe(BusinessRecordAuditObserver::class);
         // The single Gate every permission check ultimately goes through —
         // EnsurePermission middleware and any future controller/policy code
         // call Gate::allows('permission', [$code]) rather than

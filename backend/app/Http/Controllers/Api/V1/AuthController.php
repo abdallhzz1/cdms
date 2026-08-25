@@ -51,7 +51,9 @@ class AuthController extends Controller
         // Regenerate the session ID on privilege escalation (anonymous ->
         // authenticated) to prevent session fixation — standard Laravel
         // guidance for any custom login flow.
-        $request->session()->regenerate();
+        if ($request->hasSession()) {
+            $request->session()->regenerate();
+        }
 
         /** @var User $user */
         $user = $request->user();
@@ -63,8 +65,10 @@ class AuthController extends Controller
     {
         Auth::guard('web')->logout();
 
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
+        if ($request->hasSession()) {
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
 
         return ApiResponse::success(message: 'Logged out successfully.');
     }
