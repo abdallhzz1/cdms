@@ -126,6 +126,8 @@ class AdministrativeWorkflowTest extends TestCase
         $this->postJson('/api/v1/correspondence', $payload + ['assigned_to' => $rta->id])->assertCreated();
 
         $lookup = $this->getJson('/api/v1/users/lookup?purpose=correspondence')->assertOk();
+        $this->assertIsArray($lookup->json('data'));
+        $this->assertTrue(array_is_list($lookup->json('data')));
         $ids = collect($lookup->json('data'))->pluck('id');
         $this->assertFalse($ids->contains($secondSupervisor->id));
         $this->assertTrue($ids->contains($rta->id));

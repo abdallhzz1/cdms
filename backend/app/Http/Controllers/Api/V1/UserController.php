@@ -47,7 +47,9 @@ class UserController extends Controller
 
         if ($request->query('purpose') === 'correspondence') {
             $sender = $request->user()->loadMissing('roles');
-            $users = $users->filter(fn (User $recipient) => $this->correspondenceRecipients->canSend($sender, $recipient));
+            $users = $users
+                ->filter(fn (User $recipient) => $this->correspondenceRecipients->canSend($sender, $recipient))
+                ->values();
         }
 
         $result = $users->map(function ($u) {
