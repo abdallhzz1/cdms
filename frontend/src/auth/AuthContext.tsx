@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ApiError } from '@/api/client';
+import { AUTH_SESSION_EXPIRED_EVENT } from '@/api/client';
 import { fetchCurrentUser, login as loginRequest, logout as logoutRequest, type AuthenticatedUser, type Permission } from '@/api/auth';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface AuthContextValue {
   user: AuthenticatedUser | null;
@@ -26,6 +28,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -48,6 +51,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    const expireSession = () => {
+      queryClient.clear();
+      setUser(null);
+      setIsLoading(false);
+    };
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expireSession);
+    return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, expireSession);
+  }, [queryClient]);
+
   const login = useCallback(async (email: string, password: string) => {
     const authenticated = await loginRequest(email, password);
     setUser(authenticated);
@@ -61,9 +74,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     } finally {
+      queryClient.clear();
       setUser(null);
     }
-  }, []);
+  }, [queryClient]);
 
   const can = useCallback(
     (permissionCode: string) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { apiFetch, ApiError } from './client';
+import { apiFetch, ApiError, AUTH_SESSION_EXPIRED_EVENT } from './client';
 
 describe('apiFetch', () => {
   afterEach(() => {
@@ -84,5 +84,18 @@ describe('apiFetch', () => {
     expect(calls.some((url) => url.includes('/sanctum/csrf-cookie'))).toBe(true);
 
     document.cookie = 'XSRF-TOKEN=; Max-Age=0';
+  });
+
+  it('announces an expired authenticated session on a protected 401 response', async () => {
+    const listener = vi.fn();
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, listener);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ success: false, data: null, message: 'Unauthenticated.', errors: {}, meta: {} }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } },
+    )));
+
+    await expect(apiFetch('/operational/clinical-schedule')).rejects.toMatchObject({ status: 401 });
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, listener);
   });
 });

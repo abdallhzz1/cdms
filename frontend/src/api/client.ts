@@ -46,6 +46,7 @@ export function getApiBaseUrl(): string {
 }
 
 export const API_BASE_URL: string = '/api/v1';
+export const AUTH_SESSION_EXPIRED_EVENT = 'cdms:auth-session-expired';
 
 export function apiUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) {
@@ -132,6 +133,9 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
       ? envelope.message
       : `Request failed with status ${response.status}.`;
     const errors = envelope && 'errors' in envelope ? envelope.errors : {};
+    if (response.status === 401 && path !== '/auth/me' && path !== '/auth/login') {
+      window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
+    }
     throw new ApiError(message, response.status, errors);
   }
 
