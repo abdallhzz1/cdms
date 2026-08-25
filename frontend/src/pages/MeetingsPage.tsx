@@ -1,238 +1,31 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { apiFetch } from '@/api/client';
+import { ArrowLeft, ArrowRight, CalendarDays, CheckSquare2, Plus, Search } from 'lucide-react';
+import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { Button } from '@/components/ui/Button';
-import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { LoadingState } from '@/components/ui/LoadingState';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
-import { Calendar, Plus, CheckSquare, ChevronRight } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 
-interface Meeting {
-  id: number;
-  minutes_number: string;
-  meeting_type: string;
-  meeting_date: string;
-  location?: string | null;
-  chairperson?: string | null;
-  action_items_count: number;
-}
+type Meeting = { id: number; minutes_number: string; meeting_type: string; status: string; meeting_date: string; meeting_time?: string | null; location?: string | null; chairperson?: string | null; action_items_count: number; open_actions_count: number };
+const emptyForm = { minutes_number: '', meeting_type: 'مجلس الدائرة السريرية', status: 'scheduled', meeting_date: '', meeting_time: '', location: '', chairperson: '', attendees: '', absentees: '', agenda: '' };
+const fieldClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
 
 export function MeetingsPage() {
-  const { can } = useAuth();
-  const { locale, t } = useI18n();
-  const qc = useQueryClient();
-
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    minutes_number: '',
-    meeting_type: 'مجلس الدائرة السريرية',
-    meeting_date: '',
-    location: '',
-    chairperson: '',
-    agenda: '',
-  });
-
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['meetings'],
-    queryFn: () => apiFetch<any>('/meetings?per_page=50'),
-  });
-
-  const createMutation = useMutation({
-    mutationFn: (body: any) => apiFetch('/meetings', { method: 'POST', body }),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['meetings'] });
-      setIsModalOpen(false);
-      setFormData({
-        minutes_number: '',
-        meeting_type: 'مجلس الدائرة السريرية',
-        meeting_date: '',
-        location: '',
-        chairperson: '',
-        agenda: '',
-      });
-    },
-  });
-
-  if (!can('meetings.manage')) {
-    return <ErrorState title={t('state.forbidden.title')} message={t('state.forbidden.message')} />;
-  }
-
-  if (isLoading) return <LoadingState />;
-  if (isError) return <ErrorState onRetry={() => refetch()} />;
-
-  const meetings: Meeting[] = Array.isArray(data) ? data : data?.items || [];
-
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    createMutation.mutate({
-      ...formData,
-      location: formData.location || null,
-      chairperson: formData.chairperson || null,
-      agenda: formData.agenda || null,
-    });
-  };
-
-  return (
-    <div className="mx-auto max-w-[1200px] space-y-6 pb-12">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <PageHeader
-          title={locale === 'ar' ? 'الاجتماعات ومحاضر الجلسات' : 'Meetings & Minutes'}
-          description={locale === 'ar' ? 'توثيق اجتماعات الدائرة السريرية ومتابعة القرارات والتكليفات الصادرة' : 'Record clinical department meetings, minutes, and track resulting decisions'}
-        />
-
-        <Button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 shrink-0">
-          <Plus className="w-4 h-4" />
-          {locale === 'ar' ? 'تسجيل اجتماع جديد' : 'New Meeting'}
-        </Button>
-      </div>
-
-      {!meetings.length ? (
-        <EmptyState message={locale === 'ar' ? 'لا توجد اجتماعات مسجلة' : 'No meetings found'} />
-      ) : (
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{locale === 'ar' ? 'رقم المحضر' : 'Minutes #'}</TableHead>
-                <TableHead>{locale === 'ar' ? 'نوع الاجتماع' : 'Meeting Type'}</TableHead>
-                <TableHead>{locale === 'ar' ? 'تاريخ الاجتماع' : 'Date'}</TableHead>
-                <TableHead>{locale === 'ar' ? 'المكان ورئيس الجلسة' : 'Location & Chair'}</TableHead>
-                <TableHead className="text-center">{locale === 'ar' ? 'القرارات والمهام' : 'Action Items'}</TableHead>
-                <TableHead className="text-end">{locale === 'ar' ? 'التفاصيل' : 'Details'}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {meetings.map((m) => (
-                <TableRow key={m.id} className="hover:bg-slate-50 transition-colors">
-                  <TableCell>
-                    <Link to={`/meetings/${m.id}`} className="font-bold text-indigo-600 hover:underline flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-indigo-600 shrink-0"></span>
-                      <span>{m.minutes_number}</span>
-                    </Link>
-                  </TableCell>
-                  <TableCell className="font-semibold text-slate-800">{m.meeting_type}</TableCell>
-                  <TableCell className="text-slate-600 text-sm">
-                    <span className="flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                      {m.meeting_date}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-slate-600 text-xs">
-                    <div>{m.location || '—'}</div>
-                    {m.chairperson && <div className="text-slate-400 font-medium mt-0.5">{m.chairperson}</div>}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700">
-                      <CheckSquare className="w-3 h-3" />
-                      {m.action_items_count ?? 0}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-end">
-                    <Link
-                      to={`/meetings/${m.id}`}
-                      className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/50 hover:bg-indigo-50 px-3 py-1.5 rounded-xl transition-colors"
-                    >
-                      <span>{locale === 'ar' ? 'عرض المحضر' : 'View Minutes'}</span>
-                      <ChevronRight className="w-3.5 h-3.5 rtl:rotate-180" />
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
-      {/* Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 border-b border-slate-100 shrink-0">
-              <h3 className="font-bold text-lg text-slate-800">{locale === 'ar' ? 'تسجيل محضر اجتماع جديد' : 'New Meeting Minutes'}</h3>
-            </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'رقم المحضر المرجعي' : 'Minutes Reference Number'}</label>
-                <input
-                  required
-                  value={formData.minutes_number}
-                  onChange={e => setFormData({ ...formData, minutes_number: e.target.value })}
-                  placeholder={locale === 'ar' ? 'مثال: MTG-2026-08' : 'e.g. MTG-2026-08'}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'نوع الاجتماع' : 'Meeting Type'}</label>
-                  <input
-                    required
-                    value={formData.meeting_type}
-                    onChange={e => setFormData({ ...formData, meeting_type: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'تاريخ الاجتماع' : 'Date'}</label>
-                  <input
-                    required
-                    type="date"
-                    value={formData.meeting_date}
-                    onChange={e => setFormData({ ...formData, meeting_date: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'مكان الاجتماع' : 'Location'}</label>
-                  <input
-                    value={formData.location}
-                    onChange={e => setFormData({ ...formData, location: e.target.value })}
-                    placeholder={locale === 'ar' ? 'قاعة مجلس الكلية' : 'Dean Meeting Room'}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'رئيس الجلسة' : 'Chairperson'}</label>
-                  <input
-                    value={formData.chairperson}
-                    onChange={e => setFormData({ ...formData, chairperson: e.target.value })}
-                    placeholder={locale === 'ar' ? 'د. مدير الدائرة' : 'Dr. Director'}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'جدول الأعمال (Agenda)' : 'Agenda'}</label>
-                <textarea
-                  rows={3}
-                  value={formData.agenda}
-                  onChange={e => setFormData({ ...formData, agenda: e.target.value })}
-                  placeholder={locale === 'ar' ? 'بنود جدول الأعمال...' : 'Meeting agenda items...'}
-                  className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>
-                  {locale === 'ar' ? 'إلغاء' : 'Cancel'}
-                </Button>
-                <Button type="submit" isLoading={createMutation.isPending}>
-                  {locale === 'ar' ? 'حفظ الاجتماع' : 'Save Meeting'}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  const { can } = useAuth(); const { locale, t } = useI18n(); const ar = locale === 'ar'; const qc = useQueryClient();
+  const [open, setOpen] = useState(false); const [search, setSearch] = useState(''); const [status, setStatus] = useState(''); const [error, setError] = useState(''); const [form, setForm] = useState(emptyForm);
+  const qs = useMemo(() => { const p = new URLSearchParams({ per_page: '100' }); if (search.trim()) p.set('search', search.trim()); if (status) p.set('status', status); return p.toString(); }, [search, status]);
+  const { data = [], isLoading, isError, refetch } = useQuery({ queryKey: ['meetings', qs], queryFn: () => apiFetch<Meeting[]>(`/meetings?${qs}`) });
+  const create = useMutation({ mutationFn: () => apiFetch('/meetings', { method: 'POST', body: { ...form, meeting_time: form.meeting_time || null, location: form.location || null, chairperson: form.chairperson || null, attendees: form.attendees || null, absentees: form.absentees || null, agenda: form.agenda || null }}), onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['meetings'] }); setOpen(false); setForm(emptyForm); setError(''); }, onError: e => setError(e instanceof ApiError ? e.message : (ar ? 'تعذر حفظ الاجتماع.' : 'Unable to save meeting.')) });
+  if (!can('meetings.manage')) return <ErrorState title={t('state.forbidden.title')} message={t('state.forbidden.message')} />; if (isLoading) return <LoadingState />; if (isError) return <ErrorState onRetry={() => refetch()} />;
+  const label = (v: string) => ({ draft: ar ? 'مسودة' : 'Draft', scheduled: ar ? 'مجدول' : 'Scheduled', held: ar ? 'منعقد' : 'Held', minutes_draft: ar ? 'محضر قيد الإعداد' : 'Minutes draft', approved: ar ? 'محضر معتمد' : 'Approved', cancelled: ar ? 'ملغي' : 'Cancelled' }[v] || v);
+  return <div className="mx-auto max-w-[1280px] space-y-5 pb-12"><PageHeader title={ar ? 'الاجتماعات ومحاضر الجلسات' : 'Meetings and Minutes'} description={ar ? 'من الاجتماع المجدول إلى المحضر المعتمد، مع ربط القرارات مباشرة بالمهام والتكليفات.' : 'From scheduled meeting to approved minutes, with decisions linked directly to tasks.'}><Button onClick={() => setOpen(true)}><Plus className="me-2 h-4 w-4" />{ar ? 'اجتماع جديد' : 'New meeting'}</Button></PageHeader>
+    <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-[1fr_220px]"><label className="relative"><Search className="absolute start-3 top-3 h-4 w-4 text-slate-400" /><input value={search} onChange={e => setSearch(e.target.value)} className={`${fieldClass} ps-10`} placeholder={ar ? 'بحث برقم المحضر أو النوع أو جدول الأعمال...' : 'Search minutes, type, or agenda...'} /></label><select value={status} onChange={e => setStatus(e.target.value)} className={fieldClass}><option value="">{ar ? 'كل الحالات' : 'All statuses'}</option>{['scheduled','held','minutes_draft','approved','draft','cancelled'].map(x => <option key={x} value={x}>{label(x)}</option>)}</select></div>
+    {!data.length ? <EmptyState message={ar ? 'لا توجد اجتماعات مطابقة.' : 'No matching meetings.'} /> : <div className="grid gap-4 md:grid-cols-2">{data.map(m => <Link key={m.id} to={`/meetings/${m.id}`} className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-teal-200 hover:shadow-md"><div className="flex items-start justify-between gap-4"><div><span className="text-xs font-bold text-teal-700">{m.minutes_number}</span><h2 className="mt-1 font-bold text-slate-800">{m.meeting_type}</h2></div><span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700">{label(m.status)}</span></div><div className="mt-5 grid grid-cols-2 gap-3 text-xs text-slate-500"><span className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-teal-600" />{m.meeting_date}{m.meeting_time ? ` · ${m.meeting_time}` : ''}</span><span>{m.location || '—'}</span><span>{ar ? 'رئيس الجلسة:' : 'Chair:'} {m.chairperson || '—'}</span><span className="flex items-center gap-2"><CheckSquare2 className="h-4 w-4 text-teal-600" />{m.open_actions_count}/{m.action_items_count} {ar ? 'قيد المتابعة' : 'open'}</span></div><div className="mt-4 flex justify-end text-teal-700">{ar ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}</div></Link>)}</div>}
+    {open && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"><div className="max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-xl"><div className="border-b border-slate-100 p-5"><h2 className="font-bold text-slate-800">{ar ? 'تسجيل اجتماع ومحضر جديد' : 'Create meeting and minutes'}</h2><p className="mt-1 text-xs text-slate-500">{ar ? 'يمكن استكمال النقاش والقرارات ثم اعتماد المحضر من صفحة الاجتماع.' : 'Discussion and decisions can be completed and approved from the meeting page.'}</p></div><form onSubmit={(e: FormEvent) => { e.preventDefault(); create.mutate(); }} className="grid gap-4 p-5 sm:grid-cols-2"><label><span className="mb-1 block text-xs font-semibold text-slate-600">{ar ? 'رقم المحضر' : 'Minutes number'}</span><input required value={form.minutes_number} onChange={e => setForm({...form, minutes_number: e.target.value})} className={fieldClass} placeholder="MTG-2026-001" /></label><label><span className="mb-1 block text-xs font-semibold text-slate-600">{ar ? 'نوع الاجتماع' : 'Meeting type'}</span><input required value={form.meeting_type} onChange={e => setForm({...form, meeting_type: e.target.value})} className={fieldClass} /></label><label><span className="mb-1 block text-xs font-semibold text-slate-600">{ar ? 'التاريخ' : 'Date'}</span><input required type="date" value={form.meeting_date} onChange={e => setForm({...form, meeting_date: e.target.value})} className={fieldClass} /></label><label><span className="mb-1 block text-xs font-semibold text-slate-600">{ar ? 'الوقت' : 'Time'}</span><input type="time" value={form.meeting_time} onChange={e => setForm({...form, meeting_time: e.target.value})} className={fieldClass} /></label><label><span className="mb-1 block text-xs font-semibold text-slate-600">{ar ? 'المكان' : 'Location'}</span><input value={form.location} onChange={e => setForm({...form, location: e.target.value})} className={fieldClass} /></label><label><span className="mb-1 block text-xs font-semibold text-slate-600">{ar ? 'رئيس الجلسة' : 'Chairperson'}</span><input value={form.chairperson} onChange={e => setForm({...form, chairperson: e.target.value})} className={fieldClass} /></label><label><span className="mb-1 block text-xs font-semibold text-slate-600">{ar ? 'الحضور' : 'Attendees'}</span><textarea rows={3} value={form.attendees} onChange={e => setForm({...form, attendees: e.target.value})} className={fieldClass} /></label><label><span className="mb-1 block text-xs font-semibold text-slate-600">{ar ? 'المعتذرون/الغائبون' : 'Absentees'}</span><textarea rows={3} value={form.absentees} onChange={e => setForm({...form, absentees: e.target.value})} className={fieldClass} /></label><label className="sm:col-span-2"><span className="mb-1 block text-xs font-semibold text-slate-600">{ar ? 'جدول الأعمال' : 'Agenda'}</span><textarea rows={4} value={form.agenda} onChange={e => setForm({...form, agenda: e.target.value})} className={fieldClass} /></label>{error && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700 sm:col-span-2">{error}</p>}<div className="flex justify-end gap-2 border-t border-slate-100 pt-4 sm:col-span-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>{ar ? 'إلغاء' : 'Cancel'}</Button><Button type="submit" isLoading={create.isPending}>{ar ? 'حفظ الاجتماع' : 'Save meeting'}</Button></div></form></div></div>}
+  </div>;
 }

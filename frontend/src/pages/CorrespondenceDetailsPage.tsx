@@ -1,174 +1,44 @@
-import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiFetch } from '@/api/client';
+import { useState, type FormEvent } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, ArrowRight, CheckCircle2, Clock3, Download, Forward, ListChecks, Paperclip, RotateCcw, Trash2, XCircle } from 'lucide-react';
+import { apiFetch, apiUrl, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
-import { LoadingState } from '@/components/ui/LoadingState';
-import { ErrorState } from '@/components/ui/ErrorState';
 import { Button } from '@/components/ui/Button';
-import { ArrowRight, CheckCircle2, CornerUpLeft, Forward } from 'lucide-react';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { LoadingState } from '@/components/ui/LoadingState';
+
+type UserOption = { id: number; name: string; email: string; person?: { full_name_ar?: string; full_name_en?: string } };
+type Transition = { id: number; from_state?: string | null; to_state: string; reason?: string | null; created_at: string; user?: UserOption | null };
+type Attachment = { id: number; uploaded_by?: number | null; original_name: string; mime_type?: string | null; file_size: number; created_at: string; uploader?: UserOption | null };
+type Item = { id: number; reference_number: string; subject: string; summary?: string | null; direction: string; category: string; priority: string; status: string; correspondence_date: string; response_due_date?: string | null; sender_id: number; assigned_to?: number | null; sender?: UserOption | null; assignee?: UserOption | null; transitions?: Transition[]; attachments?: Attachment[] };
+const fieldClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
 
 export function CorrespondenceDetailsPage() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const { locale } = useI18n();
-  const queryClient = useQueryClient();
-
-  const { data: item, isLoading, isError, refetch } = useQuery({
-    queryKey: ['correspondence', id],
-    queryFn: () => apiFetch<any>(`/correspondence/${id}`),
-    enabled: Boolean(id)
-  });
-
-  const { data: allUsers } = useQuery({
-    queryKey: ['users-lookup'],
-    queryFn: () => apiFetch<any>('/users/lookup'),
-    enabled: Boolean(item)
-  });
-
-  const [forwardUserId, setForwardUserId] = useState('');
-
-  const forwardMutation = useMutation({
-    mutationFn: (userId: string) => apiFetch(`/correspondence/${id}/forward`, { method: 'POST', body: { assigned_to: userId } }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['correspondence', id] });
-      queryClient.invalidateQueries({ queryKey: ['inbox'] });
-      navigate('/inbox');
-    }
-  });
-
-  const approveMutation = useMutation({
-
-    mutationFn: () => apiFetch(`/correspondence/${id}/approve`, { method: 'POST' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['correspondence', id] });
-    }
-  });
-
-  const returnMutation = useMutation({
-    mutationFn: (reason: string) => apiFetch(`/correspondence/${id}/return`, { method: 'POST', body: { reason } }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['correspondence', id] });
-      queryClient.invalidateQueries({ queryKey: ['inbox'] });
-      navigate('/inbox');
-    }
-  });
-
-  if (isLoading) return <LoadingState />;
-  if (isError || !item) return <ErrorState onRetry={() => refetch()} />;
-
-  const isAssignedToMe = item.assigned_to === user?.id;
-  const isSender = item.sender_id === user?.id;
-  const isDraft = item.status === 'draft';
-
-  const handleForward = () => {
-    if (!forwardUserId) return alert(locale === 'ar' ? 'الرجاء اختيار شخص للتحويل إليه' : 'Please select a user');
-    forwardMutation.mutate(forwardUserId);
-  };
-
-  const handleReturn = () => {
-    const reason = prompt(locale === 'ar' ? 'سبب الإرجاع:' : 'Return reason:');
-    if (reason) returnMutation.mutate(reason);
-  };
-
-  return (
-    <div className="mx-auto max-w-[900px] space-y-6 pb-12">
-      <div className="flex items-center justify-between">
-        <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-indigo-600 transition-colors">
-          <ArrowRight className="w-4 h-4 rtl:rotate-180" />
-          {locale === 'ar' ? 'رجوع' : 'Back'}
-        </button>
-        <span className="px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full text-sm font-bold border border-indigo-100">
-          {item.reference_number}
-        </span>
-      </div>
-
-      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden relative">
-        {/* Header */}
-        <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/50">
-          <div className="flex flex-wrap gap-2 mb-3">
-            <span className="px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold text-slate-600">
-              {item.priority?.toUpperCase()}
-            </span>
-            <span className="px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold text-slate-600">
-              {item.status.toUpperCase()}
-            </span>
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">{item.subject}</h1>
-          <div className="flex items-center gap-6 text-sm text-slate-500">
-            <div>
-              <span className="font-semibold text-slate-700">{locale === 'ar' ? 'المرسل:' : 'From:'} </span>
-              {item.sender?.person?.full_name_ar || item.sender?.email}
-            </div>
-            <div>
-              <span className="font-semibold text-slate-700">{locale === 'ar' ? 'المُحال إليه:' : 'Assigned To:'} </span>
-              {item.assignee ? (item.assignee.person?.full_name_ar || item.assignee.email) : '—'}
-            </div>
-            <div>
-              <span className="font-semibold text-slate-700">{locale === 'ar' ? 'التاريخ:' : 'Date:'} </span>
-              {new Date(item.created_at).toLocaleString()}
-            </div>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="px-8 py-8">
-          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">{locale === 'ar' ? 'نص المراسلة / التفاصيل' : 'Details'}</h3>
-          <div className="prose prose-slate max-w-none text-slate-800 whitespace-pre-wrap">
-            {item.summary || (locale === 'ar' ? 'لا يوجد نص.' : 'No content.')}
-          </div>
-        </div>
-
-        {/* Actions for Assigned User */}
-        {isAssignedToMe && item.status !== 'closed' && (
-          <div className="px-8 py-6 border-t border-slate-100 bg-indigo-50/30 flex flex-col sm:flex-row gap-4 items-end">
-            <div className="flex-1 w-full">
-              <label className="block text-sm font-bold text-slate-700 mb-2">{locale === 'ar' ? 'تحويل إلى (للاعتماد التالي):' : 'Forward To:'}</label>
-              <select value={forwardUserId} onChange={e => setForwardUserId(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                <option value="">{locale === 'ar' ? '-- اختر المسؤول --' : '-- Select --'}</option>
-                {((Array.isArray(allUsers) ? allUsers : allUsers?.items) || []).map((u: any) => (
-                  <option key={u.id} value={u.id}>{u.person?.full_name_ar || u.email} ({u.roles?.[0]?.name})</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex gap-2 w-full sm:w-auto">
-              <Button onClick={handleForward} isLoading={forwardMutation.isPending} className="flex-1 flex items-center justify-center gap-2">
-                <Forward className="w-4 h-4" />
-                {locale === 'ar' ? 'تحويل' : 'Forward'}
-              </Button>
-              <Button variant="outline" onClick={handleReturn} isLoading={returnMutation.isPending} className="flex-1 flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 hover:text-red-700 border-red-200">
-                <CornerUpLeft className="w-4 h-4" />
-                {locale === 'ar' ? 'إرجاع' : 'Return'}
-              </Button>
-              <Button variant="outline" onClick={() => approveMutation.mutate()} isLoading={approveMutation.isPending} className="flex-1 flex items-center justify-center gap-2 text-emerald-600 hover:bg-emerald-50 border-emerald-200">
-                <CheckCircle2 className="w-4 h-4" />
-                {locale === 'ar' ? 'اعتماد نهائي' : 'Approve'}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Actions for Sender (Draft) */}
-        {isDraft && isSender && (
-          <div className="px-8 py-6 border-t border-slate-100 bg-amber-50/50 flex flex-col sm:flex-row gap-4 items-end">
-             <div className="flex-1 w-full">
-              <label className="block text-sm font-bold text-slate-700 mb-2">{locale === 'ar' ? 'إرسال إلى (المستلم):' : 'Send To:'}</label>
-              <select value={forwardUserId} onChange={e => setForwardUserId(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
-                <option value="">{locale === 'ar' ? '-- اختر المستلم --' : '-- Select --'}</option>
-                {((Array.isArray(allUsers) ? allUsers : allUsers?.data) || []).map((u: any) => (
-                  <option key={u.id} value={u.id}>{u.name || u.email}</option>
-                ))}
-              </select>
-            </div>
-            <Button onClick={handleForward} isLoading={forwardMutation.isPending} className="flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white w-full sm:w-auto">
-              <Forward className="w-4 h-4 rtl:rotate-180" />
-              {locale === 'ar' ? 'إرسال الطلب' : 'Send Request'}
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  const { id } = useParams(); const navigate = useNavigate(); const qc = useQueryClient();
+  const { user, can } = useAuth(); const { locale, t } = useI18n(); const ar = locale === 'ar';
+  const [assignee, setAssignee] = useState(''); const [notes, setNotes] = useState(''); const [error, setError] = useState(''); const [taskOpen, setTaskOpen] = useState(false);
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [task, setTask] = useState({ title: '', description: '', assigned_to: '', due_date: '', priority: 'normal' });
+  const { data: item, isLoading, isError, refetch } = useQuery({ queryKey: ['correspondence', id], queryFn: () => apiFetch<Item>(`/correspondence/${id}`), enabled: Boolean(id) });
+  const { data: users = [] } = useQuery({ queryKey: ['users-lookup'], queryFn: () => apiFetch<UserOption[]>('/users/lookup'), enabled: Boolean(item) });
+  const refresh = async () => { await qc.invalidateQueries({ queryKey: ['correspondence', id] }); await qc.invalidateQueries({ queryKey: ['correspondence-mailbox'] }); };
+  const action = useMutation({ mutationFn: ({ name, body }: { name: string; body?: object }) => apiFetch(`/correspondence/${id}/${name}`, { method: 'POST', body }), onSuccess: async () => { setError(''); setNotes(''); await refresh(); }, onError: e => setError(e instanceof ApiError ? e.message : (ar ? 'تعذر تنفيذ الإجراء.' : 'Action failed.')) });
+  const createTask = useMutation({ mutationFn: () => apiFetch(`/correspondence/${id}/tasks`, { method: 'POST', body: { ...task, assigned_to: Number(task.assigned_to), due_date: task.due_date || null }}), onSuccess: async () => { setTaskOpen(false); setTask({ title: '', description: '', assigned_to: '', due_date: '', priority: 'normal' }); await qc.invalidateQueries({ queryKey: ['operational-tasks'] }); }, onError: e => setError(e instanceof ApiError ? e.message : (ar ? 'تعذر إنشاء المهمة.' : 'Unable to create task.')) });
+  const uploadAttachment = useMutation({ mutationFn: () => { const body = new FormData(); if (attachment) body.append('file', attachment); return apiFetch(`/correspondence/${id}/attachments`, { method: 'POST', body }); }, onSuccess: async () => { setAttachment(null); setError(''); await refresh(); }, onError: e => setError(e instanceof ApiError ? e.message : (ar ? 'تعذر رفع المرفق.' : 'Unable to upload attachment.')) });
+  const deleteAttachment = useMutation({ mutationFn: (attachmentId: number) => apiFetch(`/correspondence/${id}/attachments/${attachmentId}`, { method: 'DELETE' }), onSuccess: refresh, onError: e => setError(e instanceof ApiError ? e.message : (ar ? 'تعذر حذف المرفق.' : 'Unable to delete attachment.')) });
+  if (!can('correspondence.view')) return <ErrorState title={t('state.forbidden.title')} message={t('state.forbidden.message')} />; if (isLoading) return <LoadingState />; if (isError || !item) return <ErrorState onRetry={() => refetch()} />;
+  const isSender = item.sender_id === user?.id; const isAssignee = item.assigned_to === user?.id; const active = ['submitted', 'under_review'].includes(item.status);
+  const nameOf = (u?: UserOption | null) => (ar ? u?.person?.full_name_ar : u?.person?.full_name_en) || u?.name || u?.email || '—';
+  const state = (v?: string | null) => ({ draft: ar ? 'مسودة' : 'Draft', submitted: ar ? 'مرسلة' : 'Submitted', under_review: ar ? 'قيد المتابعة' : 'In review', returned: ar ? 'معادة للتعديل' : 'Returned', approved: ar ? 'معتمدة' : 'Approved', closed: ar ? 'مغلقة' : 'Closed' }[v || ''] || v || '—');
+  const run = (name: string, body?: object) => { setError(''); action.mutate({ name, body }); };
+  return <div className="mx-auto max-w-[1100px] space-y-5 pb-12">
+    <div className="flex flex-wrap items-center justify-between gap-3"><button onClick={() => navigate(-1)} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-teal-700">{ar ? <ArrowRight className="h-4 w-4" /> : <ArrowLeft className="h-4 w-4" />}{ar ? 'رجوع' : 'Back'}</button><span className="rounded-full bg-teal-50 px-3 py-1.5 text-sm font-bold text-teal-700">{item.reference_number}</span></div>
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 bg-slate-50/70 p-5 sm:p-7"><div className="mb-3 flex flex-wrap gap-2"><span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700">{state(item.status)}</span><span className="rounded-full bg-white px-2.5 py-1 text-xs text-slate-600 ring-1 ring-slate-200">{item.priority}</span><span className="rounded-full bg-white px-2.5 py-1 text-xs text-slate-600 ring-1 ring-slate-200">{item.category}</span></div><h1 className="text-xl font-bold text-slate-900 sm:text-2xl">{item.subject}</h1><div className="mt-4 grid gap-3 text-xs text-slate-500 sm:grid-cols-3"><div><strong className="text-slate-700">{ar ? 'المرسل:' : 'Sender:'}</strong> {nameOf(item.sender)}</div><div><strong className="text-slate-700">{ar ? 'المحال إليه:' : 'Assignee:'}</strong> {nameOf(item.assignee)}</div><div><strong className="text-slate-700">{ar ? 'التاريخ:' : 'Date:'}</strong> {item.correspondence_date}</div></div></div><div className="p-5 sm:p-7"><h2 className="mb-3 text-xs font-bold text-slate-500">{ar ? 'نص المراسلة' : 'Correspondence body'}</h2><p className="whitespace-pre-wrap text-sm leading-7 text-slate-800">{item.summary || (ar ? 'لا يوجد نص مرفق.' : 'No body provided.')}</p>{item.response_due_date && <div className="mt-5 inline-flex items-center gap-2 rounded-xl bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-800"><Clock3 className="h-4 w-4" />{ar ? 'موعد الرد:' : 'Response due:'} {item.response_due_date}</div>}</div></section>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold text-slate-800">{ar ? 'المرفقات' : 'Attachments'}</h2><p className="mt-1 text-xs text-slate-500">{ar ? 'PDF وWord وExcel والصور، بحد أقصى 10MB.' : 'PDF, Word, Excel, and images up to 10MB.'}</p></div>{item.status !== 'closed' && <div className="flex items-center gap-2"><input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg" onChange={e => setAttachment(e.target.files?.[0] || null)} className="max-w-[220px] text-xs text-slate-500 file:me-2 file:rounded-lg file:border-0 file:bg-teal-50 file:px-3 file:py-2 file:text-teal-700" /><Button size="sm" disabled={!attachment} isLoading={uploadAttachment.isPending} onClick={() => uploadAttachment.mutate()}><Paperclip className="me-1 h-4 w-4" />{ar ? 'رفع' : 'Upload'}</Button></div>}</div>{!item.attachments?.length ? <p className="mt-4 text-sm text-slate-500">{ar ? 'لا توجد مرفقات.' : 'No attachments.'}</p> : <div className="mt-4 divide-y divide-slate-100">{item.attachments.map(file => <div key={file.id} className="flex items-center justify-between gap-3 py-3"><div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-700">{file.original_name}</div><div className="mt-1 text-xs text-slate-400">{(file.file_size / 1024).toFixed(1)} KB · {nameOf(file.uploader)}</div></div><div className="flex gap-1"><a href={apiUrl(`/correspondence/${item.id}/attachments/${file.id}/download`)} className="rounded-lg p-2 text-teal-700 hover:bg-teal-50" title={ar ? 'تنزيل' : 'Download'}><Download className="h-4 w-4" /></a>{(file.uploaded_by === user?.id || can('correspondence.approve') || can('correspondence.close')) && <button onClick={() => deleteAttachment.mutate(file.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>}</div></div>)}</div>}</section>
+    {(active || item.status === 'returned' || item.status === 'approved') && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="mb-4 font-bold text-slate-800">{ar ? 'الإجراءات المتاحة' : 'Available actions'}</h2>{error && <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}<div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]"><select value={assignee} onChange={e => setAssignee(e.target.value)} className={fieldClass}><option value="">{ar ? 'اختر شخصًا للتحويل أو الإرسال...' : 'Select recipient...'}</option>{users.filter(u => u.id !== user?.id).map(u => <option key={u.id} value={u.id}>{nameOf(u)} — {u.email}</option>)}</select><input value={notes} onChange={e => setNotes(e.target.value)} className={fieldClass} placeholder={ar ? 'ملاحظة الإجراء أو سبب الإرجاع...' : 'Action note or return reason...'} /><div className="flex flex-wrap gap-2">{item.status === 'returned' && isSender && can('correspondence.submit') && <Button disabled={!assignee} onClick={() => run('submit', { assigned_to: Number(assignee), notes })}><Forward className="me-1 h-4 w-4" />{ar ? 'إعادة إرسال' : 'Resubmit'}</Button>}{active && (isAssignee || can('correspondence.approve')) && can('correspondence.forward') && <Button disabled={!assignee} onClick={() => run('forward', { assigned_to: Number(assignee), notes })}><Forward className="me-1 h-4 w-4" />{ar ? 'تحويل' : 'Forward'}</Button>}{active && (isAssignee || can('correspondence.approve')) && (can('correspondence.forward') || can('correspondence.approve')) && <Button variant="outline" disabled={!notes.trim()} onClick={() => run('return', { reason: notes })}><RotateCcw className="me-1 h-4 w-4" />{ar ? 'إرجاع' : 'Return'}</Button>}{active && can('correspondence.approve') && <Button onClick={() => run('approve')}><CheckCircle2 className="me-1 h-4 w-4" />{ar ? 'اعتماد' : 'Approve'}</Button>}{['approved','submitted','under_review'].includes(item.status) && can('correspondence.close') && <Button variant="outline" onClick={() => run('close', { notes })}><XCircle className="me-1 h-4 w-4" />{ar ? 'إغلاق' : 'Close'}</Button>}</div></div>{can('tasks.manage') && <div className="mt-4 border-t border-slate-100 pt-4"><Button variant="secondary" onClick={() => { setTaskOpen(true); setTask({ ...task, title: item.subject }); }}><ListChecks className="me-2 h-4 w-4" />{ar ? 'إنشاء مهمة متابعة من المراسلة' : 'Create follow-up task'}</Button></div>}</section>}
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="mb-4 font-bold text-slate-800">{ar ? 'سجل حركة المعاملة' : 'Workflow history'}</h2>{!item.transitions?.length ? <p className="text-sm text-slate-500">{ar ? 'لا توجد حركات مسجلة بعد.' : 'No workflow events yet.'}</p> : <ol className="space-y-3">{item.transitions.map(x => <li key={x.id} className="flex gap-3"><span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-teal-500" /><div><div className="text-sm font-semibold text-slate-800">{state(x.from_state)} ← {state(x.to_state)}</div><div className="mt-1 text-xs text-slate-500">{nameOf(x.user)} · {new Date(x.created_at).toLocaleString(locale)}</div>{x.reason && <p className="mt-1 text-xs text-slate-600">{x.reason}</p>}</div></li>)}</ol>}</section>
+    {taskOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"><form onSubmit={(e: FormEvent) => { e.preventDefault(); createTask.mutate(); }} className="w-full max-w-xl space-y-4 rounded-2xl bg-white p-5 shadow-xl"><h2 className="font-bold text-slate-800">{ar ? 'مهمة متابعة' : 'Follow-up task'}</h2><input required value={task.title} onChange={e => setTask({...task, title: e.target.value})} className={fieldClass} placeholder={ar ? 'عنوان المهمة' : 'Task title'} /><textarea rows={3} value={task.description} onChange={e => setTask({...task, description: e.target.value})} className={fieldClass} placeholder={ar ? 'تفاصيل التنفيذ' : 'Execution details'} /><select required value={task.assigned_to} onChange={e => setTask({...task, assigned_to: e.target.value})} className={fieldClass}><option value="">{ar ? 'اختر المكلف...' : 'Select assignee...'}</option>{users.map(u => <option key={u.id} value={u.id}>{nameOf(u)}</option>)}</select><div className="grid gap-3 sm:grid-cols-2"><input type="date" value={task.due_date} onChange={e => setTask({...task, due_date: e.target.value})} className={fieldClass} /><select value={task.priority} onChange={e => setTask({...task, priority: e.target.value})} className={fieldClass}><option value="low">{ar ? 'منخفضة' : 'Low'}</option><option value="normal">{ar ? 'عادية' : 'Normal'}</option><option value="high">{ar ? 'عالية' : 'High'}</option></select></div><div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setTaskOpen(false)}>{ar ? 'إلغاء' : 'Cancel'}</Button><Button type="submit" isLoading={createTask.isPending}>{ar ? 'إنشاء المهمة' : 'Create task'}</Button></div></form></div>}
+  </div>;
 }

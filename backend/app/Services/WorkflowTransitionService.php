@@ -16,9 +16,9 @@ class WorkflowTransitionService
         $allowed = [
             'draft' => ['submitted'],
             'submitted' => ['under_review', 'returned', 'approved', 'rejected', 'closed'],
-            'under_review' => ['returned', 'approved', 'rejected'],
+            'under_review' => ['returned', 'approved', 'rejected', 'closed'],
             'returned' => ['submitted', 'draft'],
-            'approved' => ['published'],
+            'approved' => ['published', 'closed'],
             'published' => ['locked'],
             'locked' => ['archived']
         ];

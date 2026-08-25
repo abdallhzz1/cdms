@@ -57,7 +57,7 @@ export function StaffProfilePage() {
         
         <div className="flex items-center gap-2">
            {can('correspondence.create') && (
-             <Link to={`/correspondence?to=${personId}`} className="text-sm font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-4 py-2 rounded-xl shadow-sm transition-all">
+             <Link to={person.user_id ? `/outbox?to=${person.user_id}` : '/outbox'} className="text-sm font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-4 py-2 rounded-xl shadow-sm transition-all">
                {locale === 'ar' ? 'مراسلة المشرف' : 'Message Supervisor'}
              </Link>
            )}

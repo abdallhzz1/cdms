@@ -193,14 +193,20 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('correspondence', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'index'])->middleware('permission:correspondence.view');
         Route::get('correspondence/{correspondence}', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'show'])->middleware('permission:correspondence.view');
         Route::post('correspondence', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'store'])->middleware('permission:correspondence.create');
+        Route::put('correspondence/{correspondence}', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'update'])->middleware('permission:correspondence.update');
         Route::post('correspondence/{correspondence}/submit', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'submit'])->middleware('permission:correspondence.submit');
-        Route::post('correspondence/{correspondence}/close', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'close'])->middleware('permission:correspondence.manage');
-        Route::post('correspondence/{correspondence}/return', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'returnCorrespondence'])->middleware('permission:correspondence.submit');
-        Route::post('correspondence/{correspondence}/forward', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'forward'])->middleware('permission:correspondence.submit');
-        Route::post('correspondence/{correspondence}/approve', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'approve'])->middleware('permission:correspondence.submit');
+        Route::post('correspondence/{correspondence}/close', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'close'])->middleware('permission:correspondence.close');
+        Route::post('correspondence/{correspondence}/return', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'returnCorrespondence'])->middleware('permission.any:correspondence.forward,correspondence.approve');
+        Route::post('correspondence/{correspondence}/forward', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'forward'])->middleware('permission:correspondence.forward');
+        Route::post('correspondence/{correspondence}/approve', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'approve'])->middleware('permission:correspondence.approve');
+        Route::post('correspondence/{correspondence}/tasks', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'createTask'])->middleware('permission:tasks.manage');
+        Route::post('correspondence/{correspondence}/attachments', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'storeAttachment'])->middleware('permission:correspondence.view');
+        Route::get('correspondence/{correspondence}/attachments/{attachment}/download', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'downloadAttachment'])->middleware('permission:correspondence.view');
+        Route::delete('correspondence/{correspondence}/attachments/{attachment}', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'destroyAttachment'])->middleware('permission:correspondence.view');
         Route::get('operational-tasks', [\App\Http\Controllers\Api\V1\OperationalTaskController::class, 'index'])->middleware('permission:tasks.view');
         Route::post('operational-tasks', [\App\Http\Controllers\Api\V1\OperationalTaskController::class, 'store'])->middleware('permission:tasks.manage');
-        Route::put('operational-tasks/{operationalTask}', [\App\Http\Controllers\Api\V1\OperationalTaskController::class, 'update'])->middleware('permission:tasks.manage');
+        Route::put('operational-tasks/{operationalTask}', [\App\Http\Controllers\Api\V1\OperationalTaskController::class, 'update'])->middleware('permission.any:tasks.view,tasks.manage');
+        Route::delete('operational-tasks/{operationalTask}', [\App\Http\Controllers\Api\V1\OperationalTaskController::class, 'destroy'])->middleware('permission:tasks.manage');
         Route::get('quality-surveys', [\App\Http\Controllers\Api\V1\QualitySurveyController::class, 'index'])->middleware('permission:quality.view');
         Route::post('quality-surveys', [\App\Http\Controllers\Api\V1\QualitySurveyController::class, 'store'])->middleware('permission:quality.manage');
         Route::get('quality-surveys/{qualitySurvey}', [\App\Http\Controllers\Api\V1\QualitySurveyController::class, 'show'])->middleware('permission:quality.view');
@@ -213,7 +219,14 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('quality-kpis', [\App\Http\Controllers\Api\V1\QualityImprovementController::class, 'storeKpi'])->middleware('permission:kpi.manage');
         Route::get('meetings', [\App\Http\Controllers\Api\V1\MeetingController::class, 'index'])->middleware('permission:meetings.manage');
         Route::post('meetings', [\App\Http\Controllers\Api\V1\MeetingController::class, 'store'])->middleware('permission:meetings.manage');
+        Route::get('meetings/{meeting}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'show'])->middleware('permission:meetings.manage');
+        Route::put('meetings/{meeting}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'update'])->middleware('permission:meetings.manage');
+        Route::post('meetings/{meeting}/status', [\App\Http\Controllers\Api\V1\MeetingController::class, 'changeStatus'])->middleware('permission:meetings.manage');
+        Route::post('meetings/{meeting}/approve', [\App\Http\Controllers\Api\V1\MeetingController::class, 'approve'])->middleware('permission:meetings.approve_minutes');
+        Route::post('meetings/{meeting}/reopen', [\App\Http\Controllers\Api\V1\MeetingController::class, 'reopen'])->middleware('permission:meetings.approve_minutes');
         Route::post('meetings/{meeting}/actions', [\App\Http\Controllers\Api\V1\MeetingController::class, 'storeAction'])->middleware('permission:meetings.manage');
+        Route::put('meetings/{meeting}/actions/{action}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'updateAction'])->middleware('permission:meetings.manage');
+        Route::delete('meetings/{meeting}/actions/{action}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'destroyAction'])->middleware('permission:meetings.manage');
 
         // Department Heads Routes
         Route::get('dept-heads', [\App\Http\Controllers\Api\V1\DepartmentHeadController::class, 'index'])
@@ -458,7 +471,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->name('operational.clinical-schedule-options');
 
         Route::get('users/lookup', [\App\Http\Controllers\Api\V1\UserController::class, 'lookup'])
-            ->middleware('permission.any:people.view,students.view,correspondence.view');
+            ->middleware('permission.any:people.view,students.view,correspondence.view,tasks.manage,meetings.manage');
 
         // Keep static user paths before apiResource('users') so "rta-list"
         // can never be consumed by the /users/{user} model-binding route.
