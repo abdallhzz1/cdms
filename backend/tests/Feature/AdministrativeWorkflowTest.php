@@ -82,6 +82,32 @@ class AdministrativeWorkflowTest extends TestCase
         ]);
     }
 
+    public function test_tasks_are_private_and_only_the_assignee_controls_execution(): void
+    {
+        $creator = $this->userWithPermissions(['tasks.view', 'tasks.manage']);
+        $assignee = $this->userWithPermissions(['tasks.view']);
+        $unrelatedManager = $this->userWithPermissions(['tasks.view', 'tasks.manage']);
+
+        $id = $this->asUser($creator)->postJson('/api/v1/operational-tasks', [
+            'title' => 'Prepare fourth-year roster', 'description' => 'For the clinical director.',
+            'assigned_to' => $assignee->id, 'priority' => 'high',
+        ])->assertCreated()->json('data.id');
+
+        $this->getJson('/api/v1/operational-tasks')->assertOk()->assertJsonPath('data.0.id', $id);
+        $this->asUser($assignee)->getJson('/api/v1/operational-tasks')->assertOk()->assertJsonPath('data.0.id', $id);
+        $this->asUser($unrelatedManager)->getJson('/api/v1/operational-tasks?scope=all')->assertOk()->assertJsonCount(0, 'data');
+        $this->putJson("/api/v1/operational-tasks/{$id}", ['status' => 'in_progress'])->assertForbidden();
+        $this->deleteJson("/api/v1/operational-tasks/{$id}")->assertForbidden();
+
+        $this->asUser($creator)->putJson("/api/v1/operational-tasks/{$id}", ['status' => 'in_progress'])->assertForbidden();
+        $this->asUser($assignee)->putJson("/api/v1/operational-tasks/{$id}", ['status' => 'in_progress'])
+            ->assertOk()->assertJsonPath('data.status', 'in_progress');
+        $this->putJson("/api/v1/operational-tasks/{$id}", ['assigned_to' => $unrelatedManager->id])->assertForbidden();
+
+        $this->asUser($creator)->deleteJson("/api/v1/operational-tasks/{$id}")->assertOk();
+        $this->assertDatabaseMissing('operational_tasks', ['id' => $id]);
+    }
+
     public function test_correspondence_attachments_are_private_and_limited_to_participants(): void
     {
         Storage::fake('local');

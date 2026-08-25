@@ -9,7 +9,6 @@ use App\Notifications\AdministrativeWorkAssignedNotification;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -18,11 +17,12 @@ class OperationalTaskController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $canManage = Gate::forUser($user)->allows('permission', ['tasks.manage']);
         $query = OperationalTask::query()->with(['creator.person', 'assignee.person', 'meetingActionItem.meeting']);
-        if (! $canManage || $request->query('scope') === 'mine') {
-            $query->where(fn ($q) => $q->where('assigned_to', $user->id)->orWhere('created_by', $user->id));
-        }
+        // A management permission permits creating and assigning tasks; it does
+        // not turn the task directory into a department-wide public list.
+        $query->where(fn ($q) => $q->where('assigned_to', $user->id)->orWhere('created_by', $user->id));
+        if ($request->query('scope') === 'assigned') $query->where('assigned_to', $user->id);
+        if ($request->query('scope') === 'created') $query->where('created_by', $user->id);
         $query
             ->when($request->filled('search'), function ($q) use ($request) {
                 $search = trim($request->string('search')->toString());
@@ -50,14 +50,29 @@ class OperationalTaskController extends Controller
 
     public function update(Request $request, OperationalTask $operationalTask): JsonResponse
     {
-        $canManage = Gate::forUser($request->user())->allows('permission', ['tasks.manage']);
-        $isAssignee = $operationalTask->assigned_to === $request->user()->id;
-        if (! $canManage && ! $isAssignee) {
+        $userId = $request->user()->id;
+        $isCreator = $operationalTask->created_by === $userId;
+        $isAssignee = $operationalTask->assigned_to === $userId;
+        if (! $isCreator && ! $isAssignee) {
             throw new AuthorizationException('This action is unauthorized.');
         }
         $data = $request->validate($this->rules(true));
-        if (! $canManage) {
-            $data = array_intersect_key($data, array_flip(['status', 'completion_notes']));
+
+        $managementFields = array_intersect(array_keys($data), ['title', 'description', 'assigned_to', 'due_date', 'priority']);
+        if ($managementFields && ! $isCreator) {
+            throw new AuthorizationException('Only the task creator may edit or reassign it.');
+        }
+        if (isset($data['status'])) {
+            $executionStatuses = ['in_progress', 'completed'];
+            if (in_array($data['status'], $executionStatuses, true) && ! $isAssignee) {
+                throw new AuthorizationException('Only the assigned user may start or complete this task.');
+            }
+            if ($data['status'] === 'cancelled' && ! $isCreator) {
+                throw new AuthorizationException('Only the task creator may cancel this task.');
+            }
+        }
+        if (array_key_exists('completion_notes', $data) && ! $isAssignee) {
+            throw new AuthorizationException('Only the assigned user may document task completion.');
         }
         $oldAssignee = $operationalTask->assigned_to;
         if (($data['status'] ?? null) === 'in_progress' && ! $operationalTask->started_at) $data['started_at'] = now();
@@ -75,8 +90,11 @@ class OperationalTaskController extends Controller
         return ApiResponse::success($operationalTask->fresh()->load(['creator.person', 'assignee.person', 'meetingActionItem.meeting']));
     }
 
-    public function destroy(OperationalTask $operationalTask): JsonResponse
+    public function destroy(Request $request, OperationalTask $operationalTask): JsonResponse
     {
+        if ($operationalTask->created_by !== $request->user()->id) {
+            throw new AuthorizationException('Only the task creator may delete it.');
+        }
         if ($operationalTask->meetingActionItem()->exists()) {
             throw ValidationException::withMessages(['task' => ['A meeting task must be deleted from its meeting minutes.']]);
         }

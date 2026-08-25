@@ -4,7 +4,7 @@ import { useAuth } from '@/auth/AuthContext';
 import {
   Users, Calendar, LayoutDashboard,
   Map, FileText, ClipboardCheck, BookOpen, Clock, ShieldCheck,
-  MessagesSquare, FolderGit2, BarChart3, Send,
+  MessagesSquare, FolderGit2, BarChart3,
   GraduationCap, X, Monitor, Settings, Activity, Award, Building2
 } from 'lucide-react';
 
@@ -55,8 +55,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           title: locale === 'ar' ? 'الملف الشخصي والمراسلات' : 'Profile & Messages',
           items: [
             { path: '/clinical-supervisors/me', label: locale === 'ar' ? 'بروفايلي السريري والـ Score' : 'My Clinical Profile', icon: Award },
-            { path: '/inbox', label: locale === 'ar' ? 'صندوق الوارد' : 'Inbox', icon: MessagesSquare, permission: 'correspondence.view' },
-            { path: '/outbox', label: locale === 'ar' ? 'الطلبات الصادرة' : 'Outbox', icon: Send, permission: 'correspondence.view' },
+            { path: '/inbox', label: locale === 'ar' ? 'المراسلات' : 'Mail', icon: MessagesSquare, permission: 'correspondence.view' },
             { path: '/tasks', label: locale === 'ar' ? 'المهام' : 'Tasks', icon: FolderGit2, permission: 'tasks.view' },
           ]
         }
@@ -106,8 +105,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
       {
         title: locale === 'ar' ? 'المراسلات والاجتماعات' : 'Governance & Meetings',
         items: [
-          { path: '/inbox', label: locale === 'ar' ? 'صندوق الوارد' : 'Inbox', icon: MessagesSquare, permission: 'correspondence.view' },
-          { path: '/outbox', label: locale === 'ar' ? 'الطلبات الصادرة' : 'Outbox', icon: Send, permission: 'correspondence.view' },
+          { path: '/inbox', label: locale === 'ar' ? 'المراسلات' : 'Mail', icon: MessagesSquare, permission: 'correspondence.view' },
           { path: '/meetings', label: locale === 'ar' ? 'محاضر الاجتماعات' : 'Meetings', icon: Calendar, permission: 'meetings.manage' },
           { path: '/tasks', label: locale === 'ar' ? 'المهام والتكليفات' : 'Tasks', icon: FolderGit2, permission: 'tasks.view' },
         ]
