@@ -9,6 +9,7 @@ use App\Notifications\AdministrativeWorkAssignedNotification;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -35,6 +36,16 @@ class OperationalTaskController extends Controller
         $items = $query->orderByRaw("CASE WHEN status = 'completed' THEN 1 ELSE 0 END")
             ->orderByRaw('CASE WHEN due_date IS NULL THEN 1 ELSE 0 END')->orderBy('due_date')
             ->paginate(min($request->integer('per_page', 25), 100));
+        $items->getCollection()->each(function (OperationalTask $task) use ($user) {
+            $task->setAttribute('can_execute', $task->assigned_to === $user->id);
+            $task->setAttribute('can_manage', $task->created_by === $user->id);
+            $task->setAttribute(
+                'can_delete',
+                $task->created_by === $user->id
+                    && Gate::forUser($user)->allows('permission', ['tasks.manage'])
+                    && $task->meetingActionItem === null
+            );
+        });
         return ApiResponse::success($items->items(), null, [
             'current_page' => $items->currentPage(), 'last_page' => $items->lastPage(), 'total' => $items->total(),
         ]);

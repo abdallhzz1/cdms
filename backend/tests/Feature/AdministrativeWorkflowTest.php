@@ -93,8 +93,14 @@ class AdministrativeWorkflowTest extends TestCase
             'assigned_to' => $assignee->id, 'priority' => 'high',
         ])->assertCreated()->json('data.id');
 
-        $this->getJson('/api/v1/operational-tasks')->assertOk()->assertJsonPath('data.0.id', $id);
-        $this->asUser($assignee)->getJson('/api/v1/operational-tasks')->assertOk()->assertJsonPath('data.0.id', $id);
+        $this->getJson('/api/v1/operational-tasks')->assertOk()
+            ->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('data.0.can_execute', false)
+            ->assertJsonPath('data.0.can_manage', true);
+        $this->asUser($assignee)->getJson('/api/v1/operational-tasks')->assertOk()
+            ->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('data.0.can_execute', true)
+            ->assertJsonPath('data.0.can_manage', false);
         $this->asUser($unrelatedManager)->getJson('/api/v1/operational-tasks?scope=all')->assertOk()->assertJsonCount(0, 'data');
         $this->putJson("/api/v1/operational-tasks/{$id}", ['status' => 'in_progress'])->assertForbidden();
         $this->deleteJson("/api/v1/operational-tasks/{$id}")->assertForbidden();
