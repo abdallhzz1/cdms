@@ -377,6 +377,67 @@ class Phase5CTest extends TestCase
             ->assertStatus(403);
     }
 
+    public function test_multi_role_department_leader_can_open_personal_workspace_only_when_supervisor_role_is_assigned(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+
+        $this->actingAs($this->admin)
+            ->getJson(route('api.v1.operational.my-supervisor-workspace'))
+            ->assertStatus(403);
+
+        $this->admin->roles()->attach(Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail());
+
+        $this->actingAs($this->admin)
+            ->getJson(route('api.v1.operational.my-supervisor-workspace'))
+            ->assertOk()
+            ->assertJsonPath('data.supervisor.person_id', $this->supervisor1->id)
+            ->assertJsonCount(1, 'data.assignments');
+    }
+
+    public function test_supervisor_attendance_and_assessment_are_saved_in_official_tables(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::whereIn('code', ['attendance.record', 'assessment.create', 'assessment.approve', 'grades.view'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
+            'assignment_id' => $this->assignment1->id,
+            'session_date' => '2026-09-10',
+            'records' => [['student_id' => $this->student1->id, 'status' => 'present']],
+        ])->assertOk();
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
+            'assignment_id' => $this->assignment1->id,
+            'student_id' => $this->student1->id,
+            'session_date' => '2026-09-10',
+            'score' => 18.5,
+            'notes' => 'Good clinical progress.',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('attendance_records', ['student_id' => $this->student1->id, 'status' => 'present']);
+        $this->assertDatabaseHas('clinical_assessments', [
+            'student_id' => $this->student1->id,
+            'evaluator_person_id' => $this->supervisor1->id,
+            'score' => 18.5,
+            'max_score' => 20,
+            'status' => 'submitted',
+        ]);
+
+        $assessmentId = \App\Models\ClinicalAssessment::where('student_id', $this->student1->id)->value('id');
+        $this->actingAs($this->admin)
+            ->postJson("/api/v1/clinical-assessments/{$assessmentId}/approve")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'approved');
+
+        $this->actingAs($this->admin)
+            ->getJson('/api/v1/grade-entries/clinical-assessment-summary')
+            ->assertOk()
+            ->assertJsonPath("data.{$this->student1->id}.clinical_score", 18.5);
+    }
+
     // =========================================================================
     // 6. Performance — No N+1 queries
     // =========================================================================

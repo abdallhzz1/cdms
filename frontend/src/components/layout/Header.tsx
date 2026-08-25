@@ -40,21 +40,16 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const getRoleLabel = (roles?: any[], email?: string, name?: string) => {
+  const getRoleLabel = (roles?: any[]) => {
     const roleCodes = (roles || []).map(r => typeof r === 'string' ? r.toUpperCase() : String(r.code || r.name || '').toUpperCase());
 
-    // Known Department Head emails/names in CDMS
-    const knownDeptHeadEmails = [
-      'iyad.jadaa@hebron.edu', 'raed.shawawreh@hebron.edu', 
-      'rashad.zaro@hebron.edu', 'shatha.afaneh@hebron.edu', 
-      'bassam.nasreddin@hebron.edu'
-    ];
+    const isDeptHead = roleCodes.includes('DEPARTMENT_HEAD');
+    const isClinicalDirector = roleCodes.includes('CLINICAL_DIRECTOR');
+    const isSupervisor = roleCodes.includes('CLINICAL_SUPERVISOR');
 
-    const isDeptHead = roleCodes.some(r => r.includes('DEPARTMENT_HEAD') || r.includes('HEAD') || r.includes('رئيس')) || 
-                       (email && knownDeptHeadEmails.includes(email.toLowerCase())) ||
-                       (name && (name.includes('الجدع') || name.includes('شواورة') || name.includes('الزرو') || name.includes('عفانة') || name.includes('ناصر الدين')));
-
-    const isSupervisor = roleCodes.some(r => r.includes('CLINICAL_SUPERVISOR') || r.includes('SUPERVISOR') || r.includes('مشرف')) || true;
+    if (isClinicalDirector && isSupervisor) {
+      return locale === 'ar' ? 'مدير الدائرة & مشرف سريري' : 'Clinical Director & Supervisor';
+    }
 
     if (isDeptHead && isSupervisor) {
       return locale === 'ar' ? 'رئيس قسم & مشرف سريري' : 'Dept Head & Supervisor';
@@ -90,11 +85,12 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
       return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
     });
 
-    const primaryRole = sorted[0] || 'CLINICAL_SUPERVISOR';
+    const primaryRole = sorted[0];
+    if (!primaryRole) return locale === 'ar' ? 'مستخدم النظام' : 'System User';
     return map[primaryRole] ? (locale === 'ar' ? map[primaryRole].ar : map[primaryRole].en) : primaryRole.replace(/_/g, ' ');
   };
 
-  const roleLabel = getRoleLabel(user?.roles, user?.email, user?.name);
+  const roleLabel = getRoleLabel(user?.roles);
 
   const notifications = [
     {

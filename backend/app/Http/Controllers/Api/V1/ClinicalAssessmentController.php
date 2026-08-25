@@ -8,12 +8,20 @@ use App\Models\ClinicalAssessment;
 use App\Services\WorkflowTransitionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class ClinicalAssessmentController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $items = ClinicalAssessment::with(['student', 'session.trainingSite', 'evaluator'])
+        $query = ClinicalAssessment::with(['student', 'session.trainingSite', 'evaluator']);
+        $user = $request->user();
+        if ($user?->hasRole('CLINICAL_SUPERVISOR') && ! Gate::forUser($user)->allows('permission', ['assessment.approve'])) {
+            $personId = $user->person?->id;
+            $query->where('evaluator_person_id', $personId ?: 0);
+        }
+
+        $items = $query
             ->when($request->filled('student_id'), fn ($query) => $query->where('student_id', $request->integer('student_id')))
             ->latest()
             ->paginate($request->integer('per_page', 25));
@@ -52,5 +60,11 @@ class ClinicalAssessmentController extends Controller
         $data = $request->validate(['reason' => ['nullable', 'string']]);
         $workflow->transition($clinicalAssessment, 'returned', $data['reason'] ?? null);
         return ApiResponse::success($clinicalAssessment->fresh(), 'Assessment returned.');
+    }
+
+    public function approve(ClinicalAssessment $clinicalAssessment, WorkflowTransitionService $workflow): JsonResponse
+    {
+        $workflow->transition($clinicalAssessment, 'approved');
+        return ApiResponse::success($clinicalAssessment->fresh(), 'Assessment approved.');
     }
 }

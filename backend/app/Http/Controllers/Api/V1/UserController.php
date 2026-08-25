@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\HasSafePagination;
 use App\Models\User;
 use App\Models\Role;
+use App\Models\ClinicalSupervisorProfile;
+use App\Models\Person;
 use App\Services\SecurityAuditService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -103,22 +105,24 @@ class UserController extends Controller
             'name'          => 'required|string|max:255',
             'email'         => 'required|email|unique:users,email',
             'password'      => ['required', 'string', Password::min(12)->mixedCase()->numbers()->symbols()],
-            'roles'         => 'array',
+            'roles'         => 'required|array|min:1',
             'roles.*'       => 'exists:roles,code',
             'is_active'     => 'boolean',
             'department_id' => 'nullable|integer|exists:departments,id',
         ]);
 
-        $user = User::create([
-            'name'      => $validated['name'],
-            'email'     => $validated['email'],
-            'password'  => Hash::make($validated['password']),
-            'is_active' => $validated['is_active'] ?? true,
-        ]);
+        $this->validateScopedRoles($validated['roles'], $validated['department_id'] ?? null);
 
-        if (!empty($validated['roles'])) {
+        $user = DB::transaction(function () use ($validated) {
+            $user = User::create([
+                'name'      => $validated['name'],
+                'email'     => $validated['email'],
+                'password'  => Hash::make($validated['password']),
+                'is_active' => $validated['is_active'] ?? true,
+            ]);
             $this->syncRolesWithScope($user, $validated['roles'], $validated['department_id'] ?? null);
-        }
+            return $user;
+        });
 
         $this->audit->record('user.created', User::class, $user->id, [
             'roles' => $validated['roles'] ?? [],
@@ -142,21 +146,22 @@ class UserController extends Controller
         $validated = $request->validate([
             'name'          => 'required|string|max:255',
             'email'         => ['required', 'email', Rule::unique('users')->ignore($user->id)],
-            'roles'         => 'array',
+            'roles'         => 'required|array|min:1',
             'roles.*'       => 'exists:roles,code',
             'is_active'     => 'boolean',
             'department_id' => 'nullable|integer|exists:departments,id',
         ]);
 
-        $user->update([
-            'name'      => $validated['name'],
-            'email'     => $validated['email'],
-            'is_active' => $validated['is_active'] ?? $user->is_active,
-        ]);
+        $this->validateScopedRoles($validated['roles'], $validated['department_id'] ?? null);
 
-        if (isset($validated['roles'])) {
+        DB::transaction(function () use ($user, $validated) {
+            $user->update([
+                'name'      => $validated['name'],
+                'email'     => $validated['email'],
+                'is_active' => $validated['is_active'] ?? $user->is_active,
+            ]);
             $this->syncRolesWithScope($user, $validated['roles'], $validated['department_id'] ?? null);
-        }
+        });
 
         $this->audit->record('user.updated', User::class, $user->id, [
             'before' => $before,
@@ -202,6 +207,56 @@ class UserController extends Controller
         }
 
         $user->roles()->sync($syncData);
+
+        if (in_array('CLINICAL_SUPERVISOR', $roleCodes, true)) {
+            $this->ensureClinicalSupervisorIdentity($user, $departmentId);
+        }
+    }
+
+    private function validateScopedRoles(array $roleCodes, ?int $departmentId): void
+    {
+        if (array_intersect(['DEPARTMENT_HEAD', 'RTA'], $roleCodes) && ! $departmentId) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'department_id' => ['A department is required for the Department Head or RTA role.'],
+            ]);
+        }
+    }
+
+    /**
+     * A user who receives the clinical-supervisor role must have one stable
+     * Person identity. This keeps multi-role accounts (for example a head who
+     * also supervises students) linked to the same assignments and profile.
+     */
+    private function ensureClinicalSupervisorIdentity(User $user, ?int $departmentId): void
+    {
+        $person = Person::query()->where('user_id', $user->id)->first();
+
+        if (! $person) {
+            $person = Person::query()->where('email', $user->email)->whereNull('user_id')->first();
+        }
+
+        if ($person) {
+            $person->update([
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'department_id' => $departmentId ?: $person->department_id,
+                'is_active' => true,
+            ]);
+        } else {
+            Person::create([
+                'user_id' => $user->id,
+                'full_name_ar' => $user->name,
+                'full_name_en' => $user->name,
+                'email' => $user->email,
+                'department_id' => $departmentId,
+                'is_active' => true,
+            ]);
+        }
+
+        $profile = ClinicalSupervisorProfile::firstOrCreate(['user_id' => $user->id]);
+        if ($departmentId && ! $profile->department_id) {
+            $profile->update(['department_id' => $departmentId]);
+        }
     }
 
     /**

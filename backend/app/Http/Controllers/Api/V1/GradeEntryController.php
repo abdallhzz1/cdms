@@ -10,6 +10,7 @@ use App\Models\StudentCourseEnrollment;
 use App\Models\Course;
 use App\Models\Student;
 use App\Models\AcademicYear;
+use App\Models\ClinicalAssessment;
 use App\Services\WorkflowTransitionService;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
@@ -67,6 +68,24 @@ class GradeEntryController extends Controller
                 'total'        => $items->total()
             ]
         );
+    }
+
+    public function clinicalAssessmentSummary(): JsonResponse
+    {
+        $studentIds = $this->applyStudentAccessScope(Student::query())->select('students.id');
+        $summary = ClinicalAssessment::query()
+            ->where('status', 'approved')
+            ->whereIn('student_id', $studentIds)
+            ->selectRaw('student_id, ROUND(AVG((score / max_score) * 20), 2) as clinical_score, COUNT(*) as assessments_count')
+            ->groupBy('student_id')
+            ->get()
+            ->keyBy('student_id')
+            ->map(fn ($item) => [
+                'clinical_score' => (float) $item->clinical_score,
+                'assessments_count' => (int) $item->assessments_count,
+            ]);
+
+        return ApiResponse::success($summary);
     }
 
     public function store(Request $request): JsonResponse

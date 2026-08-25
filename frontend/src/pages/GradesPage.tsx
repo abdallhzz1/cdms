@@ -261,10 +261,10 @@ export function GradesPage() {
     queryFn: () => apiFetch<any>(`/operational/distribution-payload?key=${encodeURIComponent(storageKey)}`),
   });
 
-  // Fetch supervisor evaluations payload from MySQL Database
-  const { data: rawEvaluationsPayload } = useQuery({
-    queryKey: ['supervisor-evaluations-payload-grades'],
-    queryFn: () => apiFetch<any>(`/operational/distribution-payload?key=${encodeURIComponent('cdms_supervisor_evaluations')}`),
+  // Approved supervisor assessments are the official clinical-score source.
+  const { data: clinicalAssessmentSummary } = useQuery({
+    queryKey: ['clinical-assessment-summary-grades'],
+    queryFn: () => apiFetch<Record<string,{clinical_score:number;assessments_count:number}>>('/grade-entries/clinical-assessment-summary'),
   });
 
   // Fetch submitted grade sheets index from MySQL Database
@@ -297,16 +297,7 @@ export function GradesPage() {
   useEffect(() => {
     const savedLocal = localStorage.getItem(storageKey);
     const dbGrades = Array.isArray(dbGradesPayload) ? dbGradesPayload : (dbGradesPayload?.data ?? dbGradesPayload);
-    let supervisorEvals = (rawEvaluationsPayload && typeof rawEvaluationsPayload === 'object')
-      ? (rawEvaluationsPayload.data ?? rawEvaluationsPayload)
-      : null;
-
-    if (!supervisorEvals || typeof supervisorEvals !== 'object' || Object.keys(supervisorEvals).length === 0) {
-      try {
-        const savedLocalEvals = localStorage.getItem('cdms_supervisor_evaluations');
-        if (savedLocalEvals) supervisorEvals = JSON.parse(savedLocalEvals);
-      } catch (e) {}
-    }
+    const approvedClinicalScores = clinicalAssessmentSummary ?? {};
 
     let existingMap: Record<string, StudentGradeRecord> = {};
 
@@ -328,18 +319,8 @@ export function GradesPage() {
     const unified: StudentGradeRecord[] = levelStudents.map(student => {
       const existing = existingMap[student.university_number];
 
-      let clinicalFromSupervisor: number | null = null;
-      if (supervisorEvals && typeof supervisorEvals === 'object') {
-        const stEvals = supervisorEvals[String(student.id)] || supervisorEvals[student.university_number];
-        if (stEvals && typeof stEvals === 'object') {
-          const evalEntries = Object.values(stEvals).filter((e: any) => e && typeof e.totalScore === 'number') as any[];
-          if (evalEntries.length > 0) {
-            const sum = evalEntries.reduce((acc: number, curr: any) => acc + curr.totalScore, 0);
-            const avg = sum / evalEntries.length;
-            clinicalFromSupervisor = Number(Math.min(20, Math.max(0, avg * 2)).toFixed(2));
-          }
-        }
-      }
+      const approvedAssessment = approvedClinicalScores[String(student.id)];
+      const clinicalFromSupervisor = approvedAssessment ? Number(approvedAssessment.clinical_score) : null;
 
       const finalClinicalScore = existing?.clinicalScore ?? clinicalFromSupervisor;
 
@@ -367,7 +348,7 @@ export function GradesPage() {
     });
 
     setGradeRecords(unified);
-  }, [storageKey, levelStudents, dbGradesPayload, rawEvaluationsPayload]);
+  }, [storageKey, levelStudents, dbGradesPayload, clinicalAssessmentSummary]);
 
   // Helper to persist grade records to LocalStorage & MySQL Database
   const saveRecords = (updated: StudentGradeRecord[]) => {

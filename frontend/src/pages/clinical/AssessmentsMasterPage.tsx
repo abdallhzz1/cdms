@@ -20,7 +20,7 @@ export function AssessmentsMasterPage() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: (id: number) => apiFetch(`/clinical-assessments/${id}/submit`, { method: 'POST' }),
+    mutationFn: (id: number) => apiFetch(`/clinical-assessments/${id}/approve`, { method: 'POST' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clinical-assessments'] }),
   });
 
@@ -39,9 +39,9 @@ export function AssessmentsMasterPage() {
   const getStatusBadge = (status: string) => {
     const map: Record<string, { label_ar: string; label_en: string; classes: string; icon: any }> = {
       draft:     { label_ar: 'مسودة',    label_en: 'Draft',     classes: 'bg-slate-100 text-slate-600', icon: Clock },
-      submitted: { label_ar: 'مرسل',     label_en: 'Submitted', classes: 'bg-amber-100 text-amber-700', icon: Clock },
-      approved:  { label_ar: 'معتمد',    label_en: 'Approved',  classes: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
-      returned:  { label_ar: 'مُعاد',    label_en: 'Returned',  classes: 'bg-red-100 text-red-700', icon: XCircle },
+      submitted: { label_ar: 'مرسل',     label_en: 'Submitted', classes: 'bg-teal-50 text-teal-700', icon: Clock },
+      approved:  { label_ar: 'معتمد',    label_en: 'Approved',  classes: 'bg-teal-100 text-teal-800', icon: CheckCircle },
+      returned:  { label_ar: 'مُعاد',    label_en: 'Returned',  classes: 'bg-slate-100 text-slate-600', icon: XCircle },
     };
     const cfg = map[status] ?? map.draft;
     const Icon = cfg.icon;
@@ -95,7 +95,7 @@ export function AssessmentsMasterPage() {
                     </td>
                     <td className="px-6 py-4">{getStatusBadge(a.status)}</td>
                     <td className="px-6 py-4">
-                      {a.status === 'submitted' && can('assessment.view') && (
+                      {a.status === 'submitted' && can('assessment.approve') && (
                         <div className="flex items-center gap-2">
                           <Button
                             onClick={() => approveMutation.mutate(a.id)}

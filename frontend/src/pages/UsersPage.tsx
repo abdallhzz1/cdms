@@ -1,7 +1,9 @@
-import { useState, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, CheckCircle2, Edit2, Filter, Key, Search, Trash2, UserPlus, XCircle } from 'lucide-react';
 import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { useI18n } from '@/i18n/I18nContext';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
@@ -9,463 +11,44 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
-import {
-  UserPlus, Search, Key, Edit2, Trash2,
-  CheckCircle2, XCircle, AlertTriangle, Filter
-} from 'lucide-react';
 
-const ROLE_LABELS: Record<string, { ar: string; en: string }> = {
-  SYS_ADMIN: { ar: 'مدير النظام الفني', en: 'System Admin' },
-  DEAN: { ar: 'عميد الكلية', en: 'Dean' },
-  VICE_DEAN: { ar: 'نائب العميد', en: 'Vice Dean' },
-  CLINICAL_DIRECTOR: { ar: 'مدير الدائرة السريرية', en: 'Clinical Director' },
-  ADMIN_ASSISTANT: { ar: 'مساعد إداري', en: 'Admin Assistant' },
-  DEPARTMENT_HEAD: { ar: 'رئيس القسم الأكاديمي', en: 'Department Head' },
-  RTA: { ar: 'مساعد بحث وتدريس (TA)', en: 'Teaching & Research Assistant (TA)' },
-  CLINICAL_SUPERVISOR: { ar: 'المشرف السريري', en: 'Clinical Supervisor' },
-  ACADEMIC_ADVISOR: { ar: 'المرشد الأكاديمي', en: 'Academic Advisor' },
-  QUALITY: { ar: 'مسؤول الجودة والاعتماد', en: 'Quality Officer' },
-};
+const ROLE_LABELS:Record<string,{ar:string;en:string}>={SYS_ADMIN:{ar:'مدير النظام الفني',en:'System Admin'},DEAN:{ar:'عميد الكلية',en:'Dean'},VICE_DEAN:{ar:'نائب العميد',en:'Vice Dean'},CLINICAL_DIRECTOR:{ar:'مدير الدائرة السريرية',en:'Clinical Director'},ADMIN_ASSISTANT:{ar:'مساعد إداري',en:'Admin Assistant'},DEPARTMENT_HEAD:{ar:'رئيس القسم الأكاديمي',en:'Department Head'},RTA:{ar:'مساعد بحث وتدريس (TA)',en:'Teaching & Research Assistant'},CLINICAL_SUPERVISOR:{ar:'المشرف السريري',en:'Clinical Supervisor'},ACADEMIC_ADVISOR:{ar:'المرشد الأكاديمي',en:'Academic Advisor'},QUALITY:{ar:'مسؤول الجودة والاعتماد',en:'Quality Officer'}};
+type FormState={name:string;email:string;password?:string;roles:string[];department_id:string;is_active:boolean};
+type Department={id:number;name_ar:string;name_en?:string|null;code:string};
+const emptyForm:FormState={name:'',email:'',password:'',roles:['CLINICAL_SUPERVISOR'],department_id:'',is_active:true};
+const needsDepartment=(roles:string[])=>roles.some(role=>role==='DEPARTMENT_HEAD'||role==='RTA');
 
-function userActionError(error: unknown): string {
-  if (!(error instanceof ApiError)) {
-    return 'تعذر تنفيذ العملية. يرجى التحقق من الاتصال والمحاولة مرة أخرى.';
-  }
-
-  if (error.status === 422) {
-    const emailErrors = Array.isArray(error.errors.email) ? error.errors.email.join(' ') : '';
-
-    if (emailErrors.toLowerCase().includes('taken')) {
-      return 'البريد الإلكتروني مستخدم لحساب آخر. أدخل بريداً جامعياً مختلفاً.';
-    }
-    if (error.errors.email) {
-      return 'صيغة البريد الإلكتروني غير صحيحة. يرجى إدخال بريد جامعي صالح.';
-    }
-    if (error.errors.password) {
-      return 'كلمة المرور يجب أن تكون 12 خانة على الأقل، وتحتوي حرفاً كبيراً وحرفاً صغيراً ورقماً ورمزاً خاصاً.';
-    }
-    if (error.errors.roles) {
-      return 'الدور التقني المحدد غير صالح. يرجى اختياره مرة أخرى.';
-    }
-  }
-
-  return error.message || 'تعذر تنفيذ العملية. يرجى المحاولة مرة أخرى.';
+export function UsersPage(){
+  const qc=useQueryClient(); const {user:currentUser}=useAuth(); const {locale}=useI18n(); const ar=locale==='ar'; const tr=(a:string,e:string)=>ar?a:e;
+  const [search,setSearch]=useState(''); const [roleFilter,setRoleFilter]=useState('ALL'); const [message,setMessage]=useState(''); const [error,setError]=useState('');
+  const [adding,setAdding]=useState(false); const [editing,setEditing]=useState<any|null>(null); const [resetting,setResetting]=useState<any|null>(null); const [deleting,setDeleting]=useState<any|null>(null);
+  const [form,setForm]=useState<FormState>(emptyForm); const [newPassword,setNewPassword]=useState('');
+  const users=useQuery({queryKey:['admin-users-list'],queryFn:()=>apiFetch<any>('/users?per_page=500')});
+  const departments=useQuery({queryKey:['user-role-departments'],queryFn:()=>apiFetch<Department[]>('/users/departments-for-assignment')});
+  const items:any[]=users.data?.items??users.data?.data?.items??[];
+  const filtered=useMemo(()=>items.filter(item=>{const q=search.trim().toLowerCase();const matches=!q||String(item.name).toLowerCase().includes(q)||String(item.email).toLowerCase().includes(q);const roleCodes=(item.roles??[]).map((role:any)=>role.code);return matches&&(roleFilter==='ALL'||roleCodes.includes(roleFilter))}),[items,search,roleFilter]);
+  const notify=(text:string)=>{setMessage(text);window.setTimeout(()=>setMessage(''),3000)};
+  const apiError=(value:unknown)=>{if(value instanceof ApiError){if(value.errors?.department_id)return tr('يجب اختيار القسم عند تعيين دور رئيس قسم أو مساعد بحث وتدريس.','A department is required for the Department Head or RTA role.');if(value.errors?.roles)return tr('يجب اختيار دور واحد على الأقل.','Select at least one role.');if(value.errors?.password)return tr('كلمة المرور يجب أن تحتوي 12 خانة وحرفًا كبيرًا وصغيرًا ورقمًا ورمزًا.','Password must contain 12 characters, upper/lowercase letters, a number and a symbol.');return value.message}return tr('تعذر تنفيذ العملية.','Unable to complete the operation.')};
+  const payload=(value:FormState)=>({...value,password:value.password||undefined,department_id:value.department_id?Number(value.department_id):null});
+  const create=useMutation({mutationFn:()=>apiFetch('/users',{method:'POST',body:payload(form)}),onSuccess:async()=>{await qc.invalidateQueries({queryKey:['admin-users-list']});setAdding(false);setForm(emptyForm);notify(tr('تم إنشاء الحساب وتعيين الأدوار.','Account created and roles assigned.'))},onError:value=>setError(apiError(value))});
+  const update=useMutation({mutationFn:()=>apiFetch(`/users/${editing.id}`,{method:'PUT',body:payload(form)}),onSuccess:async()=>{await qc.invalidateQueries({queryKey:['admin-users-list']});setEditing(null);notify(tr('تم تحديث الحساب والأدوار.','Account and roles updated.'))},onError:value=>setError(apiError(value))});
+  const toggle=useMutation({mutationFn:(id:number)=>apiFetch(`/users/${id}/toggle`,{method:'POST'}),onSuccess:()=>qc.invalidateQueries({queryKey:['admin-users-list']})});
+  const reset=useMutation({mutationFn:()=>apiFetch(`/users/${resetting.id}/reset-password`,{method:'POST',body:{password:newPassword}}),onSuccess:()=>{setResetting(null);setNewPassword('');notify(tr('تم تغيير كلمة المرور وإنهاء جلسات الحساب السابقة.','Password changed and previous sessions ended.'))},onError:value=>setError(apiError(value))});
+  const remove=useMutation({mutationFn:()=>apiFetch(`/users/${deleting.id}`,{method:'DELETE'}),onSuccess:async()=>{await qc.invalidateQueries({queryKey:['admin-users-list']});setDeleting(null);notify(tr('تم حذف الحساب.','Account deleted.'))}});
+  const openEdit=(item:any)=>{setError('');setEditing(item);setForm({name:item.name,email:item.email,roles:(item.roles??[]).map((role:any)=>role.code),department_id:item.department_id?String(item.department_id):'',is_active:item.is_active??true})};
+  if(users.isLoading)return <LoadingState/>; if(users.isError)return <ErrorState onRetry={()=>users.refetch()}/>;
+  return <div className="space-y-5 pb-16">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><PageHeader title={tr('إدارة المستخدمين والأدوار','Users & Roles Management')} description={tr('يمكن تعيين أكثر من دور للحساب نفسه؛ الصلاحيات النهائية هي مجموع صلاحيات أدواره.','Assign multiple roles to one account; effective permissions are combined from all assigned roles.')}/><Button onClick={()=>{setError('');setForm(emptyForm);setAdding(true)}}><UserPlus className="ml-2 h-4 w-4"/>{tr('إضافة حساب','Add account')}</Button></div>
+    {message&&<div className="flex items-center gap-2 rounded-2xl bg-teal-50 p-4 text-xs font-bold text-teal-700"><CheckCircle2 className="h-4 w-4"/>{message}</div>}
+    <Card className="space-y-3 p-4"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><label className="flex h-10 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 md:max-w-lg"><Search className="h-4 w-4 text-slate-400"/><input className="w-full bg-transparent text-xs font-bold outline-none" value={search} onChange={event=>setSearch(event.target.value)} placeholder={tr('بحث بالاسم أو البريد الجامعي...','Search by name or university email...')}/></label><span className="flex items-center gap-2 text-xs font-bold text-slate-500"><Filter className="h-4 w-4 text-teal-600"/>{tr(`عرض ${filtered.length} من ${items.length}`,`Showing ${filtered.length} of ${items.length}`)}</span></div><div className="flex gap-1.5 overflow-x-auto"><RoleFilter code="ALL" active={roleFilter} onClick={setRoleFilter} label={tr('جميع الحسابات','All accounts')}/>{Object.entries(ROLE_LABELS).map(([code,label])=><RoleFilter key={code} code={code} active={roleFilter} onClick={setRoleFilter} label={ar?label.ar:label.en}/>)}</div></Card>
+    <Card className="overflow-hidden"><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>{tr('المستخدم','User')}</TableHead><TableHead>{tr('الأدوار','Roles')}</TableHead><TableHead>{tr('الحالة','Status')}</TableHead><TableHead>{tr('الإجراءات','Actions')}</TableHead></TableRow></TableHeader><TableBody>{filtered.map(item=>{const primary=item.email==='admin1@hebron.edu';const self=currentUser?.id===item.id;return <TableRow key={item.id}><TableCell><p className="text-xs font-black text-slate-900">{item.name}</p><p className="mt-1 text-[11px] text-slate-500" dir="ltr">{item.email}</p></TableCell><TableCell><div className="flex max-w-lg flex-wrap gap-1.5">{(item.roles??[]).map((role:any)=><span key={role.code} className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-700">{ar?ROLE_LABELS[role.code]?.ar:ROLE_LABELS[role.code]?.en||role.code}</span>)}</div></TableCell><TableCell><button disabled={self||primary} onClick={()=>toggle.mutate(item.id)} className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-[10px] font-bold ${item.is_active?'bg-teal-50 text-teal-700':'bg-slate-100 text-slate-500'}`}>{item.is_active?<CheckCircle2 className="h-3.5 w-3.5"/>:<XCircle className="h-3.5 w-3.5"/>}{item.is_active?tr('نشط','Active'):tr('مجمّد','Suspended')}</button></TableCell><TableCell><div className="flex gap-1"><IconAction title={tr('تعديل الحساب والأدوار','Edit account and roles')} onClick={()=>openEdit(item)} icon={Edit2}/><IconAction title={tr('تغيير كلمة المرور','Reset password')} onClick={()=>{setError('');setNewPassword('');setResetting(item)}} icon={Key}/>{!self&&!primary&&<IconAction danger title={tr('حذف الحساب','Delete account')} onClick={()=>setDeleting(item)} icon={Trash2}/>}</div></TableCell></TableRow>})}</TableBody></Table></div></Card>
+    <Modal isOpen={adding||!!editing} onClose={()=>{setAdding(false);setEditing(null);setError('')}} title={editing?tr('تعديل الحساب والأدوار','Edit account & roles'):tr('إضافة حساب جديد','Add new account')}><AccountForm form={form} setForm={setForm} departments={departments.data??[]} ar={ar} error={error} pending={create.isPending||update.isPending} onSubmit={()=>editing?update.mutate():create.mutate()} onCancel={()=>{setAdding(false);setEditing(null)}} isCreate={!editing}/></Modal>
+    <Modal isOpen={!!resetting} onClose={()=>{setResetting(null);setError('')}} title={tr('تغيير كلمة المرور','Reset password')}><form className="space-y-4" onSubmit={event=>{event.preventDefault();setError('');reset.mutate()}}>{error&&<FormError text={error}/>}<p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">{resetting?.name} — {resetting?.email}</p><label className="block text-xs font-bold text-slate-700">{tr('كلمة المرور الجديدة','New password')}<input className="input mt-1" type="password" minLength={12} required value={newPassword} onChange={event=>setNewPassword(event.target.value)}/></label><div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={()=>setResetting(null)}>{tr('إلغاء','Cancel')}</Button><Button type="submit" isLoading={reset.isPending}>{tr('حفظ كلمة المرور','Save password')}</Button></div></form></Modal>
+    <Modal isOpen={!!deleting} onClose={()=>setDeleting(null)} title={tr('تأكيد حذف الحساب','Confirm account deletion')}><div className="space-y-4"><div className="flex gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-xs text-red-700"><AlertTriangle className="h-5 w-5 shrink-0"/><p>{tr(`سيتم حذف حساب ${deleting?.name} وتجريده من جميع الأدوار.`,`The account ${deleting?.name} and all its role assignments will be deleted.`)}</p></div><div className="flex justify-end gap-2"><Button variant="ghost" onClick={()=>setDeleting(null)}>{tr('إلغاء','Cancel')}</Button><Button onClick={()=>remove.mutate()} isLoading={remove.isPending}>{tr('تأكيد الحذف','Delete account')}</Button></div></div></Modal>
+  </div>
 }
 
-export function UsersPage() {
-  const qc = useQueryClient();
-  const { user: currentUser } = useAuth();
-
-  const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState('ALL');
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  // Modals
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<any | null>(null);
-  const [resetPasswordUser, setResetPasswordUser] = useState<any | null>(null);
-  const [deleteConfirmUser, setDeleteConfirmUser] = useState<any | null>(null);
-
-  // Form States
-  const [addForm, setAddForm] = useState({
-    name: '',
-    email: '',
-    password: '',
-    roles: ['CLINICAL_SUPERVISOR'],
-    is_active: true,
-  });
-
-  const [editForm, setEditForm] = useState({
-    name: '',
-    email: '',
-    roles: [] as string[],
-    is_active: true,
-  });
-
-  const [newPassword, setNewPassword] = useState('');
-
-  // Fetch Users
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin-users-list'],
-    queryFn: () => apiFetch<any>('/users?per_page=500'),
-  });
-
-  const usersList = useMemo(() => {
-    return data?.data?.items || data?.items || data?.data || [];
-  }, [data]);
-
-  // Instant Client-Side Filter
-  const filteredUsers = useMemo(() => {
-    return usersList.filter((u: any) => {
-      const q = search.trim().toLowerCase();
-      const matchesSearch =
-        !q ||
-        (u.name && u.name.toLowerCase().includes(q)) ||
-        (u.email && u.email.toLowerCase().includes(q));
-
-      if (!matchesSearch) return false;
-      if (roleFilter === 'ALL') return true;
-      const userRoleCodes = u.roles?.map((r: any) => r.code) || [u.role];
-      return userRoleCodes.includes(roleFilter);
-    });
-  }, [usersList, search, roleFilter]);
-
-  // Create User Mutation
-  const createMutation = useMutation({
-    mutationFn: (body: any) => apiFetch('/users', { method: 'POST', body }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-users-list'] });
-      setIsAddModalOpen(false);
-      setAddForm({ name: '', email: '', password: '', roles: ['CLINICAL_SUPERVISOR'], is_active: true });
-      setSuccessMessage('تم إنشاء الحساب بنجاح في النظام.');
-      setTimeout(() => setSuccessMessage(null), 3000);
-    },
-    onError: (error) => setActionError(userActionError(error)),
-  });
-
-  // Update User Mutation
-  const updateMutation = useMutation({
-    mutationFn: ({ id, body }: { id: number; body: any }) => apiFetch(`/users/${id}`, { method: 'PUT', body }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-users-list'] });
-      setEditingUser(null);
-      setSuccessMessage('تم تحديث بيانات الحساب والأدوار بنجاح.');
-      setTimeout(() => setSuccessMessage(null), 3000);
-    },
-    onError: (error) => setActionError(userActionError(error)),
-  });
-
-  // Toggle Active Mutation
-  const toggleMutation = useMutation({
-    mutationFn: (id: number) => apiFetch(`/users/${id}/toggle`, { method: 'POST' }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-users-list'] });
-      setSuccessMessage('تم تغيير حالة تفعيل الحساب بنجاح.');
-      setTimeout(() => setSuccessMessage(null), 3000);
-    },
-  });
-
-  // Reset Password Mutation
-  const resetPasswordMutation = useMutation({
-    mutationFn: ({ id, password }: { id: number; password: string }) =>
-      apiFetch(`/users/${id}/reset-password`, { method: 'POST', body: { password } }),
-    onSuccess: () => {
-      setResetPasswordUser(null);
-      setNewPassword('');
-      setSuccessMessage('تم إعادة تعيين كلمة المرور بنجاح.');
-      setTimeout(() => setSuccessMessage(null), 3000);
-    },
-    onError: (error) => setActionError(userActionError(error)),
-  });
-
-  // Delete User Mutation
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => apiFetch(`/users/${id}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-users-list'] });
-      setDeleteConfirmUser(null);
-      setSuccessMessage('تم حذف الحساب نهائياً من قاعدة البيانات بنجاح.');
-      setTimeout(() => setSuccessMessage(null), 3000);
-    },
-  });
-
-  const openEditModal = (u: any) => {
-    setActionError(null);
-    setEditingUser(u);
-    setEditForm({
-      name: u.name,
-      email: u.email,
-      roles: u.roles?.map((r: any) => r.code) || [u.role],
-      is_active: u.is_active ?? true,
-    });
-  };
-
-  if (isLoading && !data) return <LoadingState />;
-  if (isError) return <ErrorState onRetry={() => refetch()} />;
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <PageHeader
-          title="شاشة إدارة المستخدمين والأدوار التقنية"
-          description="إنشاء وتعديل الحسابات، تعيين وتحديث الأدوار، وتجميد أو تفعيل الحسابات."
-        />
-        <Button
-          onClick={() => { setActionError(null); setIsAddModalOpen(true); }}
-          className="gap-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-xs"
-        >
-          <UserPlus className="w-4 h-4" />
-          إضافة حساب جديد
-        </Button>
-      </div>
-
-      {successMessage && (
-        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-semibold flex items-center gap-3">
-          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-          <span>{successMessage}</span>
-        </div>
-      )}
-
-      {/* Controls: Search & Role Filter Pills */}
-      <Card className="p-4 border-slate-100 shadow-xs space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
-            <input
-              type="text"
-              placeholder="ابحث بالاسم أو البريد الإلكتروني الجامعي..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pr-10 pl-4 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-slate-50/50"
-            />
-          </div>
-          <div className="text-xs font-bold text-slate-500 flex items-center gap-2">
-            <Filter className="w-4 h-4 text-teal-600" />
-            <span>عرض {filteredUsers.length} من أصل {usersList.length} حساب</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          <button
-            onClick={() => setRoleFilter('ALL')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${roleFilter === 'ALL' ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-          >
-            جميع الحسابات
-          </button>
-          {Object.entries(ROLE_LABELS).map(([code, label]) => (
-            <button
-              key={code}
-              onClick={() => setRoleFilter(code)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${roleFilter === code ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-            >
-              {label.ar}
-            </button>
-          ))}
-        </div>
-      </Card>
-
-      {/* Users Table */}
-      <Card className="overflow-hidden border-slate-100 shadow-xs">
-        <Table>
-          <TableHeader className="bg-slate-50">
-            <TableRow>
-              <TableHead>المستخدم والبريد الإلكتروني</TableHead>
-              <TableHead>الأدوار والمسمى التقني</TableHead>
-              <TableHead className="text-center">حالة الحساب</TableHead>
-              <TableHead className="text-center">إجراءات</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredUsers.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={4} className="text-center py-12 text-slate-400 text-xs">
-                  لا يوجد مستخدمين مطابقين لهذا التصفية.
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredUsers.map((u: any) => {
-                const userRoles = u.roles || [];
-                const isPrimaryAdmin = u.email === 'admin1@hebron.edu';
-                const isSelf = currentUser?.id === u.id;
-
-                return (
-                  <TableRow key={u.id} className="hover:bg-slate-50/80 transition-colors">
-                    <TableCell>
-                      <div className="font-bold text-slate-900 text-xs flex items-center gap-2">
-                        {u.name}
-                        {isPrimaryAdmin && (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">مدير رئيسي 👑</span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-slate-500 font-mono mt-0.5">{u.email}</div>
-                    </TableCell>
-
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {userRoles.map((r: any) => {
-                          const label = ROLE_LABELS[r.code] || { ar: r.code };
-                          return (
-                            <span key={r.id || r.code} className="px-2 py-0.5 rounded-lg bg-teal-50 text-teal-800 border border-teal-100 text-[10px] font-bold">
-                              {label.ar}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </TableCell>
-
-                    <TableCell className="text-center">
-                      <button
-                        onClick={() => toggleMutation.mutate(u.id)}
-                        disabled={isSelf || isPrimaryAdmin || toggleMutation.isPending}
-                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all inline-flex items-center gap-1.5 ${u.is_active ?? true ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-red-100 text-red-800 hover:bg-red-200'}`}
-                      >
-                        {u.is_active ?? true ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
-                        {u.is_active ?? true ? 'حساب نشط' : 'حساب مجمد'}
-                      </button>
-                    </TableCell>
-
-                    <TableCell className="text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => openEditModal(u)} title="تعديل الحساب والأدوار" className="h-8 w-8 p-0 text-slate-600 hover:bg-slate-100 rounded-lg">
-                          <Edit2 className="w-4 h-4" />
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => { setActionError(null); setNewPassword(''); setResetPasswordUser(u); }} title="إعادة تعيين كلمة المرور" className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-50 rounded-lg">
-                          <Key className="w-4 h-4" />
-                        </Button>
-                        {!isSelf && !isPrimaryAdmin && (
-                          <Button size="sm" variant="ghost" onClick={() => setDeleteConfirmUser(u)} title="حذف الحساب نهائياً" className="h-8 w-8 p-0 text-red-600 hover:bg-red-50 rounded-lg">
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </Card>
-
-      {/* 1. Add User Modal */}
-      <Modal isOpen={isAddModalOpen} onClose={() => { setActionError(null); setIsAddModalOpen(false); }} title="إضافة حساب مستخدم جديد">
-        <form onSubmit={(e) => { e.preventDefault(); setActionError(null); createMutation.mutate(addForm); }} className="space-y-4">
-          {actionError && (
-            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800">
-              {actionError}
-            </div>
-          )}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">الاسم الكامل للمستخدم</label>
-            <input type="text" required placeholder="مثال: د. معاذ الشريف" value={addForm.name}
-              onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium" />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">البريد الإلكتروني الجامعي</label>
-            <input type="email" required placeholder="user@hebron.edu" value={addForm.email}
-              onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium" />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور</label>
-            <input type="password" required minLength={12} placeholder="12+ أحرف مع رقم ورمز" value={addForm.password}
-              onChange={(e) => setAddForm({ ...addForm, password: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium" />
-            <p className="mt-1.5 text-[11px] text-slate-500">مطلوب: 12 خانة على الأقل، حرف كبير، حرف صغير، رقم، ورمز خاص مثل ! أو @.</p>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">الدور التقني</label>
-            <select value={addForm.roles[0]} onChange={(e) => setAddForm({ ...addForm, roles: [e.target.value] })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white">
-              {Object.entries(ROLE_LABELS).map(([code, label]) => (
-                <option key={code} value={code}>{label.ar}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-3">
-            <Button type="button" variant="ghost" onClick={() => setIsAddModalOpen(false)}>إلغاء</Button>
-            <Button type="submit" isLoading={createMutation.isPending} className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs">
-              إنشاء الحساب
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* 2. Edit User Modal */}
-      <Modal isOpen={!!editingUser} onClose={() => { setActionError(null); setEditingUser(null); }} title="تعديل بيانات الحساب والأدوار">
-        <form onSubmit={(e) => { e.preventDefault(); setActionError(null); if (editingUser) updateMutation.mutate({ id: editingUser.id, body: editForm }); }} className="space-y-4">
-          {actionError && (
-            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800">
-              {actionError}
-            </div>
-          )}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">الاسم الكامل</label>
-            <input type="text" required value={editForm.name}
-              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium" />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">البريد الإلكتروني</label>
-            <input type="email" required value={editForm.email}
-              onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium" />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">الدور التقني</label>
-            <select value={editForm.roles[0] || 'CLINICAL_SUPERVISOR'}
-              onChange={(e) => setEditForm({ ...editForm, roles: [e.target.value] })}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white">
-              {Object.entries(ROLE_LABELS).map(([code, label]) => (
-                <option key={code} value={code}>{label.ar}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-3">
-            <Button type="button" variant="ghost" onClick={() => setEditingUser(null)}>إلغاء</Button>
-            <Button type="submit" isLoading={updateMutation.isPending} className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs">
-              حفظ التعديلات
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* 3. Reset Password Modal */}
-      <Modal isOpen={!!resetPasswordUser} onClose={() => { setActionError(null); setResetPasswordUser(null); }} title="تغيير كلمة المرور">
-        <form onSubmit={(e) => { e.preventDefault(); setActionError(null); if (resetPasswordUser) resetPasswordMutation.mutate({ id: resetPasswordUser.id, password: newPassword }); }} className="space-y-4">
-          {actionError && (
-            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800">
-              {actionError}
-            </div>
-          )}
-          <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
-            تعيين كلمة مرور جديدة للحساب: <b>{resetPasswordUser?.name}</b> ({resetPasswordUser?.email})
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور الجديدة</label>
-            <input type="password" required minLength={12} placeholder="12+ أحرف مع حرف كبير وصغير ورقم ورمز" value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium" />
-            <p className="mt-1.5 text-[11px] text-slate-500">مطلوب: 12 خانة على الأقل، حرف كبير، حرف صغير، رقم، ورمز خاص مثل ! أو @.</p>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setResetPasswordUser(null)}>إلغاء</Button>
-            <Button type="submit" isLoading={resetPasswordMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs">
-              تغيير كلمة المرور
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* 4. Delete Confirm Modal */}
-      <Modal isOpen={!!deleteConfirmUser} onClose={() => setDeleteConfirmUser(null)} title="تأكيد حذف الحساب نهائياً">
-        <div className="space-y-4">
-          <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-xs font-semibold flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold text-sm">هل أنت متأكد من حذف هذا الحساب نهائياً؟</p>
-              <p className="mt-1 text-red-700">
-                سيتم حذف (<b>{deleteConfirmUser?.name}</b> - {deleteConfirmUser?.email}) من قاعدة البيانات نهائياً وتجريده من كافة الأدوار والصلاحيات.
-              </p>
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setDeleteConfirmUser(null)}>إلغاء الأمر</Button>
-            <Button onClick={() => deleteMutation.mutate(deleteConfirmUser?.id)} disabled={deleteMutation.isPending} className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs">
-              تأكيد الحذف النهائي
-            </Button>
-          </div>
-        </div>
-      </Modal>
-    </div>
-  );
-}
+function AccountForm({form,setForm,departments,ar,error,pending,onSubmit,onCancel,isCreate}:{form:FormState;setForm:(v:FormState)=>void;departments:Department[];ar:boolean;error:string;pending:boolean;onSubmit:()=>void;onCancel:()=>void;isCreate:boolean}){const tr=(a:string,e:string)=>ar?a:e;const toggleRole=(code:string)=>setForm({...form,roles:form.roles.includes(code)?form.roles.filter(role=>role!==code):[...form.roles,code]});return <form className="space-y-4" onSubmit={event=>{event.preventDefault();onSubmit()}}>{error&&<FormError text={error}/>}<div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold text-slate-700">{tr('الاسم الكامل','Full name')}<input className="input mt-1" required value={form.name} onChange={event=>setForm({...form,name:event.target.value})}/></label><label className="text-xs font-bold text-slate-700">{tr('البريد الجامعي','University email')}<input className="input mt-1" dir="ltr" type="email" required value={form.email} onChange={event=>setForm({...form,email:event.target.value})}/></label></div>{isCreate&&<label className="block text-xs font-bold text-slate-700">{tr('كلمة المرور الأولية','Initial password')}<input className="input mt-1" type="password" minLength={12} required value={form.password??''} onChange={event=>setForm({...form,password:event.target.value})}/><span className="mt-1 block text-[10px] font-normal text-slate-500">{tr('12 خانة على الأقل مع حرف كبير وصغير ورقم ورمز.','At least 12 characters with upper/lowercase letters, a number and a symbol.')}</span></label>}<fieldset><legend className="text-xs font-black text-slate-800">{tr('الأدوار — يمكن اختيار أكثر من دور','Roles — multiple selections allowed')}</legend><p className="mt-1 text-[10px] text-slate-500">{tr('مثال: اختر رئيس قسم + مشرف سريري إذا كان رئيس القسم يشرف على طلبة فعليًا.','Example: select Department Head + Clinical Supervisor when the head actively supervises students.')}</p><div className="mt-3 grid gap-2 sm:grid-cols-2">{Object.entries(ROLE_LABELS).map(([code,label])=><label key={code} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-xs font-bold transition ${form.roles.includes(code)?'border-teal-300 bg-teal-50 text-teal-800':'border-slate-200 text-slate-600 hover:border-teal-200'}`}><input type="checkbox" className="h-4 w-4 accent-teal-600" checked={form.roles.includes(code)} onChange={()=>toggleRole(code)}/>{ar?label.ar:label.en}</label>)}</div></fieldset>{needsDepartment(form.roles)&&<label className="block text-xs font-bold text-slate-700">{tr('القسم المرتبط بالدور','Department for scoped role')}<select className="input mt-1" required value={form.department_id} onChange={event=>setForm({...form,department_id:event.target.value})}><option value="">{tr('اختر القسم','Select department')}</option>{departments.map(department=><option key={department.id} value={department.id}>{ar?department.name_ar:department.name_en||department.name_ar} ({department.code})</option>)}</select></label>}<div className="flex justify-end gap-2 border-t border-slate-100 pt-4"><Button type="button" variant="ghost" onClick={onCancel}>{tr('إلغاء','Cancel')}</Button><Button type="submit" disabled={!form.roles.length} isLoading={pending}>{tr('حفظ الحساب والأدوار','Save account & roles')}</Button></div></form>}
+function RoleFilter({code,active,onClick,label}:{code:string;active:string;onClick:(v:string)=>void;label:string}){return <button onClick={()=>onClick(code)} className={`shrink-0 rounded-xl px-3 py-2 text-[11px] font-bold ${active===code?'bg-teal-600 text-white':'bg-slate-100 text-slate-600 hover:bg-teal-50'}`}>{label}</button>}
+function IconAction({icon:Icon,title,onClick,danger=false}:{icon:typeof Edit2;title:string;onClick:()=>void;danger?:boolean}){return <button title={title} aria-label={title} onClick={onClick} className={`rounded-lg p-2 ${danger?'text-red-600 hover:bg-red-50':'text-slate-500 hover:bg-teal-50 hover:text-teal-700'}`}><Icon className="h-4 w-4"/></button>}
+function FormError({text}:{text:string}){return <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-700">{text}</div>}

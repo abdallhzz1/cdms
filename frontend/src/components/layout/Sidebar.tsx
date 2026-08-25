@@ -45,9 +45,9 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         {
           title: locale === 'ar' ? 'التدريب السريري والتقييم' : 'Clinical Training & Grading',
           items: [
-            { path: '/supervisor/portal', label: locale === 'ar' ? 'مجموعاتي والطلاب والأسابيع' : 'My Groups, Students & Weeks', icon: Users },
-            { path: '/supervisor/portal?tab=assessments', label: locale === 'ar' ? 'رصد التقييم السريري (20)' : 'Clinical Evaluation (/20)', icon: ClipboardCheck },
-            { path: '/attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance', icon: Clock, permission: 'attendance.view' },
+            { path: '/supervisor/portal', label: locale === 'ar' ? 'مساحة عملي السريرية' : 'My Clinical Workspace', icon: Users },
+            { path: '/supervisor/portal?tab=attendance', label: locale === 'ar' ? 'رصد حضور مجموعاتي' : 'My Groups Attendance', icon: Clock },
+            { path: '/supervisor/portal?tab=assessments', label: locale === 'ar' ? 'التقييم السريري (20)' : 'Clinical Assessment (/20)', icon: ClipboardCheck },
             { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: GraduationCap, permission: 'advising.view' },
           ]
         },
@@ -73,7 +73,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           { path: '/distribution', label: locale === 'ar' ? 'التوزيع السريري' : 'Distribution', icon: Map, permission: 'distribution.view' },
           { path: '/distribution/groups', label: locale === 'ar' ? 'تسجيل مجموعات الطلبة' : 'Student Group Registration', icon: GraduationCap, permission: 'group_registration.view' },
           { path: '/clinical/schedule', label: locale === 'ar' ? 'الجدول السريري' : 'Clinical Schedule', icon: Calendar, permission: 'distribution.view' },
-          { path: '/supervisor/portal', label: locale === 'ar' ? 'بوابة الإشراف والتقييم' : 'Supervisor Portal', icon: ClipboardCheck, customCheck: () => isClinicalSupervisor || isDeptHead || isClinicalDirector || can('assessment.view') },
+          { path: '/supervisor/portal', label: locale === 'ar' ? 'مساحة عملي كمشرف سريري' : 'My Clinical Supervisor Workspace', icon: ClipboardCheck, customCheck: () => isClinicalSupervisor },
           { path: '/attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance Log', icon: Clock, permission: 'attendance.view' },
         ]
       },
@@ -88,7 +88,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
       {
         title: locale === 'ar' ? 'الكادر ورؤساء الأقسام' : 'Staff & Department Heads',
         items: [
-          { path: '/dept-heads/me', label: locale === 'ar' ? 'بروفايلي الأكاديمي والـ Score' : 'My Academic Profile', icon: GraduationCap, customCheck: () => isDeptHead || isClinicalDirector || isClinicalSupervisor },
+          { path: '/dept-heads/me', label: locale === 'ar' ? 'بروفايلي الأكاديمي والـ Score' : 'My Academic Profile', icon: GraduationCap, customCheck: () => isDeptHead || isClinicalDirector },
           { path: '/department-heads', label: locale === 'ar' ? 'دليل رؤساء الأقسام' : 'Department Heads Directory', icon: Users, permission: 'people.view' },
           { path: '/clinical-supervisors', label: locale === 'ar' ? 'المستشفيات والمشرفون' : 'Hospitals & Supervisors', icon: ShieldCheck, permission: 'people.view' },
           { path: '/rta-assignments', label: locale === 'ar' ? 'تخصيص دفعات مساعدي البحث والتدريس (TA)' : 'Assign TA Cohorts', icon: Users, customCheck: () => can('students.view') && (isClinicalDirector || isDeptHead || isRTA || isSuperAdmin) },

@@ -168,6 +168,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('student-course-enrollments', [\App\Http\Controllers\Api\V1\StudentCourseEnrollmentController::class, 'index'])->middleware('permission:students.view');
         Route::post('student-course-enrollments', [\App\Http\Controllers\Api\V1\StudentCourseEnrollmentController::class, 'store'])->middleware('permission:courses.manage');
         Route::get('grade-entries', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'index'])->middleware('permission:grades.view');
+        Route::get('grade-entries/clinical-assessment-summary', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'clinicalAssessmentSummary'])->middleware('permission:grades.view');
         Route::post('grade-entries', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'store'])->middleware('permission:grades.create');
         Route::post('grade-entries/batch', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'batchStore'])->middleware('permission:grades.create');
         Route::post('grade-entries/batch-submit', [\App\Http\Controllers\Api\V1\GradeEntryController::class, 'batchSubmit'])->middleware('permission:grades.create');
@@ -180,6 +181,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('clinical-assessments', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'index'])->middleware('permission:assessment.view');
         Route::post('clinical-assessments', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'store'])->middleware('permission:assessment.create');
         Route::post('clinical-assessments/{clinicalAssessment}/submit', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'submit'])->middleware('permission:assessment.submit');
+        Route::post('clinical-assessments/{clinicalAssessment}/approve', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'approve'])->middleware('permission:assessment.approve');
         Route::get('advising-records', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'index'])->middleware('permission:advising.view');
         Route::get('advising-records/{advisingRecord}', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'show'])->middleware('permission:advising.view');
         Route::post('advising-records', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'store'])->middleware('permission:advising.manage');
@@ -574,6 +576,16 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('operational/my-supervisor-assignments', [\App\Http\Controllers\Api\V1\SupervisorController::class, 'myAssignments'])
             ->middleware('permission:distribution.view')
             ->name('operational.my-supervisor-assignments');
+
+        Route::get('operational/my-supervisor-workspace', [\App\Http\Controllers\Api\V1\SupervisorController::class, 'workspace'])
+            ->middleware('permission:distribution.view')
+            ->name('operational.my-supervisor-workspace');
+        Route::post('operational/my-supervisor-attendance', [\App\Http\Controllers\Api\V1\SupervisorController::class, 'recordAttendance'])
+            ->middleware('permission:attendance.record')
+            ->name('operational.my-supervisor-attendance');
+        Route::post('operational/my-supervisor-assessments', [\App\Http\Controllers\Api\V1\SupervisorController::class, 'storeAssessment'])
+            ->middleware('permission:assessment.create')
+            ->name('operational.my-supervisor-assessments');
 
         // GET: admin view of any supervisor's current assignments
         Route::get('operational/supervisors/{person}/assignments', [\App\Http\Controllers\Api\V1\SupervisorController::class, 'supervisorAssignments'])

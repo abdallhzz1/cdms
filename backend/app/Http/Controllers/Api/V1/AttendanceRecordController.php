@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AttendanceRecord;
+use App\Models\StudentClinicalAssignment;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,19 @@ class AttendanceRecordController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = AttendanceRecord::with(['student', 'session.trainingSite']);
+
+        $user = $request->user();
+        $roles = $user?->roles()->pluck('code') ?? collect();
+        $isSupervisorOnly = $roles->contains('CLINICAL_SUPERVISOR')
+            && ! $roles->intersect(['SYS_ADMIN', 'CLINICAL_DIRECTOR', 'DEPARTMENT_HEAD', 'DEAN', 'VICE_DEAN'])->count();
+        if ($isSupervisorOnly) {
+            $personId = $user?->person?->id;
+            $studentIds = StudentClinicalAssignment::query()
+                ->where('supervisor_id', $personId ?: 0)
+                ->whereHas('distributionVersion', fn ($distribution) => $distribution->where('status', 'published')->where('is_current', true))
+                ->pluck('student_id');
+            $query->whereIn('student_id', $studentIds);
+        }
 
         $userDeptId = $this->getUserDepartmentId();
         if ($userDeptId) {

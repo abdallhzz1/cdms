@@ -10,10 +10,10 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
 
 const STATUS_CONFIG: Record<string, { icon: any; label_ar: string; label_en: string; bg: string; text: string }> = {
-  present: { icon: CheckCircle, label_ar: 'حاضر', label_en: 'Present', bg: 'bg-emerald-50', text: 'text-emerald-700' },
-  absent: { icon: XCircle, label_ar: 'غائب', label_en: 'Absent', bg: 'bg-red-50', text: 'text-red-700' },
-  late: { icon: Clock, label_ar: 'متأخر', label_en: 'Late', bg: 'bg-amber-50', text: 'text-amber-700' },
-  excused: { icon: AlertCircle, label_ar: 'مبرر', label_en: 'Excused', bg: 'bg-blue-50', text: 'text-blue-700' },
+  present: { icon: CheckCircle, label_ar: 'حاضر', label_en: 'Present', bg: 'bg-teal-50', text: 'text-teal-700' },
+  absent: { icon: XCircle, label_ar: 'غائب', label_en: 'Absent', bg: 'bg-teal-50', text: 'text-teal-700' },
+  late: { icon: Clock, label_ar: 'متأخر', label_en: 'Late', bg: 'bg-teal-50', text: 'text-teal-700' },
+  excused: { icon: AlertCircle, label_ar: 'مبرر', label_en: 'Excused', bg: 'bg-teal-50', text: 'text-teal-700' },
 };
 
 export function AttendanceMasterPage() {
@@ -78,7 +78,7 @@ export function AttendanceMasterPage() {
         <select
           value={sessionFilter}
           onChange={e => setSessionFilter(e.target.value)}
-          className="flex-1 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-1 focus:ring-indigo-500 bg-white"
+          className="flex-1 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-1 focus:ring-teal-500 bg-white"
         >
           <option value="">{locale === 'ar' ? 'كل الجلسات' : 'All Sessions'}</option>
           {sessionsList.map((s: any) => (
