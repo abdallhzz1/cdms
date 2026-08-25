@@ -37,13 +37,18 @@ describe('LoginPage', () => {
   });
 
   function mockFetch(login: () => Response) {
+    let authenticated = false;
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = typeof input === 'string' ? input : input.toString();
         if (url.includes('/sanctum/csrf-cookie')) return new Response(null, { status: 204 });
-        if (url.includes('/auth/login')) return login();
-        if (url.includes('/auth/me')) return jsonResponse(UNAUTHENTICATED, 401);
+        if (url.includes('/auth/login')) {
+          const response = login();
+          authenticated = response.ok;
+          return response;
+        }
+        if (url.includes('/auth/me')) return authenticated ? jsonResponse(AUTHENTICATED_USER) : jsonResponse(UNAUTHENTICATED, 401);
         if (url.includes('/health')) return jsonResponse(HEALTH_OK);
         throw new Error(`Unmocked fetch call to ${url}`);
       }),

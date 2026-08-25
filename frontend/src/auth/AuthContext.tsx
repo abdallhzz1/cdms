@@ -62,9 +62,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   const login = useCallback(async (email: string, password: string) => {
-    const authenticated = await loginRequest(email, password);
+    await loginRequest(email, password);
+    const authenticated = await fetchCurrentUser();
+    if (!authenticated) {
+      queryClient.clear();
+      throw new ApiError('The secure login session could not be established.', 401);
+    }
+    queryClient.clear();
     setUser(authenticated);
-  }, []);
+  }, [queryClient]);
 
   const logout = useCallback(async () => {
     try {

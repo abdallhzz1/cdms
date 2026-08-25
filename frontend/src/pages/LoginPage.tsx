@@ -28,7 +28,9 @@ export function LoginPage() {
       navigate('/', { replace: true });
     } catch (error) {
       if (error instanceof ApiError) {
-        setFormError(t('auth.invalidCredentials'));
+        setFormError(error.status === 401
+          ? (locale === 'ar' ? 'تعذر إنشاء جلسة دخول آمنة. امسح بيانات الموقع ثم أعد المحاولة.' : 'A secure login session could not be established. Clear this site’s data and try again.')
+          : t('auth.invalidCredentials'));
       } else {
         setFormError(t('auth.unknownError'));
       }
