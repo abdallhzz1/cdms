@@ -36,7 +36,7 @@ class AttendanceRecordController extends Controller
             ->select('students.id');
         $query->whereIn('student_id', $allowedStudentIds);
 
-        $userDeptId = $this->getUserDepartmentId();
+        $userDeptId = $this->getClinicalOperationsDepartmentId();
         if ($userDeptId) {
             $query->whereHas('session.rotationBlock', function ($q) use ($userDeptId) {
                 $q->where('department_id', $userDeptId);

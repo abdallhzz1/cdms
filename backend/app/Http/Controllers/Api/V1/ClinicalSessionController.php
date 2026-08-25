@@ -17,7 +17,7 @@ class ClinicalSessionController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = ClinicalSession::with(['trainingSite', 'rotationBlock.rotation.course']);
-        $departmentId = $this->getUserDepartmentId();
+        $departmentId = $this->getClinicalOperationsDepartmentId();
         if ($departmentId) {
             $query->whereHas('rotationBlock', fn ($block) => $block->where('department_id', $departmentId));
         }

@@ -239,6 +239,25 @@ trait ScopesByDepartmentAndLevel
     }
 
     /**
+     * Clinical operations for an RTA follow the assigned cohort across all
+     * clinical departments. Department heads remain department-scoped.
+     */
+    protected function getClinicalOperationsDepartmentId(): ?int
+    {
+        /** @var User|null $user */
+        $user = auth()->user();
+        if (! $user) {
+            return null;
+        }
+
+        $roleCodes = $user->relationLoaded('roles')
+            ? $user->roles->pluck('code')
+            : $user->roles()->pluck('code');
+
+        return $roleCodes->contains('RTA') ? null : $this->getUserDepartmentId();
+    }
+
+    /**
      * Helper to normalize level strings between Arabic and English
      */
     protected function normalizeLevels(array $levels): array

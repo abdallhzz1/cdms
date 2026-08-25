@@ -94,6 +94,7 @@ class GradeAndRtaIntegrationTest extends TestCase
     public function test_rta_schedule_and_attendance_are_limited_to_the_assigned_cohort(): void
     {
         $year = AcademicYear::factory()->create();
+        $rtaDepartment = Department::factory()->create();
         $department = Department::factory()->create();
         $site = TrainingSite::factory()->create();
         $rtaRole = Role::where('code', 'RTA')->firstOrFail();
@@ -101,7 +102,7 @@ class GradeAndRtaIntegrationTest extends TestCase
             $rtaRole->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
         }
         $rta = User::factory()->create(['assigned_levels' => ['fourth']]);
-        $rta->roles()->attach($rtaRole, ['scope_type' => 'department', 'scope_id' => $department->id]);
+        $rta->roles()->attach($rtaRole, ['scope_type' => 'department', 'scope_id' => $rtaDepartment->id]);
 
         $assignments = [];
         $records = [];
@@ -151,6 +152,21 @@ class GradeAndRtaIntegrationTest extends TestCase
             ]);
         }
 
+        $emptyPublishedCourse = Course::factory()->create(['academic_level' => 'fourth']);
+        $emptyPublishedRotation = Rotation::factory()->create([
+            'academic_year_id' => $year->id,
+            'course_id' => $emptyPublishedCourse->id,
+            'academic_level' => 'fourth',
+            'start_date' => '2026-11-01',
+            'end_date' => '2026-12-31',
+        ]);
+        DistributionVersion::create([
+            'rotation_id' => $emptyPublishedRotation->id,
+            'version_number' => 1,
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+
         $this->actingAs($rta)->getJson('/api/v1/operational/clinical-schedule?page=1&per_page=50')
             ->assertOk()
             ->assertJsonCount(1, 'data.data')
@@ -158,8 +174,8 @@ class GradeAndRtaIntegrationTest extends TestCase
 
         $this->actingAs($rta)->getJson('/api/v1/operational/clinical-schedule-options')
             ->assertOk()
-            ->assertJsonCount(1, 'data.rotations')
-            ->assertJsonPath('data.rotations.0.academic_level', 'fourth');
+            ->assertJsonCount(2, 'data.rotations')
+            ->assertJsonFragment(['id' => $emptyPublishedRotation->id, 'academic_level' => 'fourth']);
 
         $this->actingAs($rta)->getJson('/api/v1/attendance-records?per_page=100')
             ->assertOk()

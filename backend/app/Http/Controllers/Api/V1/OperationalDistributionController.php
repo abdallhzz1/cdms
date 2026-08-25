@@ -49,7 +49,7 @@ class OperationalDistributionController extends Controller
             ->whereHas('distributionVersion', fn ($query) => $query
                 ->where('status', 'published')->where('is_current', true));
 
-        $scopedDepartmentId = $this->getUserDepartmentId();
+        $scopedDepartmentId = $this->getClinicalOperationsDepartmentId();
         if ($scopedDepartmentId) {
             $assignments->where('student_clinical_assignments.department_id', $scopedDepartmentId);
         }
@@ -62,12 +62,18 @@ class OperationalDistributionController extends Controller
                 : $assignments->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->whereIn('academic_level', $levelScope));
         }
 
-        $rotationIds = (clone $assignments)
-            ->join('rotation_blocks', 'student_clinical_assignments.rotation_block_id', '=', 'rotation_blocks.id')
-            ->distinct()->pluck('rotation_blocks.rotation_id');
         $siteIds = (clone $assignments)->distinct()->pluck('training_site_id')->filter();
 
-        $rotations = Rotation::whereIn('id', $rotationIds)
+        $rotations = Rotation::query()
+            ->whereHas('distributionVersions', fn ($query) => $query
+                ->where('status', 'published')->where('is_current', true))
+            ->when($scopedDepartmentId, fn ($query, $departmentId) => $query
+                ->whereHas('blocks', fn ($blocks) => $blocks->where('department_id', $departmentId)))
+            ->when($levelScope !== null, function ($query) use ($levelScope) {
+                empty($levelScope)
+                    ? $query->whereRaw('1 = 0')
+                    : $query->whereIn('academic_level', $levelScope);
+            })
             ->with(['academicYear:id,code', 'course:id,code,name_ar,name_en'])
             ->orderBy('academic_year_id')->orderBy('academic_level')->orderBy('name')
             ->get()
