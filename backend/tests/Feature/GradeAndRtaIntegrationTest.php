@@ -101,7 +101,7 @@ class GradeAndRtaIntegrationTest extends TestCase
             $rtaRole->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
         }
         $rta = User::factory()->create(['assigned_levels' => ['fourth']]);
-        $rta->roles()->attach($rtaRole, ['scope_type' => 'global']);
+        $rta->roles()->attach($rtaRole, ['scope_type' => 'department', 'scope_id' => $department->id]);
 
         $assignments = [];
         $records = [];

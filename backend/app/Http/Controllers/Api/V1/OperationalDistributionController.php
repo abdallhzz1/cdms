@@ -51,7 +51,7 @@ class OperationalDistributionController extends Controller
 
         $scopedDepartmentId = $this->getUserDepartmentId();
         if ($scopedDepartmentId) {
-            $assignments->where('department_id', $scopedDepartmentId);
+            $assignments->where('student_clinical_assignments.department_id', $scopedDepartmentId);
         }
 
 

@@ -46,7 +46,7 @@ class ClinicalScheduleQueryService
         // Auto-scope by department if user is a Department Head or RTA
         $scopedDeptId = $this->getUserDepartmentId();
         if ($scopedDeptId) {
-            $query->where('department_id', $scopedDeptId);
+            $query->where('student_clinical_assignments.department_id', $scopedDeptId);
         }
 
         $levelScope = $this->getEffectiveAcademicLevelScope();
