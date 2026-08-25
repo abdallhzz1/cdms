@@ -201,6 +201,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('correspondence/{correspondence}/approve', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'approve'])->middleware('permission:correspondence.approve');
         Route::post('correspondence/{correspondence}/tasks', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'createTask'])->middleware('permission:tasks.manage');
         Route::post('correspondence/{correspondence}/attachments', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'storeAttachment'])->middleware('permission:correspondence.view');
+        Route::post('correspondence/{correspondence}/messages', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'storeMessage'])->middleware('permission:correspondence.view');
         Route::get('correspondence/{correspondence}/attachments/{attachment}/download', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'downloadAttachment'])->middleware('permission:correspondence.view');
         Route::delete('correspondence/{correspondence}/attachments/{attachment}', [\App\Http\Controllers\Api\V1\CorrespondenceController::class, 'destroyAttachment'])->middleware('permission:correspondence.view');
         Route::get('operational-tasks', [\App\Http\Controllers\Api\V1\OperationalTaskController::class, 'index'])->middleware('permission:tasks.view');

@@ -25,13 +25,26 @@ class CorrespondenceController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $query = Correspondence::query()->with(['sender.person', 'assignee.person']);
+        $query = Correspondence::query()->with(['sender.person', 'assignee.person', 'latestMessage.sender.person', 'latestMessage.recipient.person']);
         $filter = $request->string('filter')->toString();
 
         if ($filter === 'inbox') {
-            $query->where('assigned_to', $user->id)->whereNotIn('status', ['draft', 'closed']);
+            $query->whereNotIn('status', ['draft', 'closed'])->where(function ($q) use ($user) {
+                $q->where('assigned_to', $user->id)
+                    ->orWhereHas('messages', fn ($message) => $message->where('recipient_id', $user->id));
+            });
         } elseif ($filter === 'outbox') {
-            $query->where('sender_id', $user->id);
+            $query->where('status', '!=', 'draft')->where(function ($q) use ($user) {
+                $q->where('sender_id', $user->id)
+                    ->orWhereHas('messages', fn ($message) => $message->where('sender_id', $user->id));
+            });
+        } elseif ($filter === 'drafts') {
+            $query->where('sender_id', $user->id)->where('status', 'draft');
+        } elseif ($filter === 'archive') {
+            $query->where('status', 'closed');
+            if (! $this->canManageAll($user)) {
+                $query->whereHas('participants', fn ($q) => $q->where('user_id', $user->id));
+            }
         } elseif (! $this->canManageAll($user)) {
             $query->whereHas('participants', fn ($q) => $q->where('user_id', $user->id));
         }
@@ -50,6 +63,11 @@ class CorrespondenceController extends Controller
         $items = $query->orderByDesc('correspondence_date')->orderByDesc('id')
             ->paginate(min($request->integer('per_page', 25), 100));
 
+        $items->getCollection()->each(function (Correspondence $item) use ($user) {
+            $hasUnreadReply = $item->messages()->where('recipient_id', $user->id)->whereNull('read_at')->exists();
+            $item->setAttribute('mail_unread', $hasUnreadReply || ($item->assigned_to === $user->id && ! $item->read_at));
+        });
+
         return ApiResponse::success($items->items(), null, [
             'current_page' => $items->currentPage(), 'last_page' => $items->lastPage(), 'total' => $items->total(),
             'unread' => Correspondence::where('assigned_to', $user->id)->whereNull('read_at')->whereNotIn('status', ['draft', 'closed'])->count(),
@@ -62,8 +80,10 @@ class CorrespondenceController extends Controller
         if ($correspondence->assigned_to === $request->user()->id && ! $correspondence->read_at) {
             $correspondence->update(['read_at' => now()]);
         }
+        $correspondence->messages()->where('recipient_id', $request->user()->id)->whereNull('read_at')->update(['read_at' => now()]);
         return ApiResponse::success($correspondence->fresh()->load([
             'sender.person', 'assignee.person', 'closer.person', 'transitions.user.person', 'attachments.uploader.person',
+            'messages.sender.person',
         ]));
     }
 
@@ -179,6 +199,31 @@ class CorrespondenceController extends Controller
         ]);
         $task->assignee?->notify(new AdministrativeWorkAssignedNotification('task', $task->id, $task->title));
         return ApiResponse::success($task->load(['assignee.person', 'creator.person']), 'Task created from correspondence.', [], 201);
+    }
+
+    public function storeMessage(Request $request, Correspondence $correspondence): JsonResponse
+    {
+        $this->ensureVisible($request, $correspondence);
+        if ($correspondence->status === 'closed') {
+            throw ValidationException::withMessages(['body' => ['Closed correspondence cannot accept replies.']]);
+        }
+
+        $data = $request->validate(['body' => ['required', 'string', 'max:10000']]);
+        $message = $correspondence->messages()->create([
+            'sender_id' => $request->user()->id,
+            'recipient_id' => $request->user()->id === $correspondence->sender_id
+                ? $correspondence->assigned_to
+                : $correspondence->sender_id,
+            'body' => $data['body'],
+        ]);
+
+        $recipients = $correspondence->participants()->with('user')->get()
+            ->pluck('user')->filter(fn ($user) => $user && $user->id !== $request->user()->id)->unique('id');
+        foreach ($recipients as $recipient) {
+            $recipient->notify(new AdministrativeWorkAssignedNotification('correspondence_reply', $correspondence->id, $correspondence->subject));
+        }
+
+        return ApiResponse::success($message->load('sender.person'), 'Reply sent.', [], 201);
     }
 
     public function storeAttachment(Request $request, Correspondence $correspondence): JsonResponse

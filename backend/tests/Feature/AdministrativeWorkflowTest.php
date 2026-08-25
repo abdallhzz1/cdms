@@ -103,6 +103,33 @@ class AdministrativeWorkflowTest extends TestCase
         $this->asUser($outsider)->get("/api/v1/correspondence/{$correspondenceId}/attachments/{$attachmentId}/download")->assertForbidden();
     }
 
+    public function test_correspondence_replies_behave_like_mail_and_return_to_the_other_users_inbox(): void
+    {
+        $sender = $this->userWithPermissions(['correspondence.view', 'correspondence.create', 'correspondence.submit']);
+        $recipient = $this->userWithPermissions(['correspondence.view']);
+        $id = $this->asUser($sender)->postJson('/api/v1/correspondence', [
+            'direction' => 'internal', 'subject' => 'Schedule question', 'summary' => 'Please confirm.',
+            'correspondence_date' => now()->toDateString(), 'assigned_to' => $recipient->id,
+        ])->assertCreated()->json('data.id');
+
+        $this->asUser($recipient)->getJson("/api/v1/correspondence/{$id}")->assertOk();
+        $this->postJson("/api/v1/correspondence/{$id}/messages", ['body' => 'Confirmed.'])
+            ->assertCreated()
+            ->assertJsonPath('data.sender_id', $recipient->id)
+            ->assertJsonPath('data.recipient_id', $sender->id);
+
+        $this->asUser($sender)->getJson('/api/v1/correspondence?filter=inbox')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('data.0.mail_unread', true);
+        $this->getJson("/api/v1/correspondence/{$id}")
+            ->assertOk()
+            ->assertJsonPath('data.messages.0.body', 'Confirmed.');
+        $this->getJson('/api/v1/correspondence?filter=inbox')
+            ->assertOk()
+            ->assertJsonPath('data.0.mail_unread', false);
+    }
+
     public function test_clinical_supervisors_cannot_correspond_with_each_other_but_can_contact_rta(): void
     {
         $supervisorRole = Role::factory()->create(['code' => 'CLINICAL_SUPERVISOR']);

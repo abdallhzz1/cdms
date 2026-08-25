@@ -12,4 +12,6 @@ class Correspondence extends Model {
     public function transitions() { return $this->hasMany(WorkflowTransitionLog::class, 'entity_id')->where('entity_type', self::class)->latest(); }
     public function attachments() { return $this->hasMany(CorrespondenceAttachment::class); }
     public function participants() { return $this->hasMany(CorrespondenceParticipant::class); }
+    public function messages() { return $this->hasMany(CorrespondenceMessage::class)->oldest(); }
+    public function latestMessage() { return $this->hasOne(CorrespondenceMessage::class)->latestOfMany(); }
 }
