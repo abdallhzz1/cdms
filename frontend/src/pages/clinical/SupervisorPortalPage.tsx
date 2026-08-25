@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Award, CalendarDays, CheckCircle2, ClipboardCheck, Clock3, Hospital, Loader2, Save, UserRound, Users } from 'lucide-react';
-import { apiFetch } from '@/api/client';
+import { ApiError, apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -36,10 +36,11 @@ export function SupervisorPortalPage() {
   const activeTab:TabKey=requestedTab==='attendance'||requestedTab==='assessments'?requestedTab:'schedule';
   const roles=(user?.roles??[]).map(role=>String(role).toUpperCase());
   const isSupervisor=roles.includes('CLINICAL_SUPERVISOR');
+  const canOpenWorkspace=can('supervisor.workspace.view');
   const ar=locale==='ar';
   const tr=(arabic:string,english:string)=>ar?arabic:english;
 
-  const workspace=useQuery({queryKey:['supervisor-workspace'],queryFn:()=>apiFetch<Workspace>('/operational/my-supervisor-workspace'),enabled:isSupervisor});
+  const workspace=useQuery({queryKey:['supervisor-workspace'],queryFn:()=>apiFetch<Workspace>('/operational/my-supervisor-workspace'),enabled:isSupervisor&&canOpenWorkspace});
   const groups=useMemo<Group[]>(()=>{
     const map=new Map<string,Group>();
     for(const item of workspace.data?.assignments??[]){
@@ -64,8 +65,9 @@ export function SupervisorPortalPage() {
   const assessmentMutation=useMutation({mutationFn:()=>apiFetch('/operational/my-supervisor-assessments',{method:'POST',body:{assignment_id:selectedGroup?.assignmentId,student_id:Number(assessmentStudentId),session_date:assessmentDate,score:Number(score),notes:notes||null}}),onSuccess:async()=>{setScore('');setNotes('');await qc.invalidateQueries({queryKey:['supervisor-workspace']})}});
 
   if(!isSupervisor)return <ErrorState title={tr('بوابة المشرفين السريريين','Clinical supervisors portal')} message={tr('تظهر هذه البوابة فقط للحساب الذي تم تعيين دور مشرف سريري له.','This portal is available only to accounts assigned the Clinical Supervisor role.')} />;
+  if(!canOpenWorkspace)return <ErrorState title={tr('صلاحية مساحة المشرف غير مفعلة','Supervisor workspace permission is disabled')} message={tr('فعّل صلاحية «دخول مساحة العمل الشخصية للمشرف السريري» لهذا الدور من مصفوفة الصلاحيات.','Enable “Access the clinical supervisor personal workspace” for this role in the permission matrix.')} />;
   if(workspace.isLoading)return <LoadingState/>;
-  if(workspace.isError||!workspace.data)return <ErrorState title={tr('تعذر تحميل بوابة المشرف','Unable to load supervisor portal')} message={tr('تحقق من ارتباط الحساب بملف الطبيب وصلاحية عرض التوزيع.','Check the account’s doctor profile link and distribution permission.')} onRetry={()=>workspace.refetch()}/>;
+  if(workspace.isError||!workspace.data){const status=workspace.error instanceof ApiError?workspace.error.status:0;return <ErrorState title={tr('تعذر تحميل بوابة المشرف','Unable to load supervisor portal')} message={status===403?tr('الحساب لا يملك صلاحية مساحة المشرف، أو لم يُسند له دور مشرف سريري.','The account lacks workspace access or the Clinical Supervisor role.'):tr('تعذر تجهيز ملف المشرف. أعد المحاولة، وإن استمرت المشكلة تواصل مع إدارة النظام.','The supervisor profile could not be prepared. Retry, or contact system administration if the issue continues.')} onRetry={()=>workspace.refetch()}/>;}
 
   const name=ar?workspace.data.supervisor.full_name_ar:workspace.data.supervisor.full_name_en||workspace.data.supervisor.full_name_ar;
   const tabs:[TabKey,string,typeof Users][]=[['schedule',tr('مجموعاتي ودوامي','My groups & schedule'),Users],['attendance',tr('رصد الحضور','Record attendance'),CalendarDays],['assessments',tr('التقييم السريري','Clinical assessment'),Award]];

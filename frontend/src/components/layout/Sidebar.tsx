@@ -45,9 +45,9 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         {
           title: locale === 'ar' ? 'التدريب السريري والتقييم' : 'Clinical Training & Grading',
           items: [
-            { path: '/supervisor/portal', label: locale === 'ar' ? 'مساحة عملي السريرية' : 'My Clinical Workspace', icon: Users },
-            { path: '/supervisor/portal?tab=attendance', label: locale === 'ar' ? 'رصد حضور مجموعاتي' : 'My Groups Attendance', icon: Clock },
-            { path: '/supervisor/portal?tab=assessments', label: locale === 'ar' ? 'التقييم السريري (20)' : 'Clinical Assessment (/20)', icon: ClipboardCheck },
+            { path: '/supervisor/portal', label: locale === 'ar' ? 'مساحة عملي السريرية' : 'My Clinical Workspace', icon: Users, permission: 'supervisor.workspace.view' },
+            { path: '/supervisor/portal?tab=attendance', label: locale === 'ar' ? 'رصد حضور مجموعاتي' : 'My Groups Attendance', icon: Clock, customCheck: () => can('supervisor.workspace.view') && can('attendance.record') },
+            { path: '/supervisor/portal?tab=assessments', label: locale === 'ar' ? 'التقييم السريري (20)' : 'Clinical Assessment (/20)', icon: ClipboardCheck, customCheck: () => can('supervisor.workspace.view') && can('assessment.create') },
             { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: GraduationCap, permission: 'advising.view' },
           ]
         },
@@ -73,7 +73,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           { path: '/distribution', label: locale === 'ar' ? 'التوزيع السريري' : 'Distribution', icon: Map, permission: 'distribution.view' },
           { path: '/distribution/groups', label: locale === 'ar' ? 'تسجيل مجموعات الطلبة' : 'Student Group Registration', icon: GraduationCap, permission: 'group_registration.view' },
           { path: '/clinical/schedule', label: locale === 'ar' ? 'الجدول السريري' : 'Clinical Schedule', icon: Calendar, permission: 'distribution.view' },
-          { path: '/supervisor/portal', label: locale === 'ar' ? 'مساحة عملي كمشرف سريري' : 'My Clinical Supervisor Workspace', icon: ClipboardCheck, customCheck: () => isClinicalSupervisor },
+          { path: '/supervisor/portal', label: locale === 'ar' ? 'مساحة عملي كمشرف سريري' : 'My Clinical Supervisor Workspace', icon: ClipboardCheck, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') },
           { path: '/attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance Log', icon: Clock, permission: 'attendance.view' },
         ]
       },

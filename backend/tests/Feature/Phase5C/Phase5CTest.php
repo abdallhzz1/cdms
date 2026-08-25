@@ -394,6 +394,23 @@ class Phase5CTest extends TestCase
             ->assertJsonCount(1, 'data.assignments');
     }
 
+    public function test_supervisor_workspace_does_not_require_administrative_distribution_access(): void
+    {
+        $supervisorUser = User::factory()->create();
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorUser->roles()->attach($supervisorRole);
+        $this->supervisor1->update(['user_id' => $supervisorUser->id]);
+
+        $this->assertTrue($supervisorRole->permissions()->where('code', 'supervisor.workspace.view')->exists());
+        $this->assertFalse($supervisorRole->permissions()->where('code', 'distribution.view')->exists());
+
+        $this->actingAs($supervisorUser)
+            ->getJson(route('api.v1.operational.my-supervisor-workspace'))
+            ->assertOk()
+            ->assertJsonPath('data.supervisor.person_id', $this->supervisor1->id)
+            ->assertJsonCount(1, 'data.assignments');
+    }
+
     public function test_supervisor_attendance_and_assessment_are_saved_in_official_tables(): void
     {
         $this->supervisor1->update(['user_id' => $this->admin->id]);

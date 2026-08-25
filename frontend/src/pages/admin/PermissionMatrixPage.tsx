@@ -100,6 +100,7 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   'assessment.create': { ar: 'إدخال تقييم سريري جديد' },
   'assessment.submit': { ar: 'رفع وتسليم التقييم السريري' },
   'assessment.approve': { ar: 'اعتماد التقييمات السريرية (20)' },
+  'supervisor.workspace.view': { ar: 'دخول مساحة العمل الشخصية للمشرف السريري', isScreen: true },
 
   // Courses & Course Reports
   'courses.view': { ar: 'دخول شاشة مساقات الدائرة السريرية', isScreen: true },

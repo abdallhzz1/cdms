@@ -283,6 +283,7 @@ const en = {
     assessment_create: { description: 'Create assessment' },
     assessment_submit: { description: 'Submit assessment' },
     assessment_approve: { description: 'Approve assessment' },
+    supervisor_workspace_view: { description: 'Access the clinical supervisor personal workspace' },
     courses_view: { description: 'View courses' },
     courses_manage: { description: 'Manage courses' },
     course_report_manage: { description: 'Manage course reports' },

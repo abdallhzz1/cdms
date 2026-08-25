@@ -56,6 +56,7 @@ class LogicalPermissionSeeder extends Seeder
                 'training_sites.view',
             ],
             'CLINICAL_SUPERVISOR' => [
+                'supervisor.workspace.view',
                 'assessment.view', 'assessment.create', 'assessment.submit',
                 'attendance.view', 'attendance.record',
                 'correspondence.view', 'correspondence.create', 'correspondence.submit',

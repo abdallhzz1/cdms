@@ -272,6 +272,7 @@ const ar: typeof en = {
     assessment_create: { description: 'إنشاء تقييم' },
     assessment_submit: { description: 'تسليم التقييم' },
     assessment_approve: { description: 'اعتماد التقييم' },
+    supervisor_workspace_view: { description: 'دخول مساحة العمل الشخصية للمشرف السريري' },
     courses_view: { description: 'عرض المساقات' },
     courses_manage: { description: 'إدارة المساقات' },
     course_report_manage: { description: 'إدارة تقارير المساق' },

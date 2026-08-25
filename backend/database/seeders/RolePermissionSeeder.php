@@ -78,6 +78,14 @@ class RolePermissionSeeder extends Seeder
             ]);
         }
 
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->first();
+        $workspacePermission = Permission::where('code', 'supervisor.workspace.view')->first();
+        if ($supervisorRole && $workspacePermission) {
+            $supervisorRole->permissions()->syncWithoutDetaching([
+                $workspacePermission->id => ['scope_type' => 'global'],
+            ]);
+        }
+
         $groupRegistrationGrants = Permission::where('code', 'like', 'group_registration.%')->get();
         foreach (Role::whereIn('code', ['SYS_ADMIN', 'ADMIN_ASSISTANT', 'CLINICAL_DIRECTOR'])->get() as $role) {
             foreach ($groupRegistrationGrants as $permission) {
