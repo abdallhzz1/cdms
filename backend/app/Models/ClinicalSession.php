@@ -19,4 +19,9 @@ class ClinicalSession extends Model
     {
         return $this->hasMany(AttendanceRecord::class);
     }
+
+    public function rotationBlock()
+    {
+        return $this->belongsTo(RotationBlock::class);
+    }
 }

@@ -40,4 +40,22 @@ describe('SupervisorPortalPage',()=>{
     expect(await screen.findByText('Clinical supervisors portal')).toBeVisible();
     expect(fetchSpy.mock.calls.some(([input])=>String(input).includes('/my-supervisor-workspace'))).toBe(false);
   });
+
+  it('loads a returned assessment for revision and resubmits its official id',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    const returned={id:44,student_id:7,score:12,max_score:20,status:'returned',notes:'Initial note',return_reason:'Add clinical findings',created_at:'2026-09-10',student:workspace.assignments[0].student,session:{rotation_block_id:4,training_site_id:5,session_date:'2026-09-10'}};
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope({id:1,name:'Supervisor',email:'doctor@hebron.edu',roles:['CLINICAL_SUPERVISOR'],permissions});
+      if(url.includes('/my-supervisor-workspace'))return envelope({...workspace,assessments:[returned]});
+      if(url.includes('/my-supervisor-assessments'))return envelope({...returned,status:'submitted'});
+      throw new Error(`Unmocked request: ${url} ${init?.method}`);
+    });
+    renderWithProviders(<SupervisorPortalPage/>,{route:'/supervisor/portal?tab=assessments'});
+    await userEvent.click(await screen.findByRole('button',{name:'Revise & resubmit'}));
+    const score=screen.getByRole('spinbutton');
+    await userEvent.clear(score);await userEvent.type(score,'16');
+    await userEvent.click(screen.getByRole('button',{name:'Save & resubmit'}));
+    await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessments')&&String(init?.body).includes('"assessment_id":44')&&String(init?.body).includes('"score":16'))).toBe(true));
+  });
 });

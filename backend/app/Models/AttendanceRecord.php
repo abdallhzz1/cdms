@@ -8,7 +8,7 @@ class AttendanceRecord extends Model
 {
     public const STATUSES = ['present', 'absent', 'late', 'excused'];
 
-    protected $fillable = ['clinical_session_id', 'student_id', 'status', 'excuse_note'];
+    protected $fillable = ['clinical_session_id', 'student_id', 'status', 'excuse_note', 'recorded_by_user_id'];
 
     public function session()
     {
@@ -18,5 +18,10 @@ class AttendanceRecord extends Model
     public function student()
     {
         return $this->belongsTo(Student::class);
+    }
+
+    public function recorder()
+    {
+        return $this->belongsTo(User::class, 'recorded_by_user_id');
     }
 }

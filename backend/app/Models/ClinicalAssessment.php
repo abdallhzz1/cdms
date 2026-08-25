@@ -13,4 +13,10 @@ class ClinicalAssessment extends Model
     public function student() { return $this->belongsTo(Student::class); }
     public function session() { return $this->belongsTo(ClinicalSession::class, 'clinical_session_id'); }
     public function evaluator() { return $this->belongsTo(Person::class, 'evaluator_person_id'); }
+    public function workflowTransitions()
+    {
+        return $this->hasMany(WorkflowTransitionLog::class, 'entity_id')
+            ->where('entity_type', self::class)
+            ->latest('id');
+    }
 }

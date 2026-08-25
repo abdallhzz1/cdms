@@ -75,6 +75,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           { path: '/clinical/schedule', label: locale === 'ar' ? 'الجدول السريري' : 'Clinical Schedule', icon: Calendar, permission: 'distribution.view' },
           { path: '/supervisor/portal', label: locale === 'ar' ? 'مساحة عملي كمشرف سريري' : 'My Clinical Supervisor Workspace', icon: ClipboardCheck, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') },
           { path: '/attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance Log', icon: Clock, permission: 'attendance.view' },
+          { path: '/assessments', label: locale === 'ar' ? 'مراجعة التقييمات السريرية' : 'Clinical Assessment Review', icon: ClipboardCheck, permission: 'assessment.view' },
         ]
       },
       {

@@ -70,12 +70,21 @@ class GradeEntryController extends Controller
         );
     }
 
-    public function clinicalAssessmentSummary(): JsonResponse
+    public function clinicalAssessmentSummary(Request $request): JsonResponse
     {
+        $filters = $request->validate([
+            'course_id' => ['nullable', 'integer', 'exists:courses,id'],
+            'academic_year_id' => ['nullable', 'integer', 'exists:academic_years,id'],
+            'academic_year' => ['nullable', 'string', 'max:50'],
+        ]);
         $studentIds = $this->applyStudentAccessScope(Student::query())->select('students.id');
         $summary = ClinicalAssessment::query()
             ->where('status', 'approved')
+            ->where('max_score', '>', 0)
             ->whereIn('student_id', $studentIds)
+            ->when(! empty($filters['course_id']), fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $filters['course_id'])))
+            ->when(! empty($filters['academic_year_id']), fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $filters['academic_year_id'])))
+            ->when(empty($filters['academic_year_id']) && ! empty($filters['academic_year']), fn ($query) => $query->whereHas('session.rotationBlock.rotation.academicYear', fn ($year) => $year->where('code', $filters['academic_year'])))
             ->selectRaw('student_id, ROUND(AVG((score / max_score) * 20), 2) as clinical_score, COUNT(*) as assessments_count')
             ->groupBy('student_id')
             ->get()

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -7,16 +8,20 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
-import { CheckCircle, Clock, XCircle } from 'lucide-react';
+import { CheckCircle, Clock, Search, XCircle } from 'lucide-react';
 
 export function AssessmentsMasterPage() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const { locale } = useI18n();
   const queryClient = useQueryClient();
+  const [statusFilter,setStatusFilter]=useState('');
+  const [search,setSearch]=useState('');
+  const [returning,setReturning]=useState<any|null>(null);
+  const [returnReason,setReturnReason]=useState('');
 
   const { data: assessments, isLoading, isError, refetch } = useQuery({
-    queryKey: ['clinical-assessments'],
-    queryFn: () => apiFetch<any>('/clinical-assessments?per_page=50'),
+    queryKey: ['clinical-assessments',statusFilter],
+    queryFn: () => apiFetch<any>(`/clinical-assessments?per_page=100${statusFilter?`&status=${statusFilter}`:''}`),
   });
 
   const approveMutation = useMutation({
@@ -27,14 +32,14 @@ export function AssessmentsMasterPage() {
   const returnMutation = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       apiFetch(`/clinical-assessments/${id}/return`, { method: 'POST', body: { reason } }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clinical-assessments'] }),
+    onSuccess: async () => {setReturning(null);setReturnReason('');await queryClient.invalidateQueries({ queryKey: ['clinical-assessments'] });},
   });
 
   if (!can('assessment.view')) return <ErrorState title="Access Denied" />;
   if (isLoading) return <LoadingState />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
-  const items = Array.isArray(assessments) ? assessments : assessments?.items || [];
+  const items = (Array.isArray(assessments) ? assessments : assessments?.items || []).filter((item:any)=>{const q=search.trim().toLowerCase();return !q||String(item.student?.university_number??'').toLowerCase().includes(q)||String(item.student?.full_name_ar??'').toLowerCase().includes(q)||String(item.student?.full_name_en??'').toLowerCase().includes(q)||String(item.evaluator?.full_name_ar??'').toLowerCase().includes(q)||String(item.evaluator?.full_name_en??'').toLowerCase().includes(q)});
 
   const getStatusBadge = (status: string) => {
     const map: Record<string, { label_ar: string; label_en: string; classes: string; icon: any }> = {
@@ -60,6 +65,13 @@ export function AssessmentsMasterPage() {
         description={locale === 'ar' ? 'مراجعة واعتماد تقييمات الطلاب المرسلة من المشرفين' : 'Review and approve student assessments submitted by supervisors'}
       />
 
+      <section className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_14rem]">
+        <label className="relative"><Search className="absolute right-3 top-3 h-4 w-4 text-slate-400"/><input className="input pr-10" value={search} onChange={event=>setSearch(event.target.value)} placeholder={locale==='ar'?'البحث بالطالب أو الرقم الجامعي أو الطبيب…':'Search student, university ID, or evaluator…'}/></label>
+        <select className="input" value={statusFilter} onChange={event=>setStatusFilter(event.target.value)}><option value="">{locale==='ar'?'جميع الحالات':'All statuses'}</option><option value="submitted">{locale==='ar'?'بانتظار المراجعة':'Awaiting review'}</option><option value="returned">{locale==='ar'?'مُعاد للتعديل':'Returned'}</option><option value="approved">{locale==='ar'?'معتمد':'Approved'}</option></select>
+      </section>
+
+      {returning&&<section className="rounded-3xl border border-teal-200 bg-teal-50 p-4"><h2 className="text-sm font-black text-slate-900">{locale==='ar'?'إعادة التقييم للمشرف':'Return assessment to supervisor'}</h2><p className="mt-1 text-xs text-slate-600">{locale==='ar'?`الطالب: ${returning.student?.full_name_ar??''}`:`Student: ${returning.student?.full_name_en||returning.student?.full_name_ar||''}`}</p><textarea className="input mt-3 min-h-24" value={returnReason} onChange={event=>setReturnReason(event.target.value)} placeholder={locale==='ar'?'اكتب سبب الإرجاع والتعديل المطلوب بوضوح…':'Clearly state the return reason and required revision…'}/><div className="mt-3 flex gap-2"><Button disabled={returnReason.trim().length<3||returnMutation.isPending} isLoading={returnMutation.isPending} onClick={()=>returnMutation.mutate({id:returning.id,reason:returnReason.trim()})}>{locale==='ar'?'تأكيد الإرجاع':'Confirm return'}</Button><Button variant="outline" onClick={()=>{setReturning(null);setReturnReason('')}}>{locale==='ar'?'إلغاء':'Cancel'}</Button></div></section>}
+
       {!items.length ? (
         <EmptyState message={locale === 'ar' ? 'لا توجد تقييمات سريرية بعد' : 'No clinical assessments yet'} />
       ) : (
@@ -71,6 +83,7 @@ export function AssessmentsMasterPage() {
                   <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'الطالب' : 'Student'}</th>
                   <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'المقيّم' : 'Evaluator'}</th>
                   <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'النتيجة' : 'Score'}</th>
+                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'المساق والتاريخ' : 'Course & date'}</th>
                   <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'الحالة' : 'Status'}</th>
                   <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'إجراءات' : 'Actions'}</th>
                 </tr>
@@ -93,9 +106,10 @@ export function AssessmentsMasterPage() {
                         </span>
                       ) : <span className="text-slate-400">—</span>}
                     </td>
+                    <td className="px-6 py-4 text-xs text-slate-600"><div className="font-bold text-slate-800">{locale==='ar'?a.session?.rotation_block?.rotation?.course?.name_ar:a.session?.rotation_block?.rotation?.course?.name_en||a.session?.rotation_block?.rotation?.course?.name_ar||'—'}</div><div className="mt-1 text-slate-400">{String(a.session?.session_date??'').slice(0,10)}</div></td>
                     <td className="px-6 py-4">{getStatusBadge(a.status)}</td>
                     <td className="px-6 py-4">
-                      {a.status === 'submitted' && can('assessment.approve') && (
+                      {a.status === 'submitted' && can('assessment.approve') && a.evaluator?.user_id!==user?.id && (
                         <div className="flex items-center gap-2">
                           <Button
                             onClick={() => approveMutation.mutate(a.id)}
@@ -106,7 +120,7 @@ export function AssessmentsMasterPage() {
                           </Button>
                           <Button
                             variant="outline"
-                            onClick={() => returnMutation.mutate({ id: a.id, reason: 'Returned for revision' })}
+                            onClick={() => {setReturning(a);setReturnReason('')}}
                             isLoading={returnMutation.isPending}
                             className="!py-1.5 !px-3 !text-xs"
                           >
@@ -114,7 +128,9 @@ export function AssessmentsMasterPage() {
                           </Button>
                         </div>
                       )}
-                      {a.status !== 'submitted' && <span className="text-slate-400 text-sm">—</span>}
+                      {a.status === 'submitted' && can('assessment.approve') && a.evaluator?.user_id===user?.id && <span className="text-xs font-bold text-slate-400">{locale==='ar'?'لا يمكن اعتماد تقييمك':'Cannot approve your own'}</span>}
+                      {a.status === 'returned' && a.return_reason && <p className="max-w-xs text-xs text-slate-500">{locale==='ar'?'سبب الإرجاع: ':'Return reason: '}{a.return_reason}</p>}
+                      {a.status !== 'submitted' && !(a.status === 'returned' && a.return_reason) && <span className="text-slate-400 text-sm">—</span>}
                     </td>
                   </tr>
                 ))}

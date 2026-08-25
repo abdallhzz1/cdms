@@ -10,7 +10,9 @@ use App\Models\ClinicalSession;
 use App\Models\DistributionVersion;
 use App\Models\Person;
 use App\Models\StudentClinicalAssignment;
+use App\Models\WorkflowTransitionLog;
 use App\Services\Distribution\SupervisorReassignmentService;
+use App\Services\WorkflowTransitionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -196,10 +198,14 @@ class SupervisorController extends Controller
             ->latest('id')->limit(100)->get();
 
         $assessments = ClinicalAssessment::query()
-            ->with(['student:id,university_number,full_name_ar,full_name_en', 'session:id,rotation_block_id,training_site_id,session_date,title'])
+            ->with(['student:id,university_number,full_name_ar,full_name_en', 'session:id,rotation_block_id,training_site_id,session_date,title', 'workflowTransitions'])
             ->where('evaluator_person_id', $person->id)
             ->whereIn('student_id', $studentIds)
             ->latest('id')->limit(100)->get();
+        $assessments->each(fn (ClinicalAssessment $assessment) => $assessment->setAttribute(
+            'return_reason',
+            $assessment->workflowTransitions->firstWhere('to_state', 'returned')?->reason,
+        ));
 
         return ApiResponse::success([
             'supervisor' => [
@@ -236,7 +242,11 @@ class SupervisorController extends Controller
             foreach ($data['records'] as $record) {
                 AttendanceRecord::updateOrCreate(
                     ['clinical_session_id' => $session->id, 'student_id' => $record['student_id']],
-                    ['status' => $record['status'], 'excuse_note' => $record['excuse_note'] ?? null],
+                    [
+                        'status' => $record['status'],
+                        'excuse_note' => $record['excuse_note'] ?? null,
+                        'recorded_by_user_id' => auth()->id(),
+                    ],
                 );
             }
             return $session;
@@ -245,10 +255,11 @@ class SupervisorController extends Controller
         return ApiResponse::success(['session_id' => $session->id], 'Attendance saved successfully.');
     }
 
-    public function storeAssessment(Request $request): JsonResponse
+    public function storeAssessment(Request $request, WorkflowTransitionService $workflow): JsonResponse
     {
         [, $person] = $this->supervisorIdentity($request);
         $data = $request->validate([
+            'assessment_id' => ['nullable', 'integer', 'exists:clinical_assessments,id'],
             'assignment_id' => ['required', 'integer'],
             'student_id' => ['required', 'integer', 'exists:students,id'],
             'session_date' => ['required', 'date'],
@@ -259,22 +270,50 @@ class SupervisorController extends Controller
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
         abort_unless($this->assignmentGroupQuery($assignment)->where('student_id', $data['student_id'])->exists(), 403, 'You may only assess students assigned to you.');
 
-        $assessment = DB::transaction(function () use ($assignment, $data, $person) {
+        $assessment = DB::transaction(function () use ($assignment, $data, $person, $workflow) {
             $session = $this->resolveSession($assignment, $data['session_date']);
-            return ClinicalAssessment::updateOrCreate(
-                [
-                    'student_id' => $data['student_id'],
+            $assessment = ClinicalAssessment::query()
+                ->when(! empty($data['assessment_id']), fn ($query) => $query->whereKey($data['assessment_id']))
+                ->when(empty($data['assessment_id']), fn ($query) => $query
+                    ->where('student_id', $data['student_id'])
+                    ->where('clinical_session_id', $session->id)
+                    ->where('evaluator_person_id', $person->id))
+                ->lockForUpdate()->first();
+
+            if ($assessment) {
+                abort_unless((int) $assessment->student_id === (int) $data['student_id'] && (int) $assessment->evaluator_person_id === (int) $person->id, 403, 'You may only edit your own returned assessment.');
+                if (! in_array($assessment->status, ['draft', 'returned'], true)) {
+                    throw ValidationException::withMessages(['assessment' => ['This assessment is awaiting review or already approved and cannot be changed.']]);
+                }
+                $assessment->update([
                     'clinical_session_id' => $session->id,
-                    'evaluator_person_id' => $person->id,
-                ],
-                [
                     'score' => $data['score'],
                     'max_score' => 20,
                     'notes' => $data['notes'] ?? null,
-                    'status' => 'submitted',
-                    'submitted_at' => now(),
-                ],
-            );
+                ]);
+                $workflow->transition($assessment->fresh(), 'submitted');
+                $assessment->newQuery()->whereKey($assessment->id)->update(['submitted_at' => now()]);
+                return $assessment->fresh();
+            }
+
+            $assessment = ClinicalAssessment::create([
+                'student_id' => $data['student_id'],
+                'clinical_session_id' => $session->id,
+                'evaluator_person_id' => $person->id,
+                'score' => $data['score'],
+                'max_score' => 20,
+                'notes' => $data['notes'] ?? null,
+                'status' => 'submitted',
+                'submitted_at' => now(),
+            ]);
+            WorkflowTransitionLog::create([
+                'entity_type' => ClinicalAssessment::class,
+                'entity_id' => $assessment->id,
+                'from_state' => null,
+                'to_state' => 'submitted',
+                'user_id' => auth()->id(),
+            ]);
+            return $assessment;
         });
 
         return ApiResponse::success($assessment->load('student', 'session'), 'Clinical assessment saved successfully.');

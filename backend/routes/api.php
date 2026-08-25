@@ -574,7 +574,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         // GET: authenticated user's own supervisor portal view (my assigned students in current published)
         Route::get('operational/my-supervisor-assignments', [\App\Http\Controllers\Api\V1\SupervisorController::class, 'myAssignments'])
-            ->middleware('permission:supervisor.workspace.view')
+            ->middleware('permission.any:supervisor.workspace.view,distribution.view')
             ->name('operational.my-supervisor-assignments');
 
         Route::get('operational/my-supervisor-workspace', [\App\Http\Controllers\Api\V1\SupervisorController::class, 'workspace'])

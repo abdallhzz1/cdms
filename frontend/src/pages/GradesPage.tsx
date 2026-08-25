@@ -263,8 +263,9 @@ export function GradesPage() {
 
   // Approved supervisor assessments are the official clinical-score source.
   const { data: clinicalAssessmentSummary } = useQuery({
-    queryKey: ['clinical-assessment-summary-grades'],
-    queryFn: () => apiFetch<Record<string,{clinical_score:number;assessments_count:number}>>('/grade-entries/clinical-assessment-summary'),
+    queryKey: ['clinical-assessment-summary-grades', selectedCourseId, academicYear],
+    queryFn: () => apiFetch<Record<string,{clinical_score:number;assessments_count:number}>>(`/grade-entries/clinical-assessment-summary?course_id=${encodeURIComponent(selectedCourseId)}&academic_year=${encodeURIComponent(academicYear)}`),
+    enabled: Boolean(selectedCourseId && academicYear),
   });
 
   // Fetch submitted grade sheets index from MySQL Database
@@ -322,7 +323,9 @@ export function GradesPage() {
       const approvedAssessment = approvedClinicalScores[String(student.id)];
       const clinicalFromSupervisor = approvedAssessment ? Number(approvedAssessment.clinical_score) : null;
 
-      const finalClinicalScore = existing?.clinicalScore ?? clinicalFromSupervisor;
+      // The approved assessment is authoritative. A previously cached sheet
+      // must never keep an older manual value after the approval changes.
+      const finalClinicalScore = clinicalFromSupervisor ?? existing?.clinicalScore ?? null;
 
       if (existing) {
         return {

@@ -20,11 +20,13 @@ export function AttendanceMasterPage() {
   const { can } = useAuth();
   const { locale } = useI18n();
   const [sessionFilter, setSessionFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
 
   const { data: records, isLoading, isError, refetch } = useQuery({
-    queryKey: ['attendance-records', sessionFilter],
+    queryKey: ['attendance-records', sessionFilter, statusFilter, dateFilter],
     queryFn: () => apiFetch<any>(
-      `/attendance-records?per_page=50${sessionFilter ? `&clinical_session_id=${sessionFilter}` : ''}`
+      `/attendance-records?per_page=100${sessionFilter ? `&clinical_session_id=${sessionFilter}` : ''}${statusFilter?`&status=${statusFilter}`:''}${dateFilter?`&date=${dateFilter}`:''}`
     ),
   });
 
@@ -74,7 +76,7 @@ export function AttendanceMasterPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 sm:grid-cols-3">
         <select
           value={sessionFilter}
           onChange={e => setSessionFilter(e.target.value)}
@@ -85,6 +87,8 @@ export function AttendanceMasterPage() {
             <option key={s.id} value={s.id}>{s.session_date} — {s.title}</option>
           ))}
         </select>
+        <select value={statusFilter} onChange={event=>setStatusFilter(event.target.value)} className="input"><option value="">{locale==='ar'?'كل الحالات':'All statuses'}</option>{Object.entries(STATUS_CONFIG).map(([value,cfg])=><option key={value} value={value}>{locale==='ar'?cfg.label_ar:cfg.label_en}</option>)}</select>
+        <input type="date" value={dateFilter} onChange={event=>setDateFilter(event.target.value)} className="input"/>
       </div>
 
       {!items.length ? (
@@ -98,7 +102,9 @@ export function AttendanceMasterPage() {
                   <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'الطالب' : 'Student'}</th>
                   <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'الجلسة' : 'Session'}</th>
                   <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'المستشفى' : 'Site'}</th>
+                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'المساق' : 'Course'}</th>
                   <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'الحالة' : 'Status'}</th>
+                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'سجله' : 'Recorded by'}</th>
                   <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'ملاحظة' : 'Note'}</th>
                 </tr>
               </thead>
@@ -114,12 +120,14 @@ export function AttendanceMasterPage() {
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">{r.session?.title}<div className="text-xs text-slate-400">{r.session?.session_date}</div></td>
                       <td className="px-6 py-4 text-sm text-slate-600">{locale === 'ar' ? r.session?.training_site?.name_ar : r.session?.training_site?.name_en || r.session?.training_site?.name_ar}</td>
+                      <td className="px-6 py-4 text-xs font-bold text-slate-600">{locale==='ar'?r.session?.rotation_block?.rotation?.course?.name_ar:r.session?.rotation_block?.rotation?.course?.name_en||r.session?.rotation_block?.rotation?.course?.name_ar||'—'}</td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold ${cfg.bg} ${cfg.text}`}>
                           <Icon className="w-3.5 h-3.5" />
                           {locale === 'ar' ? cfg.label_ar : cfg.label_en}
                         </span>
                       </td>
+                      <td className="px-6 py-4 text-xs text-slate-600">{r.recorder?.name||'—'}</td>
                       <td className="px-6 py-4 text-sm text-slate-500 max-w-xs truncate">{r.excuse_note || '—'}</td>
                     </tr>
                   );

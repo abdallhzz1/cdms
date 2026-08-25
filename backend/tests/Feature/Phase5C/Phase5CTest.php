@@ -4,6 +4,7 @@ namespace Tests\Feature\Phase5C;
 
 use App\Models\AuditLog;
 use App\Models\Department;
+use App\Models\Course;
 use App\Models\DistributionVersion;
 use App\Models\Permission;
 use App\Models\Person;
@@ -27,6 +28,7 @@ class Phase5CTest extends TestCase
     private User $admin;
     private User $unauthorized;
     private Rotation $rotation;
+    private Course $course;
     private RotationBlock $block1;
     private Department $department1;
     private TrainingSite $site1;
@@ -73,7 +75,10 @@ class Phase5CTest extends TestCase
             'name_ar' => 'الجراحة',
         ]);
 
+        $this->course = Course::factory()->create();
+
         $this->rotation = Rotation::factory()->create([
+            'course_id'      => $this->course->id,
             'name'           => 'Surgery Rotation',
             'start_date'     => '2026-09-01',
             'end_date'       => '2026-10-30',
@@ -423,6 +428,19 @@ class Phase5CTest extends TestCase
         $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
             'assignment_id' => $this->assignment1->id,
             'session_date' => '2026-09-10',
+            'records' => [['student_id' => $this->student2->id, 'status' => 'present']],
+        ])->assertForbidden();
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
+            'assignment_id' => $this->assignment1->id,
+            'student_id' => $this->student2->id,
+            'session_date' => '2026-09-10',
+            'score' => 18,
+        ])->assertForbidden();
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
+            'assignment_id' => $this->assignment1->id,
+            'session_date' => '2026-09-10',
             'records' => [['student_id' => $this->student1->id, 'status' => 'present']],
         ])->assertOk();
 
@@ -435,6 +453,7 @@ class Phase5CTest extends TestCase
         ])->assertOk();
 
         $this->assertDatabaseHas('attendance_records', ['student_id' => $this->student1->id, 'status' => 'present']);
+        $this->assertDatabaseHas('attendance_records', ['student_id' => $this->student1->id, 'recorded_by_user_id' => $this->admin->id]);
         $this->assertDatabaseHas('clinical_assessments', [
             'student_id' => $this->student1->id,
             'evaluator_person_id' => $this->supervisor1->id,
@@ -446,13 +465,52 @@ class Phase5CTest extends TestCase
         $assessmentId = \App\Models\ClinicalAssessment::where('student_id', $this->student1->id)->value('id');
         $this->actingAs($this->admin)
             ->postJson("/api/v1/clinical-assessments/{$assessmentId}/approve")
+            ->assertForbidden();
+
+        $reviewerRole = Role::where('code', 'TEST_ADMIN_5C')->firstOrFail();
+        $reviewerRole->permissions()->syncWithoutDetaching(
+            Permission::whereIn('code', ['assessment.view', 'assessment.approve', 'grades.view'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $reviewer = User::factory()->create();
+        $reviewer->roles()->attach($reviewerRole);
+
+        $this->actingAs($reviewer)
+            ->postJson("/api/v1/clinical-assessments/{$assessmentId}/return", ['reason' => 'Please document the clinical findings.'])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'returned');
+
+        $this->actingAs($this->admin)
+            ->getJson(route('api.v1.operational.my-supervisor-workspace'))
+            ->assertOk()
+            ->assertJsonPath('data.assessments.0.status', 'returned')
+            ->assertJsonPath('data.assessments.0.return_reason', 'Please document the clinical findings.');
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
+            'assessment_id' => $assessmentId,
+            'assignment_id' => $this->assignment1->id,
+            'student_id' => $this->student1->id,
+            'session_date' => '2026-09-10',
+            'score' => 19,
+            'notes' => 'Clinical findings documented.',
+        ])->assertOk()->assertJsonPath('data.status', 'submitted');
+
+        $this->actingAs($reviewer)
+            ->postJson("/api/v1/clinical-assessments/{$assessmentId}/approve")
             ->assertOk()
             ->assertJsonPath('data.status', 'approved');
 
-        $this->actingAs($this->admin)
-            ->getJson('/api/v1/grade-entries/clinical-assessment-summary')
+        $this->actingAs($reviewer)
+            ->getJson('/api/v1/grade-entries/clinical-assessment-summary?course_id='.$this->course->id.'&academic_year_id='.$this->rotation->academic_year_id)
             ->assertOk()
-            ->assertJsonPath("data.{$this->student1->id}.clinical_score", 18.5);
+            ->assertJsonPath("data.{$this->student1->id}.clinical_score", 19);
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
+            'assessment_id' => $assessmentId,
+            'assignment_id' => $this->assignment1->id,
+            'student_id' => $this->student1->id,
+            'session_date' => '2026-09-10',
+            'score' => 20,
+        ])->assertUnprocessable();
     }
 
     // =========================================================================
