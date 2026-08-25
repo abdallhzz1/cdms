@@ -71,7 +71,8 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   'grades.publish': { ar: 'نشر وإعلان العلامات للطلبة' },
 
   // Distribution
-  'distribution.view': { ar: 'دخول شاشات التوزيع والجدول السريري', isScreen: true },
+  'distribution.view': { ar: 'دخول شاشة إنشاء وإدارة التوزيع السريري', isScreen: true },
+  'clinical_schedule.view': { ar: 'دخول شاشة الجدول السريري المنشور', isScreen: true },
   'distribution.create': { ar: 'إنشاء مخطط توزيع سريري جديد' },
   'distribution.generate': { ar: 'توليد التوزيع السريري آلياً' },
   'distribution.update': { ar: 'تعديل وتحديث بيانات التوزيع السريري' },

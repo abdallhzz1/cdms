@@ -20,10 +20,10 @@ type DashboardOptions={
   rotations:{id:number;name:string;name_en:string;code:string;academic_level:string;academic_year_id:number;academic_year:string}[];
   sites:{id:number;name_ar:string;name_en:string|null}[];
 };
-const levels:Record<string,string>={fourth:'السنة الرابعة',fifth:'السنة الخامسة',sixth:'السنة السادسة'};
+const levels:Record<string,{ar:string;en:string}>={fourth:{ar:'السنة الرابعة',en:'Fourth year'},fifth:{ar:'السنة الخامسة',en:'Fifth year'},sixth:{ar:'السنة السادسة',en:'Sixth year'}};
 
 export function ClinicalSchedulePage() {
-  const {can}=useAuth();
+  const {can,user}=useAuth();
   const {locale}=useI18n();
   const qc=useQueryClient();
   const [search,setSearch]=useState('');
@@ -33,7 +33,7 @@ export function ClinicalSchedulePage() {
   const [page,setPage]=useState(1);
   const [notice,setNotice]=useState('');
   const [actionError,setActionError]=useState('');
-  const hasAccess=can('distribution.view');
+  const hasAccess=can('clinical_schedule.view');
   const canManagePortal=can('distribution.student_portal.manage');
 
   const params=new URLSearchParams({page:String(page),per_page:'50'});
@@ -73,9 +73,10 @@ export function ClinicalSchedulePage() {
   const items=schedule?.data??[];
   const portal=portalQuery.data;
   const filteredRotations=useMemo(()=>options?.rotations.filter(rotation=>!levelFilter||rotation.academic_level===levelFilter)??[],[options,levelFilter]);
+  const visibleLevels=Object.entries(levels).filter(([value])=>!user?.roles.includes('RTA')||(user.assigned_levels??[]).includes(value));
   const formatDate=(value:string|null|undefined)=>value?new Intl.DateTimeFormat(locale==='ar'?'ar-PS':'en-GB',{day:'numeric',month:'short'}).format(new Date(`${value}T00:00:00`)):'—';
 
-  if(!hasAccess)return <ErrorState title="Access Denied" message={locale==='ar'?'تحتاج صلاحية عرض التوزيع والجدول السريري.':'You need clinical distribution view permission.'}/>;
+  if(!hasAccess)return <ErrorState title={locale==='ar'?'غير مصرح':'Access denied'} message={locale==='ar'?'تحتاج صلاحية عرض الجدول السريري.':'You need clinical schedule view permission.'}/>;
   if(scheduleQuery.isLoading||optionsQuery.isLoading||portalQuery.isLoading)return <LoadingState/>;
   if(scheduleQuery.isError||optionsQuery.isError||portalQuery.isError)return <ErrorState onRetry={()=>{scheduleQuery.refetch();optionsQuery.refetch();portalQuery.refetch()}}/>;
 
@@ -96,7 +97,7 @@ export function ClinicalSchedulePage() {
     <Card className="rounded-3xl border border-slate-100 p-4">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_.8fr_1fr_1fr_auto]">
         <div className="relative"><Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><input value={search} onChange={event=>{setSearch(event.target.value);setPage(1)}} placeholder="بحث باسم الطالب أو رقمه..." className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pr-10 pl-3 text-xs outline-none focus:border-teal-500 focus:bg-white"/></div>
-        <select value={levelFilter} onChange={event=>{setLevelFilter(event.target.value);setRotationFilter('');setPage(1)}} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs"><option value="">كل المستويات</option>{Object.entries(levels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select>
+        <select value={levelFilter} onChange={event=>{setLevelFilter(event.target.value);setRotationFilter('');setPage(1)}} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs"><option value="">{locale==='ar'?'كل المستويات المعيّنة':'All assigned levels'}</option>{visibleLevels.map(([value,label])=><option key={value} value={value}>{locale==='ar'?label.ar:label.en}</option>)}</select>
         <select value={rotationFilter} onChange={event=>{setRotationFilter(event.target.value);setPage(1)}} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs"><option value="">كل المساقات المنشورة</option>{filteredRotations.map(rotation=><option key={rotation.id} value={rotation.id}>{rotation.code} — {rotation.name} ({rotation.academic_year})</option>)}</select>
         <select value={siteFilter} onChange={event=>{setSiteFilter(event.target.value);setPage(1)}} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs"><option value="">كل المستشفيات</option>{options?.sites.map(site=><option key={site.id} value={site.id}>{locale==='ar'?site.name_ar:site.name_en||site.name_ar}</option>)}</select>
         <Button variant="outline" onClick={resetFilters}><FilterX className="ml-1 h-4 w-4"/>مسح</Button>

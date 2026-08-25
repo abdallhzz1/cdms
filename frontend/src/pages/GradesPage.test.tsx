@@ -14,8 +14,7 @@ describe('GradesPage official workflow',()=>{
     const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{
       const url=String(input);
       if(url.includes('/auth/me'))return envelope({id:1,name:'RTA',email:'rta@hebron.edu',roles:['RTA'],assigned_levels:['fourth'],department_ids:[1],permissions:[{code:'grades.view',scope:'global'},{code:'grades.create',scope:'global'}]});
-      if(url.includes('/academic-years'))return envelope([{id:3,code:'2026-2027',is_current:true}]);
-      if(url.includes('/courses'))return envelope([{id:8,code:'MED401',name_ar:'الجراحة',name_en:'Surgery',academic_level:'fourth',is_active:true}]);
+      if(url.includes('/grade-entries/options'))return envelope({academic_years:[{id:3,code:'2026-2027',is_current:true}],courses:[{id:8,code:'MED401',name_ar:'الجراحة',name_en:'Surgery',academic_level:'fourth',is_active:true}],assigned_levels:['fourth']});
       if(url.includes('/grade-entries/roster'))return envelope([{student:{id:5,university_number:'22210001',full_name_ar:'طالب',full_name_en:'Clinical Student',academic_level:'fourth'},official_clinical_score:18,grade_entry:null}]);
       if(url.endsWith('/grade-entries/batch'))return envelope([]);
       throw new Error(`Unmocked request: ${url} ${init?.method}`);

@@ -126,6 +126,15 @@ class LogicalPermissionSeeder extends Seeder
             ]
         ];
 
+        // The schedule is a separately configurable screen, but fresh
+        // installations keep the historical visibility defaults.
+        foreach ($roleMapping as &$permissionCodes) {
+            if (in_array('distribution.view', $permissionCodes, true)) {
+                $permissionCodes[] = 'clinical_schedule.view';
+            }
+        }
+        unset($permissionCodes);
+
         foreach ($roleMapping as $roleCode => $permCodes) {
             $role = Role::where('code', $roleCode)->first();
             if (!$role) continue;

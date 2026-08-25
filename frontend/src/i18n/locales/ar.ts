@@ -253,6 +253,7 @@ const ar: typeof en = {
     grades_approve: { description: 'اعتماد العلامات' },
     grades_publish: { description: 'نشر العلامات' },
     distribution_view: { description: 'عرض التوزيع' },
+    clinical_schedule_view: { description: 'عرض الجدول السريري المنشور' },
     distribution_create: { description: 'إنشاء التوزيع' },
     distribution_generate: { description: 'توليد تلقائي' },
     distribution_update: { description: 'تعديل التوزيع' },

@@ -163,7 +163,7 @@ class PublicStudentScheduleTest extends TestCase
 
     public function test_portal_toggle_requires_its_dedicated_permission(): void
     {
-        $view = Permission::where('code', 'distribution.view')->firstOrFail();
+        $view = Permission::where('code', 'clinical_schedule.view')->firstOrFail();
         $manage = Permission::where('code', 'distribution.student_portal.manage')->firstOrFail();
         $viewerRole = Role::create(['code' => 'PORTAL_VIEWER', 'name_key' => 'portal.viewer']);
         $viewerRole->permissions()->attach($view->id, ['scope_type' => 'global']);

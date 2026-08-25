@@ -35,7 +35,7 @@ class ClinicalScheduleItemDTO
         $blockStartDate = null;
         $blockEndDate = null;
 
-        if ($rotationStartDate && $block) {
+        if ($rotationStartDate && $block && (int) $block->from_week >= 1 && (int) $block->to_week >= (int) $block->from_week) {
             $blockStartDate = $dateCalculator->calculateBlockStartDate($rotationStartDate, $block->from_week);
             $blockEndDate = $dateCalculator->calculateBlockEndDate($rotationStartDate, $block->to_week);
         }

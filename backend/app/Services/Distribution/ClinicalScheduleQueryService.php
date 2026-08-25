@@ -49,6 +49,13 @@ class ClinicalScheduleQueryService
             $query->where('department_id', $scopedDeptId);
         }
 
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+        if ($levelScope !== null) {
+            empty($levelScope)
+                ? $query->whereRaw('1 = 0')
+                : $query->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->whereIn('academic_level', $levelScope));
+        }
+
         // Filters
         if ($request->filled('rotation_id')) {
             $rotationId = (int) $request->input('rotation_id');

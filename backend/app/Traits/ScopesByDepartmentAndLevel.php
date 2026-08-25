@@ -209,6 +209,36 @@ trait ScopesByDepartmentAndLevel
     }
 
     /**
+     * Return the effective academic-level boundary for cohort-scoped roles.
+     * Null means the current role combination is not cohort constrained, while
+     * an empty array means a constrained user has not been assigned a cohort.
+     *
+     * @return array<string>|null
+     */
+    protected function getEffectiveAcademicLevelScope(): ?array
+    {
+        /** @var User|null $user */
+        $user = auth()->user();
+        if (! $user) {
+            return [];
+        }
+
+        $roleCodes = $user->relationLoaded('roles')
+            ? $user->roles->pluck('code')
+            : $user->roles()->pluck('code');
+
+        if ($roleCodes->intersect(['SYS_ADMIN', 'DEAN', 'VICE_DEAN', 'CLINICAL_DIRECTOR'])->isNotEmpty()) {
+            return null;
+        }
+
+        if ($roleCodes->intersect(['DEPARTMENT_HEAD', 'RTA'])->isEmpty()) {
+            return null;
+        }
+
+        return $this->getUserScopedLevels();
+    }
+
+    /**
      * Helper to normalize level strings between Arabic and English
      */
     protected function normalizeLevels(array $levels): array

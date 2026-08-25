@@ -35,6 +35,7 @@ class PermissionSeeder extends Seeder
             ['code' => 'grades.approve', 'module' => 'Grades', 'action' => 'APPROVE', 'description_key' => 'permissions.grades_approve.description'],
             ['code' => 'grades.publish', 'module' => 'Grades', 'action' => 'PUBLISH', 'description_key' => 'permissions.grades_publish.description'],
             ['code' => 'distribution.view', 'module' => 'Distribution', 'action' => 'VIEW', 'description_key' => 'permissions.distribution_view.description'],
+            ['code' => 'clinical_schedule.view', 'module' => 'Distribution', 'action' => 'VIEW_CLINICAL_SCHEDULE', 'description_key' => 'permissions.clinical_schedule_view.description'],
             ['code' => 'distribution.create', 'module' => 'Distribution', 'action' => 'CREATE', 'description_key' => 'permissions.distribution_create.description'],
             ['code' => 'distribution.generate', 'module' => 'Distribution', 'action' => 'GENERATE', 'description_key' => 'permissions.distribution_generate.description'],
             ['code' => 'distribution.update', 'module' => 'Distribution', 'action' => 'UPDATE', 'description_key' => 'permissions.distribution_update.description'],

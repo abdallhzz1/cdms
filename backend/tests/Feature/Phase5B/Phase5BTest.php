@@ -42,6 +42,7 @@ class Phase5BTest extends TestCase
         $adminRole = \App\Models\Role::create(['code' => 'TEST_ADMIN', 'name_key' => 'admin', 'name_ar' => 'Admin', 'name_en' => 'Admin']);
         $adminRole->permissions()->sync(\App\Models\Permission::whereIn('code', [
             'distribution.view',
+            'clinical_schedule.view',
             'distribution.create',
             'distribution.update',
             'distribution.approve',

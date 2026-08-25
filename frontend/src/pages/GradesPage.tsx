@@ -9,6 +9,7 @@ import { useI18n } from '@/i18n/I18nContext';
 type Level = 'fourth' | 'fifth' | 'sixth';
 type Course = { id: number; code: string; name_ar: string; name_en?: string; academic_level: Level; is_active?: boolean };
 type AcademicYear = { id: number; code: string; name?: string; is_current?: boolean };
+type GradeOptions = { academic_years: AcademicYear[]; courses: Course[]; assigned_levels: string[] | null };
 type GradeEntry = {
   id: number; clinical_score: number | string | null; osce_score: number | string | null;
   written_score: number | string | null; score: number | string | null; status: 'draft'|'submitted'|'approved'|'returned';
@@ -46,10 +47,9 @@ export function GradesPage() {
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [returnReason, setReturnReason] = useState('');
 
-  const yearsQuery = useQuery({ queryKey: ['grades-years'], queryFn: () => apiFetch<AcademicYear[]>('/academic-years?per_page=100') });
-  const coursesQuery = useQuery({ queryKey: ['grades-courses'], queryFn: () => apiFetch<Course[]>('/courses?per_page=200') });
-  const years = yearsQuery.data ?? [];
-  const courses = (coursesQuery.data ?? []).filter(course => course.academic_level === level && course.is_active !== false);
+  const optionsQuery = useQuery({ queryKey: ['grade-options'], queryFn: () => apiFetch<GradeOptions>('/grade-entries/options') });
+  const years = optionsQuery.data?.academic_years ?? [];
+  const courses = (optionsQuery.data?.courses ?? []).filter(course => course.academic_level === level && course.is_active !== false);
   useEffect(() => { if (!yearId && years.length) setYearId(String(years.find(year => year.is_current)?.id ?? years[0].id)); }, [years, yearId]);
   useEffect(() => { if (!courses.some(course => String(course.id) === courseId)) setCourseId(courses[0] ? String(courses[0].id) : ''); }, [courses, courseId]);
 
@@ -111,6 +111,8 @@ export function GradesPage() {
   };
 
   if (assigned && visibleLevels.length === 0) return <EmptyAssignment ar={ar} />;
+  if (optionsQuery.isLoading) return <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">{ar ? 'جاري تحميل الأعوام والمساقات المخصصة لك...' : 'Loading your assigned years and courses...'}</div>;
+  if (optionsQuery.isError) return <div className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm font-bold text-red-700"><p>{errorText(optionsQuery.error, ar ? 'تعذر تحميل خيارات العلامات.' : 'Unable to load grade options.')}</p><button onClick={() => optionsQuery.refetch()} className="mt-3 rounded-xl border border-red-200 bg-white px-4 py-2">{ar ? 'إعادة المحاولة' : 'Retry'}</button></div>;
   return <div className="space-y-5 pb-20">
     <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-2xl font-black text-slate-900">{ar ? 'إدارة العلامات السريرية' : 'Clinical Grade Management'}</h1><p className="mt-1 text-sm text-slate-500">{ar ? 'كشف رسمي موحد: التقييم السريري المعتمد + OSCE + الامتحان النظري.' : 'One official sheet: approved clinical assessment + OSCE + written exam.'}</p></div><button onClick={exportExcel} disabled={!roster.length} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-white px-4 py-2.5 text-sm font-bold text-teal-800 disabled:opacity-40"><Download className="h-4 w-4" />{ar ? 'تصدير Excel' : 'Export Excel'}</button></header>
     <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 lg:grid-cols-3">

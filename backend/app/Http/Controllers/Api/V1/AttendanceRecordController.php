@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AttendanceRecord;
 use App\Models\StudentClinicalAssignment;
+use App\Models\Student;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,6 +31,10 @@ class AttendanceRecordController extends Controller
                 ->pluck('student_id');
             $query->whereIn('student_id', $studentIds);
         }
+
+        $allowedStudentIds = $this->applyStudentAccessScope(Student::query())
+            ->select('students.id');
+        $query->whereIn('student_id', $allowedStudentIds);
 
         $userDeptId = $this->getUserDepartmentId();
         if ($userDeptId) {
@@ -62,11 +67,19 @@ class AttendanceRecordController extends Controller
             'excuse_note' => ['nullable', 'string', 'max:2000'],
         ]);
 
+        $student = Student::findOrFail($data['student_id']);
+        $this->authorizeStudentAccess($student);
+        $session = \App\Models\ClinicalSession::with('rotationBlock.rotation')->findOrFail($data['clinical_session_id']);
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+        if ($levelScope !== null) {
+            $sessionLevel = (string) $session->rotationBlock?->rotation?->academic_level;
+            abort_unless(! empty($levelScope) && in_array($sessionLevel, $levelScope, true), 403, 'This session is outside your assigned cohort.');
+        }
+
         $user = $request->user();
         $roles = $user?->roles()->pluck('code') ?? collect();
         if ($this->isSupervisorOnly($roles)) {
             $personId = $user?->person?->id;
-            $session = \App\Models\ClinicalSession::findOrFail($data['clinical_session_id']);
             $ownsStudent = StudentClinicalAssignment::query()
                 ->where('supervisor_id', $personId ?: 0)
                 ->where('student_id', $data['student_id'])

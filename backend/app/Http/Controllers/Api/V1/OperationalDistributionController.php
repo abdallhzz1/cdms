@@ -54,6 +54,14 @@ class OperationalDistributionController extends Controller
             $assignments->where('department_id', $scopedDepartmentId);
         }
 
+
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+        if ($levelScope !== null) {
+            empty($levelScope)
+                ? $assignments->whereRaw('1 = 0')
+                : $assignments->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->whereIn('academic_level', $levelScope));
+        }
+
         $rotationIds = (clone $assignments)
             ->join('rotation_blocks', 'student_clinical_assignments.rotation_block_id', '=', 'rotation_blocks.id')
             ->distinct()->pluck('rotation_blocks.rotation_id');

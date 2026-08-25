@@ -23,6 +23,32 @@ class GradeEntryController extends Controller
 
     use ScopesByDepartmentAndLevel;
 
+    public function options(): JsonResponse
+    {
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+        $courses = Course::query()
+            ->when($levelScope !== null, function ($query) use ($levelScope) {
+                empty($levelScope)
+                    ? $query->whereRaw('1 = 0')
+                    : $query->whereIn('academic_level', $levelScope);
+            })
+            ->where('is_active', true)
+            ->orderBy('academic_level')
+            ->orderBy('code')
+            ->get(['id', 'code', 'name_ar', 'name_en', 'academic_level', 'is_active']);
+
+        $years = AcademicYear::query()
+            ->orderByDesc('is_current')
+            ->orderByDesc('start_date')
+            ->get(['id', 'code', 'is_current']);
+
+        return ApiResponse::success([
+            'academic_years' => $years,
+            'courses' => $courses,
+            'assigned_levels' => $levelScope,
+        ]);
+    }
+
     public function roster(Request $request): JsonResponse
     {
         $data = $request->validate([

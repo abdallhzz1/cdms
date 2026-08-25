@@ -155,7 +155,7 @@ export function App() {
                 <Route path="/distribution/workbench/:versionId" element={<DistributionPage />} />
                 {/* Legacy roster routes -> redirect to clinical schedule */}
                 <Route path="/distribution/:siteId" element={<Navigate to="/clinical/schedule" replace />} />
-                <Route path="/clinical/schedule" element={<ClinicalSchedulePage />} />
+                <Route path="/clinical/schedule" element={<ProtectedRoute requiredPermission="clinical_schedule.view"><ClinicalSchedulePage /></ProtectedRoute>} />
                 <Route path="/supervisor/portal" element={<SupervisorPortalPage />} />
                 {/* Legacy roster routes -> redirect to clinical schedule */}
                 <Route path="/departments/:id/roster" element={<Navigate to="/clinical/schedule" replace />} />

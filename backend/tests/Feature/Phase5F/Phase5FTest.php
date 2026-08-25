@@ -56,11 +56,12 @@ class Phase5FTest extends TestCase
 
         // Roles setup
         $viewerRole = Role::create(['code' => 'P5F_VIEWER', 'name_key' => 'viewer', 'name_ar' => 'Viewer', 'name_en' => 'Viewer']);
-        $viewerRole->permissions()->attach(Permission::where('code', 'distribution.view')->pluck('id'), ['scope_type' => 'global']);
+        $viewerRole->permissions()->attach(Permission::whereIn('code', ['distribution.view', 'clinical_schedule.view'])->pluck('id'), ['scope_type' => 'global']);
 
         $adminRole = Role::create(['code' => 'P5F_ADMIN', 'name_key' => 'admin', 'name_ar' => 'Admin', 'name_en' => 'Admin']);
         $adminRole->permissions()->attach(Permission::whereIn('code', [
             'distribution.view',
+            'clinical_schedule.view',
             'distribution.create',
             'distribution.update',
             'distribution.delete',

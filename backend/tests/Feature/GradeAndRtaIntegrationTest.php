@@ -10,6 +10,14 @@ use App\Models\Student;
 use App\Models\User;
 use App\Models\GradeEntry;
 use App\Models\StudentCourseEnrollment;
+use App\Models\AttendanceRecord;
+use App\Models\ClinicalSession;
+use App\Models\Department;
+use App\Models\DistributionVersion;
+use App\Models\Rotation;
+use App\Models\RotationBlock;
+use App\Models\StudentClinicalAssignment;
+use App\Models\TrainingSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -27,13 +35,14 @@ class GradeAndRtaIntegrationTest extends TestCase
     {
         $year = AcademicYear::factory()->create();
         $course = Course::factory()->create(['academic_level' => 'fourth']);
+        $fifthCourse = Course::factory()->create(['academic_level' => 'fifth']);
         $fourth = Student::factory()->create(['academic_level' => 'fourth', 'registration_status' => 'active']);
-        Student::factory()->create(['academic_level' => 'fifth', 'registration_status' => 'active']);
+        $fifth = Student::factory()->create(['academic_level' => 'fifth', 'registration_status' => 'active']);
 
         $rtaRole = Role::where('code', 'RTA')->firstOrFail();
-        $rtaRole->permissions()->syncWithoutDetaching([
-            Permission::where('code', 'grades.view')->firstOrFail()->id => ['scope_type' => 'global'],
-        ]);
+        foreach (Permission::whereIn('code', ['grades.view', 'students.view'])->get() as $permission) {
+            $rtaRole->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
+        }
         $rta = User::factory()->create(['assigned_levels' => null]);
         $rta->roles()->attach($rtaRole, ['scope_type' => 'global']);
 
@@ -44,6 +53,19 @@ class GradeAndRtaIntegrationTest extends TestCase
         $this->actingAs($rta)->getJson($url)
             ->assertOk()->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.student.id', $fourth->id);
+
+        $this->actingAs($rta)->getJson('/api/v1/grade-entries/options')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.courses')
+            ->assertJsonPath('data.courses.0.id', $course->id);
+
+        $this->actingAs($rta)->getJson('/api/v1/students?per_page=100')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $fourth->id);
+
+        $this->actingAs($rta)->getJson("/api/v1/grade-entries/roster?course_id={$fifthCourse->id}&academic_year_id={$year->id}")
+            ->assertForbidden();
     }
 
     public function test_only_assignment_manager_can_change_rta_cohorts(): void
@@ -67,6 +89,87 @@ class GradeAndRtaIntegrationTest extends TestCase
             ->putJson("/api/v1/users/{$rta->id}/assign-levels", ['assigned_levels' => ['fourth', 'fifth']])
             ->assertOk()->assertJsonPath('data.assigned_levels.1', 'fifth');
         $this->assertSame(['fourth', 'fifth'], $rta->fresh()->assigned_levels);
+    }
+
+    public function test_rta_schedule_and_attendance_are_limited_to_the_assigned_cohort(): void
+    {
+        $year = AcademicYear::factory()->create();
+        $department = Department::factory()->create();
+        $site = TrainingSite::factory()->create();
+        $rtaRole = Role::where('code', 'RTA')->firstOrFail();
+        foreach (Permission::whereIn('code', ['clinical_schedule.view', 'attendance.view'])->get() as $permission) {
+            $rtaRole->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
+        }
+        $rta = User::factory()->create(['assigned_levels' => ['fourth']]);
+        $rta->roles()->attach($rtaRole, ['scope_type' => 'global']);
+
+        $assignments = [];
+        $records = [];
+        foreach (['fourth', 'fifth'] as $index => $level) {
+            $course = Course::factory()->create(['academic_level' => $level]);
+            $rotation = Rotation::factory()->create([
+                'academic_year_id' => $year->id,
+                'course_id' => $course->id,
+                'academic_level' => $level,
+                'start_date' => '2026-09-01',
+                'end_date' => '2026-10-31',
+            ]);
+            $block = RotationBlock::factory()->create([
+                'rotation_id' => $rotation->id,
+                'department_id' => $department->id,
+                'from_week' => 1,
+                'to_week' => 4,
+            ]);
+            $student = Student::factory()->create([
+                'academic_level' => $level,
+                'academic_year_id' => $year->id,
+                'registration_status' => 'active',
+            ]);
+            $version = DistributionVersion::create([
+                'rotation_id' => $rotation->id,
+                'version_number' => 1,
+                'status' => 'published',
+                'is_current' => true,
+            ]);
+            $assignments[$level] = StudentClinicalAssignment::create([
+                'distribution_version_id' => $version->id,
+                'student_id' => $student->id,
+                'rotation_block_id' => $block->id,
+                'training_site_id' => $site->id,
+                'department_id' => $department->id,
+            ]);
+            $session = ClinicalSession::create([
+                'rotation_block_id' => $block->id,
+                'training_site_id' => $site->id,
+                'session_date' => "2026-09-0".($index + 1),
+                'title' => strtoupper($level).' session',
+            ]);
+            $records[$level] = AttendanceRecord::create([
+                'clinical_session_id' => $session->id,
+                'student_id' => $student->id,
+                'status' => 'present',
+            ]);
+        }
+
+        $this->actingAs($rta)->getJson('/api/v1/operational/clinical-schedule?page=1&per_page=50')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.data')
+            ->assertJsonPath('data.data.0.assignment_id', $assignments['fourth']->id);
+
+        $this->actingAs($rta)->getJson('/api/v1/operational/clinical-schedule-options')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.rotations')
+            ->assertJsonPath('data.rotations.0.academic_level', 'fourth');
+
+        $this->actingAs($rta)->getJson('/api/v1/attendance-records?per_page=100')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $records['fourth']->id);
+
+        $this->actingAs($rta)->getJson('/api/v1/clinical-sessions?per_page=100')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.title', 'FOURTH session');
     }
 
     public function test_grade_batch_cannot_spoof_the_official_clinical_component(): void

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\ClinicalSession;
+use App\Models\RotationBlock;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use App\Traits\ScopesByDepartmentAndLevel;
@@ -19,6 +20,14 @@ class ClinicalSessionController extends Controller
         $departmentId = $this->getUserDepartmentId();
         if ($departmentId) {
             $query->whereHas('rotationBlock', fn ($block) => $block->where('department_id', $departmentId));
+        }
+
+
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+        if ($levelScope !== null) {
+            empty($levelScope)
+                ? $query->whereRaw('1 = 0')
+                : $query->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->whereIn('academic_level', $levelScope));
         }
 
         $sessions = $query
@@ -46,6 +55,14 @@ class ClinicalSessionController extends Controller
             'session_date' => ['required', 'date'],
             'title' => ['required', 'string', 'max:255'],
         ]);
+
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+        if ($levelScope !== null) {
+            $blockLevel = $data['rotation_block_id']
+                ? RotationBlock::with('rotation')->findOrFail($data['rotation_block_id'])->rotation?->academic_level
+                : null;
+            abort_unless(! empty($levelScope) && in_array((string) $blockLevel, $levelScope, true), 403, 'This session is outside your assigned cohort.');
+        }
 
         return ApiResponse::success(ClinicalSession::create($data), 'Clinical session created.', [], 201);
     }

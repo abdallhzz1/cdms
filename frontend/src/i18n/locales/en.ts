@@ -264,6 +264,7 @@ const en = {
     grades_approve: { description: 'Approve grades' },
     grades_publish: { description: 'Publish grades' },
     distribution_view: { description: 'View distribution' },
+    clinical_schedule_view: { description: 'View the published clinical schedule' },
     distribution_create: { description: 'Create distribution' },
     distribution_generate: { description: 'Auto-generate' },
     distribution_update: { description: 'Update distribution' },
