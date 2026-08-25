@@ -40,7 +40,7 @@ class LogicalPermissionSeeder extends Seeder
                 'advising.view',
                 'assessment.view',
                 'attendance.view', 'attendance.record',
-                'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit',
+                'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward', 'correspondence.close',
                 'courses.view',
                 'departments.view',
                 'distribution.view', 'distribution.create', 'distribution.generate', 'distribution.update', 'distribution.validate',
@@ -59,7 +59,7 @@ class LogicalPermissionSeeder extends Seeder
                 'supervisor.workspace.view',
                 'assessment.view', 'assessment.create', 'assessment.submit',
                 'attendance.view', 'attendance.record',
-                'correspondence.view', 'correspondence.create', 'correspondence.submit',
+                'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward',
                 'courses.view',
                 'distribution.view',
                 'grades.view',
@@ -71,7 +71,7 @@ class LogicalPermissionSeeder extends Seeder
                 'academic_years.view',
                 'assessment.view', 'assessment.approve',
                 'attendance.view',
-                'correspondence.view', 'correspondence.create', 'correspondence.submit', 'correspondence.approve',
+                'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward', 'correspondence.approve', 'correspondence.close',
                 'courses.view',
                 'departments.view',
                 'distribution.view',
@@ -89,7 +89,7 @@ class LogicalPermissionSeeder extends Seeder
                 'advising.view', 'advising.manage', 'advising.export_pdf',
                 'assessment.view',
                 'attendance.view',
-                'correspondence.view', 'correspondence.create', 'correspondence.submit',
+                'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward',
                 'courses.view',
                 'grades.view',
                 'people.view',
@@ -101,10 +101,11 @@ class LogicalPermissionSeeder extends Seeder
                 'performance.view',
                 'quality.view', 'quality.manage',
                 'reports.view', 'reports.export',
+                'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward',
             ],
             'DEAN' => [
                 'academic_years.view',
-                'correspondence.view', 'correspondence.approve', 'correspondence.close',
+                'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward', 'correspondence.approve', 'correspondence.close',
                 'course_report.approve',
                 'courses.view',
                 'distribution.view', 'distribution.publish',
@@ -115,7 +116,7 @@ class LogicalPermissionSeeder extends Seeder
             ],
             'VICE_DEAN' => [
                 'academic_years.view',
-                'correspondence.view', 'correspondence.approve', 'correspondence.close',
+                'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward', 'correspondence.approve', 'correspondence.close',
                 'course_report.approve',
                 'courses.view',
                 'distribution.view', 'distribution.approve',
@@ -123,7 +124,13 @@ class LogicalPermissionSeeder extends Seeder
                 'meetings.manage', 'meetings.approve_minutes',
                 'performance.view',
                 'reports.view', 'reports.export',
-            ]
+            ],
+            'RTA' => [
+                'students.view', 'grades.view', 'grades.create', 'grades.update',
+                'attendance.view', 'attendance.record', 'courses.view',
+                'clinical_schedule.view', 'tasks.view',
+                'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward',
+            ],
         ];
 
         // The schedule is a separately configurable screen, but fresh

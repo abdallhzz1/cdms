@@ -11,6 +11,7 @@ use App\Models\Person;
 use App\Models\Course;
 use App\Models\Student;
 use App\Services\SecurityAuditService;
+use App\Services\CorrespondenceRecipientService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -22,7 +23,10 @@ class UserController extends Controller
 {
     use HasSafePagination;
 
-    public function __construct(private readonly SecurityAuditService $audit) {}
+    public function __construct(
+        private readonly SecurityAuditService $audit,
+        private readonly CorrespondenceRecipientService $correspondenceRecipients,
+    ) {}
 
     /**
      * User Lookup for Dropdowns
@@ -32,18 +36,19 @@ class UserController extends Controller
         $users = User::where('is_active', true)
             ->whereHas('roles', function ($q) {
                 $q->whereIn('code', [
-                    'DEPARTMENT_HEAD', 
-                    'RTA', 
-                    'CLINICAL_SUPERVISOR', 
-                    'ACADEMIC_ADVISOR', 
-                    'CLINICAL_DIRECTOR', 
-                    'DEAN', 
-                    'VICE_DEAN'
+                    'SYS_ADMIN', 'CLINICAL_DIRECTOR', 'DEAN', 'VICE_DEAN',
+                    'DEPARTMENT_HEAD', 'ADMIN_ASSISTANT', 'RTA',
+                    'CLINICAL_SUPERVISOR', 'ACADEMIC_ADVISOR', 'QUALITY',
                 ]);
             })
             ->with('roles')
             ->orderBy('name')
             ->get();
+
+        if ($request->query('purpose') === 'correspondence') {
+            $sender = $request->user()->loadMissing('roles');
+            $users = $users->filter(fn (User $recipient) => $this->correspondenceRecipients->canSend($sender, $recipient));
+        }
 
         $result = $users->map(function ($u) {
             return [

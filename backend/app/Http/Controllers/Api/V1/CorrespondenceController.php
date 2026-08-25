@@ -8,6 +8,7 @@ use App\Models\Correspondence;
 use App\Models\CorrespondenceAttachment;
 use App\Models\OperationalTask;
 use App\Notifications\AdministrativeWorkAssignedNotification;
+use App\Services\CorrespondenceRecipientService;
 use App\Services\WorkflowTransitionService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
@@ -32,7 +33,7 @@ class CorrespondenceController extends Controller
         } elseif ($filter === 'outbox') {
             $query->where('sender_id', $user->id);
         } elseif (! $this->canManageAll($user)) {
-            $query->where(fn ($q) => $q->where('sender_id', $user->id)->orWhere('assigned_to', $user->id));
+            $query->whereHas('participants', fn ($q) => $q->where('user_id', $user->id));
         }
 
         $query
@@ -75,12 +76,15 @@ class CorrespondenceController extends Controller
         if ($assignedTo && ! Gate::forUser($request->user())->allows('permission', ['correspondence.submit'])) {
             throw new AuthorizationException('You may create drafts but do not have permission to send correspondence.');
         }
+        if ($assignedTo) app(CorrespondenceRecipientService::class)->validate($request->user(), (int) $assignedTo);
         unset($data['assigned_to']);
 
         $correspondence = DB::transaction(function () use ($data, $assignedTo, $workflow) {
             $item = Correspondence::create($data);
+            $this->addParticipant($item, (int) $data['sender_id'], 'sender');
             if ($assignedTo) {
                 $item->update(['assigned_to' => $assignedTo, 'submitted_at' => now()]);
+                $this->addParticipant($item, (int) $assignedTo, 'recipient');
                 $item = $workflow->transition($item->fresh(), 'submitted', 'Initial dispatch');
             }
             return $item;
@@ -104,7 +108,9 @@ class CorrespondenceController extends Controller
             throw new AuthorizationException('Only the sender may submit this correspondence.');
         }
         $data = $request->validate(['assigned_to' => ['required', 'exists:users,id'], 'notes' => ['nullable', 'string', 'max:2000']]);
+        app(CorrespondenceRecipientService::class)->validate($request->user(), (int) $data['assigned_to']);
         $correspondence->update(['assigned_to' => $data['assigned_to'], 'submitted_at' => now(), 'read_at' => null]);
+        $this->addParticipant($correspondence, (int) $data['assigned_to'], 'recipient');
         $correspondence = $workflow->transition($correspondence->fresh(), 'submitted', $data['notes'] ?? null);
         $this->notifyAssignee($correspondence, 'correspondence');
         return ApiResponse::success($correspondence->fresh(), 'Correspondence submitted.');
@@ -114,6 +120,7 @@ class CorrespondenceController extends Controller
     {
         $this->ensureAssignedOrSender($request, $correspondence);
         $data = $request->validate(['assigned_to' => ['required', 'exists:users,id'], 'notes' => ['nullable', 'string', 'max:2000']]);
+        app(CorrespondenceRecipientService::class)->validate($request->user(), (int) $data['assigned_to']);
         if (in_array($correspondence->status, ['draft', 'returned'], true)) {
             return $this->submit($request, $correspondence, $workflow);
         }
@@ -124,6 +131,7 @@ class CorrespondenceController extends Controller
             $correspondence = $workflow->transition($correspondence, 'under_review', $data['notes'] ?? 'Forwarded');
         }
         $correspondence->update(['assigned_to' => $data['assigned_to'], 'read_at' => null]);
+        $this->addParticipant($correspondence, (int) $data['assigned_to'], 'recipient');
         $this->notifyAssignee($correspondence, 'correspondence');
         return ApiResponse::success($correspondence->fresh()->load('assignee.person'), 'Correspondence forwarded.');
     }
@@ -134,6 +142,7 @@ class CorrespondenceController extends Controller
         $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
         $correspondence = $workflow->transition($correspondence, 'returned', $data['reason']);
         $correspondence->update(['assigned_to' => $correspondence->sender_id, 'returned_at' => now(), 'read_at' => null]);
+        $this->addParticipant($correspondence, (int) $correspondence->sender_id, 'sender');
         $this->notifyAssignee($correspondence, 'correspondence_returned');
         return ApiResponse::success($correspondence->fresh(), 'Correspondence returned.');
     }
@@ -224,13 +233,13 @@ class CorrespondenceController extends Controller
 
     private function ensureVisible(Request $request, Correspondence $item): void
     {
-        if ($item->sender_id !== $request->user()->id && $item->assigned_to !== $request->user()->id && ! $this->canManageAll($request->user())) {
+        if (! $this->isParticipant($item, $request->user()->id) && ! $this->canManageAll($request->user())) {
             throw new AuthorizationException('This action is unauthorized.');
         }
     }
     private function ensureAssignedOrSender(Request $request, Correspondence $item): void
     {
-        if ($item->assigned_to !== $request->user()->id && $item->sender_id !== $request->user()->id && ! $this->canManageAll($request->user())) {
+        if (! $this->isParticipant($item, $request->user()->id) && ! $this->canManageAll($request->user())) {
             throw new AuthorizationException('This action is unauthorized.');
         }
     }
@@ -249,5 +258,14 @@ class CorrespondenceController extends Controller
     {
         $item->loadMissing('assignee');
         $item->assignee?->notify(new AdministrativeWorkAssignedNotification($type, $item->id, $item->subject));
+    }
+    private function isParticipant(Correspondence $item, int $userId): bool
+    {
+        return $item->sender_id === $userId || $item->assigned_to === $userId
+            || $item->participants()->where('user_id', $userId)->exists();
+    }
+    private function addParticipant(Correspondence $item, int $userId, string $role): void
+    {
+        $item->participants()->firstOrCreate(['user_id' => $userId], ['participant_role' => $role]);
     }
 }

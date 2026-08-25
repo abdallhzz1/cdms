@@ -25,7 +25,8 @@ class AdministrativeWorkflowTest extends TestCase
     public function test_correspondence_is_dispatched_tracked_and_hidden_from_unrelated_users(): void
     {
         $sender = $this->userWithPermissions(['correspondence.view', 'correspondence.create', 'correspondence.submit']);
-        $recipient = $this->userWithPermissions(['correspondence.view']);
+        $recipient = $this->userWithPermissions(['correspondence.view', 'correspondence.forward']);
+        $nextRecipient = $this->userWithPermissions(['correspondence.view']);
         $outsider = $this->userWithPermissions(['correspondence.view']);
 
         $created = $this->asUser($sender)->postJson('/api/v1/correspondence', [
@@ -40,6 +41,13 @@ class AdministrativeWorkflowTest extends TestCase
         $this->getJson("/api/v1/correspondence/{$id}")->assertOk();
         $this->assertDatabaseHas('workflow_transition_logs', ['entity_id' => $id, 'to_state' => 'submitted']);
         $this->assertDatabaseCount('notifications', 1);
+
+        $this->postJson("/api/v1/correspondence/{$id}/forward", [
+            'assigned_to' => $nextRecipient->id, 'notes' => 'Forward for completion.',
+        ])->assertOk();
+        $this->getJson("/api/v1/correspondence/{$id}")->assertOk();
+        $this->assertDatabaseHas('correspondence_participants', ['correspondence_id' => $id, 'user_id' => $recipient->id]);
+        $this->assertDatabaseHas('correspondence_participants', ['correspondence_id' => $id, 'user_id' => $nextRecipient->id]);
 
         $this->asUser($outsider)->getJson("/api/v1/correspondence/{$id}")->assertForbidden();
     }
@@ -95,6 +103,34 @@ class AdministrativeWorkflowTest extends TestCase
         $this->asUser($outsider)->get("/api/v1/correspondence/{$correspondenceId}/attachments/{$attachmentId}/download")->assertForbidden();
     }
 
+    public function test_clinical_supervisors_cannot_correspond_with_each_other_but_can_contact_rta(): void
+    {
+        $supervisorRole = Role::factory()->create(['code' => 'CLINICAL_SUPERVISOR']);
+        $this->grantPermissions($supervisorRole, ['correspondence.view', 'correspondence.create', 'correspondence.submit']);
+        $firstSupervisor = User::factory()->create();
+        $secondSupervisor = User::factory()->create();
+        $firstSupervisor->roles()->attach($supervisorRole->id);
+        $secondSupervisor->roles()->attach($supervisorRole->id);
+
+        $rtaRole = Role::factory()->create(['code' => 'RTA']);
+        $this->grantPermissions($rtaRole, ['correspondence.view']);
+        $rta = User::factory()->create();
+        $rta->roles()->attach($rtaRole->id);
+
+        $payload = [
+            'direction' => 'internal', 'subject' => 'Coordination request',
+            'correspondence_date' => now()->toDateString(),
+        ];
+        $this->asUser($firstSupervisor)->postJson('/api/v1/correspondence', $payload + ['assigned_to' => $secondSupervisor->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('assigned_to');
+        $this->postJson('/api/v1/correspondence', $payload + ['assigned_to' => $rta->id])->assertCreated();
+
+        $lookup = $this->getJson('/api/v1/users/lookup?purpose=correspondence')->assertOk();
+        $ids = collect($lookup->json('data'))->pluck('id');
+        $this->assertFalse($ids->contains($secondSupervisor->id));
+        $this->assertTrue($ids->contains($rta->id));
+    }
+
     public function test_only_approved_minutes_permission_can_approve_and_reopen_minutes(): void
     {
         $manager = $this->userWithPermissions(['meetings.manage']);
@@ -114,6 +150,14 @@ class AdministrativeWorkflowTest extends TestCase
     private function userWithPermissions(array $codes): User
     {
         $role = Role::factory()->create();
+        $this->grantPermissions($role, $codes);
+        $user = User::factory()->create();
+        $user->roles()->attach($role->id);
+        return $user;
+    }
+
+    private function grantPermissions(Role $role, array $codes): void
+    {
         foreach ($codes as $code) {
             $permission = Permission::firstOrCreate(['code' => $code], [
                 'module' => 'Administrative', 'action' => strtoupper(str_replace('.', '_', $code)),
@@ -121,9 +165,6 @@ class AdministrativeWorkflowTest extends TestCase
             ]);
             $role->permissions()->attach($permission->id, ['scope_type' => 'global']);
         }
-        $user = User::factory()->create();
-        $user->roles()->attach($role->id);
-        return $user;
     }
 
     private function asUser(User $user): static
