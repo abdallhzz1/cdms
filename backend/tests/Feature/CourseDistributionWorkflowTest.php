@@ -34,7 +34,7 @@ class CourseDistributionWorkflowTest extends TestCase
         parent::setUp();
         $this->seed([\Database\Seeders\PermissionSeeder::class, \Database\Seeders\Phase3PermissionSeeder::class, \Database\Seeders\RoleSeeder::class]);
         $role = Role::create(['code' => 'COURSE_DISTRIBUTOR_TEST', 'name_key' => 'test', 'name_ar' => 'Test', 'name_en' => 'Test']);
-        $ids = Permission::whereIn('code', ['distribution.view', 'distribution.update', 'distribution.schedule_rows.manage', 'distribution.approve', 'distribution.publish', 'distribution.revise', 'distribution.unpublish', 'distribution.delete', 'rotations.create', 'people.manage'])->pluck('id');
+        $ids = Permission::whereIn('code', ['distribution.view', 'distribution.update', 'distribution.schedule_rows.manage', 'distribution.approve', 'distribution.publish', 'distribution.override', 'distribution.revise', 'distribution.unpublish', 'distribution.delete', 'rotations.create', 'people.manage'])->pluck('id');
         $role->permissions()->sync($ids->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all());
         $this->user = User::factory()->create();
         $this->user->roles()->attach($role);
@@ -212,6 +212,13 @@ class CourseDistributionWorkflowTest extends TestCase
         ])->assertOk();
         $version->update(['status' => 'published', 'is_current' => true]);
 
+        $duplicateCurrent = DistributionVersion::create([
+            'rotation_id' => $version->rotation_id,
+            'name' => 'نسخة منشورة قديمة مكررة',
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+
         $revisionId = $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$version->id}/revise")
             ->assertOk()->assertJsonPath('data.source_version_id', $version->id)->json('data.id');
         $this->assertDatabaseHas('distribution_versions', ['id' => $revisionId, 'status' => 'manual']);
@@ -221,6 +228,8 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$version->id}/unpublish", [
             'reason' => 'جدول تجريبي للفحص',
         ])->assertOk()->assertJsonPath('data.status', 'withdrawn');
+
+        $this->assertDatabaseHas('distribution_versions', ['id' => $duplicateCurrent->id, 'status' => 'withdrawn', 'is_current' => false]);
 
         $rotationId = $version->rotation_id;
         $this->actingAs($this->user)->deleteJson("/api/v1/course-distribution/rotations/{$rotationId}", [

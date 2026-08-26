@@ -24,6 +24,7 @@ type Version = { id: number; status: string; updated_at: string };
 type Rotation = { id: number; name: string; start_date?: string | null; duration_weeks: number };
 type Options = { academic_years: Year[]; courses: Course[]; hospitals: Hospital[]; unassigned_doctors: Doctor[] };
 type Schedule = { rotation: Rotation | null; version: Version | null; current_published_version?: Version | null; blocks: Block[]; subgroups: Subgroup[]; hospitals: Hospital[]; unassigned_doctors: Doctor[]; rows: ScheduleRow[]; cells: Cell[] };
+type OverridePayload = { force?: boolean; override_reason?: string };
 
 const levels: Record<Level, string> = { fourth: 'السنة الرابعة', fifth: 'السنة الخامسة', sixth: 'السنة السادسة' };
 const statusLabels: Record<string, string> = { draft: 'مسودة', suggested: 'مقترح', manual: 'قيد الإعداد', published: 'منشور', withdrawn: 'ملغى النشر' };
@@ -33,6 +34,10 @@ function message(error: unknown, fallback: string): string {
   if (!(error instanceof ApiError)) return fallback;
   const validation = Object.values(error.errors).flat().find((item) => typeof item === 'string');
   return typeof validation === 'string' ? validation : error.message || fallback;
+}
+
+function hasValidationError(error: unknown, key: string): boolean {
+  return error instanceof ApiError && Object.prototype.hasOwnProperty.call(error.errors, key);
 }
 
 function weekDate(startDate: string | null | undefined, week: number): string {
@@ -51,6 +56,7 @@ export function DistributionPage() {
   const [startDate, setStartDate] = useState('');
   const [weeksCount, setWeeksCount] = useState(12);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [approvalOverrideReason, setApprovalOverrideReason] = useState<string | null>(null);
   const [editingCell, setEditingCell] = useState<{ row: ScheduleRow; block: Block; subgroupId: string } | null>(null);
   const [rowModal, setRowModal] = useState(false);
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
@@ -103,8 +109,42 @@ export function DistributionPage() {
     onSuccess: async () => { await refresh(); setNotice({ type: 'success', text: 'تم حذف الصف.' }); },
     onError: (error) => setNotice({ type: 'error', text: message(error, 'تعذر حذف الصف.') }),
   });
-  const approve = useMutation({ mutationFn: () => approveVersion(schedule!.version!.id), onSuccess: async () => { await refresh(); setNotice({ type: 'success', text: 'تم اعتماد الجدول.' }); }, onError: (error) => setNotice({ type: 'error', text: message(error, 'تعذر اعتماد الجدول.') }) });
-  const publish = useMutation({ mutationFn: () => publishVersion(schedule!.version!.id, { last_updated_at: schedule!.version!.updated_at }), onSuccess: async () => { await refresh(); setNotice({ type: 'success', text: 'تم نشر الجدول للطلبة والمشرفين.' }); }, onError: (error) => setNotice({ type: 'error', text: message(error, 'تعذر نشر الجدول.') }) });
+  const approve = useMutation({
+    mutationFn: (payload: OverridePayload = {}) => approveVersion(schedule!.version!.id, payload),
+    onSuccess: async (_data, payload) => {
+      setApprovalOverrideReason(payload?.override_reason ?? null);
+      await refresh();
+      setNotice({ type: 'success', text: payload?.force ? 'تم اعتماد الجدول استثنائيًا مع توثيق السبب.' : 'تم اعتماد الجدول.' });
+    },
+    onError: (error, payload) => {
+      if (!payload?.force && can('distribution.override') && hasValidationError(error, 'unassigned')) {
+        const reason = window.prompt('يوجد طلبة غير موزعين. لاعتماد الجدول استثنائيًا، اكتب سبب الاعتماد:');
+        if (reason?.trim()) {
+          approve.mutate({ force: true, override_reason: reason.trim() });
+          return;
+        }
+      }
+      setNotice({ type: 'error', text: message(error, 'تعذر اعتماد الجدول.') });
+    },
+  });
+  const publish = useMutation({
+    mutationFn: (payload: OverridePayload = {}) => publishVersion(schedule!.version!.id, { last_updated_at: schedule!.version!.updated_at, ...payload }),
+    onSuccess: async () => {
+      setApprovalOverrideReason(null);
+      await refresh();
+      setNotice({ type: 'success', text: 'تم نشر الجدول للطلبة والمشرفين.' });
+    },
+    onError: (error, payload) => {
+      if (!payload?.force && can('distribution.override') && hasValidationError(error, 'unassigned')) {
+        const reason = approvalOverrideReason ?? window.prompt('يوجد طلبة غير موزعين. لنشر الجدول استثنائيًا، اكتب سبب النشر:');
+        if (reason?.trim()) {
+          publish.mutate({ force: true, override_reason: reason.trim() });
+          return;
+        }
+      }
+      setNotice({ type: 'error', text: message(error, 'تعذر نشر الجدول.') });
+    },
+  });
   const revise = useMutation({
     mutationFn: () => apiFetch(`/course-distribution/versions/${schedule!.version!.id}/revise`, { method: 'POST' }),
     onSuccess: async () => { await refresh(); setNotice({ type: 'success', text: 'تم إنشاء نسخة قابلة للتعديل، والنسخة المنشورة ما زالت فعالة.' }); },
@@ -112,7 +152,7 @@ export function DistributionPage() {
   });
   const unpublish = useMutation({
     mutationFn: (reason: string) => apiFetch(`/course-distribution/versions/${publishedVersion!.id}/unpublish`, { method: 'POST', body: { reason } }),
-    onSuccess: async () => { await refresh(); setNotice({ type: 'success', text: 'تم إلغاء نشر الجدول وإخفاؤه عن الطلبة والمشرفين.' }); },
+    onSuccess: async () => { setApprovalOverrideReason(null); await refresh(); setNotice({ type: 'success', text: 'تم إلغاء نشر الجدول وإخفاؤه عن الطلبة والمشرفين.' }); },
     onError: (error) => setNotice({ type: 'error', text: message(error, 'تعذر إلغاء نشر الجدول.') }),
   });
   const deleteSchedule = useMutation({
@@ -157,7 +197,7 @@ export function DistributionPage() {
     {schedule && !schedule.rotation && <section className="rounded-2xl border-2 border-dashed border-slate-200 bg-white p-7 text-center"><CalendarDays className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-3 font-black text-slate-800">لا يوجد جدول لهذا المساق بعد</h2><p className="mt-1 text-xs text-slate-500">حدد تاريخ أول أسبوع وعدد أسابيع المساق؛ سيُنشئ النظام أعمدة الأسابيع تلقائيًا.</p>{can('rotations.create') ? <div className="mx-auto mt-5 grid max-w-xl gap-3 sm:grid-cols-3"><input type="date" className={inputClass} value={startDate} onChange={(event) => setStartDate(event.target.value)} /><select className={inputClass} value={weeksCount} onChange={(event) => setWeeksCount(Number(event.target.value))}>{[8,10,12,14,16].map((count) => <option key={count} value={count}>{count} أسبوع</option>)}</select><Button onClick={() => createSchedule.mutate()} isLoading={createSchedule.isPending} disabled={!startDate}>إنشاء جدول المساق</Button></div> : <p className="mt-4 text-xs font-bold text-slate-700">تحتاج صلاحية «إعداد وإضافة دورة سريرية».</p>}</section>}
 
     {schedule?.rotation && schedule.version && <>
-      <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div><div className="flex items-center gap-2"><Grid3X3 className="h-5 w-5 text-teal-700" /><h2 className="font-black text-slate-800">{schedule.rotation.name}</h2><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">{statusLabels[schedule.version.status] ?? schedule.version.status}</span>{isEditable && publishedVersion && <span className="rounded-full bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-700">يوجد جدول منشور حاليًا</span>}</div><p className="mt-1 text-xs text-slate-500">{schedule.blocks.length} أسبوع · {doctorsCount} طبيب · {schedule.rows.filter((row) => row.row_type === 'vacancy').length} شاغر · {schedule.subgroups.length} مجموعة فرعية</p></div><div className="flex flex-wrap gap-2">{can('distribution.schedule_rows.manage') && isEditable && <Button variant="outline" onClick={() => openRow()}><Plus className="ml-1 h-4 w-4" />إضافة صف</Button>}{can('distribution.approve') && isEditable && <Button variant="outline" onClick={() => approve.mutate()} isLoading={approve.isPending}><CheckCircle2 className="ml-1 h-4 w-4" />اعتماد</Button>}{can('distribution.publish') && isEditable && <Button onClick={() => publish.mutate()} isLoading={publish.isPending}><Send className="ml-1 h-4 w-4" />نشر</Button>}{can('distribution.revise') && ['published', 'withdrawn'].includes(schedule.version.status) && <Button variant="outline" onClick={() => { if (window.confirm('سيتم إنشاء نسخة مستقلة قابلة للتعديل. هل تريد المتابعة؟')) revise.mutate(); }} isLoading={revise.isPending}><Copy className="ml-1 h-4 w-4" />إنشاء نسخة للتعديل</Button>}{can('distribution.unpublish') && Boolean(publishedVersion) && <Button variant="outline" onClick={() => { const reason = window.prompt('اكتب سبب إلغاء نشر الجدول:'); if (reason && reason.trim().length >= 5) unpublish.mutate(reason.trim()); }} isLoading={unpublish.isPending}><Undo2 className="ml-1 h-4 w-4" />إلغاء النشر</Button>}{can('distribution.delete') && !publishedVersion && <Button variant="danger" onClick={() => { if (!window.confirm('سيتم حذف الجدول وكل مسوداته وتوزيعاته نهائياً. هل أنت متأكد؟')) return; const reason = window.prompt('سبب الحذف (اختياري):') ?? ''; deleteSchedule.mutate(reason); }} isLoading={deleteSchedule.isPending}><Trash2 className="ml-1 h-4 w-4" />حذف الجدول</Button>}</div></section>
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div><div className="flex items-center gap-2"><Grid3X3 className="h-5 w-5 text-teal-700" /><h2 className="font-black text-slate-800">{schedule.rotation.name}</h2><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">{statusLabels[schedule.version.status] ?? schedule.version.status}</span>{isEditable && publishedVersion && <span className="rounded-full bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-700">يوجد جدول منشور حاليًا</span>}</div><p className="mt-1 text-xs text-slate-500">{schedule.blocks.length} أسبوع · {doctorsCount} طبيب · {schedule.rows.filter((row) => row.row_type === 'vacancy').length} شاغر · {schedule.subgroups.length} مجموعة فرعية</p></div><div className="flex flex-wrap gap-2">{can('distribution.schedule_rows.manage') && isEditable && <Button variant="outline" onClick={() => openRow()}><Plus className="ml-1 h-4 w-4" />إضافة صف</Button>}{can('distribution.approve') && isEditable && <Button variant="outline" onClick={() => approve.mutate({})} isLoading={approve.isPending}><CheckCircle2 className="ml-1 h-4 w-4" />اعتماد</Button>}{can('distribution.publish') && isEditable && <Button onClick={() => publish.mutate({})} isLoading={publish.isPending}><Send className="ml-1 h-4 w-4" />نشر</Button>}{can('distribution.revise') && ['published', 'withdrawn'].includes(schedule.version.status) && <Button variant="outline" onClick={() => { if (window.confirm('سيتم إنشاء نسخة مستقلة قابلة للتعديل. هل تريد المتابعة؟')) revise.mutate(); }} isLoading={revise.isPending}><Copy className="ml-1 h-4 w-4" />إنشاء نسخة للتعديل</Button>}{can('distribution.unpublish') && Boolean(publishedVersion) && <Button variant="outline" onClick={() => { const reason = window.prompt('اكتب سبب إلغاء نشر الجدول:'); if (reason && reason.trim().length >= 5) unpublish.mutate(reason.trim()); }} isLoading={unpublish.isPending}><Undo2 className="ml-1 h-4 w-4" />إلغاء النشر</Button>}{can('distribution.delete') && !publishedVersion && <Button variant="danger" onClick={() => { if (!window.confirm('سيتم حذف الجدول وكل مسوداته وتوزيعاته نهائياً. هل أنت متأكد؟')) return; const reason = window.prompt('سبب الحذف (اختياري):') ?? ''; deleteSchedule.mutate(reason); }} isLoading={deleteSchedule.isPending}><Trash2 className="ml-1 h-4 w-4" />حذف الجدول</Button>}</div></section>
       {schedule.subgroups.length === 0 && <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs font-bold text-slate-800">لا توجد مجموعات فرعية للدفعة والعام المحددين. أنشئ المجموعات وسجّل الطلبة أولًا من شاشة مجموعات الطلبة.</div>}
       {schedule.rows.length === 0 ? <section className="rounded-2xl border-2 border-dashed border-slate-200 bg-white p-8 text-center"><UserRound className="mx-auto h-10 w-10 text-slate-300" /><h3 className="mt-3 font-black text-slate-800">الجدول فارغ</h3><p className="mt-1 text-xs text-slate-500">أضف صف طبيب أو صف شاغر، ثم ابدأ بتوزيع المجموعات على الأسابيع.</p>{can('distribution.schedule_rows.manage') && isEditable ? <Button className="mt-4" onClick={() => openRow()}><Plus className="ml-1 h-4 w-4" />إضافة أول صف</Button> : <p className="mt-3 text-xs font-bold text-slate-700">تحتاج صلاحية إدارة صفوف أطباء الجدول.</p>}</section> :
       <><section className="grid gap-3 md:hidden">{schedule.rows.map((row) => <article key={row.id} className={`overflow-hidden rounded-2xl border bg-white shadow-sm ${row.row_type === 'vacancy' ? 'border-slate-200' : 'border-slate-200'}`}><header className={`flex items-start justify-between gap-3 border-b p-4 ${row.row_type === 'vacancy' ? 'border-slate-100 bg-slate-50' : 'border-slate-100 bg-teal-50/60'}`}><div><h3 className={`text-sm font-black ${row.row_type === 'vacancy' ? 'text-slate-800' : 'text-slate-800'}`}>{row.row_type === 'vacancy' ? row.label || 'شاغر' : row.person?.full_name_ar}</h3><p className="mt-1 flex items-center gap-1 text-[11px] font-bold text-slate-500"><Building2 className="h-3.5 w-3.5 text-teal-600" />{row.training_site?.name_ar}</p></div>{can('distribution.schedule_rows.manage') && isEditable && <div className="flex gap-1"><button type="button" onClick={() => openRow(row)} className="rounded-lg bg-white p-2 text-slate-500 shadow-sm"><Pencil className="h-3.5 w-3.5" /></button><button type="button" onClick={() => { if (window.confirm('سيتم حذف الصف وكل توزيعاته. هل أنت متأكد؟')) deleteRow.mutate(row.id); }} className="rounded-lg bg-white p-2 text-red-500 shadow-sm"><Trash2 className="h-3.5 w-3.5" /></button></div>}</header><div className="grid grid-cols-2 gap-2 p-3">{schedule.blocks.map((block) => { const cell = cellMap.get(`${row.id}|${block.id}`); return <button key={block.id} type="button" onClick={() => openCell(row, block)} disabled={!can('distribution.update') || !isEditable} className={`min-h-20 rounded-xl border p-3 text-right transition ${cell ? 'border-teal-200 bg-teal-50' : 'border-slate-200 bg-slate-50'} disabled:cursor-default`}><span className="block text-[10px] font-bold text-slate-400">الأسبوع {block.from_week} · {weekDate(schedule.rotation?.start_date, block.from_week)}</span><span className={`mt-2 block text-sm font-black ${cell ? 'text-teal-800' : 'text-slate-300'}`}>{cell ? cell.subgroup_name : 'فارغ'}</span></button>; })}</div></article>)}</section><section className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:block"><div className="overflow-x-auto"><table className="min-w-max border-collapse text-xs"><thead><tr className="bg-slate-50"><th className="sticky right-0 z-20 min-w-64 border border-slate-200 bg-slate-50 p-3 text-right text-slate-800">المستشفى / الطبيب أو الشاغر</th>{schedule.blocks.map((block) => <th key={block.id} className="min-w-24 border border-slate-200 p-2 text-center text-slate-800"><div className="font-black">الأسبوع {block.from_week}</div><div className="mt-1 text-[10px] font-normal text-slate-500">{weekDate(schedule.rotation?.start_date, block.from_week)}</div></th>)}</tr></thead><tbody>{schedule.rows.map((row) => <tr key={row.id} className={row.row_type === 'vacancy' ? 'bg-slate-50/40' : 'hover:bg-slate-50'}><th className="sticky right-0 z-10 border border-slate-200 bg-white p-2.5 text-right"><div className="flex items-start justify-between gap-2"><div><div className={`font-black ${row.row_type === 'vacancy' ? 'text-slate-700' : 'text-slate-800'}`}>{row.row_type === 'vacancy' ? row.label || 'شاغر' : row.person?.full_name_ar}</div><div className="mt-0.5 text-[10px] font-normal text-slate-500">{row.training_site?.name_ar}</div></div>{can('distribution.schedule_rows.manage') && isEditable && <div className="flex"><button type="button" onClick={() => openRow(row)} className="rounded p-1.5 text-slate-500 hover:bg-slate-100" title="تعديل الصف"><Pencil className="h-3.5 w-3.5" /></button><button type="button" onClick={() => { if (window.confirm('سيتم حذف الصف وكل توزيعاته. هل أنت متأكد؟')) deleteRow.mutate(row.id); }} className="rounded p-1.5 text-red-500 hover:bg-red-50" title="حذف الصف"><Trash2 className="h-3.5 w-3.5" /></button></div>}</div></th>{schedule.blocks.map((block) => { const cell = cellMap.get(`${row.id}|${block.id}`); return <td key={block.id} className={`border border-slate-200 p-1 text-center ${cell ? 'bg-teal-50' : 'bg-white'}`}><button type="button" onClick={() => openCell(row, block)} className="min-h-10 w-full rounded-lg px-2 font-black text-slate-800 hover:bg-teal-100 disabled:cursor-default" disabled={!can('distribution.update') || !isEditable}>{cell ? cell.subgroup_name : <span className="text-slate-300">—</span>}</button></td>; })}</tr>)}</tbody></table></div></section></>}

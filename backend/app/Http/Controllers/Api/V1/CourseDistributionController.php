@@ -381,22 +381,35 @@ class CourseDistributionController extends Controller
     public function unpublishSchedule(Request $request, DistributionVersion $version): JsonResponse
     {
         $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:1000']]);
-        if ($version->status !== 'published' || ! $version->is_current) {
-            throw ValidationException::withMessages(['version' => ['هذا الجدول ليس النسخة المنشورة الحالية.']]);
-        }
 
         DB::transaction(function () use ($request, $version, $data) {
-            $version->update(['status' => 'withdrawn', 'is_current' => false]);
-            AuditLog::create([
-                'user_id' => $request->user()->id,
-                'action' => 'version.unpublished',
-                'entity_type' => DistributionVersion::class,
-                'entity_id' => $version->id,
-                'distribution_version_id' => $version->id,
-                'changes' => ['status' => ['from' => 'published', 'to' => 'withdrawn']],
-                'is_override' => false,
-                'override_reason' => $data['reason'],
-            ]);
+            $versions = DistributionVersion::query()
+                ->where('rotation_id', $version->rotation_id)
+                ->where('status', 'published')
+                ->where('is_current', true)
+                ->lockForUpdate()
+                ->get();
+
+            if (! $versions->contains('id', $version->id)) {
+                throw ValidationException::withMessages(['version' => ['هذا الجدول ليس النسخة المنشورة الحالية.']]);
+            }
+
+            // Withdraw every current-published row for this rotation. Older data may
+            // contain more than one current flag, and leaving one behind makes the
+            // schedule appear published even after a successful unpublish request.
+            foreach ($versions as $publishedVersion) {
+                $publishedVersion->update(['status' => 'withdrawn', 'is_current' => false]);
+                AuditLog::create([
+                    'user_id' => $request->user()->id,
+                    'action' => 'version.unpublished',
+                    'entity_type' => DistributionVersion::class,
+                    'entity_id' => $publishedVersion->id,
+                    'distribution_version_id' => $publishedVersion->id,
+                    'changes' => ['status' => ['from' => 'published', 'to' => 'withdrawn']],
+                    'is_override' => false,
+                    'override_reason' => $data['reason'],
+                ]);
+            }
         });
 
         return ApiResponse::success($version->fresh(), 'تم إلغاء نشر الجدول وإخفاؤه عن الطلبة والمشرفين.');
