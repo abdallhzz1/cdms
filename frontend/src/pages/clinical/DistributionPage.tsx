@@ -117,7 +117,7 @@ export function DistributionPage() {
       setNotice({ type: 'success', text: payload?.force ? 'تم اعتماد الجدول استثنائيًا مع توثيق السبب.' : 'تم اعتماد الجدول.' });
     },
     onError: (error, payload) => {
-      if (!payload?.force && can('distribution.override') && hasValidationError(error, 'unassigned')) {
+      if (!payload?.force && hasValidationError(error, 'unassigned')) {
         const reason = window.prompt('يوجد طلبة غير موزعين. لاعتماد الجدول استثنائيًا، اكتب سبب الاعتماد:');
         if (reason?.trim()) {
           approve.mutate({ force: true, override_reason: reason.trim() });
@@ -135,7 +135,7 @@ export function DistributionPage() {
       setNotice({ type: 'success', text: 'تم نشر الجدول للطلبة والمشرفين.' });
     },
     onError: (error, payload) => {
-      if (!payload?.force && can('distribution.override') && hasValidationError(error, 'unassigned')) {
+      if (!payload?.force && hasValidationError(error, 'unassigned')) {
         const reason = approvalOverrideReason ?? window.prompt('يوجد طلبة غير موزعين. لنشر الجدول استثنائيًا، اكتب سبب النشر:');
         if (reason?.trim()) {
           publish.mutate({ force: true, override_reason: reason.trim() });

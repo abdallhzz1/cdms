@@ -20,7 +20,7 @@ class LogicalPermissionSeeder extends Seeder
                 'course_report.manage', 'course_report.approve',
                 'courses.view', 'courses.manage',
                 'departments.view',
-                'distribution.view', 'distribution.create', 'distribution.generate', 'distribution.update', 'distribution.validate', 'distribution.approve', 'distribution.publish', 'distribution.delete', 'distribution.override',
+                'distribution.view', 'distribution.create', 'distribution.generate', 'distribution.update', 'distribution.schedule_rows.manage', 'distribution.student_portal.manage', 'distribution.validate', 'distribution.approve', 'distribution.publish', 'distribution.revise', 'distribution.unpublish', 'distribution.delete', 'distribution.override',
                 'grades.view', 'grades.create', 'grades.update', 'grades.approve', 'grades.publish', 'grades.lock',
                 'groups.view', 'groups.manage',
                 'kpi.manage',
