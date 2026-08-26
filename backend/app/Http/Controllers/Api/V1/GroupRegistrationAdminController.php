@@ -206,6 +206,7 @@ class GroupRegistrationAdminController extends Controller
             && StudentGroupAssignment::query()
                 ->where('academic_year_id', $cycle->academic_year_id)
                 ->whereIn('student_id', $rosterStudentIds)
+                ->whereNull('valid_until')
                 ->exists();
 
         if ($hasGroupHistory) {

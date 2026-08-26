@@ -299,7 +299,7 @@ class GroupSelfRegistrationTest extends TestCase
         $user->roles()->attach($role);
         $this->cycle->update(['status'=>'closed']);
         $subgroup=$this->group->subgroups()->firstOrFail();
-        StudentGroupAssignment::create([
+        $assignment=StudentGroupAssignment::create([
             'student_id'=>$this->student->id,'academic_year_id'=>$this->year->id,
             'student_group_id'=>$this->group->id,'student_subgroup_id'=>$subgroup->id,
             'valid_from'=>now()->toDateString(),'change_reason'=>'test',
@@ -311,6 +311,12 @@ class GroupSelfRegistrationTest extends TestCase
             ->assertJsonValidationErrors('cycle');
 
         $this->assertDatabaseHas('group_registration_cycles',['id'=>$this->cycle->id]);
+
+        $assignment->update(['valid_until'=>now()->toDateString()]);
+        $this->actingAs($user)
+            ->deleteJson("/api/v1/group-registration-cycles/{$this->cycle->id}")
+            ->assertOk();
+        $this->assertDatabaseMissing('group_registration_cycles',['id'=>$this->cycle->id]);
     }
 
     public function test_subgroup_must_be_emptied_before_it_can_be_deleted_permanently(): void
