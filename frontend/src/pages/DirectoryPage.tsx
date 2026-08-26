@@ -33,6 +33,36 @@ const permissions: Record<DirectoryKind, string> = {
   sites: 'training_sites.view' 
 };
 
+function parseDelimitedLine(line: string, delimiter: string): string[] {
+  const values: string[] = [];
+  let value = '';
+  let quoted = false;
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index];
+    if (char === '"') {
+      if (quoted && line[index + 1] === '"') {
+        value += '"';
+        index++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === delimiter && !quoted) {
+      values.push(value.trim());
+      value = '';
+    } else {
+      value += char;
+    }
+  }
+  values.push(value.trim());
+  return values;
+}
+
+function detectDelimiter(header: string): string {
+  return [',', ';', '\t'].reduce((best, candidate) =>
+    parseDelimitedLine(header, candidate).length > parseDelimitedLine(header, best).length ? candidate : best
+  , ',');
+}
+
 export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const navigate = useNavigate();
   const { t, locale } = useI18n();
@@ -280,16 +310,19 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const text = event.target?.result as string;
+        const text = (event.target?.result as string).replace(/^\uFEFF/, '');
         const lines = text.split(/\r\n|\n/).filter(line => line.trim().length > 0);
         if (lines.length < 2) {
           setImportErrorMsg(locale === 'ar' ? 'الملف فارغ أو لا يحتوي على صفوف بيانات كافية.' : 'File is empty or invalid.');
           return;
         }
 
+        const separatorDeclaration = lines[0].trim().match(/^sep=(.)$/i);
+        const headerIndex = separatorDeclaration ? 1 : 0;
+        const delimiter = separatorDeclaration?.[1] ?? detectDelimiter(lines[headerIndex] ?? '');
         const parsed: any[] = [];
-        for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+        for (let i = headerIndex + 1; i < lines.length; i++) {
+          const cols = parseDelimitedLine(lines[i], delimiter);
           if (cols.length >= 2 && cols[0] && cols[1]) {
             // Check if column 4 is GPA (numeric or decimal) or batch_year
             const col4 = cols[4] || '';
