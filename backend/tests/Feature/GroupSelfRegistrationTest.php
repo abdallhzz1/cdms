@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AcademicYear;
+use App\Models\AuditLog;
 use App\Models\GroupRegistrationCycle;
 use App\Models\GroupRegistrationOtpChallenge;
 use App\Models\Permission;
@@ -191,5 +192,55 @@ class GroupSelfRegistrationTest extends TestCase
         $this->assertDatabaseHas('students',['university_number'=>'22550001','university_email'=>'22550001@students.hebron.edu','academic_registration_status'=>'registered']);
         $this->assertDatabaseHas('student_group_rosters',['group_registration_cycle_id'=>$created->id,'student_group_id'=>$created->fresh()->rosters()->first()->student_group_id]);
         $this->actingAs($user)->putJson("/api/v1/group-registration-cycles/{$created->id}",['status'=>'open'])->assertOk()->assertJsonPath('data.status','open');
+    }
+
+    public function test_authorized_administrator_can_move_and_remove_a_rostered_student_with_audited_reason(): void
+    {
+        $permission=Permission::where('code','group_registration.override')->firstOrFail();
+        $role=Role::create(['code'=>'TEST_GROUP_OVERRIDE','name_key'=>'test.group.override']);
+        $role->permissions()->attach($permission->id,['scope_type'=>'global']);
+        $user=User::factory()->create();
+        $user->roles()->attach($role);
+        $subgroup=$this->group->subgroups()->firstOrFail();
+
+        $this->actingAs($user)->putJson("/api/v1/group-registration-cycles/{$this->cycle->id}/students/{$this->student->id}/assignment",[
+            'student_subgroup_id'=>$subgroup->id,
+            'reason'=>'تثبيت الطالب بناءً على قرار إداري',
+        ])->assertOk()->assertJsonPath('data.student_subgroup_id',$subgroup->id);
+        $this->assertDatabaseHas('student_group_assignments',[
+            'student_id'=>$this->student->id,
+            'student_subgroup_id'=>$subgroup->id,
+            'valid_until'=>null,
+            'data_source'=>'administrative_override',
+        ]);
+
+        $this->actingAs($user)->putJson("/api/v1/group-registration-cycles/{$this->cycle->id}/students/{$this->student->id}/assignment",[
+            'student_subgroup_id'=>null,
+            'reason'=>'إخراج الطالب بناءً على طلب رسمي',
+        ])->assertOk()->assertJsonPath('data',null);
+        $this->assertSame(0,StudentGroupAssignment::where('student_id',$this->student->id)->whereNull('valid_until')->count());
+        $this->assertTrue(AuditLog::where('student_id',$this->student->id)->where('is_override',true)->whereNotNull('override_reason')->exists());
+    }
+
+    public function test_authorized_administrator_can_export_the_complete_cycle_roster_as_utf8_csv(): void
+    {
+        $permission=Permission::where('code','group_registration.export')->firstOrFail();
+        $role=Role::create(['code'=>'TEST_GROUP_EXPORT','name_key'=>'test.group.export']);
+        $role->permissions()->attach($permission->id,['scope_type'=>'global']);
+        $user=User::factory()->create();
+        $user->roles()->attach($role);
+        $subgroup=$this->group->subgroups()->firstOrFail();
+        StudentGroupAssignment::create([
+            'student_id'=>$this->student->id,'academic_year_id'=>$this->year->id,
+            'student_group_id'=>$this->group->id,'student_subgroup_id'=>$subgroup->id,
+            'valid_from'=>now()->toDateString(),'change_reason'=>'test',
+        ]);
+
+        $response=$this->actingAs($user)->get("/api/v1/group-registration-cycles/{$this->cycle->id}/export");
+        $response->assertOk()->assertHeader('content-type','text/csv; charset=UTF-8');
+        $content=$response->streamedContent();
+        $this->assertStringStartsWith("\xEF\xBB\xBF",$content);
+        $this->assertStringContainsString('22210466',$content);
+        $this->assertStringContainsString($subgroup->name,$content);
     }
 }

@@ -9,12 +9,14 @@ use App\Models\GroupRegistrationCycle;
 use App\Models\Student;
 use App\Models\StudentGroup;
 use App\Models\StudentGroupRoster;
+use App\Models\StudentGroupAssignment;
 use App\Models\StudentSubgroup;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class GroupRegistrationAdminController extends Controller
 {
@@ -167,6 +169,127 @@ class GroupRegistrationAdminController extends Controller
         return ApiResponse::success(null, 'تم حذف/أرشفة المجموعة الفرعية.');
     }
 
+    public function overrideAssignment(Request $request, GroupRegistrationCycle $cycle, Student $student): JsonResponse
+    {
+        $data = $request->validate([
+            'student_subgroup_id' => ['nullable', 'integer', 'exists:student_subgroups,id'],
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+            'allow_over_capacity' => ['sometimes', 'boolean'],
+        ]);
+        if ($cycle->status === 'archived') {
+            abort(409, 'لا يمكن تعديل دورة تسجيل مؤرشفة.');
+        }
+
+        $roster = StudentGroupRoster::with('group')
+            ->where('group_registration_cycle_id', $cycle->id)
+            ->where('student_id', $student->id)
+            ->firstOrFail();
+
+        $approvedBy = $request->user()->name;
+        $assignment = DB::transaction(function () use ($data, $cycle, $student, $roster, $approvedBy) {
+            $subgroup = null;
+            if (! empty($data['student_subgroup_id'])) {
+                $subgroup = StudentSubgroup::whereKey($data['student_subgroup_id'])->lockForUpdate()->firstOrFail();
+                if (! $subgroup->is_active || (int) $subgroup->student_group_id !== (int) $roster->student_group_id) {
+                    throw ValidationException::withMessages([
+                        'student_subgroup_id' => ['المجموعة الفرعية لا تتبع المجموعة الرئيسية لهذا الطالب أو أنها غير نشطة.'],
+                    ]);
+                }
+            }
+
+            Student::whereKey($student->id)->lockForUpdate()->firstOrFail();
+            $currentAssignments = StudentGroupAssignment::query()
+                ->where('student_id', $student->id)
+                ->where('academic_year_id', $cycle->academic_year_id)
+                ->whereNull('valid_until')
+                ->lockForUpdate()
+                ->get();
+
+            if ($subgroup && $currentAssignments->count() === 1 && (int) $currentAssignments->first()->student_subgroup_id === (int) $subgroup->id) {
+                return $currentAssignments->first();
+            }
+
+            if ($subgroup && ! ($data['allow_over_capacity'] ?? false)) {
+                $capacity = (int) ($subgroup->capacity ?: $subgroup->max_size ?: $cycle->default_capacity);
+                $occupied = StudentGroupAssignment::where('student_subgroup_id', $subgroup->id)
+                    ->whereNull('valid_until')->count();
+                if ($occupied >= $capacity) {
+                    throw ValidationException::withMessages([
+                        'student_subgroup_id' => ['المجموعة مكتملة. فعّل التجاوز الإداري فقط عند الضرورة.'],
+                    ]);
+                }
+            }
+
+            foreach ($currentAssignments as $current) {
+                $current->update([
+                    'valid_until' => now()->toDateString(),
+                    'change_reason' => 'administrative_override: '.$data['reason'],
+                ]);
+            }
+            if (! $subgroup) return null;
+
+            return StudentGroupAssignment::create([
+                'student_id' => $student->id,
+                'academic_year_id' => $cycle->academic_year_id,
+                'student_group_id' => $roster->student_group_id,
+                'student_subgroup_id' => $subgroup->id,
+                'valid_from' => now()->toDateString(),
+                'change_reason' => 'administrative_override: '.$data['reason'],
+                'approved_by' => $approvedBy,
+                'data_source' => 'administrative_override',
+            ]);
+        });
+
+        AuditLog::create([
+            'user_id' => $request->user()->id,
+            'action' => $assignment ? 'group_registration.student_overridden' : 'group_registration.student_removed',
+            'entity_type' => 'group_registration',
+            'entity_id' => $cycle->id,
+            'student_id' => $student->id,
+            'changes' => ['student_subgroup_id' => $assignment?->student_subgroup_id],
+            'is_override' => true,
+            'override_reason' => $data['reason'],
+        ]);
+
+        return ApiResponse::success(
+            $assignment?->load(['group', 'subgroup']),
+            $assignment ? 'تم تثبيت/نقل الطالب بنجاح.' : 'تم إخراج الطالب من المجموعة الفرعية.'
+        );
+    }
+
+    public function export(GroupRegistrationCycle $cycle): StreamedResponse
+    {
+        $cycle->load('academicYear');
+        $rosters = StudentGroupRoster::with(['student', 'group'])
+            ->where('group_registration_cycle_id', $cycle->id)
+            ->orderBy('student_group_id')->orderBy('student_id')->get();
+        $assignments = StudentGroupAssignment::with('subgroup')
+            ->where('academic_year_id', $cycle->academic_year_id)
+            ->whereIn('student_id', $rosters->pluck('student_id'))
+            ->whereNull('valid_until')->get()->keyBy('student_id');
+        $filename = sprintf('group-registration-%s-%s.csv', $cycle->academicYear?->code ?: $cycle->academic_year_id, $cycle->academic_level);
+
+        return response()->streamDownload(function () use ($cycle, $rosters, $assignments) {
+            $output = fopen('php://output', 'wb');
+            fwrite($output, "\xEF\xBB\xBF");
+            fputcsv($output, ['الرقم الجامعي', 'اسم الطالب', 'السنة', 'الحالة الأكاديمية', 'المجموعة الرئيسية', 'المجموعة الفرعية', 'حالة الاختيار', 'تاريخ الاختيار']);
+            foreach ($rosters as $roster) {
+                $assignment = $assignments->get($roster->student_id);
+                fputcsv($output, [
+                    $this->csvCell($roster->student->university_number),
+                    $this->csvCell($roster->student->full_name_ar),
+                    $cycle->academic_level,
+                    $roster->student->academic_registration_status,
+                    $this->csvCell($roster->group->name),
+                    $this->csvCell($assignment?->subgroup?->name ?: ''),
+                    $assignment ? 'مسجل' : 'لم يختر',
+                    $assignment?->created_at?->format('Y-m-d H:i:s') ?: '',
+                ]);
+            }
+            fclose($output);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
     private function cycleData(GroupRegistrationCycle $cycle): array
     {
         $groups = StudentGroup::where('academic_year_id', $cycle->academic_year_id)->where('academic_level', $cycle->academic_level)
@@ -193,13 +316,39 @@ class GroupRegistrationAdminController extends Controller
                     ])->values(),
                 ])->values(),
             ])->values();
+        $rosters = StudentGroupRoster::with(['student', 'group'])
+            ->where('group_registration_cycle_id', $cycle->id)
+            ->orderBy('student_group_id')->orderBy('student_id')->get();
+        $currentAssignments = StudentGroupAssignment::with('subgroup')
+            ->where('academic_year_id', $cycle->academic_year_id)
+            ->whereIn('student_id', $rosters->pluck('student_id'))
+            ->whereNull('valid_until')->get()->keyBy('student_id');
+        $rosterStudents = $rosters->map(function (StudentGroupRoster $roster) use ($currentAssignments) {
+            $assignment = $currentAssignments->get($roster->student_id);
+            return [
+                'id' => $roster->student->id,
+                'name' => $roster->student->full_name_ar,
+                'university_number' => $roster->student->university_number,
+                'academic_registration_status' => $roster->student->academic_registration_status,
+                'main_group_id' => $roster->group->id,
+                'main_group' => $roster->group->name,
+                'student_subgroup_id' => $assignment?->student_subgroup_id,
+                'student_subgroup' => $assignment?->subgroup?->name,
+            ];
+        })->values();
         return [
             'id'=>$cycle->id, 'public_id'=>$cycle->public_id, 'academic_year_id'=>$cycle->academic_year_id,
             'academic_year'=>$cycle->academicYear, 'academic_level'=>$cycle->academic_level, 'status'=>$cycle->status,
             'default_capacity'=>$cycle->default_capacity, 'opens_at'=>$cycle->opens_at, 'closes_at'=>$cycle->closes_at,
             'rosters_count'=>$cycle->rosters()->count(), 'registered_rosters_count'=>$cycle->rosters()->whereHas('student', fn($q)=>$q->where('academic_registration_status','registered'))->count(),
-            'public_url'=>'/student-registration/'.$cycle->public_id, 'groups'=>$groups,
+            'public_url'=>'/student-registration/'.$cycle->public_id, 'groups'=>$groups, 'roster_students'=>$rosterStudents,
         ];
+    }
+
+    private function csvCell(?string $value): string
+    {
+        $value = (string) $value;
+        return preg_match('/^[=+\-@]/u', $value) ? "'".$value : $value;
     }
 
     private function ensureCycleGroup(GroupRegistrationCycle $cycle, StudentGroup $group): void

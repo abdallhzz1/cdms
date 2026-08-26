@@ -68,6 +68,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::post('/{cycle}/groups/{group}/subgroups', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'storeSubgroup'])->middleware('permission:group_registration.manage_groups');
             Route::put('/{cycle}/subgroups/{subgroup}', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'updateSubgroup'])->middleware('permission:group_registration.manage_groups');
             Route::delete('/{cycle}/subgroups/{subgroup}', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'archiveSubgroup'])->middleware('permission:group_registration.manage_groups');
+            Route::put('/{cycle}/students/{student}/assignment', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'overrideAssignment'])->middleware('permission:group_registration.override');
+            Route::get('/{cycle}/export', [\App\Http\Controllers\Api\V1\GroupRegistrationAdminController::class, 'export'])->middleware('permission:group_registration.export');
         });
 
         // Academic Years
