@@ -236,7 +236,10 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       queryClient.invalidateQueries({ queryKey: ['directory', 'students'] });
     },
     onError: (err: any) => {
-      alert(err?.message || (locale === 'ar' ? 'تعذر حذف سجل الطالب.' : 'Failed to delete student.'));
+      const protectedRecordMessage = Array.isArray(err?.errors?.student)
+        ? err.errors.student[0]
+        : null;
+      alert(protectedRecordMessage || err?.message || (locale === 'ar' ? 'تعذر حذف سجل الطالب.' : 'Failed to delete student.'));
     }
   });
 

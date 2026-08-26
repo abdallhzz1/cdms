@@ -4,16 +4,21 @@ namespace Tests\Feature\Phase3A;
 
 use App\Models\AcademicYear;
 use App\Models\AdvisingRecord;
+use App\Models\GroupRegistrationCycle;
 use App\Models\Permission;
 use App\Models\Person;
 use App\Models\Role;
 use App\Models\Student;
+use App\Models\StudentGroup;
+use App\Models\StudentGroupAssignment;
+use App\Models\StudentGroupRoster;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\Phase3PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class StudentTest extends TestCase
@@ -26,9 +31,9 @@ class StudentTest extends TestCase
     {
         parent::setUp();
         $this->seed([RoleSeeder::class, PermissionSeeder::class, Phase3PermissionSeeder::class, RolePermissionSeeder::class]);
-        
-        $sysAdminRole = \App\Models\Role::where('code', 'SYS_ADMIN')->first();
-        $sysAdminRole->permissions()->sync(\App\Models\Permission::pluck('id')->mapWithKeys(fn($id) => [$id => ['scope_type' => 'global']])->all());
+
+        $sysAdminRole = Role::where('code', 'SYS_ADMIN')->first();
+        $sysAdminRole->permissions()->sync(Permission::pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all());
 
         $this->admin = User::factory()->create();
         $this->admin->roles()->attach($sysAdminRole);
@@ -80,6 +85,71 @@ class StudentTest extends TestCase
             'university_number' => '22310001',
             'academic_advisor_id' => $advisor->id,
         ]);
+    }
+
+    public function test_delete_cleans_group_registration_records(): void
+    {
+        $year = AcademicYear::factory()->create();
+        $student = Student::factory()->create(['academic_year_id' => $year->id]);
+        $group = StudentGroup::create([
+            'academic_year_id' => $year->id,
+            'academic_level' => 'fourth',
+            'name' => 'L',
+            'group_type' => 'self_registration',
+        ]);
+        $subgroup = $group->subgroups()->create([
+            'name' => 'L1',
+            'capacity' => 6,
+            'max_size' => 6,
+            'is_active' => true,
+        ]);
+        $cycle = GroupRegistrationCycle::create([
+            'academic_year_id' => $year->id,
+            'academic_level' => 'fourth',
+            'public_id' => (string) Str::uuid(),
+            'status' => 'draft',
+            'default_capacity' => 6,
+        ]);
+        StudentGroupRoster::create([
+            'group_registration_cycle_id' => $cycle->id,
+            'student_id' => $student->id,
+            'student_group_id' => $group->id,
+        ]);
+        StudentGroupAssignment::create([
+            'student_id' => $student->id,
+            'academic_year_id' => $year->id,
+            'student_group_id' => $group->id,
+            'student_subgroup_id' => $subgroup->id,
+            'valid_from' => now()->toDateString(),
+            'change_reason' => 'test registration',
+        ]);
+
+        $this->actingAs($this->admin)
+            ->deleteJson("/api/v1/students/{$student->id}")
+            ->assertOk();
+
+        $this->assertDatabaseMissing('students', ['id' => $student->id]);
+        $this->assertDatabaseMissing('student_group_rosters', ['student_id' => $student->id]);
+        $this->assertDatabaseMissing('student_group_assignments', ['student_id' => $student->id]);
+    }
+
+    public function test_delete_is_blocked_when_student_has_academic_history(): void
+    {
+        $student = Student::factory()->create();
+        AdvisingRecord::create([
+            'student_id' => $student->id,
+            'meeting_date' => now()->toDateString(),
+            'category' => 'academic',
+            'notes' => 'Academic history that must be retained',
+        ]);
+
+        $this->actingAs($this->admin)
+            ->deleteJson("/api/v1/students/{$student->id}")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('student');
+
+        $this->assertDatabaseHas('students', ['id' => $student->id]);
+        $this->assertDatabaseHas('advising_records', ['student_id' => $student->id]);
     }
 
     public function test_academic_advisor_can_only_access_assigned_students(): void

@@ -7,10 +7,18 @@ use App\Http\Requests\V1\StoreStudentRequest;
 use App\Http\Requests\V1\UpdateStudentRequest;
 use App\Http\Resources\V1\StudentResource;
 use App\Http\Responses\ApiResponse;
+use App\Models\AdvisingRecord;
+use App\Models\AttendanceRecord;
+use App\Models\ClinicalAssessment;
 use App\Models\GroupRegistrationCycle;
+use App\Models\Person;
 use App\Models\Student;
+use App\Models\StudentClinicalAssignment;
+use App\Models\StudentCourseEnrollment;
 use App\Models\StudentGroup;
+use App\Models\StudentGroupAssignment;
 use App\Models\StudentGroupRoster;
+use App\Models\User;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,7 +44,7 @@ class StudentController extends Controller
 
         $students = $query->with(['academicYear', 'academicAdvisor', 'currentGroupAssignments.group', 'groupRegistrationRosters.group'])
             ->when(
-                !empty($scopedLevels) && !$request->query('academic_level'),
+                ! empty($scopedLevels) && ! $request->query('academic_level'),
                 fn ($q) => $q->whereIn('academic_level', $scopedLevels)
             )
             ->when(
@@ -55,19 +63,25 @@ class StudentController extends Controller
             ->when(
                 $request->query('academic_advisor_id'),
                 function ($q, $advisorParam) {
-                    $ids = [(int)$advisorParam];
-                    
-                    $user = \App\Models\User::find($advisorParam);
+                    $ids = [(int) $advisorParam];
+
+                    $user = User::find($advisorParam);
                     if ($user) {
-                        if ($user->person_id) $ids[] = (int)$user->person_id;
-                        $personFromUser = \App\Models\Person::where('user_id', $user->id)->first();
-                        if ($personFromUser) $ids[] = (int)$personFromUser->id;
+                        if ($user->person_id) {
+                            $ids[] = (int) $user->person_id;
+                        }
+                        $personFromUser = Person::where('user_id', $user->id)->first();
+                        if ($personFromUser) {
+                            $ids[] = (int) $personFromUser->id;
+                        }
                     }
 
-                    $person = \App\Models\Person::find($advisorParam);
+                    $person = Person::find($advisorParam);
                     if ($person) {
-                        $ids[] = (int)$person->id;
-                        if ($person->user_id) $ids[] = (int)$person->user_id;
+                        $ids[] = (int) $person->id;
+                        if ($person->user_id) {
+                            $ids[] = (int) $person->user_id;
+                        }
                     }
 
                     $ids = array_unique(array_filter($ids));
@@ -94,9 +108,9 @@ class StudentController extends Controller
             null,
             [
                 'current_page' => $students->currentPage(),
-                'last_page'    => $students->lastPage(),
-                'total'        => $students->total(),
-                'per_page'     => $students->perPage(),
+                'last_page' => $students->lastPage(),
+                'total' => $students->total(),
+                'per_page' => $students->perPage(),
             ]
         );
     }
@@ -115,6 +129,7 @@ class StudentController extends Controller
         $student = DB::transaction(function () use ($data, $cycleId, $mainGroupCode) {
             $student = Student::create($data);
             $this->syncRegistrationRoster($student, $cycleId, $mainGroupCode);
+
             return $student;
         });
 
@@ -157,7 +172,7 @@ class StudentController extends Controller
         if (array_key_exists('academic_advisor_id', $data)) {
             $advisorId = $data['academic_advisor_id'];
             if ($advisorId) {
-                $student->academic_advisor_id = (int)$advisorId;
+                $student->academic_advisor_id = (int) $advisorId;
             } else {
                 $student->academic_advisor_id = null;
             }
@@ -187,24 +202,24 @@ class StudentController extends Controller
         ]);
 
         $assignments = $request->input('assignments', []);
-        
+
         // Normalize user IDs to the canonical people.id foreign key before
         // beginning the transaction. An unresolved advisor rejects the full batch.
         $grouped = [];
         foreach ($assignments as $item) {
             $advisorId = null;
-            if (!empty($item['academic_advisor_id'])) {
+            if (! empty($item['academic_advisor_id'])) {
                 $candidateId = (int) $item['academic_advisor_id'];
-                $person = \App\Models\Person::find($candidateId)
-                    ?: \App\Models\Person::where('user_id', $candidateId)->first();
-                if (!$person) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
+                $person = Person::find($candidateId)
+                    ?: Person::where('user_id', $candidateId)->first();
+                if (! $person) {
+                    throw ValidationException::withMessages([
                         'assignments' => ["Advisor {$candidateId} does not resolve to a staff profile."],
                     ]);
                 }
                 $advisorId = $person->id;
             }
-            $grouped[$advisorId][] = (int)$item['student_id'];
+            $grouped[$advisorId][] = (int) $item['student_id'];
         }
 
         \DB::transaction(function () use ($grouped) {
@@ -226,11 +241,39 @@ class StudentController extends Controller
     {
         $this->authorizeStudentAccess($student);
 
-        $student->delete();
+        DB::transaction(function () use ($student): void {
+            $lockedStudent = Student::query()->lockForUpdate()->findOrFail($student->id);
+
+            // Registration rosters and subgroup selections are operational setup
+            // records and may be cleaned when an administrator explicitly deletes
+            // a student. Academic and clinical evidence must never be erased as a
+            // side effect of deleting a directory entry.
+            $protectedRecords = collect([
+                'توزيعات سريرية منشورة أو محفوظة' => StudentClinicalAssignment::where('student_id', $lockedStudent->id)->exists(),
+                'تسجيلات مساقات أو علامات' => StudentCourseEnrollment::where('student_id', $lockedStudent->id)->exists(),
+                'سجلات حضور وغياب' => AttendanceRecord::where('student_id', $lockedStudent->id)->exists(),
+                'تقييمات سريرية' => ClinicalAssessment::where('student_id', $lockedStudent->id)->exists(),
+                'سجلات إرشاد أكاديمي' => AdvisingRecord::where('student_id', $lockedStudent->id)->exists(),
+            ])->filter()->keys()->values();
+
+            if ($protectedRecords->isNotEmpty()) {
+                throw ValidationException::withMessages([
+                    'student' => [
+                        'لا يمكن حذف الطالب لأن سجله مرتبط بـ: '
+                        .$protectedRecords->implode('، ')
+                        .'. احتفظ بسجل الطالب وغيّر حالته الأكاديمية بدلاً من حذفه.',
+                    ],
+                ]);
+            }
+
+            StudentGroupRoster::where('student_id', $lockedStudent->id)->delete();
+            StudentGroupAssignment::where('student_id', $lockedStudent->id)->delete();
+            $lockedStudent->delete();
+        });
 
         return ApiResponse::success(
             null,
-            'Student deleted successfully.'
+            'تم حذف الطالب وتنظيف روابط تسجيل المجموعات التابعة له بنجاح.'
         );
     }
 
@@ -262,10 +305,19 @@ class StudentController extends Controller
 
         $normalizeLevel = static function (mixed $value): string {
             $level = strtolower(trim((string) $value));
-            if (in_array($level, ['fourth', 'fifth', 'sixth'], true)) return $level;
-            if (str_contains($level, '4') || str_contains($level, 'رابع')) return 'fourth';
-            if (str_contains($level, '5') || str_contains($level, 'خامس')) return 'fifth';
-            if (str_contains($level, '6') || str_contains($level, 'سادس') || str_contains($level, 'امتياز')) return 'sixth';
+            if (in_array($level, ['fourth', 'fifth', 'sixth'], true)) {
+                return $level;
+            }
+            if (str_contains($level, '4') || str_contains($level, 'رابع')) {
+                return 'fourth';
+            }
+            if (str_contains($level, '5') || str_contains($level, 'خامس')) {
+                return 'fifth';
+            }
+            if (str_contains($level, '6') || str_contains($level, 'سادس') || str_contains($level, 'امتياز')) {
+                return 'sixth';
+            }
+
             return '';
         };
 
@@ -300,7 +352,9 @@ class StudentController extends Controller
                     $rosterErrors["students.$index.main_group_code"][] = 'المجموعة الرئيسية غير موجودة في دورة التسجيل المختارة.';
                 }
             }
-            if ($rosterErrors) throw ValidationException::withMessages($rosterErrors);
+            if ($rosterErrors) {
+                throw ValidationException::withMessages($rosterErrors);
+            }
         }
 
         $imported = 0;
@@ -309,29 +363,29 @@ class StudentController extends Controller
 
         DB::transaction(function () use ($validated, $cycle, $groups, $normalizeLevel, &$imported, &$updated, &$rostered) {
             foreach ($validated['students'] as $row) {
-                $univNumber = trim((string)$row['university_number']);
+                $univNumber = trim((string) $row['university_number']);
                 $level = $normalizeLevel($row['academic_level']) ?: 'fourth';
 
                 $data = [
-                    'full_name_ar'        => trim((string)$row['full_name_ar']),
-                    'full_name_en'        => !empty($row['full_name_en']) ? trim((string)$row['full_name_en']) : null,
-                    'national_id'         => !empty($row['national_id']) ? trim((string)$row['national_id']) : null,
-                    'gender'              => in_array(strtolower((string)($row['gender'] ?? '')), ['male', 'female']) ? strtolower((string)$row['gender']) : (str_contains((string)($row['gender'] ?? ''), 'أنثى') ? 'female' : 'male'),
-                    'city'                => !empty($row['city']) ? trim((string)$row['city']) : 'الخليل',
-                    'phone'               => !empty($row['phone']) ? trim((string)$row['phone']) : null,
-                    'university_email'    => !empty($row['university_email']) ? trim((string)$row['university_email']) : "{$univNumber}@students.hebron.edu",
-                    'batch_year'          => !empty($row['batch_year']) ? (int)$row['batch_year'] : date('Y') - 3,
-                    'academic_level'      => $level,
-                    'registration_status' => !empty($row['registration_status']) ? strtolower((string)$row['registration_status']) : 'active',
-                    'academic_registration_status' => in_array(strtolower((string)($row['academic_registration_status'] ?? 'registered')), ['registered', 'unregistered'], true)
-                        ? strtolower((string)($row['academic_registration_status'] ?? 'registered')) : 'registered',
+                    'full_name_ar' => trim((string) $row['full_name_ar']),
+                    'full_name_en' => ! empty($row['full_name_en']) ? trim((string) $row['full_name_en']) : null,
+                    'national_id' => ! empty($row['national_id']) ? trim((string) $row['national_id']) : null,
+                    'gender' => in_array(strtolower((string) ($row['gender'] ?? '')), ['male', 'female']) ? strtolower((string) $row['gender']) : (str_contains((string) ($row['gender'] ?? ''), 'أنثى') ? 'female' : 'male'),
+                    'city' => ! empty($row['city']) ? trim((string) $row['city']) : 'الخليل',
+                    'phone' => ! empty($row['phone']) ? trim((string) $row['phone']) : null,
+                    'university_email' => ! empty($row['university_email']) ? trim((string) $row['university_email']) : "{$univNumber}@students.hebron.edu",
+                    'batch_year' => ! empty($row['batch_year']) ? (int) $row['batch_year'] : date('Y') - 3,
+                    'academic_level' => $level,
+                    'registration_status' => ! empty($row['registration_status']) ? strtolower((string) $row['registration_status']) : 'active',
+                    'academic_registration_status' => in_array(strtolower((string) ($row['academic_registration_status'] ?? 'registered')), ['registered', 'unregistered'], true)
+                        ? strtolower((string) ($row['academic_registration_status'] ?? 'registered')) : 'registered',
                 ];
 
                 if (isset($row['gpa']) && $row['gpa'] !== '' && $row['gpa'] !== null) {
-                    $data['gpa'] = (float)$row['gpa'];
+                    $data['gpa'] = (float) $row['gpa'];
                 }
                 if (isset($row['warning_count']) && $row['warning_count'] !== '' && $row['warning_count'] !== null) {
-                    $data['warning_count'] = (int)$row['warning_count'];
+                    $data['warning_count'] = (int) $row['warning_count'];
                 }
                 if ($cycle) {
                     $data['academic_year_id'] = $cycle->academic_year_id;
@@ -361,15 +415,17 @@ class StudentController extends Controller
 
         return ApiResponse::success([
             'imported' => $imported,
-            'updated'  => $updated,
+            'updated' => $updated,
             'rostered' => $rostered,
-            'errors'   => [],
-        ], "تمت معالجة " . ($imported + $updated) . " طالب بنجاح.");
+            'errors' => [],
+        ], 'تمت معالجة '.($imported + $updated).' طالب بنجاح.');
     }
 
     private function syncRegistrationRoster(Student $student, mixed $cycleId, mixed $mainGroupCode): void
     {
-        if (! $cycleId) return;
+        if (! $cycleId) {
+            return;
+        }
 
         $cycle = GroupRegistrationCycle::findOrFail((int) $cycleId);
         if ($cycle->status === 'archived') {
