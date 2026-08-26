@@ -63,6 +63,18 @@ function detectDelimiter(header: string): string {
   , ',');
 }
 
+function decodeImportFile(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    // Excel commonly exports Arabic CSV files using the Windows Arabic code page.
+    return new TextDecoder('windows-1256').decode(bytes);
+  }
+}
+
 export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const navigate = useNavigate();
   const { t, locale } = useI18n();
@@ -310,7 +322,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const text = (event.target?.result as string).replace(/^\uFEFF/, '');
+        const text = decodeImportFile(event.target?.result as ArrayBuffer).replace(/^\uFEFF/, '');
         const lines = text.split(/\r\n|\n/).filter(line => line.trim().length > 0);
         if (lines.length < 2) {
           setImportErrorMsg(locale === 'ar' ? 'الملف فارغ أو لا يحتوي على صفوف بيانات كافية.' : 'File is empty or invalid.');
@@ -372,7 +384,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
         setImportErrorMsg(locale === 'ar' ? 'فشل في قراءة الملف. يرجى التأكد من أنه ملف CSV صالح.' : 'Failed to parse CSV file.');
       }
     };
-    reader.readAsText(file, 'UTF-8');
+    reader.readAsArrayBuffer(file);
   };
 
   if (!can(permissions[kind])) return <ErrorState title={t('state.forbidden.title')} message={t('state.forbidden.message')} />;

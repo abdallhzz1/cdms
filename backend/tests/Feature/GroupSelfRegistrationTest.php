@@ -235,6 +235,32 @@ class GroupSelfRegistrationTest extends TestCase
         $this->assertTrue(AuditLog::where('student_id',$this->student->id)->where('is_override',true)->whereNotNull('override_reason')->exists());
     }
 
+    public function test_subgroup_must_be_emptied_before_it_can_be_deleted_permanently(): void
+    {
+        $permission=Permission::where('code','group_registration.manage_groups')->firstOrFail();
+        $role=Role::create(['code'=>'TEST_GROUP_MANAGER','name_key'=>'test.group.manager']);
+        $role->permissions()->attach($permission->id,['scope_type'=>'global']);
+        $user=User::factory()->create();
+        $user->roles()->attach($role);
+        $subgroup=$this->group->subgroups()->firstOrFail();
+        $assignment=StudentGroupAssignment::create([
+            'student_id'=>$this->student->id,'academic_year_id'=>$this->year->id,
+            'student_group_id'=>$this->group->id,'student_subgroup_id'=>$subgroup->id,
+            'valid_from'=>now()->toDateString(),'change_reason'=>'test',
+        ]);
+
+        $url="/api/v1/group-registration-cycles/{$this->cycle->id}/subgroups/{$subgroup->id}";
+        $this->actingAs($user)->deleteJson($url)
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.subgroup.0','يجب تفريغ جميع الطلبة من المجموعة الفرعية أولاً، ثم إعادة محاولة الحذف.');
+        $this->assertDatabaseHas('student_subgroups',['id'=>$subgroup->id]);
+
+        $assignment->update(['valid_until'=>now()->toDateString()]);
+        $this->actingAs($user)->deleteJson($url)->assertOk();
+        $this->assertDatabaseMissing('student_subgroups',['id'=>$subgroup->id]);
+        $this->assertNull($assignment->fresh()->student_subgroup_id);
+    }
+
     public function test_authorized_administrator_can_export_the_complete_cycle_roster_as_utf8_csv(): void
     {
         $permission=Permission::where('code','group_registration.export')->firstOrFail();

@@ -164,9 +164,21 @@ class GroupRegistrationAdminController extends Controller
     public function archiveSubgroup(Request $request, GroupRegistrationCycle $cycle, StudentSubgroup $subgroup): JsonResponse
     {
         $this->ensureCycleGroup($cycle, $subgroup->group);
-        if ($subgroup->assignments()->exists()) $subgroup->update(['is_active'=>false]); else $subgroup->delete();
-        $this->audit($request, 'group_registration.subgroup_archived', $subgroup->id);
-        return ApiResponse::success(null, 'تم حذف/أرشفة المجموعة الفرعية.');
+        if ($subgroup->assignments()->current()->exists()) {
+            throw ValidationException::withMessages([
+                'subgroup' => ['يجب تفريغ جميع الطلبة من المجموعة الفرعية أولاً، ثم إعادة محاولة الحذف.'],
+            ]);
+        }
+
+        $subgroupId = $subgroup->id;
+        DB::transaction(function () use ($subgroup) {
+            // Keep historical membership rows, but release their restrictive FK
+            // after the subgroup has no current students so it can be removed fully.
+            $subgroup->assignments()->whereNotNull('student_subgroup_id')->update(['student_subgroup_id' => null]);
+            $subgroup->delete();
+        });
+        $this->audit($request, 'group_registration.subgroup_deleted', $subgroupId);
+        return ApiResponse::success(null, 'تم حذف المجموعة الفرعية نهائياً.');
     }
 
     public function overrideAssignment(Request $request, GroupRegistrationCycle $cycle, Student $student): JsonResponse
