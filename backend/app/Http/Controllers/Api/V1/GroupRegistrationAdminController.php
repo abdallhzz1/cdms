@@ -60,15 +60,101 @@ class GroupRegistrationAdminController extends Controller
                     'name' => $letter,
                 ], ['group_type' => 'self_registration']);
                 $group->update(['group_type' => 'self_registration']);
-                foreach ([1, 2] as $number) {
-                    $group->subgroups()->firstOrCreate(['name' => $letter.$number], ['min_size' => 1, 'max_size' => $cycle->default_capacity, 'capacity' => $cycle->default_capacity, 'is_active' => true]);
-                }
             }
             $this->audit($request, 'group_registration.cycle_created', $cycle->id, ['letters' => $letters]);
             return $cycle;
         });
 
-        return ApiResponse::success($this->cycleData($cycle->load('academicYear')), 'تم إنشاء دورة التسجيل والمجموعات الفارغة.', [], 201);
+        return ApiResponse::success($this->cycleData($cycle->load('academicYear')), 'تم إنشاء دورة التسجيل والمجموعات الرئيسية. اربط قائمة الطلبة ثم أنشئ المجموعات الفرعية حسب العدد.', [], 201);
+    }
+
+    public function generateSubgroups(Request $request, GroupRegistrationCycle $cycle): JsonResponse
+    {
+        if ($cycle->status === 'archived') {
+            abort(409, 'لا يمكن تعديل دورة تسجيل مؤرشفة.');
+        }
+
+        $groups = StudentGroup::query()
+            ->where('academic_year_id', $cycle->academic_year_id)
+            ->where('academic_level', $cycle->academic_level)
+            ->where('group_type', 'self_registration')
+            ->with(['subgroups' => fn ($query) => $query
+                ->withCount(['assignments as current_students_count' => fn ($assignment) => $assignment->whereNull('valid_until')])
+                ->orderBy('name')])
+            ->orderBy('name')
+            ->get();
+
+        $rosterCounts = StudentGroupRoster::query()
+            ->where('group_registration_cycle_id', $cycle->id)
+            ->selectRaw('student_group_id, COUNT(*) as students_count')
+            ->groupBy('student_group_id')
+            ->pluck('students_count', 'student_group_id');
+
+        if ((int) $rosterCounts->sum() === 0) {
+            throw ValidationException::withMessages([
+                'roster' => ['اربط قائمة طلبة الدفعة والمجموعات الرئيسية أولاً، ثم أعد إنشاء المجموعات الفرعية.'],
+            ]);
+        }
+
+        $summary = DB::transaction(function () use ($groups, $rosterCounts) {
+            $created = 0;
+            $resized = 0;
+            $plans = [];
+
+            foreach ($groups as $group) {
+                $studentsCount = (int) ($rosterCounts[$group->id] ?? 0);
+                $capacityPlan = $this->subgroupCapacityPlan($studentsCount);
+                $existing = $group->subgroups->values();
+                $usedNames = $existing->pluck('name')->map(fn ($name) => strtoupper($name))->all();
+
+                foreach ($capacityPlan as $index => $capacity) {
+                    $subgroup = $existing->get($index);
+
+                    if ($subgroup) {
+                        if ((int) $subgroup->current_students_count === 0
+                            && ((int) $subgroup->capacity !== $capacity || (int) $subgroup->max_size !== $capacity || ! $subgroup->is_active)) {
+                            $subgroup->update([
+                                'capacity' => $capacity,
+                                'max_size' => $capacity,
+                                'is_active' => true,
+                            ]);
+                            $resized++;
+                        }
+                        continue;
+                    }
+
+                    $number = 1;
+                    do {
+                        $name = strtoupper($group->name).$number++;
+                    } while (in_array($name, $usedNames, true));
+
+                    $group->subgroups()->create([
+                        'name' => $name,
+                        'min_size' => 1,
+                        'max_size' => $capacity,
+                        'capacity' => $capacity,
+                        'is_active' => true,
+                    ]);
+                    $usedNames[] = $name;
+                    $created++;
+                }
+
+                $plans[] = [
+                    'group' => $group->name,
+                    'students_count' => $studentsCount,
+                    'capacities' => $capacityPlan,
+                ];
+            }
+
+            return compact('created', 'resized', 'plans');
+        });
+
+        $this->audit($request, 'group_registration.subgroups_generated', $cycle->id, $summary);
+
+        return ApiResponse::success(
+            $this->cycleData($cycle->fresh('academicYear')),
+            "تم تجهيز المجموعات الفرعية حسب عدد الطلبة: {$summary['created']} جديدة، وتحديث سعة {$summary['resized']} مجموعة فارغة."
+        );
     }
 
     public function update(Request $request, GroupRegistrationCycle $cycle): JsonResponse
@@ -279,7 +365,9 @@ class GroupRegistrationAdminController extends Controller
             ->where('academic_year_id', $cycle->academic_year_id)
             ->whereIn('student_id', $rosters->pluck('student_id'))
             ->whereNull('valid_until')->get()->keyBy('student_id');
-        $filename = sprintf('group-registration-%s-%s.csv', $cycle->academicYear?->code ?: $cycle->academic_year_id, $cycle->academic_level);
+        $yearLabel = (string) ($cycle->academicYear?->code ?: $cycle->academic_year_id);
+        $safeYearLabel = trim((string) preg_replace('/[^A-Za-z0-9._-]+/', '-', $yearLabel), '-');
+        $filename = sprintf('group-registration-%s-%s.csv', $safeYearLabel ?: $cycle->academic_year_id, $cycle->academic_level);
 
         return response()->streamDownload(function () use ($cycle, $rosters, $assignments) {
             $output = fopen('php://output', 'wb');
@@ -304,15 +392,33 @@ class GroupRegistrationAdminController extends Controller
 
     private function cycleData(GroupRegistrationCycle $cycle): array
     {
+        $rosterCounts = StudentGroupRoster::query()
+            ->where('group_registration_cycle_id', $cycle->id)
+            ->selectRaw("student_group_id, COUNT(*) as students_count, SUM(CASE WHEN students.academic_registration_status = 'registered' THEN 1 ELSE 0 END) as registered_students_count")
+            ->join('students', 'students.id', '=', 'student_group_rosters.student_id')
+            ->groupBy('student_group_id')
+            ->get()
+            ->keyBy('student_group_id');
+
         $groups = StudentGroup::where('academic_year_id', $cycle->academic_year_id)->where('academic_level', $cycle->academic_level)
             ->where('group_type', 'self_registration')
             ->with(['subgroups' => fn ($q) => $q
                 ->withCount(['assignments as current_students_count' => fn ($a) => $a->whereNull('valid_until')])
                 ->with(['assignments' => fn ($a) => $a->whereNull('valid_until')->with('student')->orderBy('created_at')])])
             ->orderBy('name')->get()
-            ->map(fn (StudentGroup $group) => [
+            ->map(function (StudentGroup $group) use ($cycle, $rosterCounts) {
+                $studentsCount = (int) ($rosterCounts->get($group->id)?->students_count ?? 0);
+                $registeredStudentsCount = (int) ($rosterCounts->get($group->id)?->registered_students_count ?? 0);
+                $capacityPlan = $this->subgroupCapacityPlan($studentsCount);
+
+                return [
                 'id' => $group->id,
                 'name' => $group->name,
+                'roster_count' => $studentsCount,
+                'registered_roster_count' => $registeredStudentsCount,
+                'recommended_subgroups_count' => count($capacityPlan),
+                'recommended_capacity_plan' => $capacityPlan,
+                'current_active_capacity' => (int) $group->subgroups->where('is_active', true)->sum(fn (StudentSubgroup $subgroup) => $subgroup->capacity ?: $subgroup->max_size ?: $cycle->default_capacity),
                 'subgroups' => $group->subgroups->map(fn (StudentSubgroup $subgroup) => [
                     'id' => $subgroup->id,
                     'name' => $subgroup->name,
@@ -327,7 +433,8 @@ class GroupRegistrationAdminController extends Controller
                         'registered_at' => $assignment->created_at?->toIso8601String(),
                     ])->values(),
                 ])->values(),
-            ])->values();
+                ];
+            })->values();
         $rosters = StudentGroupRoster::with(['student', 'group'])
             ->where('group_registration_cycle_id', $cycle->id)
             ->orderBy('student_group_id')->orderBy('student_id')->get();
@@ -361,6 +468,28 @@ class GroupRegistrationAdminController extends Controller
     {
         $value = (string) $value;
         return preg_match('/^[=+\-@]/u', $value) ? "'".$value : $value;
+    }
+
+    /**
+     * Produce the smallest set of 5/6-seat subgroups that can hold the roster.
+     * Six-seat groups are used only where needed, which avoids unnecessary
+     * empty seats while respecting the approved maximum subgroup size.
+     *
+     * @return array<int, int>
+     */
+    private function subgroupCapacityPlan(int $studentsCount): array
+    {
+        if ($studentsCount <= 0) {
+            return [];
+        }
+
+        $groupsCount = (int) ceil($studentsCount / 6);
+        $sixSeatGroups = max(0, $studentsCount - ($groupsCount * 5));
+
+        return [
+            ...array_fill(0, $sixSeatGroups, 6),
+            ...array_fill(0, $groupsCount - $sixSeatGroups, 5),
+        ];
     }
 
     private function ensureCycleGroup(GroupRegistrationCycle $cycle, StudentGroup $group): void
