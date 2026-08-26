@@ -104,6 +104,10 @@ class GroupSelfRegistrationTest extends TestCase
         $target=$this->group->subgroups()->first();
         $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/select",['access_token'=>$token,'subgroup_id'=>$target->id])->assertOk();
         $this->assertDatabaseHas('student_group_assignments',['student_id'=>$this->student->id,'student_subgroup_id'=>$target->id,'valid_until'=>null]);
+        StudentGroupAssignment::where('student_id',$this->student->id)->where('student_subgroup_id',$target->id)
+            ->update(['student_group_id'=>$other->id]); // Simulate a legacy inconsistent main-group field.
+        $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/options",['access_token'=>$token])
+            ->assertOk()->assertJsonPath('data.subgroups.0.is_selected', true);
         $replacement=$this->group->subgroups()->where('id','!=',$target->id)->firstOrFail();
         $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/select",['access_token'=>$token,'subgroup_id'=>$replacement->id])
             ->assertUnprocessable()->assertJsonPath('errors.subgroup_id.0', 'يجب سحب تسجيلك من مجموعتك الحالية أولاً قبل اختيار مجموعة أخرى.');

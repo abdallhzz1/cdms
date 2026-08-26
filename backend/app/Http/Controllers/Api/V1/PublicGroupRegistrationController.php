@@ -100,8 +100,7 @@ class PublicGroupRegistrationController extends Controller
     {
         [$challenge,$roster] = $this->session($request,$cycle);
         $current = StudentGroupAssignment::where('student_id',$challenge->student_id)
-            ->where('academic_year_id',$cycle->academic_year_id)
-            ->where('student_group_id',$roster->student_group_id)
+            ->whereHas('subgroup', fn($query) => $query->where('student_group_id',$roster->student_group_id))
             ->whereNull('valid_until')->latest('id')->first();
         $subgroups = $roster->group->subgroups()->where('is_active',true)
             ->withCount(['assignments as current_students_count'=>fn($q)=>$q->whereNull('valid_until')])->orderBy('name')->get()
@@ -110,7 +109,7 @@ class PublicGroupRegistrationController extends Controller
                 'occupied'=>(int)$sg->current_students_count,
                 'available'=>max(0,(int)($sg->capacity ?: $sg->max_size ?: $cycle->default_capacity)-(int)$sg->current_students_count),
                 'is_full'=>(int)$sg->current_students_count >= (int)($sg->capacity ?: $sg->max_size ?: $cycle->default_capacity),
-                'is_selected'=>$current?->student_subgroup_id === $sg->id,
+                'is_selected'=>(int)$current?->student_subgroup_id === (int)$sg->id,
             ]);
         return ApiResponse::success([
             'student'=>['name'=>$challenge->student->full_name_ar,'university_number'=>$challenge->student->university_number,'academic_level'=>$challenge->student->academic_level],
@@ -127,8 +126,7 @@ class PublicGroupRegistrationController extends Controller
             if(!$subgroup->is_active || $subgroup->student_group_id!==$roster->student_group_id) throw ValidationException::withMessages(['subgroup_id'=>['المجموعة المختارة غير متاحة لك.']]);
             Student::whereKey($challenge->student_id)->lockForUpdate()->firstOrFail();
             $current=StudentGroupAssignment::where('student_id',$challenge->student_id)
-                ->where('academic_year_id',$cycle->academic_year_id)
-                ->where('student_group_id',$roster->student_group_id)
+                ->whereHas('subgroup', fn($query) => $query->where('student_group_id',$roster->student_group_id))
                 ->whereNull('valid_until')->lockForUpdate()->latest('id')->first();
             if($current?->student_subgroup_id===$subgroup->id) return $current;
             if($current) throw ValidationException::withMessages(['subgroup_id'=>['يجب سحب تسجيلك من مجموعتك الحالية أولاً قبل اختيار مجموعة أخرى.']]);
@@ -147,8 +145,7 @@ class PublicGroupRegistrationController extends Controller
         DB::transaction(function() use($challenge,$roster,$cycle){
             Student::whereKey($challenge->student_id)->lockForUpdate()->firstOrFail();
             StudentGroupAssignment::where('student_id',$challenge->student_id)
-                ->where('academic_year_id',$cycle->academic_year_id)
-                ->where('student_group_id',$roster->student_group_id)
+                ->whereHas('subgroup', fn($query) => $query->where('student_group_id',$roster->student_group_id))
                 ->whereNull('valid_until')->lockForUpdate()
                 ->update(['valid_until'=>now()->toDateString(),'change_reason'=>'student_self_withdrawal']);
         });
