@@ -42,7 +42,7 @@ class GroupRegistrationAdminController extends Controller
         $data = $request->validate([
             'academic_year_id' => ['required', 'exists:academic_years,id'],
             'academic_level' => ['required', 'in:fourth,fifth,sixth'],
-            'default_capacity' => ['required', 'integer', 'in:5,6'],
+            'default_capacity' => ['required', 'integer', 'min:1', 'max:30'],
             'letters' => ['nullable', 'array', 'size:3'],
             'letters.*' => ['required', 'string', 'max:2', 'distinct'],
         ]);
@@ -70,6 +70,12 @@ class GroupRegistrationAdminController extends Controller
 
     public function generateSubgroups(Request $request, GroupRegistrationCycle $cycle): JsonResponse
     {
+        $data = $request->validate([
+            'strategy' => ['required', 'in:fixed_count,target_capacity'],
+            'subgroups_per_main_group' => ['required_if:strategy,fixed_count', 'nullable', 'integer', 'min:1', 'max:30'],
+            'target_capacity' => ['required_if:strategy,target_capacity', 'nullable', 'integer', 'min:1', 'max:30'],
+        ]);
+
         if ($cycle->status === 'archived') {
             abort(409, 'لا يمكن تعديل دورة تسجيل مؤرشفة.');
         }
@@ -96,14 +102,18 @@ class GroupRegistrationAdminController extends Controller
             ]);
         }
 
-        $summary = DB::transaction(function () use ($groups, $rosterCounts) {
+        $planningValue = (int) ($data['strategy'] === 'fixed_count'
+            ? $data['subgroups_per_main_group']
+            : $data['target_capacity']);
+
+        $summary = DB::transaction(function () use ($groups, $rosterCounts, $data, $planningValue) {
             $created = 0;
             $resized = 0;
             $plans = [];
 
             foreach ($groups as $group) {
                 $studentsCount = (int) ($rosterCounts[$group->id] ?? 0);
-                $capacityPlan = $this->subgroupCapacityPlan($studentsCount);
+                $capacityPlan = $this->subgroupCapacityPlan($studentsCount, $data['strategy'], $planningValue);
                 $existing = $group->subgroups->values();
                 $usedNames = $existing->pluck('name')->map(fn ($name) => strtoupper($name))->all();
 
@@ -146,7 +156,13 @@ class GroupRegistrationAdminController extends Controller
                 ];
             }
 
-            return compact('created', 'resized', 'plans');
+            return [
+                'strategy' => $data['strategy'],
+                'planning_value' => $planningValue,
+                'created' => $created,
+                'resized' => $resized,
+                'plans' => $plans,
+            ];
         });
 
         $this->audit($request, 'group_registration.subgroups_generated', $cycle->id, $summary);
@@ -161,7 +177,7 @@ class GroupRegistrationAdminController extends Controller
     {
         $data = $request->validate([
             'status' => ['sometimes', 'in:draft,open,closed,archived'],
-            'default_capacity' => ['sometimes', 'integer', 'in:5,6'],
+            'default_capacity' => ['sometimes', 'integer', 'min:1', 'max:30'],
             'opens_at' => ['nullable', 'date'],
             'closes_at' => ['nullable', 'date', 'after:opens_at'],
         ]);
@@ -225,7 +241,7 @@ class GroupRegistrationAdminController extends Controller
     public function storeSubgroup(Request $request, GroupRegistrationCycle $cycle, StudentGroup $group): JsonResponse
     {
         $this->ensureCycleGroup($cycle, $group);
-        $data = $request->validate(['name'=>['required','string','max:10'], 'capacity'=>['required','integer','in:5,6']]);
+        $data = $request->validate(['name'=>['required','string','max:10'], 'capacity'=>['required','integer','min:1','max:30']]);
         if (!str_starts_with(strtoupper($data['name']), strtoupper($group->name))) throw ValidationException::withMessages(['name'=>['اسم المجموعة الفرعية يجب أن يبدأ بحرف المجموعة الرئيسية.']]);
         if ($group->subgroups()->where('name', strtoupper($data['name']))->exists()) throw ValidationException::withMessages(['name'=>['اسم المجموعة الفرعية مستخدم.']]);
         $subgroup = $group->subgroups()->create(['name'=>strtoupper($data['name']), 'min_size'=>1, 'max_size'=>$data['capacity'], 'capacity'=>$data['capacity'], 'is_active'=>true]);
@@ -236,7 +252,7 @@ class GroupRegistrationAdminController extends Controller
     public function updateSubgroup(Request $request, GroupRegistrationCycle $cycle, StudentSubgroup $subgroup): JsonResponse
     {
         $this->ensureCycleGroup($cycle, $subgroup->group);
-        $data = $request->validate(['name'=>['sometimes','string','max:10'], 'capacity'=>['sometimes','integer','in:5,6'], 'is_active'=>['sometimes','boolean']]);
+        $data = $request->validate(['name'=>['sometimes','string','max:10'], 'capacity'=>['sometimes','integer','min:1','max:30'], 'is_active'=>['sometimes','boolean']]);
         if (isset($data['capacity']) && $subgroup->assignments()->whereNull('valid_until')->count() > $data['capacity']) throw ValidationException::withMessages(['capacity'=>['لا يمكن تخفيض السعة عن عدد الطلبة المسجلين حالياً.']]);
         if (isset($data['name']) && !str_starts_with(strtoupper($data['name']), strtoupper($subgroup->group->name))) throw ValidationException::withMessages(['name'=>['اسم المجموعة الفرعية يجب أن يبدأ بحرف المجموعة الرئيسية.']]);
         if (isset($data['name']) && $subgroup->group->subgroups()->where('name',strtoupper($data['name']))->where('id','!=',$subgroup->id)->exists()) throw ValidationException::withMessages(['name'=>['اسم المجموعة الفرعية مستخدم.']]);
@@ -409,7 +425,7 @@ class GroupRegistrationAdminController extends Controller
             ->map(function (StudentGroup $group) use ($cycle, $rosterCounts) {
                 $studentsCount = (int) ($rosterCounts->get($group->id)?->students_count ?? 0);
                 $registeredStudentsCount = (int) ($rosterCounts->get($group->id)?->registered_students_count ?? 0);
-                $capacityPlan = $this->subgroupCapacityPlan($studentsCount);
+                $capacityPlan = $this->subgroupCapacityPlan($studentsCount, 'target_capacity', (int) $cycle->default_capacity);
 
                 return [
                 'id' => $group->id,
@@ -470,25 +486,24 @@ class GroupRegistrationAdminController extends Controller
         return preg_match('/^[=+\-@]/u', $value) ? "'".$value : $value;
     }
 
-    /**
-     * Produce the smallest set of 5/6-seat subgroups that can hold the roster.
-     * Six-seat groups are used only where needed, which avoids unnecessary
-     * empty seats while respecting the approved maximum subgroup size.
-     *
-     * @return array<int, int>
-     */
-    private function subgroupCapacityPlan(int $studentsCount): array
+    /** @return array<int, int> */
+    private function subgroupCapacityPlan(int $studentsCount, string $strategy, int $planningValue): array
     {
-        if ($studentsCount <= 0) {
+        $planningValue = max(1, $planningValue);
+
+        if ($studentsCount <= 0 && $strategy !== 'fixed_count') {
             return [];
         }
 
-        $groupsCount = (int) ceil($studentsCount / 6);
-        $sixSeatGroups = max(0, $studentsCount - ($groupsCount * 5));
+        $groupsCount = $strategy === 'fixed_count'
+            ? $planningValue
+            : (int) ceil($studentsCount / $planningValue);
+        $baseCapacity = $groupsCount > 0 ? intdiv($studentsCount, $groupsCount) : 0;
+        $largerGroupsCount = $groupsCount > 0 ? $studentsCount % $groupsCount : 0;
 
         return [
-            ...array_fill(0, $sixSeatGroups, 6),
-            ...array_fill(0, $groupsCount - $sixSeatGroups, 5),
+            ...array_fill(0, $largerGroupsCount, max(1, $baseCapacity + 1)),
+            ...array_fill(0, $groupsCount - $largerGroupsCount, max(1, $baseCapacity)),
         ];
     }
 

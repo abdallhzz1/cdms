@@ -160,7 +160,7 @@ class GroupSelfRegistrationTest extends TestCase
         ]);
     }
 
-    public function test_subgroups_are_generated_idempotently_from_each_main_group_roster_size(): void
+    public function test_a_fixed_subgroup_count_balances_each_main_group_and_is_idempotent(): void
     {
         $permission=Permission::where('code','group_registration.manage_groups')->firstOrFail();
         $role=Role::create(['code'=>'TEST_SMART_GROUP_PLANNER','name_key'=>'test.smart.group.planner']);
@@ -168,13 +168,13 @@ class GroupSelfRegistrationTest extends TestCase
         $user=User::factory()->create();
         $user->roles()->attach($role);
 
-        // L has 11 students, so the exact plan is two groups with capacities 6 + 5.
+        // L has 11 students and M has 13; both must still receive the exact
+        // administrator-selected number of subgroups with balanced capacities.
         foreach (range(1, 10) as $index) {
             $student=Student::factory()->create(['academic_level'=>'fourth','academic_year_id'=>$this->year->id]);
             StudentGroupRoster::create(['group_registration_cycle_id'=>$this->cycle->id,'student_id'=>$student->id,'student_group_id'=>$this->group->id]);
         }
 
-        // M has 13 students. Three five-seat groups are the smallest valid plan.
         $groupM=StudentGroup::create(['academic_year_id'=>$this->year->id,'academic_level'=>'fourth','name'=>'M','group_type'=>'self_registration']);
         foreach (range(1, 13) as $index) {
             $student=Student::factory()->create(['academic_level'=>'fourth','academic_year_id'=>$this->year->id]);
@@ -182,20 +182,19 @@ class GroupSelfRegistrationTest extends TestCase
         }
 
         $url="/api/v1/group-registration-cycles/{$this->cycle->id}/generate-subgroups";
-        $this->actingAs($user)->postJson($url)
+        $payload=['strategy'=>'fixed_count','subgroups_per_main_group'=>8];
+        $this->actingAs($user)->postJson($url,$payload)
             ->assertOk()
             ->assertJsonPath('data.groups.0.roster_count',11)
-            ->assertJsonPath('data.groups.0.recommended_capacity_plan',[6,5])
-            ->assertJsonPath('data.groups.1.roster_count',13)
-            ->assertJsonPath('data.groups.1.recommended_capacity_plan',[5,5,5]);
+            ->assertJsonPath('data.groups.1.roster_count',13);
 
-        $this->assertSame([6,5],$this->group->subgroups()->orderBy('name')->pluck('capacity')->map(fn($capacity)=>(int)$capacity)->all());
-        $this->assertSame([5,5,5],$groupM->subgroups()->orderBy('name')->pluck('capacity')->map(fn($capacity)=>(int)$capacity)->all());
+        $this->assertSame([2,2,2,1,1,1,1,1],$this->group->subgroups()->orderBy('name')->pluck('capacity')->map(fn($capacity)=>(int)$capacity)->all());
+        $this->assertSame([2,2,2,2,2,1,1,1],$groupM->subgroups()->orderBy('name')->pluck('capacity')->map(fn($capacity)=>(int)$capacity)->all());
 
         // Re-running the planner must not duplicate already-created groups.
-        $this->actingAs($user)->postJson($url)->assertOk();
-        $this->assertSame(2,$this->group->subgroups()->count());
-        $this->assertSame(3,$groupM->subgroups()->count());
+        $this->actingAs($user)->postJson($url,$payload)->assertOk();
+        $this->assertSame(8,$this->group->subgroups()->count());
+        $this->assertSame(8,$groupM->subgroups()->count());
     }
 
     public function test_administrator_sees_registered_student_names_inside_each_subgroup(): void
