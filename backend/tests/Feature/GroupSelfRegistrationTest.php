@@ -100,8 +100,11 @@ class GroupSelfRegistrationTest extends TestCase
         $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/select",['access_token'=>$token,'subgroup_id'=>$target->id])->assertOk();
         $this->assertDatabaseHas('student_group_assignments',['student_id'=>$this->student->id,'student_subgroup_id'=>$target->id,'valid_until'=>null]);
         $replacement=$this->group->subgroups()->where('id','!=',$target->id)->firstOrFail();
-        $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/select",['access_token'=>$token,'subgroup_id'=>$replacement->id])->assertOk();
+        $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/select",['access_token'=>$token,'subgroup_id'=>$replacement->id])
+            ->assertUnprocessable()->assertJsonPath('errors.subgroup_id.0', 'يجب سحب تسجيلك من مجموعتك الحالية أولاً قبل اختيار مجموعة أخرى.');
+        $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/withdraw",['access_token'=>$token])->assertOk();
         $this->assertNotNull(StudentGroupAssignment::where('student_id',$this->student->id)->where('student_subgroup_id',$target->id)->firstOrFail()->valid_until);
+        $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/select",['access_token'=>$token,'subgroup_id'=>$replacement->id])->assertOk();
         $this->assertDatabaseHas('student_group_assignments',['student_id'=>$this->student->id,'student_subgroup_id'=>$replacement->id,'valid_until'=>null]);
         $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/withdraw",['access_token'=>$token])->assertOk();
         $this->assertSame(0,StudentGroupAssignment::where('student_id',$this->student->id)->whereNull('valid_until')->count());
