@@ -75,6 +75,29 @@ function decodeImportFile(buffer: ArrayBuffer): string {
   }
 }
 
+function mapStudentImportRows(rows: unknown[][]): any[] {
+  return rows.slice(1).flatMap((rawRow) => {
+    const cols = rawRow.map(value => String(value ?? '').trim());
+    if (cols.length < 2 || !cols[0] || !cols[1]) return [];
+    if (cols.length >= 10) {
+      return [{
+        university_number: cols[0], full_name_ar: cols[1], full_name_en: cols[2] || '',
+        academic_level: cols[3] || 'fourth', gpa: cols[4] ? Number(cols[4]) : undefined,
+        warning_count: cols[5] ? Number(cols[5]) : 0, batch_year: cols[6] || '2022',
+        gender: cols[7] || 'male', phone: cols[8] || '', city: cols[9] || 'الخليل',
+        registration_status: cols[10] || 'active', academic_registration_status: cols[11] || 'registered',
+        main_group_code: (cols[12] || '').toUpperCase(),
+      }];
+    }
+    return [{
+      university_number: cols[0], full_name_ar: cols[1], full_name_en: cols[2] || '',
+      academic_level: cols[3] || 'fourth', batch_year: cols[4] || '2022',
+      gender: cols[5] || 'male', phone: cols[6] || '', city: cols[7] || 'الخليل',
+      registration_status: cols[8] || 'active', academic_registration_status: 'registered',
+    }];
+  });
+}
+
 export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const navigate = useNavigate();
   const { t, locale } = useI18n();
@@ -311,80 +334,36 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     document.body.removeChild(link);
   };
 
-  // Parse Uploaded CSV File
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Parse the original Excel workbook directly when available; this avoids
+  // all locale-dependent CSV encoding conversions for Arabic student names.
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setImportFileName(file.name);
     setImportErrorMsg('');
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const text = decodeImportFile(event.target?.result as ArrayBuffer).replace(/^\uFEFF/, '');
+    setImportRows([]);
+    try {
+      const buffer = await file.arrayBuffer();
+      let matrix: unknown[][];
+      if (/\.xlsx?$/i.test(file.name)) {
+        const XLSX = await import('xlsx');
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        matrix = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: '', raw: false });
+      } else {
+        const text = decodeImportFile(buffer).replace(/^\uFEFF/, '');
         const lines = text.split(/\r\n|\n/).filter(line => line.trim().length > 0);
-        if (lines.length < 2) {
-          setImportErrorMsg(locale === 'ar' ? 'الملف فارغ أو لا يحتوي على صفوف بيانات كافية.' : 'File is empty or invalid.');
-          return;
-        }
-
-        const separatorDeclaration = lines[0].trim().match(/^sep=(.)$/i);
+        const separatorDeclaration = lines[0]?.trim().match(/^sep=(.)$/i);
         const headerIndex = separatorDeclaration ? 1 : 0;
         const delimiter = separatorDeclaration?.[1] ?? detectDelimiter(lines[headerIndex] ?? '');
-        const parsed: any[] = [];
-        for (let i = headerIndex + 1; i < lines.length; i++) {
-          const cols = parseDelimitedLine(lines[i], delimiter);
-          if (cols.length >= 2 && cols[0] && cols[1]) {
-            // Check if column 4 is GPA (numeric or decimal) or batch_year
-            const col4 = cols[4] || '';
-            const col5 = cols[5] || '';
-            
-            // Official template: student data, academic registration status, then main group.
-            if (cols.length >= 10) {
-              parsed.push({
-                university_number: cols[0],
-                full_name_ar: cols[1],
-                full_name_en: cols[2] || '',
-                academic_level: cols[3] || 'fourth',
-                gpa: col4 ? Number(col4) : undefined,
-                warning_count: col5 ? Number(col5) : 0,
-                batch_year: cols[6] || '2022',
-                gender: cols[7] || 'male',
-                phone: cols[8] || '',
-                city: cols[9] || 'الخليل',
-                registration_status: cols[10] || 'active',
-                academic_registration_status: cols[11] || 'registered',
-                main_group_code: (cols[12] || '').toUpperCase(),
-              });
-            } else {
-              // Legacy 9 cols support
-              parsed.push({
-                university_number: cols[0],
-                full_name_ar: cols[1],
-                full_name_en: cols[2] || '',
-                academic_level: cols[3] || 'fourth',
-                batch_year: cols[4] || '2022',
-                gender: cols[5] || 'male',
-                phone: cols[6] || '',
-                city: cols[7] || 'الخليل',
-                registration_status: cols[8] || 'active',
-                academic_registration_status: 'registered',
-              });
-            }
-          }
-        }
-
-        if (parsed.length === 0) {
-          setImportErrorMsg(locale === 'ar' ? 'لم يتم العثور على سجلات صالحة في الملف.' : 'No valid records found in file.');
-        } else {
-          setImportRows(parsed);
-        }
-      } catch (err: any) {
-        setImportErrorMsg(locale === 'ar' ? 'فشل في قراءة الملف. يرجى التأكد من أنه ملف CSV صالح.' : 'Failed to parse CSV file.');
+        matrix = lines.slice(headerIndex).map(line => parseDelimitedLine(line, delimiter));
       }
-    };
-    reader.readAsArrayBuffer(file);
+      const parsed = mapStudentImportRows(matrix);
+      if (!parsed.length) setImportErrorMsg(locale === 'ar' ? 'لم يتم العثور على سجلات صالحة في الملف.' : 'No valid records found in file.');
+      else setImportRows(parsed);
+    } catch {
+      setImportErrorMsg(locale === 'ar' ? 'فشل في قراءة الملف. استخدم ملف Excel أو CSV صالحًا.' : 'Failed to parse Excel or CSV file.');
+    }
   };
 
   if (!can(permissions[kind])) return <ErrorState title={t('state.forbidden.title')} message={t('state.forbidden.message')} />;
@@ -1131,13 +1110,13 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               {/* Step 2: Upload Area */}
               <div className="space-y-2">
                 <h4 className="text-xs font-bold text-slate-800">
-                  {locale === 'ar' ? 'الخطوة 2: رفع ملف البيانات (.CSV)' : 'Step 2: Upload CSV File'}
+                  {locale === 'ar' ? 'الخطوة 2: رفع ملف البيانات (Excel أو CSV)' : 'Step 2: Upload Excel or CSV'}
                 </h4>
                 
                 <input 
                   type="file" 
                   ref={fileInputRef} 
-                  accept=".csv,text/csv" 
+                  accept=".xlsx,.xls,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                   onChange={handleFileChange} 
                   className="hidden" 
                 />
@@ -1154,7 +1133,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                       {importFileName || (locale === 'ar' ? 'اضغط هنا لاختيار ملف الـ CSV' : 'Click to select CSV file')}
                     </span>
                     <span className="text-[11px] text-slate-400">
-                      {importFileName ? (locale === 'ar' ? 'تم اختيار الملف بنجاح' : 'File selected') : (locale === 'ar' ? 'ملفات CSV المدعومة (ترميز UTF-8)' : 'Supported: UTF-8 CSV')}
+                      {importFileName ? (locale === 'ar' ? 'تم اختيار الملف بنجاح' : 'File selected') : (locale === 'ar' ? 'يدعم Excel (.xlsx) وCSV' : 'Supports Excel (.xlsx) and CSV')}
                     </span>
                   </div>
                 </div>
