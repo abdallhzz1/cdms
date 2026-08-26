@@ -193,6 +193,34 @@ class GroupRegistrationAdminController extends Controller
         return ApiResponse::success($this->cycleData($cycle->fresh('academicYear')), 'تم تحديث دورة التسجيل.');
     }
 
+    public function destroy(Request $request, GroupRegistrationCycle $cycle): JsonResponse
+    {
+        if ($cycle->status === 'open') {
+            throw ValidationException::withMessages([
+                'cycle' => ['أغلق التسجيل أولاً قبل حذف دورة التسجيل.'],
+            ]);
+        }
+
+        $rosterStudentIds = $cycle->rosters()->pluck('student_id');
+        $hasGroupHistory = $rosterStudentIds->isNotEmpty()
+            && StudentGroupAssignment::query()
+                ->where('academic_year_id', $cycle->academic_year_id)
+                ->whereIn('student_id', $rosterStudentIds)
+                ->exists();
+
+        if ($hasGroupHistory) {
+            throw ValidationException::withMessages([
+                'cycle' => ['لا يمكن حذف الدورة لأن بعض طلبتها اختاروا مجموعات فرعية. أخرج الطلبة من المجموعات أولاً للحفاظ على سلامة السجل.'],
+            ]);
+        }
+
+        $cycleId = $cycle->id;
+        DB::transaction(fn () => $cycle->delete());
+        $this->audit($request, 'group_registration.cycle_deleted', $cycleId);
+
+        return ApiResponse::success(null, 'تم حذف دورة التسجيل وقائمة الربط التابعة لها بنجاح.');
+    }
+
     public function importRoster(Request $request, GroupRegistrationCycle $cycle): JsonResponse
     {
         $data = $request->validate([
@@ -464,6 +492,7 @@ class GroupRegistrationAdminController extends Controller
                 'id' => $roster->student->id,
                 'name' => $roster->student->full_name_ar,
                 'university_number' => $roster->student->university_number,
+                'photo_url' => $roster->student->photo_url,
                 'academic_registration_status' => $roster->student->academic_registration_status,
                 'main_group_id' => $roster->group->id,
                 'main_group' => $roster->group->name,

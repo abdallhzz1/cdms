@@ -272,6 +272,47 @@ class GroupSelfRegistrationTest extends TestCase
         $this->assertTrue(AuditLog::where('student_id',$this->student->id)->where('is_override',true)->whereNotNull('override_reason')->exists());
     }
 
+    public function test_closed_cycle_without_group_history_can_be_deleted(): void
+    {
+        $permission=Permission::where('code','group_registration.manage_groups')->firstOrFail();
+        $role=Role::create(['code'=>'TEST_CYCLE_DELETE','name_key'=>'test.cycle.delete']);
+        $role->permissions()->attach($permission->id,['scope_type'=>'global']);
+        $user=User::factory()->create();
+        $user->roles()->attach($role);
+        $this->cycle->update(['status'=>'closed']);
+
+        $this->actingAs($user)
+            ->deleteJson("/api/v1/group-registration-cycles/{$this->cycle->id}")
+            ->assertOk();
+
+        $this->assertDatabaseMissing('group_registration_cycles',['id'=>$this->cycle->id]);
+        $this->assertDatabaseMissing('student_group_rosters',['group_registration_cycle_id'=>$this->cycle->id]);
+        $this->assertDatabaseHas('student_groups',['id'=>$this->group->id]);
+    }
+
+    public function test_cycle_with_student_group_history_cannot_be_deleted(): void
+    {
+        $permission=Permission::where('code','group_registration.manage_groups')->firstOrFail();
+        $role=Role::create(['code'=>'TEST_CYCLE_DELETE_GUARD','name_key'=>'test.cycle.delete.guard']);
+        $role->permissions()->attach($permission->id,['scope_type'=>'global']);
+        $user=User::factory()->create();
+        $user->roles()->attach($role);
+        $this->cycle->update(['status'=>'closed']);
+        $subgroup=$this->group->subgroups()->firstOrFail();
+        StudentGroupAssignment::create([
+            'student_id'=>$this->student->id,'academic_year_id'=>$this->year->id,
+            'student_group_id'=>$this->group->id,'student_subgroup_id'=>$subgroup->id,
+            'valid_from'=>now()->toDateString(),'change_reason'=>'test',
+        ]);
+
+        $this->actingAs($user)
+            ->deleteJson("/api/v1/group-registration-cycles/{$this->cycle->id}")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('cycle');
+
+        $this->assertDatabaseHas('group_registration_cycles',['id'=>$this->cycle->id]);
+    }
+
     public function test_subgroup_must_be_emptied_before_it_can_be_deleted_permanently(): void
     {
         $permission=Permission::where('code','group_registration.manage_groups')->firstOrFail();
