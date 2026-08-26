@@ -92,6 +92,11 @@ class GroupSelfRegistrationTest extends TestCase
         ]);
         $other=StudentGroup::create(['academic_year_id'=>$this->year->id,'academic_level'=>'fourth','name'=>'M','group_type'=>'self_registration']);
         $otherSub=$other->subgroups()->create(['name'=>'M1','capacity'=>6,'max_size'=>6,'is_active'=>true]);
+        $unrelatedAssignment=StudentGroupAssignment::create([
+            'student_id'=>$this->student->id,'academic_year_id'=>$this->year->id,
+            'student_group_id'=>$other->id,'student_subgroup_id'=>$otherSub->id,
+            'valid_from'=>now()->toDateString(),'change_reason'=>'unrelated_group_test',
+        ]);
 
         $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/options",['access_token'=>$token])
             ->assertOk()->assertJsonPath('data.main_group','L')->assertJsonCount(2,'data.subgroups')->assertJsonMissing(['M1']);
@@ -107,7 +112,8 @@ class GroupSelfRegistrationTest extends TestCase
         $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/select",['access_token'=>$token,'subgroup_id'=>$replacement->id])->assertOk();
         $this->assertDatabaseHas('student_group_assignments',['student_id'=>$this->student->id,'student_subgroup_id'=>$replacement->id,'valid_until'=>null]);
         $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/withdraw",['access_token'=>$token])->assertOk();
-        $this->assertSame(0,StudentGroupAssignment::where('student_id',$this->student->id)->whereNull('valid_until')->count());
+        $this->assertSame(0,StudentGroupAssignment::where('student_id',$this->student->id)->where('student_group_id',$this->group->id)->whereNull('valid_until')->count());
+        $this->assertNull($unrelatedAssignment->fresh()->valid_until);
     }
 
     public function test_full_subgroup_rejects_another_student(): void
