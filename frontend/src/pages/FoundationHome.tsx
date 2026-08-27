@@ -4,7 +4,6 @@ import ExcelJS from 'exceljs';
 import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
-  AlertCircle,
   ArrowLeft,
   BarChart3,
   BellRing,
@@ -33,8 +32,6 @@ import { Link } from 'react-router-dom';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { Button } from '@/components/ui/Button';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 
@@ -221,6 +218,7 @@ export function FoundationHome() {
   const ar = locale === 'ar';
   const tr = (arabic: string, english: string) => (ar ? arabic : english);
   const [exporting, setExporting] = useState(false);
+  const [selectedChartKey, setSelectedChartKey] = useState('');
 
   const dashboardQuery = useQuery({
     queryKey: ['role-dashboard-overview', user?.id],
@@ -236,6 +234,9 @@ export function FoundationHome() {
   const focus = FOCUS_COPY[dashboard.profile.focus] ?? FOCUS_COPY.general;
   const displayedMetrics = dashboard.metrics;
   const displayedCharts = dashboard.charts.filter((chart) => chart.items.length > 0);
+  const highlightedMetrics = displayedMetrics.slice(0, 4);
+  const remainingMetrics = displayedMetrics.slice(4);
+  const activeChart = displayedCharts.find((chart) => chart.key === selectedChartKey) ?? displayedCharts[0];
 
   const exportDashboard = async () => {
     setExporting(true);
@@ -355,214 +356,164 @@ export function FoundationHome() {
   ].filter(Boolean) as Array<{ route: string; labelAr: string; labelEn: string; icon: LucideIcon }>;
 
   return (
-    <div className="mx-auto max-w-[1360px] space-y-5 pb-16 print:max-w-none">
-      <PageHeader
-        title={tr('لوحة التحكم', 'Dashboard')}
-        description={tr(
-          'مؤشرات محدثة حسب أدوارك وصلاحياتك ونطاق عملك الفعلي.',
-          'Live indicators based on your roles, permissions, and effective work scope.',
-        )}
-      >
-        <Button variant="outline" onClick={() => dashboardQuery.refetch()}>
-          <RefreshCw className="me-2 h-4 w-4" />
-          {tr('تحديث', 'Refresh')}
-        </Button>
-        <Button variant="outline" onClick={() => window.print()}>
-          <Printer className="me-2 h-4 w-4" />
-          {tr('طباعة / PDF', 'Print / PDF')}
-        </Button>
-        <Button onClick={exportDashboard} disabled={exporting}>
-          {exporting ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Download className="me-2 h-4 w-4" />}
-          {tr('تصدير الإحصائيات', 'Export statistics')}
-        </Button>
-      </PageHeader>
-
-      <section className="overflow-hidden rounded-3xl border border-teal-100 bg-white shadow-sm">
-        <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-          <div className="flex items-start gap-4">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
-              <LayoutDashboard className="h-6 w-6" />
+    <div className="mx-auto max-w-[1440px] space-y-4 pb-12 print:max-w-none">
+      <header className="rounded-[28px] border border-slate-200 bg-white px-4 py-4 shadow-[0_8px_30px_rgba(15,23,42,0.04)] sm:px-6 sm:py-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 items-start gap-3 sm:items-center">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+              <LayoutDashboard className="h-5 w-5" />
             </span>
-            <div>
-              <p className="text-[11px] font-bold text-teal-700">{tr(focus.titleAr, focus.titleEn)}</p>
-              <h1 className="mt-1 text-xl font-black text-slate-900">{tr('أهلاً،', 'Welcome,')} {dashboard.profile.name}</h1>
-              <p className="mt-2 max-w-3xl text-xs leading-6 text-slate-500">{tr(focus.descriptionAr, focus.descriptionEn)}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <h1 className="text-lg font-black tracking-tight text-slate-950 sm:text-xl">{tr('مرحباً،', 'Welcome,')} {dashboard.profile.name}</h1>
+                <span className="hidden h-1 w-1 rounded-full bg-slate-300 sm:block" />
+                <span className="text-[10px] font-bold text-teal-700">{tr(focus.titleAr, focus.titleEn)}</span>
+              </div>
+              <p className="mt-1 max-w-3xl truncate text-[10px] text-slate-500 sm:text-xs">{tr(focus.descriptionAr, focus.descriptionEn)}</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
                 {dashboard.profile.roles.map((role) => {
                   const label = ROLE_LABELS[role];
-                  return (
-                    <span key={role} className="rounded-full border border-teal-100 bg-teal-50 px-3 py-1 text-[10px] font-bold text-teal-700">
-                      {label ? (ar ? label.ar : label.en) : role}
-                    </span>
-                  );
+                  return <span key={role} className="rounded-full bg-slate-100 px-2.5 py-1 text-[9px] font-bold text-slate-600">{label ? (ar ? label.ar : label.en) : role}</span>;
                 })}
-                {dashboard.profile.assigned_levels.map((level) => (
-                  <span key={level} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-bold text-slate-500">
-                    {tr(`نطاق الدفعة: ${level === 'fourth' ? 'الرابعة' : level === 'fifth' ? 'الخامسة' : level === 'sixth' ? 'السادسة' : level}`, `Cohort scope: ${level}`)}
-                  </span>
-                ))}
+                {dashboard.profile.assigned_levels.map((level) => <span key={level} className="rounded-full bg-teal-50 px-2.5 py-1 text-[9px] font-bold text-teal-700">{tr(`دفعة ${level === 'fourth' ? 'رابعة' : level === 'fifth' ? 'خامسة' : level === 'sixth' ? 'سادسة' : level}`, `${level} cohort`)}</span>)}
               </div>
             </div>
           </div>
-          <div className="rounded-2xl bg-teal-50 px-5 py-4 text-center">
-            <p className="text-2xl font-black text-teal-700">{dashboard.profile.scope_student_count}</p>
-            <p className="mt-1 text-[10px] font-bold text-teal-800">{tr('طالب ضمن نطاق البيانات', 'Students in data scope')}</p>
-            <p className="mt-1 text-[9px] text-teal-600">{localizedDate(dashboard.generated_at, locale, true)}</p>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 xl:pb-0">
+            <button onClick={() => dashboardQuery.refetch()} className="flex h-10 shrink-0 items-center gap-2 rounded-xl border border-slate-200 px-3 text-[10px] font-bold text-slate-600 transition hover:border-teal-200 hover:text-teal-700">
+              <RefreshCw className="h-4 w-4" /> <span className="hidden sm:inline">{tr('تحديث', 'Refresh')}</span>
+            </button>
+            <button onClick={() => window.print()} className="flex h-10 shrink-0 items-center gap-2 rounded-xl border border-slate-200 px-3 text-[10px] font-bold text-slate-600 transition hover:border-teal-200 hover:text-teal-700">
+              <Printer className="h-4 w-4" /> <span className="hidden sm:inline">{tr('طباعة', 'Print')}</span>
+            </button>
+            <button onClick={exportDashboard} disabled={exporting} className="flex h-10 shrink-0 items-center gap-2 rounded-xl bg-teal-600 px-4 text-[10px] font-black text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-60">
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} {tr('تصدير الإحصائيات', 'Export statistics')}
+            </button>
           </div>
         </div>
-      </section>
+      </header>
 
-      {dashboard.attention.length > 0 && (
-        <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 text-teal-700" />
-            <h2 className="text-sm font-black text-slate-900">{tr('يحتاج إلى متابعتك', 'Requires your attention')}</h2>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            {dashboard.attention.map((item) => (
-              <Link key={item.key} to={item.route} className="group flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3 transition hover:border-teal-200 hover:bg-teal-50">
-                <div>
-                  <p className="text-xs font-black text-slate-800">{ar ? item.label_ar : item.label_en}</p>
-                  <p className="mt-1 text-[10px] text-slate-500">{tr('فتح شاشة المتابعة', 'Open follow-up screen')}</p>
-                </div>
-                <span className="flex h-9 min-w-9 items-center justify-center rounded-xl bg-white px-2 text-sm font-black text-teal-700 shadow-sm">{item.count}</span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {displayedMetrics.length > 0 && (
-        <section>
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-black text-slate-900">{tr('المؤشرات الرئيسية', 'Key indicators')}</h2>
-              <p className="mt-1 text-[10px] text-slate-500">{tr('القيم المعروضة مقيدة بنطاق حسابك.', 'Displayed values are restricted to your account scope.')}</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-6">
-            {displayedMetrics.map((metric) => {
+      <section className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_12px_40px_rgba(15,23,42,0.05)]">
+        {highlightedMetrics.length > 0 && (
+          <div className="grid grid-cols-2 border-b border-slate-100 lg:grid-cols-4">
+            {highlightedMetrics.map((metric, index) => {
               const Icon = metricIcons[metric.key] ?? Activity;
               return (
-                <Link key={metric.key} to={metric.route} className="group rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-teal-200 hover:shadow-md">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <ArrowLeft className="h-3.5 w-3.5 text-slate-300 transition group-hover:-translate-x-1 group-hover:text-teal-600 rtl:rotate-180" />
+                <Link key={metric.key} to={metric.route} className={`group relative flex min-h-28 items-center gap-3 px-4 py-4 transition hover:bg-teal-50/60 sm:px-6 ${index % 2 !== 0 ? 'border-s border-slate-100' : ''} ${index > 1 ? 'border-t border-slate-100 lg:border-t-0' : ''} ${index > 0 ? 'lg:border-s lg:border-slate-100' : ''}`}>
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700 ring-1 ring-teal-100"><Icon className="h-4.5 w-4.5" /></span>
+                  <div className="min-w-0">
+                    <p className="text-xl font-black tabular-nums text-slate-950 sm:text-2xl">{metric.value.toLocaleString(locale === 'ar' ? 'ar-PS' : 'en-GB')}<span className="ms-1 text-[10px] text-teal-700">{metric.unit}</span></p>
+                    <p className="mt-1 line-clamp-2 text-[9px] font-bold leading-4 text-slate-500 sm:text-[10px]">{ar ? metric.label_ar : metric.label_en}</p>
                   </div>
-                  <p className="mt-4 text-2xl font-black text-slate-900">{metric.value.toLocaleString(locale === 'ar' ? 'ar-PS' : 'en-GB')}{metric.unit && <span className="ms-1 text-xs text-teal-700">{metric.unit}</span>}</p>
-                  <p className="mt-1 min-h-8 text-[10px] font-bold leading-4 text-slate-500">{ar ? metric.label_ar : metric.label_en}</p>
                 </Link>
               );
             })}
           </div>
-        </section>
-      )}
+        )}
 
-      {displayedCharts.length > 0 && (
-        <section>
-          <div className="mb-3">
-            <h2 className="text-sm font-black text-slate-900">{tr('التحليلات والمقارنات', 'Analytics and comparisons')}</h2>
-            <p className="mt-1 text-[10px] text-slate-500">{tr('رسوم مبنية مباشرة على البيانات المسجلة في النظام.', 'Charts generated directly from recorded system data.')}</p>
-          </div>
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            {displayedCharts.map((chart) => <ChartCard key={chart.key} chart={chart} ar={ar} />)}
-          </div>
-        </section>
-      )}
-
-      <section className="grid gap-4 lg:grid-cols-[1.25fr_.75fr]">
-        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <div className="flex items-center gap-2">
-              <Clock3 className="h-4 w-4 text-teal-700" />
-              <h2 className="text-sm font-black text-slate-900">{tr('آخر النشاطات المرتبطة بك', 'Your recent activity')}</h2>
+        <div className="grid min-h-[440px] xl:grid-cols-[minmax(0,1fr)_330px]">
+          <div className="min-w-0 p-4 sm:p-6 xl:border-e xl:border-slate-100">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-[0.18em] text-teal-600">{tr('التحليل التنفيذي', 'Executive analytics')}</p>
+                <h2 className="mt-1 text-base font-black text-slate-950">{activeChart ? (ar ? activeChart.title_ar : activeChart.title_en) : tr('ملخص الأداء', 'Performance summary')}</h2>
+                <p className="mt-1 text-[10px] text-slate-400">{tr('بيانات محدثة ومقيدة ضمن نطاق صلاحيات الحساب', 'Live data restricted to the account permission scope')}</p>
+              </div>
+              <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-slate-50 p-1">
+                {displayedCharts.map((chart, index) => (
+                  <button key={chart.key} onClick={() => setSelectedChartKey(chart.key)} className={`shrink-0 rounded-lg px-3 py-2 text-[9px] font-bold transition ${activeChart?.key === chart.key ? 'bg-white text-teal-700 shadow-sm ring-1 ring-slate-100' : 'text-slate-400 hover:text-slate-700'}`}>
+                    {index + 1}. {ar ? chart.title_ar : chart.title_en}
+                  </button>
+                ))}
+              </div>
             </div>
-          </header>
-          {dashboard.activity.length === 0 ? (
-            <div className="p-8 text-center text-xs text-slate-500">{tr('لا توجد نشاطات حديثة ضمن نطاقك.', 'No recent activity in your scope.')}</div>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {dashboard.activity.map((item) => (
-                <Link key={item.key} to={item.route} className="flex items-start gap-3 px-5 py-3.5 transition hover:bg-slate-50">
-                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-                    {item.type === 'task' ? <ListChecks className="h-4 w-4" /> : item.type === 'correspondence' ? <Mail className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-black text-slate-800">{item.title}</p>
-                    <p className="mt-1 text-[10px] text-slate-500">{ar ? item.subtitle_ar : item.subtitle_en}</p>
-                  </div>
-                  <time className="shrink-0 text-[9px] text-slate-400">{localizedDate(item.at, locale)}</time>
+            <div className="mt-7 min-h-[290px]">{activeChart ? <ExecutiveChart chart={activeChart} ar={ar} /> : <div className="flex h-72 items-center justify-center text-xs text-slate-400">{tr('لا توجد بيانات كافية للرسم بعد.', 'Not enough data to chart yet.')}</div>}</div>
+          </div>
+
+          <aside className="bg-slate-50/45 p-4 sm:p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xs font-black text-slate-900">{tr('مركز المتابعة', 'Follow-up center')}</h2>
+                <p className="mt-1 text-[9px] text-slate-400">{tr('الأولوية والإجراءات المطلوبة', 'Priorities and required actions')}</p>
+              </div>
+              <span className="flex h-9 min-w-9 items-center justify-center rounded-xl bg-white px-2 text-sm font-black text-teal-700 shadow-sm ring-1 ring-slate-100">{dashboard.attention.reduce((sum, item) => sum + item.count, 0)}</span>
+            </div>
+            <div className="mt-4 space-y-2">
+              {dashboard.attention.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-teal-200 bg-teal-50/50 p-5 text-center"><CheckCircle2 className="mx-auto h-5 w-5 text-teal-600" /><p className="mt-2 text-[10px] font-bold text-teal-800">{tr('لا توجد عناصر عاجلة', 'No urgent items')}</p></div>
+              ) : dashboard.attention.slice(0, 6).map((item) => (
+                <Link key={item.key} to={item.route} className="group flex items-center gap-3 rounded-2xl bg-white p-3 ring-1 ring-slate-100 transition hover:ring-teal-200">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-[11px] font-black text-teal-700">{item.count}</span>
+                  <div className="min-w-0 flex-1"><p className="truncate text-[10px] font-black text-slate-700">{ar ? item.label_ar : item.label_en}</p><p className="mt-1 text-[8px] text-slate-400">{tr('عرض التفاصيل والمتابعة', 'Review and follow up')}</p></div>
+                  <ArrowLeft className="h-3.5 w-3.5 text-slate-300 rtl:rotate-180" />
                 </Link>
               ))}
             </div>
-          )}
+          </aside>
         </div>
+      </section>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center gap-2">
-            <Activity className="h-4 w-4 text-teal-700" />
-            <h2 className="text-sm font-black text-slate-900">{tr('وصول سريع', 'Quick access')}</h2>
-          </div>
-          {quickActions.length === 0 ? (
-            <p className="rounded-2xl bg-slate-50 p-4 text-xs text-slate-500">{tr('لا توجد شاشات إضافية ضمن صلاحيات الحساب.', 'No additional screens are available for this account.')}</p>
-          ) : (
-            <div className="grid grid-cols-2 gap-2">
-              {quickActions.slice(0, 8).map((action) => {
-                const Icon = action.icon;
-                return (
-                  <Link key={action.route} to={action.route} className="flex items-center gap-2 rounded-2xl border border-slate-100 bg-slate-50/70 p-3 text-[11px] font-bold text-slate-700 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700">
-                    <Icon className="h-4 w-4 shrink-0 text-teal-600" />
-                    {ar ? action.labelAr : action.labelEn}
-                  </Link>
-                );
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(330px,.85fr)]">
+        <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="text-xs font-black text-slate-900">{tr('باقي مؤشرات الأداء', 'Additional performance indicators')}</h2><p className="mt-1 text-[9px] text-slate-400">{tr('عرض مركز بدون بطاقات إضافية', 'A focused view without extra cards')}</p></div><BarChart3 className="h-4 w-4 text-teal-600" /></div>
+          {remainingMetrics.length === 0 ? <p className="p-6 text-center text-[10px] text-slate-400">{tr('جميع المؤشرات معروضة في الملخص.', 'All indicators are shown in the summary.')}</p> : (
+            <div className="grid sm:grid-cols-2">
+              {remainingMetrics.map((metric, index) => {
+                const Icon = metricIcons[metric.key] ?? Activity;
+                return <Link key={metric.key} to={metric.route} className={`flex items-center gap-3 px-5 py-3.5 transition hover:bg-teal-50/50 ${index > 0 ? 'border-t border-slate-100' : ''} ${index === 1 ? 'sm:border-t-0' : ''} ${index % 2 === 1 ? 'sm:border-s sm:border-slate-100' : ''}`}><Icon className="h-4 w-4 shrink-0 text-teal-600" /><span className="min-w-0 flex-1 truncate text-[10px] font-bold text-slate-600">{ar ? metric.label_ar : metric.label_en}</span><strong className="text-sm tabular-nums text-slate-900">{metric.value}{metric.unit}</strong></Link>;
               })}
             </div>
           )}
         </div>
-      </section>
-    </div>
-  );
-}
 
-function ChartCard({ chart, ar }: { chart: Chart; ar: boolean }) {
-  return (
-    <article className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="mb-4 flex items-center gap-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-          <BarChart3 className="h-4 w-4" />
-        </span>
-        <h3 className="text-xs font-black text-slate-800">{ar ? chart.title_ar : chart.title_en}</h3>
-      </div>
-      {chart.type === 'donut' ? <DonutChart items={chart.items} ar={ar} /> : chart.type === 'line' ? <LineChart items={chart.items} ar={ar} /> : <BarComparison items={chart.items} ar={ar} />}
-    </article>
-  );
-}
-
-function BarComparison({ items, ar }: { items: ChartItem[]; ar: boolean }) {
-  const maximum = Math.max(1, ...items.map((item) => Number(item.value)));
-  return (
-    <div className="space-y-3">
-      {items.slice(0, 8).map((item, index) => (
-        <div key={`${item.label_en}-${index}`}>
-          <div className="mb-1.5 flex items-center justify-between gap-3 text-[10px]">
-            <span className="truncate font-bold text-slate-600">{ar ? item.label_ar : item.label_en}</span>
-            <span className="font-black text-teal-700">{item.value}</span>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-teal-500" style={{ width: `${(Number(item.value) / maximum) * 100}%` }} />
-          </div>
+        <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4"><Clock3 className="h-4 w-4 text-teal-600" /><h2 className="text-xs font-black text-slate-900">{tr('آخر النشاطات', 'Recent activity')}</h2></div>
+          {dashboard.activity.length === 0 ? <p className="p-8 text-center text-[10px] text-slate-400">{tr('لا توجد نشاطات حديثة ضمن نطاقك.', 'No recent activity in your scope.')}</p> : (
+            <div className="divide-y divide-slate-100">{dashboard.activity.slice(0, 5).map((item) => <Link key={item.key} to={item.route} className="flex items-center gap-3 px-5 py-3.5 transition hover:bg-slate-50"><span className="h-2 w-2 shrink-0 rounded-full bg-teal-500" /><div className="min-w-0 flex-1"><p className="truncate text-[10px] font-black text-slate-700">{item.title}</p><p className="mt-1 text-[8px] text-slate-400">{ar ? item.subtitle_ar : item.subtitle_en}</p></div><time className="shrink-0 text-[8px] text-slate-400">{localizedDate(item.at, locale)}</time></Link>)}</div>
+          )}
         </div>
-      ))}
+      </section>
+
+      {quickActions.length > 0 && <nav className="flex items-center gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">{quickActions.slice(0, 9).map((action) => { const Icon = action.icon; return <Link key={action.route} to={action.route} className="flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-[9px] font-bold text-slate-600 transition hover:bg-teal-50 hover:text-teal-700"><Icon className="h-4 w-4 text-teal-600" />{ar ? action.labelAr : action.labelEn}</Link>; })}</nav>}
     </div>
   );
 }
 
-function DonutChart({ items, ar }: { items: ChartItem[]; ar: boolean }) {
-  const total = items.reduce((sum, item) => sum + Number(item.value), 0);
+function ExecutiveChart({ chart, ar }: { chart: Chart; ar: boolean }) {
+  if (chart.type === 'donut') return <ExecutiveDonut items={chart.items} ar={ar} />;
+  if (chart.type === 'line') return <ExecutiveLine items={chart.items} ar={ar} />;
+  return <ExecutiveBars items={chart.items} ar={ar} />;
+}
+
+function ExecutiveBars({ items, ar }: { items: ChartItem[]; ar: boolean }) {
+  const visible = items.slice(0, 10);
+  const maximum = Math.max(1, ...visible.map((item) => Number(item.value)));
+  const width = 760;
+  const top = 24;
+  const bottom = 225;
+  const chartHeight = bottom - top;
+  const slot = (width - 76) / Math.max(1, visible.length);
+  const barWidth = Math.min(48, slot * .54);
+  return (
+    <div className="w-full overflow-hidden">
+      <svg viewBox={`0 0 ${width} 280`} className="h-[270px] w-full" role="img">
+        <defs><linearGradient id="dashboardBars" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2dd4bf" /><stop offset="100%" stopColor="#0f766e" /></linearGradient></defs>
+        {[0, .25, .5, .75, 1].map((ratio) => <g key={ratio}><line x1="38" x2={width - 38} y1={top + chartHeight * ratio} y2={top + chartHeight * ratio} stroke="#e8eef2" strokeDasharray="4 6" /><text x="28" y={top + chartHeight * ratio + 4} textAnchor="end" fontSize="9" fill="#94a3b8">{Math.round(maximum * (1 - ratio))}</text></g>)}
+        {visible.map((item, index) => {
+          const barHeight = (Number(item.value) / maximum) * chartHeight;
+          const x = 38 + slot * index + (slot - barWidth) / 2;
+          return <g key={`${item.label_en}-${index}`}><rect x={x} y={bottom - barHeight} width={barWidth} height={Math.max(2, barHeight)} rx="8" fill="url(#dashboardBars)" /><text x={x + barWidth / 2} y={bottom - barHeight - 9} textAnchor="middle" fontSize="10" fontWeight="800" fill="#0f766e">{item.value}</text><text x={x + barWidth / 2} y="255" textAnchor="middle" fontSize="9" fontWeight="600" fill="#64748b">{truncateLabel(ar ? item.label_ar : item.label_en)}</text></g>;
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function ExecutiveDonut({ items, ar }: { items: ChartItem[]; ar: boolean }) {
+  const visible = items.slice(0, 8);
+  const total = visible.reduce((sum, item) => sum + Number(item.value), 0);
   let offset = 0;
-  const gradient = items.map((item, index) => {
+  const gradient = visible.map((item, index) => {
     const start = total > 0 ? (offset / total) * 100 : 0;
     offset += Number(item.value);
     const end = total > 0 ? (offset / total) * 100 : 0;
@@ -570,54 +521,52 @@ function DonutChart({ items, ar }: { items: ChartItem[]; ar: boolean }) {
   }).join(', ');
 
   return (
-    <div className="grid grid-cols-[7.5rem_1fr] items-center gap-4">
-      <div className="relative mx-auto h-28 w-28 rounded-full" style={{ background: total > 0 ? `conic-gradient(${gradient})` : '#f1f5f9' }}>
-        <div className="absolute inset-4 flex flex-col items-center justify-center rounded-full bg-white">
-          <span className="text-xl font-black text-slate-900">{total}</span>
-          <span className="text-[9px] font-bold text-slate-400">{ar ? 'الإجمالي' : 'Total'}</span>
+    <div className="grid min-h-[270px] items-center gap-7 sm:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="relative mx-auto h-52 w-52 rounded-full shadow-[0_20px_45px_rgba(13,148,136,.12)]" style={{ background: total > 0 ? `conic-gradient(${gradient})` : '#e2e8f0' }}>
+        <div className="absolute inset-[30px] flex flex-col items-center justify-center rounded-full bg-white shadow-inner">
+          <span className="text-3xl font-black tabular-nums text-slate-950">{total}</span>
+          <span className="mt-1 text-[9px] font-bold uppercase tracking-widest text-slate-400">{ar ? 'الإجمالي' : 'Total'}</span>
         </div>
       </div>
-      <div className="space-y-2">
-        {items.slice(0, 6).map((item, index) => (
-          <div key={`${item.label_en}-${index}`} className="flex items-center justify-between gap-2 text-[10px]">
-            <span className="flex min-w-0 items-center gap-2">
-              <i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: chartColors[index % chartColors.length] }} />
-              <span className="truncate font-bold text-slate-600">{ar ? item.label_ar : item.label_en}</span>
-            </span>
-            <b className="text-slate-800">{item.value}</b>
-          </div>
-        ))}
+      <div className="grid gap-2 sm:grid-cols-2">
+        {visible.map((item, index) => {
+          const percentage = total ? Math.round((Number(item.value) / total) * 100) : 0;
+          return <div key={`${item.label_en}-${index}`} className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3"><i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: chartColors[index % chartColors.length] }} /><div className="min-w-0 flex-1"><p className="truncate text-[9px] font-bold text-slate-500">{ar ? item.label_ar : item.label_en}</p><p className="mt-1 text-sm font-black text-slate-900">{item.value} <span className="text-[9px] font-bold text-slate-400">({percentage}%)</span></p></div></div>;
+        })}
       </div>
     </div>
   );
 }
 
-function LineChart({ items, ar }: { items: ChartItem[]; ar: boolean }) {
-  const values = items.map((item) => Number(item.value));
+function ExecutiveLine({ items, ar }: { items: ChartItem[]; ar: boolean }) {
+  const visible = items.slice(0, 10);
+  const values = visible.map((item) => Number(item.value));
   const maximum = Math.max(1, ...values);
-  const width = 420;
-  const height = 125;
-  const points = items.map((item, index) => {
-    const x = items.length > 1 ? (index / (items.length - 1)) * (width - 28) + 14 : width / 2;
-    const y = height - 18 - (Number(item.value) / maximum) * (height - 38);
+  const width = 760;
+  const top = 24;
+  const bottom = 225;
+  const chartHeight = bottom - top;
+  const points = visible.map((item, index) => {
+    const x = visible.length > 1 ? 38 + (index / (visible.length - 1)) * (width - 76) : width / 2;
+    const y = bottom - (Number(item.value) / maximum) * chartHeight;
     return { x, y, item };
   });
+  const linePoints = points.map((point) => `${point.x},${point.y}`).join(' ');
+  const areaPoints = `38,${bottom} ${linePoints} ${width - 38},${bottom}`;
 
   return (
-    <div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-32 w-full overflow-visible" role="img">
-        {[0.25, 0.5, 0.75].map((ratio) => <line key={ratio} x1="12" x2={width - 12} y1={height * ratio} y2={height * ratio} stroke="#e2e8f0" strokeWidth="1" />)}
-        <polyline fill="none" stroke="#0d9488" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={points.map((point) => `${point.x},${point.y}`).join(' ')} />
-        {points.map((point, index) => (
-          <g key={index}>
-            <circle cx={point.x} cy={point.y} r="4" fill="#ffffff" stroke="#0d9488" strokeWidth="3" />
-            <text x={point.x} y={point.y - 10} textAnchor="middle" fontSize="10" fontWeight="700" fill="#0f766e">{point.item.value}</text>
-          </g>
-        ))}
+    <div className="w-full overflow-hidden">
+      <svg viewBox={`0 0 ${width} 280`} className="h-[270px] w-full" role="img">
+        <defs><linearGradient id="dashboardArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#14b8a6" stopOpacity=".25" /><stop offset="100%" stopColor="#14b8a6" stopOpacity="0" /></linearGradient></defs>
+        {[0, .25, .5, .75, 1].map((ratio) => <g key={ratio}><line x1="38" x2={width - 38} y1={top + chartHeight * ratio} y2={top + chartHeight * ratio} stroke="#e8eef2" strokeDasharray="4 6" /><text x="28" y={top + chartHeight * ratio + 4} textAnchor="end" fontSize="9" fill="#94a3b8">{Math.round(maximum * (1 - ratio))}</text></g>)}
+        <polygon points={areaPoints} fill="url(#dashboardArea)" />
+        <polyline fill="none" stroke="#0d9488" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" points={linePoints} />
+        {points.map((point, index) => <g key={index}><circle cx={point.x} cy={point.y} r="5" fill="#fff" stroke="#0d9488" strokeWidth="3" /><text x={point.x} y={point.y - 13} textAnchor="middle" fontSize="10" fontWeight="800" fill="#0f766e">{point.item.value}</text><text x={point.x} y="255" textAnchor="middle" fontSize="9" fontWeight="600" fill="#64748b">{truncateLabel(ar ? point.item.label_ar : point.item.label_en)}</text></g>)}
       </svg>
-      <div className="grid text-center text-[8px] font-semibold text-slate-400" style={{ gridTemplateColumns: `repeat(${Math.max(1, items.length)}, minmax(0, 1fr))` }}>
-        {items.map((item, index) => <span key={index} className="truncate px-0.5">{ar ? item.label_ar : item.label_en}</span>)}
-      </div>
     </div>
   );
+}
+
+function truncateLabel(value: string): string {
+  return value.length > 13 ? `${value.slice(0, 11)}…` : value;
 }
