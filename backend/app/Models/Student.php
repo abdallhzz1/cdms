@@ -60,6 +60,7 @@ class Student extends Model
         'guardian_phone',
         'university_email',
         'photo_url',
+        'photo_storage_path',
         'batch_year',
         'academic_level',
         'academic_year_id',
@@ -74,6 +75,7 @@ class Student extends Model
         'clinical_fees_status',
         'has_amboss_subscription',
         'notes',
+        'documents',
         'data_source',
     ];
 
@@ -84,6 +86,7 @@ class Student extends Model
             'last_warning_date' => 'date',
             'gpa' => 'decimal:2',
             'has_amboss_subscription' => 'boolean',
+            'documents' => 'array',
         ];
     }
 

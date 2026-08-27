@@ -10,7 +10,11 @@ use Illuminate\Validation\ValidationException;
 class SecureFileUploadService
 {
     private const AVATAR_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+
     private const DOCUMENT_MIMES = [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
         'application/pdf',
         'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -65,12 +69,12 @@ class SecureFileUploadService
         string $field
     ): array {
         if ($source instanceof UploadedFile) {
-            if (!$source->isValid() || $source->getSize() > $maxBytes) {
+            if (! $source->isValid() || $source->getSize() > $maxBytes) {
                 throw ValidationException::withMessages([$field => ['The uploaded file is invalid or too large.']]);
             }
             $bytes = file_get_contents($source->getRealPath());
         } else {
-            if (!preg_match('#^data:([^;,]+);base64,(.+)$#s', $source, $matches)) {
+            if (! preg_match('#^data:([^;,]+);base64,(.+)$#s', $source, $matches)) {
                 throw ValidationException::withMessages([$field => ['A valid base64 data URL is required.']]);
             }
             $bytes = base64_decode($matches[2], true);
@@ -80,7 +84,7 @@ class SecureFileUploadService
         }
 
         $detectedMime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes);
-        if (!in_array($detectedMime, $allowedMimes, true)) {
+        if (! in_array($detectedMime, $allowedMimes, true)) {
             throw ValidationException::withMessages([$field => ['This file type is not allowed.']]);
         }
 

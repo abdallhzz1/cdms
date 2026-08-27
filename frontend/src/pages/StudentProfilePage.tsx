@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
@@ -21,16 +21,17 @@ interface StudentDoc {
   id: string;
   title: string;
   category: string;
-  fileName: string;
-  fileSize: string;
-  uploadedAt: string;
-  uploadedBy: string;
-  dataUrl?: string;
-  fileType?: string;
+  file_name: string;
+  size_bytes: number;
+  uploaded_at: string;
+  uploaded_by?: string;
+  download_url: string;
+  mime_type?: string;
 }
 
 function ProfileClinicalField({label,value}:{label:string;value:string}){return <div className="rounded-xl bg-slate-50 px-3 py-2"><p className="text-[10px] font-bold text-slate-400">{label}</p><p className="mt-1 truncate text-xs font-black text-slate-700">{value}</p></div>}
 function attendanceStatusLabel(status:string,locale:string){const labels:Record<string,[string,string]>={present:['حاضر','Present'],absent:['غائب','Absent'],late:['متأخر','Late'],excused:['مبرر','Excused']};const value=labels[status]??[status,status];return value[locale==='ar'?0:1]}
+function generalStatusLabel(status:string,locale:string){const labels:Record<string,[string,string]>={active:['منتظم','Active'],suspended:['موقوف','Suspended'],on_leave:['إجازة','On leave'],transferred:['منتقل','Transferred'],graduated:['متخرج','Graduated'],repeating:['معيد للسنة','Repeating'],deferred:['مؤجل','Deferred']};const value=labels[status]??[status,status];return value[locale==='ar'?0:1]}
 
 export function StudentProfilePage() {
   const { id: studentId } = useParams<{ id: string }>();
@@ -41,7 +42,6 @@ export function StudentProfilePage() {
 
   const [activeTab, setActiveTab] = useState<ProfileTab>('overview');
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
-  const [previewDoc, setPreviewDoc] = useState<StudentDoc | null>(null);
   const [newDocTitle, setNewDocTitle] = useState('');
   const [newDocCategory, setNewDocCategory] = useState('clinical_pledge');
   const [selectedDocFile, setSelectedDocFile] = useState<File | null>(null);
@@ -56,6 +56,7 @@ export function StudentProfilePage() {
     academic_level: 'fourth',
     batch_year: 2022,
     registration_status: 'active',
+    academic_registration_status: 'registered',
     gender: 'male',
     university_email: '',
     phone: '',
@@ -64,106 +65,76 @@ export function StudentProfilePage() {
     date_of_birth: '',
     gpa: '',
     warning_count: 0,
+    credit_hours_passed: '',
+    clinical_fees_status: 'unknown',
+    has_amboss_subscription: false,
+    notes: '',
   });
-
-  // Documents state loaded from storage for this student only
-  const [documents, setDocuments] = useState<StudentDoc[]>(() => {
-    if (!studentId) return [];
-    const saved = localStorage.getItem(`student_docs_${studentId}`);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return [];
-      }
-    }
-    return [];
-  });
-
-  // Re-sync documents when studentId changes
-  useEffect(() => {
-    if (studentId) {
-      const saved = localStorage.getItem(`student_docs_${studentId}`);
-      if (saved) {
-        try {
-          setDocuments(JSON.parse(saved));
-        } catch (e) {
-          setDocuments([]);
-        }
-      } else {
-        setDocuments([]);
-      }
-    }
-  }, [studentId]);
-
-  // Save documents whenever updated
-  useEffect(() => {
-    if (studentId) {
-      localStorage.setItem(`student_docs_${studentId}`, JSON.stringify(documents));
-    }
-  }, [documents, studentId]);
 
   // Main student data query
   const { data: student_data, isLoading, isError, refetch } = useQuery({
     queryKey: ['student', studentId],
     queryFn: () => apiFetch(`/students/${studentId}`),
-    enabled: Boolean(studentId)
+    enabled: Boolean(studentId) && can('students.view')
   });
 
   // Enrollments & Grades
   const { data: enrollments = [] } = useQuery({
     queryKey: ['student-enrollments', studentId],
     queryFn: () => apiFetch<any[]>(`/student-course-enrollments?student_id=${studentId}&include_grades=1&per_page=100`),
-    enabled: Boolean(studentId)
+    enabled: Boolean(studentId) && can('students.view')
   });
 
   // Clinical Schedule / Rotations
   const { data: clinicalSchedule = [] } = useQuery({
     queryKey: ['student-clinical-schedule', studentId],
     queryFn: () => apiFetch<any[]>(`/students/${studentId}/current-clinical-schedule`),
-    enabled: Boolean(studentId)
+    enabled: Boolean(studentId) && can('distribution.view')
   });
 
   // Advising Records
   const { data: advisingRecords = [] } = useQuery({
     queryKey: ['student-advising-records', studentId],
     queryFn: () => apiFetch<any[]>(`/advising-records?student_id=${studentId}`),
-    enabled: Boolean(studentId)
+    enabled: Boolean(studentId) && can('advising.view')
   });
 
   // Attendance Records
   const { data: attendanceRecords = [] } = useQuery({
     queryKey: ['student-attendance-records', studentId],
     queryFn: () => apiFetch<any[]>(`/attendance-records?student_id=${studentId}`),
-    enabled: Boolean(studentId)
+    enabled: Boolean(studentId) && can('attendance.view')
   });
-
-  // Local optimistic student photo state
-  const [localPhoto, setLocalPhoto] = useState<string | null>(() => {
-    return studentId ? localStorage.getItem(`student_photo_${studentId}`) : null;
-  });
-
-  useEffect(() => {
-    if (studentId) {
-      const cached = localStorage.getItem(`student_photo_${studentId}`);
-      if (cached) setLocalPhoto(cached);
-    }
-  }, [studentId]);
 
   // Upload Photo Mutation
   const updatePhotoMutation = useMutation({
-    mutationFn: (photoUrl: string) => apiFetch(`/students/${studentId}`, { 
-      method: 'PUT', 
-      body: { photo_url: photoUrl } 
-    }),
-    onSuccess: (res: any) => {
+    mutationFn: (file: File) => {
+      const body = new FormData();
+      body.append('photo', file);
+      return apiFetch(`/students/${studentId}/photo`, { method: 'POST', body });
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['student', studentId] });
       queryClient.invalidateQueries({ queryKey: ['directory', 'students'] });
-      if (res?.data?.photo_url) {
-        setLocalPhoto(res.data.photo_url);
-        if (studentId) localStorage.setItem(`student_photo_${studentId}`, res.data.photo_url);
-      }
-    }
+    },
+    onError: (err: any) => alert(err?.message || (locale === 'ar' ? 'تعذر رفع الصورة' : 'Photo upload failed')),
+  });
+
+  const uploadDocumentMutation = useMutation({
+    mutationFn: (body: FormData) => apiFetch(`/students/${studentId}/documents`, { method: 'POST', body }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['student', studentId] });
+      setIsDocModalOpen(false);
+      setNewDocTitle('');
+      setSelectedDocFile(null);
+    },
+    onError: (err: any) => alert(err?.message || (locale === 'ar' ? 'تعذر رفع الوثيقة' : 'Document upload failed')),
+  });
+
+  const deleteDocumentMutation = useMutation({
+    mutationFn: (documentId: string) => apiFetch(`/students/${studentId}/documents/${documentId}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['student', studentId] }),
+    onError: (err: any) => alert(err?.message || (locale === 'ar' ? 'تعذر حذف الوثيقة' : 'Document deletion failed')),
   });
 
   // Update Student Profile Mutation for Admin Assistant / Admins
@@ -182,49 +153,14 @@ export function StudentProfilePage() {
     }
   });
 
-  const compressImage = (file: File, maxSize: number = 400): Promise<string> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-          if (width > height) {
-            if (width > maxSize) {
-              height = Math.round((height * maxSize) / width);
-              width = maxSize;
-            }
-          } else {
-            if (height > maxSize) {
-              width = Math.round((width * maxSize) / height);
-              height = maxSize;
-            }
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.85));
-        };
-        img.src = e.target?.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    try {
-      const base64Photo = await compressImage(file, 350);
-      setLocalPhoto(base64Photo);
-      if (studentId) localStorage.setItem(`student_photo_${studentId}`, base64Photo);
-      updatePhotoMutation.mutate(base64Photo);
-    } catch (err) {
-      console.error('Failed to compress image:', err);
+    if (file.size > 2 * 1024 * 1024) {
+      alert(locale === 'ar' ? 'حجم الصورة يجب ألا يتجاوز 2MB' : 'Photo must not exceed 2MB');
+      return;
     }
+    updatePhotoMutation.mutate(file);
   };
 
   const handleOpenEditModal = () => {
@@ -237,6 +173,7 @@ export function StudentProfilePage() {
       academic_level: student.academic_level || 'fourth',
       batch_year: student.batch_year || (student.academic_level === 'fourth' ? 2022 : student.academic_level === 'fifth' ? 2021 : 2020),
       registration_status: student.registration_status || 'active',
+      academic_registration_status: student.academic_registration_status || 'registered',
       gender: student.gender || 'male',
       university_email: student.university_email || '',
       phone: student.phone || '',
@@ -245,6 +182,10 @@ export function StudentProfilePage() {
       date_of_birth: student.date_of_birth ? student.date_of_birth.split('T')[0] : '',
       gpa: student.gpa !== null && student.gpa !== undefined ? String(student.gpa) : '',
       warning_count: student.warning_count ?? 0,
+      credit_hours_passed: student.credit_hours_passed ?? '',
+      clinical_fees_status: student.clinical_fees_status || 'unknown',
+      has_amboss_subscription: Boolean(student.has_amboss_subscription),
+      notes: student.notes || '',
     });
     setIsEditModalOpen(true);
   };
@@ -254,8 +195,9 @@ export function StudentProfilePage() {
     const payload = {
       ...studentForm,
       batch_year: studentForm.batch_year ? Number(studentForm.batch_year) : undefined,
-      university_email: studentForm.university_email || `${studentForm.university_number}@hebron.edu`,
+      university_email: studentForm.university_email || `${studentForm.university_number}@students.hebron.edu`,
       gpa: studentForm.gpa !== '' ? Number(studentForm.gpa) : null,
+      credit_hours_passed: studentForm.credit_hours_passed !== '' ? Number(studentForm.credit_hours_passed) : null,
       warning_count: Number(studentForm.warning_count || 0),
     };
     updateStudentMutation.mutate(payload);
@@ -263,48 +205,21 @@ export function StudentProfilePage() {
 
   const handleUploadDocument = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDocTitle.trim()) return;
-
-    let dataUrl: string | undefined = undefined;
-    let fileType: string | undefined = undefined;
-    let fileName = 'document.pdf';
-    let fileSize = '1.2 MB';
-
-    if (selectedDocFile) {
-      fileName = selectedDocFile.name;
-      fileSize = `${(selectedDocFile.size / (1024 * 1024)).toFixed(1)} MB`;
-      fileType = selectedDocFile.type;
-
-      if (selectedDocFile.type.startsWith('image/') || selectedDocFile.type === 'application/pdf') {
-        dataUrl = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (evt) => resolve(evt.target?.result as string);
-          reader.readAsDataURL(selectedDocFile);
-        });
-      }
+    if (!newDocTitle.trim() || !selectedDocFile) return;
+    if (selectedDocFile.size > 10 * 1024 * 1024) {
+      alert(locale === 'ar' ? 'حجم الوثيقة يجب ألا يتجاوز 10MB' : 'Document must not exceed 10MB');
+      return;
     }
-
-    const newDoc: StudentDoc = {
-      id: String(Date.now()),
-      title: newDocTitle.trim(),
-      category: newDocCategory,
-      fileName,
-      fileSize,
-      uploadedAt: new Date().toISOString().split('T')[0],
-      uploadedBy: locale === 'ar' ? 'المساعد الإداري' : 'Admin Assistant',
-      dataUrl,
-      fileType,
-    };
-
-    setDocuments((prev) => [newDoc, ...prev]);
-    setIsDocModalOpen(false);
-    setNewDocTitle('');
-    setSelectedDocFile(null);
+    const body = new FormData();
+    body.append('title', newDocTitle.trim());
+    body.append('category', newDocCategory);
+    body.append('file', selectedDocFile);
+    uploadDocumentMutation.mutate(body);
   };
 
   const handleDeleteDoc = (docId: string) => {
     if (window.confirm(locale === 'ar' ? 'هل أنت متأكد من رغبتك في حذف هذا المستند؟' : 'Are you sure you want to delete this document?')) {
-      setDocuments((prev) => prev.filter((d) => d.id !== docId));
+      deleteDocumentMutation.mutate(docId);
     }
   };
 
@@ -312,6 +227,7 @@ export function StudentProfilePage() {
   if (isError || !student_data) return <ErrorState onRetry={() => refetch()} />;
 
   const student = (student_data as any)?.data || student_data;
+  const documents: StudentDoc[] = Array.isArray(student.documents) ? student.documents : [];
   const name = locale === 'ar' ? student.full_name_ar : (student.full_name_en || student.full_name_ar);
   const advisor = student.academic_advisor ? (locale === 'ar' ? student.academic_advisor.full_name_ar : (student.academic_advisor.full_name_en || student.academic_advisor.full_name_ar)) : null;
 
@@ -345,8 +261,8 @@ export function StudentProfilePage() {
   const TABS = [
     { key: 'overview', label: locale === 'ar' ? 'البيانات الشخصية والإرشاد' : 'Overview & Info', icon: User },
     { key: 'academic', label: locale === 'ar' ? 'المساقات والعلامات' : 'Courses & Grades', icon: GraduationCap, count: enrollments.length },
-    { key: 'clinical', label: locale === 'ar' ? 'التدريب والمستشفيات' : 'Clinical Training', icon: Building2, count: clinicalItems.length },
-    { key: 'attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance', icon: Clock, count: attendanceItems.length },
+    ...(can('distribution.view') ? [{ key: 'clinical', label: locale === 'ar' ? 'التدريب والمستشفيات' : 'Clinical Training', icon: Building2, count: clinicalItems.length }] : []),
+    ...(can('attendance.view') ? [{ key: 'attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance', icon: Clock, count: attendanceItems.length }] : []),
     { key: 'documents', label: locale === 'ar' ? 'وثائق وملفات الطالب' : 'Documents', icon: FolderOpen, count: documents.length },
   ];
 
@@ -380,9 +296,9 @@ export function StudentProfilePage() {
               />
 
               <div className="h-24 w-24 sm:h-28 sm:w-28 rounded-full border-2 border-slate-100 bg-teal-50 text-teal-700 shadow-sm flex items-center justify-center overflow-hidden">
-                {(localPhoto || student.photo_url) ? (
+                {student.photo_url ? (
                   <img 
-                    src={localPhoto || student.photo_url} 
+                    src={student.photo_url}
                     alt={name} 
                     className="h-full w-full object-cover rounded-full" 
                   />
@@ -414,6 +330,10 @@ export function StudentProfilePage() {
                 {student.full_name_en && locale === 'ar' && (
                   <p className="text-xs text-slate-400 mt-0.5">{student.full_name_en}</p>
                 )}
+                <p className="mt-1 text-[10px] text-slate-400">
+                  {locale === 'ar' ? 'آخر تحديث' : 'Last updated'}: {student.updated_at ? new Date(student.updated_at).toLocaleString(locale === 'ar' ? 'ar-PS' : 'en-GB') : '—'}
+                  {student.data_source ? ` · ${locale === 'ar' ? 'المصدر' : 'Source'}: ${student.data_source}` : ''}
+                </p>
               </div>
 
               {/* Badges Row */}
@@ -431,8 +351,18 @@ export function StudentProfilePage() {
                 </span>
 
                 <span className="text-xs font-semibold text-teal-700 bg-teal-50 px-3 py-1 rounded-xl border border-teal-100">
-                  {student.registration_status === 'active' ? (locale === 'ar' ? 'منتظم' : 'Active') : student.registration_status}
+                  {generalStatusLabel(student.registration_status, locale)}
                 </span>
+
+                <span className={`text-xs font-semibold px-3 py-1 rounded-xl border ${student.academic_registration_status === 'registered' ? 'border-teal-100 bg-teal-50 text-teal-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+                  {student.academic_registration_status === 'registered' ? (locale === 'ar' ? 'مسجل أكاديمياً' : 'Academically registered') : (locale === 'ar' ? 'غير مسجل أكاديمياً' : 'Academically unregistered')}
+                </span>
+
+                {(student.registration_main_group || student.current_group_name) && (
+                  <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-3 py-1 rounded-xl">
+                    {locale === 'ar' ? 'المجموعة' : 'Group'}: {student.registration_main_group || student.current_group_name}{student.current_subgroup_name ? ` / ${student.current_subgroup_name}` : ''}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -493,10 +423,10 @@ export function StudentProfilePage() {
               {locale === 'ar' ? 'المؤشرات الأكاديمية والسريرية' : 'Academic Summary'}
             </h3>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+            <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-3 lg:grid-cols-6">
               <div className="p-3 rounded-2xl bg-teal-50/70 border border-teal-100/80">
                 <span className="text-[11px] text-teal-800 font-semibold block mb-1">{locale === 'ar' ? 'المعدل التراكمي' : 'GPA'}</span>
-                <span className="text-base font-bold text-teal-800">{student.gpa ? `%${student.gpa}` : '—'}</span>
+                <span className="text-base font-bold text-teal-800">{student.gpa !== null && student.gpa !== undefined ? `%${student.gpa}` : '—'}</span>
               </div>
 
               <div className="p-3 rounded-2xl bg-slate-50/70 border border-slate-100/80">
@@ -515,6 +445,16 @@ export function StudentProfilePage() {
                 <span className="text-[11px] text-slate-400 block mb-1">{locale === 'ar' ? 'المرشد الأكاديمي' : 'Advisor'}</span>
                 <span className="text-xs font-bold text-slate-800 truncate block">{advisor || (locale === 'ar' ? 'لم يُعيّن' : '—')}</span>
               </div>
+
+              <div className="p-3 rounded-2xl bg-slate-50/70 border border-slate-100">
+                <span className="text-[11px] text-slate-400 block mb-1">{locale === 'ar' ? 'الساعات المجتازة' : 'Passed hours'}</span>
+                <span className="text-base font-bold text-slate-800">{student.credit_hours_passed ?? '—'}</span>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-slate-50/70 border border-slate-100">
+                <span className="text-[11px] text-slate-400 block mb-1">{locale === 'ar' ? 'التسجيل الأكاديمي' : 'Registration'}</span>
+                <span className="text-xs font-bold text-slate-800">{student.academic_registration_status === 'registered' ? (locale === 'ar' ? 'مسجل' : 'Registered') : (locale === 'ar' ? 'غير مسجل' : 'Unregistered')}</span>
+              </div>
             </div>
           </div>
 
@@ -527,7 +467,7 @@ export function StudentProfilePage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-8 text-xs">
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">{locale === 'ar' ? 'البريد الجامعي' : 'Email'}</span>
-                <span className="font-semibold text-slate-800">{student.university_email || `${student.university_number}@hebron.edu`}</span>
+                <span className="font-semibold text-slate-800">{student.university_email || `${student.university_number}@students.hebron.edu`}</span>
               </div>
 
               <div className="flex justify-between py-1.5 border-b border-slate-100">
@@ -559,7 +499,18 @@ export function StudentProfilePage() {
                 <span className="text-slate-400">{locale === 'ar' ? 'الجنس' : 'Gender'}</span>
                 <span className="font-semibold text-slate-800">{student.gender === 'female' ? (locale === 'ar' ? 'أنثى' : 'Female') : (locale === 'ar' ? 'ذكر' : 'Male')}</span>
               </div>
+
+              <div className="flex justify-between py-1.5 border-b border-slate-100">
+                <span className="text-slate-400">{locale === 'ar' ? 'الرسوم السريرية' : 'Clinical fees'}</span>
+                <span className="font-semibold text-slate-800">{{paid: locale === 'ar' ? 'مدفوعة' : 'Paid', pending: locale === 'ar' ? 'قيد المتابعة' : 'Pending', exempt: locale === 'ar' ? 'معفى' : 'Exempt', unknown: locale === 'ar' ? 'غير محدد' : 'Unknown'}[student.clinical_fees_status as 'paid'|'pending'|'exempt'|'unknown'] || '—'}</span>
+              </div>
+
+              <div className="flex justify-between py-1.5 border-b border-slate-100">
+                <span className="text-slate-400">AMBOSS</span>
+                <span className="font-semibold text-slate-800">{student.has_amboss_subscription ? (locale === 'ar' ? 'مشترك' : 'Subscribed') : (locale === 'ar' ? 'غير مشترك' : 'Not subscribed')}</span>
+              </div>
             </div>
+            {student.notes && <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-3 text-xs leading-6 text-slate-600"><span className="font-bold text-slate-700">{locale === 'ar' ? 'ملاحظات إدارية: ' : 'Administrative notes: '}</span>{student.notes}</div>}
           </div>
 
           {/* Advising Sessions List */}
@@ -691,18 +642,20 @@ export function StudentProfilePage() {
                     <FileText className="w-5 h-5 text-teal-600 shrink-0" />
                     <div className="min-w-0">
                       <div className="font-bold text-slate-800 truncate">{doc.title}</div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">{doc.uploadedAt} • {doc.fileSize}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">{String(doc.uploaded_at || '').slice(0, 10)} • {(Number(doc.size_bytes || 0) / (1024 * 1024)).toFixed(1)} MB</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    {doc.dataUrl && (
-                      <button
-                        onClick={() => setPreviewDoc(doc)}
+                    {doc.download_url && (
+                      <a
+                        href={doc.download_url}
+                        target="_blank"
+                        rel="noreferrer"
                         className="p-1.5 text-slate-500 hover:text-teal-600 rounded-lg hover:bg-slate-200/50"
                         title={locale === 'ar' ? 'معاينة' : 'Preview'}
                       >
                         <Eye className="w-4 h-4" />
-                      </button>
+                      </a>
                     )}
                     {can('students.update') && (
                       <button
@@ -795,7 +748,7 @@ export function StudentProfilePage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'سنة الدفعة:' : 'Batch Year:'}</label>
                   <input
@@ -807,17 +760,33 @@ export function StudentProfilePage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'الحالة الأكاديمية:' : 'Status:'}</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'الحالة العامة للطالب:' : 'General student status:'}</label>
                   <select
                     value={studentForm.registration_status}
                     onChange={e => setStudentForm({ ...studentForm, registration_status: e.target.value })}
                     className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold bg-white cursor-pointer focus:ring-1 focus:ring-teal-600"
                   >
                     <option value="active">{locale === 'ar' ? 'منتظم / نشط' : 'Active'}</option>
-                    <option value="delayed">{locale === 'ar' ? 'مؤجل' : 'Delayed'}</option>
                     <option value="suspended">{locale === 'ar' ? 'موقوف' : 'Suspended'}</option>
+                    <option value="on_leave">{locale === 'ar' ? 'إجازة' : 'On leave'}</option>
+                    <option value="transferred">{locale === 'ar' ? 'منتقل' : 'Transferred'}</option>
                     <option value="graduated">{locale === 'ar' ? 'متخرج' : 'Graduated'}</option>
+                    <option value="repeating">{locale === 'ar' ? 'معيد للسنة' : 'Repeating'}</option>
+                    <option value="deferred">{locale === 'ar' ? 'مؤجل' : 'Deferred'}</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'حالة التسجيل الأكاديمية:' : 'Academic registration:'}</label>
+                  <select
+                    value={studentForm.academic_registration_status}
+                    onChange={e => setStudentForm({ ...studentForm, academic_registration_status: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold bg-white cursor-pointer focus:ring-1 focus:ring-teal-600"
+                  >
+                    <option value="registered">{locale === 'ar' ? 'مسجل' : 'Registered'}</option>
+                    <option value="unregistered">{locale === 'ar' ? 'غير مسجل' : 'Unregistered'}</option>
+                  </select>
+                  <p className="mt-1 text-[10px] text-slate-400">{locale === 'ar' ? 'تتحكم بإتاحة روابط تسجيل المجموعات والاستعلام.' : 'Controls group registration and student lookup access.'}</p>
                 </div>
 
                 <div>
@@ -834,7 +803,7 @@ export function StudentProfilePage() {
               </div>
 
               {/* GPA percentage and Warning count row */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-teal-50/60 p-3.5 rounded-2xl border border-teal-100">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-teal-50/60 p-3.5 rounded-2xl border border-teal-100">
                 <div>
                   <label className="block text-xs font-bold text-teal-800 mb-1">{locale === 'ar' ? 'المعدل التراكمي السابق (من %100):' : 'Cumulative GPA (out of 100%):'}</label>
                   <input
@@ -861,6 +830,29 @@ export function StudentProfilePage() {
                     className="w-full rounded-xl border border-slate-200 p-2 text-xs font-bold bg-white focus:ring-1 focus:ring-slate-500"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">{locale === 'ar' ? 'الساعات المجتازة:' : 'Passed credit hours:'}</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="500"
+                    value={studentForm.credit_hours_passed}
+                    onChange={e => setStudentForm({ ...studentForm, credit_hours_passed: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-bold bg-white focus:ring-1 focus:ring-slate-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'البريد الجامعي:' : 'University email:'}</label>
+                <input
+                  type="email"
+                  placeholder={`${studentForm.university_number || '22210466'}@students.hebron.edu`}
+                  value={studentForm.university_email}
+                  onChange={e => setStudentForm({ ...studentForm, university_email: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -885,6 +877,27 @@ export function StudentProfilePage() {
                     className="w-full rounded-xl border border-slate-200 p-2 text-xs font-mono font-semibold focus:ring-1 focus:ring-teal-600"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'حالة الرسوم السريرية:' : 'Clinical fees status:'}</label>
+                  <select value={studentForm.clinical_fees_status} onChange={e => setStudentForm({ ...studentForm, clinical_fees_status: e.target.value })} className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold bg-white">
+                    <option value="unknown">{locale === 'ar' ? 'غير محدد' : 'Unknown'}</option>
+                    <option value="paid">{locale === 'ar' ? 'مدفوعة' : 'Paid'}</option>
+                    <option value="pending">{locale === 'ar' ? 'قيد المتابعة' : 'Pending'}</option>
+                    <option value="exempt">{locale === 'ar' ? 'معفى' : 'Exempt'}</option>
+                  </select>
+                </div>
+                <label className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">
+                  <input type="checkbox" checked={studentForm.has_amboss_subscription} onChange={e => setStudentForm({ ...studentForm, has_amboss_subscription: e.target.checked })} className="h-4 w-4 accent-teal-600" />
+                  {locale === 'ar' ? 'لديه اشتراك AMBOSS' : 'Has AMBOSS subscription'}
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'ملاحظات إدارية:' : 'Administrative notes:'}</label>
+                <textarea rows={3} maxLength={2000} value={studentForm.notes} onChange={e => setStudentForm({ ...studentForm, notes: e.target.value })} className="w-full resize-none rounded-xl border border-slate-200 p-2.5 text-xs font-medium focus:ring-1 focus:ring-teal-600" />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -975,7 +988,8 @@ export function StudentProfilePage() {
                 <label className="block font-semibold text-slate-700 mb-1">{locale === 'ar' ? 'اختر الملف (PDF / صورة):' : 'Select File:'}</label>
                 <input
                   type="file"
-                  accept="image/*,application/pdf"
+                  required
+                  accept="image/jpeg,image/png,image/webp,application/pdf,.doc,.docx,.xls,.xlsx"
                   onChange={(e) => setSelectedDocFile(e.target.files?.[0] || null)}
                   className="w-full rounded-xl border border-slate-200 p-2 font-medium"
                 />
@@ -991,47 +1005,13 @@ export function StudentProfilePage() {
                 </button>
                 <button
                   type="submit"
+                  disabled={uploadDocumentMutation.isPending}
                   className="px-4 py-1.5 rounded-xl bg-teal-600 text-white font-bold"
                 >
-                  {locale === 'ar' ? 'حفظ وإرفاق' : 'Save Document'}
+                  {uploadDocumentMutation.isPending ? (locale === 'ar' ? 'جاري الرفع...' : 'Uploading...') : (locale === 'ar' ? 'حفظ وإرفاق' : 'Save Document')}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Document Preview Modal */}
-      {previewDoc && (
-        <div className="fixed inset-0 z-50 bg-slate-500/30 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-xl border border-slate-200 p-5 space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-bold text-sm text-slate-800">{previewDoc.title}</h3>
-              <button onClick={() => setPreviewDoc(null)} className="text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer">
-                ✕
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-auto flex items-center justify-center bg-slate-50 rounded-2xl p-4 min-h-[250px]">
-              {previewDoc.dataUrl ? (
-                previewDoc.fileType?.startsWith('image/') ? (
-                  <img src={previewDoc.dataUrl} alt={previewDoc.title} className="max-h-[60vh] object-contain rounded-xl" />
-                ) : (
-                  <iframe src={previewDoc.dataUrl} title={previewDoc.title} className="w-full h-[50vh] rounded-xl border border-slate-200" />
-                )
-              ) : (
-                <div className="text-center text-xs text-slate-400">
-                  <FileText className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                  <p>{locale === 'ar' ? 'معاينة الملف غير متاحة' : 'Preview unavailable'}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end">
-              <button onClick={() => setPreviewDoc(null)} className="px-4 py-1.5 rounded-xl bg-slate-100 text-xs font-bold text-slate-700">
-                {locale === 'ar' ? 'إغلاق' : 'Close'}
-              </button>
-            </div>
           </div>
         </div>
       )}

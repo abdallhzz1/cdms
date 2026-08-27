@@ -20,10 +20,13 @@ use App\Models\StudentGroup;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentGroupRoster;
 use App\Models\User;
+use App\Services\SecureFileUploadService;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class StudentController extends Controller
@@ -193,9 +196,111 @@ class StudentController extends Controller
 
         return ApiResponse::success(
             new StudentResource(
-                $student->load('academicYear', 'academicAdvisor', 'currentGroupAssignments.group', 'currentGroupAssignments.subgroup')
+                $student->load(
+                    'academicYear',
+                    'academicAdvisor',
+                    'currentGroupAssignments.group',
+                    'currentGroupAssignments.subgroup',
+                    'groupRegistrationRosters.group',
+                )
             )
         );
+    }
+
+    public function uploadPhoto(Request $request, Student $student, SecureFileUploadService $files): JsonResponse
+    {
+        $this->authorizeStudentAccess($student);
+        $request->validate([
+            'photo' => ['required_without:photo_base64', 'nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'photo_base64' => ['required_without:photo', 'nullable', 'string'],
+        ]);
+
+        $source = $request->file('photo') ?: (string) $request->input('photo_base64');
+        $stored = $files->storeAvatar($source, 'student-profile-photos/'.$student->id);
+        $oldPath = $student->photo_storage_path;
+
+        $student->update([
+            'photo_url' => $stored['url'],
+            'photo_storage_path' => $stored['path'],
+        ]);
+        if ($oldPath && $oldPath !== $stored['path']) {
+            Storage::disk('public')->delete($oldPath);
+        }
+
+        return ApiResponse::success(
+            new StudentResource($student->fresh()->load('academicYear', 'academicAdvisor')),
+            'Student photo updated.'
+        );
+    }
+
+    public function uploadDocument(Request $request, Student $student, SecureFileUploadService $files): JsonResponse
+    {
+        $this->authorizeStudentAccess($student);
+        $data = $request->validate([
+            'title' => ['required', 'string', 'max:150'],
+            'category' => ['required', 'in:clinical_pledge,insurance,medical_report,other'],
+            'file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx', 'max:10240'],
+        ]);
+
+        $stored = $files->storeDocument($request->file('file'), 'student-documents/'.$student->id);
+        $documentId = (string) Str::uuid();
+        $document = [
+            'id' => $documentId,
+            'title' => trim($data['title']),
+            'category' => $data['category'],
+            'file_name' => $request->file('file')->getClientOriginalName(),
+            'mime_type' => $stored['mime_type'],
+            'file_type' => $stored['file_type'],
+            'size_bytes' => $stored['size_bytes'],
+            'storage_path' => $stored['storage_path'],
+            'uploaded_at' => now()->toIso8601String(),
+            'uploaded_by' => $request->user()?->name,
+        ];
+
+        $documents = is_array($student->documents) ? $student->documents : [];
+        array_unshift($documents, $document);
+        $student->update(['documents' => $documents]);
+        unset($document['storage_path']);
+        $document['download_url'] = url("/api/v1/students/{$student->id}/documents/{$documentId}");
+
+        return ApiResponse::success($document, 'Student document uploaded.', [], 201);
+    }
+
+    public function downloadDocument(Student $student, string $documentId)
+    {
+        $this->authorizeStudentAccess($student);
+        $document = collect($student->documents ?: [])->first(
+            fn ($item) => (string) ($item['id'] ?? '') === $documentId
+        );
+        abort_unless($document && ! empty($document['storage_path']) && Storage::disk('local')->exists($document['storage_path']), 404);
+
+        $safeTitle = preg_replace('/[^\pL\pN._-]+/u', '_', (string) ($document['title'] ?? 'student-document'));
+
+        return Storage::disk('local')->download(
+            $document['storage_path'],
+            $safeTitle.'.'.($document['file_type'] ?? 'bin'),
+            ['Content-Type' => $document['mime_type'] ?? 'application/octet-stream', 'X-Content-Type-Options' => 'nosniff']
+        );
+    }
+
+    public function deleteDocument(Request $request, Student $student, string $documentId): JsonResponse
+    {
+        $this->authorizeStudentAccess($student);
+        $documents = collect($student->documents ?: []);
+        $document = $documents->first(fn ($item) => (string) ($item['id'] ?? '') === $documentId);
+        abort_unless($document, 404);
+
+        if (! empty($document['storage_path'])) {
+            Storage::disk('local')->delete($document['storage_path']);
+        }
+        $student->update([
+            'documents' => $documents
+                ->reject(fn ($item) => (string) ($item['id'] ?? '') === $documentId)
+                ->values()
+                ->all(),
+        ]);
+
+        return ApiResponse::success(null, 'Student document deleted.');
     }
 
     /**

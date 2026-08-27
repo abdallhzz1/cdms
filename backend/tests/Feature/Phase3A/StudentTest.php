@@ -18,6 +18,8 @@ use Database\Seeders\Phase3PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -135,6 +137,48 @@ class StudentTest extends TestCase
             'university_number' => '22310001',
             'academic_advisor_id' => $advisor->id,
         ]);
+    }
+
+    public function test_profile_updates_both_student_statuses_and_persists_assets(): void
+    {
+        Storage::fake('local');
+        Storage::fake('public');
+        $student = Student::factory()->create([
+            'registration_status' => 'active',
+            'academic_registration_status' => 'registered',
+        ]);
+
+        $this->actingAs($this->admin)->putJson("/api/v1/students/{$student->id}", [
+            'registration_status' => 'deferred',
+            'academic_registration_status' => 'unregistered',
+        ])->assertOk()
+            ->assertJsonPath('data.registration_status', 'deferred')
+            ->assertJsonPath('data.academic_registration_status', 'unregistered');
+
+        $photo = 'data:image/png;base64,'.base64_encode(base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='));
+        $this->actingAs($this->admin)->postJson("/api/v1/students/{$student->id}/photo", [
+            'photo_base64' => $photo,
+        ])->assertOk()
+            ->assertJsonPath('data.id', $student->id);
+
+        $upload = UploadedFile::fake()->createWithContent('pledge.pdf', "%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF");
+        $response = $this->actingAs($this->admin)->post("/api/v1/students/{$student->id}/documents", [
+            'title' => 'Clinical pledge',
+            'category' => 'clinical_pledge',
+            'file' => $upload,
+        ]);
+        $response->assertCreated()->assertJsonMissingPath('data.storage_path');
+        $documentId = $response->json('data.id');
+
+        $this->actingAs($this->admin)->getJson("/api/v1/students/{$student->id}")
+            ->assertOk()
+            ->assertJsonPath('data.documents.0.id', $documentId)
+            ->assertJsonMissingPath('data.documents.0.storage_path');
+
+        $this->actingAs($this->admin)
+            ->deleteJson("/api/v1/students/{$student->id}/documents/{$documentId}")
+            ->assertOk();
+        $this->assertSame([], $student->fresh()->documents);
     }
 
     public function test_delete_cleans_group_registration_records(): void
