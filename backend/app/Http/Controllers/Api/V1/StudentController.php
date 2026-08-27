@@ -8,6 +8,7 @@ use App\Http\Requests\V1\UpdateStudentRequest;
 use App\Http\Resources\V1\StudentResource;
 use App\Http\Responses\ApiResponse;
 use App\Models\AdvisingRecord;
+use App\Models\AuditLog;
 use App\Models\AttendanceRecord;
 use App\Models\ClinicalAssessment;
 use App\Models\GroupRegistrationCycle;
@@ -283,11 +284,12 @@ class StudentController extends Controller
      * DELETE /api/v1/students/{student}
      * Permission: students.delete
      */
-    public function destroy(Student $student): JsonResponse
+    public function destroy(Request $request, Student $student): JsonResponse
     {
         $this->authorizeStudentAccess($student);
 
-        DB::transaction(function () use ($student): void {
+        $force = $request->boolean('force');
+        $deletedCounts = DB::transaction(function () use ($request, $student, $force): array {
             $lockedStudent = Student::query()->lockForUpdate()->findOrFail($student->id);
 
             // Registration rosters and subgroup selections are operational setup
@@ -302,24 +304,84 @@ class StudentController extends Controller
                 'سجلات إرشاد أكاديمي' => AdvisingRecord::where('student_id', $lockedStudent->id)->exists(),
             ])->filter()->keys()->values();
 
-            if ($protectedRecords->isNotEmpty()) {
+            if ($protectedRecords->isNotEmpty() && ! $force) {
                 throw ValidationException::withMessages([
                     'student' => [
                         'لا يمكن حذف الطالب لأن سجله مرتبط بـ: '
                         .$protectedRecords->implode('، ')
                         .'. احتفظ بسجل الطالب وغيّر حالته الأكاديمية بدلاً من حذفه.',
                     ],
+                    'force_delete' => ['available'],
                 ]);
+            }
+
+            if ($force) {
+                $confirmation = trim((string) $request->input('confirmation'));
+                $reason = trim((string) $request->input('reason'));
+                $errors = [];
+                if ($confirmation !== $lockedStudent->university_number) {
+                    $errors['confirmation'][] = 'اكتب الرقم الجامعي للطالب حرفياً لتأكيد الحذف النهائي.';
+                }
+                if (mb_strlen($reason) < 5) {
+                    $errors['reason'][] = 'سبب الحذف النهائي مطلوب ويجب ألا يقل عن 5 أحرف.';
+                }
+                if ($errors) {
+                    throw ValidationException::withMessages($errors);
+                }
+
+                $enrollmentIds = StudentCourseEnrollment::where('student_id', $lockedStudent->id)->pluck('id');
+                $advisingRecordIds = AdvisingRecord::where('student_id', $lockedStudent->id)->pluck('id');
+                $deleted = [
+                    'grade_entries' => DB::table('grade_entries')->whereIn('student_course_enrollment_id', $enrollmentIds)->delete(),
+                    'student_course_enrollments' => StudentCourseEnrollment::where('student_id', $lockedStudent->id)->delete(),
+                    'attendance_records' => AttendanceRecord::where('student_id', $lockedStudent->id)->delete(),
+                    'clinical_assessments' => ClinicalAssessment::where('student_id', $lockedStudent->id)->delete(),
+                    'advising_participants' => DB::table('advising_participants')->where(function ($query) use ($lockedStudent, $advisingRecordIds) {
+                        $query->where('student_id', $lockedStudent->id)
+                            ->orWhereIn('advising_record_id', $advisingRecordIds);
+                    })->delete(),
+                    'advising_records' => AdvisingRecord::where('student_id', $lockedStudent->id)->delete(),
+                    'external_electives' => DB::table('external_electives')->where('student_id', $lockedStudent->id)->delete(),
+                    'distribution_conflicts' => DB::table('distribution_conflicts')->where('student_id', $lockedStudent->id)->delete(),
+                    'student_clinical_assignments' => StudentClinicalAssignment::where('student_id', $lockedStudent->id)->delete(),
+                    'student_group_rosters' => StudentGroupRoster::where('student_id', $lockedStudent->id)->delete(),
+                    'student_group_assignments' => StudentGroupAssignment::where('student_id', $lockedStudent->id)->delete(),
+                    'group_registration_otp_challenges' => DB::table('group_registration_otp_challenges')->where('student_id', $lockedStudent->id)->delete(),
+                    'student_schedule_otp_challenges' => DB::table('student_schedule_otp_challenges')->where('student_id', $lockedStudent->id)->delete(),
+                ];
+
+                $studentId = $lockedStudent->id;
+                $universityNumber = $lockedStudent->university_number;
+                $lockedStudent->delete();
+                AuditLog::create([
+                    'user_id' => $request->user()?->id,
+                    'action' => 'student.force_deleted',
+                    'entity_type' => 'student',
+                    'entity_id' => $studentId,
+                    'changes' => [
+                        'university_number' => $universityNumber,
+                        'reason' => $reason,
+                        'deleted_records' => $deleted,
+                    ],
+                    'is_override' => true,
+                    'override_reason' => $reason,
+                ]);
+
+                return $deleted;
             }
 
             StudentGroupRoster::where('student_id', $lockedStudent->id)->delete();
             StudentGroupAssignment::where('student_id', $lockedStudent->id)->delete();
             $lockedStudent->delete();
+
+            return [];
         });
 
         return ApiResponse::success(
-            null,
-            'تم حذف الطالب وتنظيف روابط تسجيل المجموعات التابعة له بنجاح.'
+            $force ? ['deleted_records' => $deletedCounts] : null,
+            $force
+                ? 'تم حذف الطالب نهائياً مع جميع بياناته المرتبطة.'
+                : 'تم حذف الطالب وتنظيف روابط تسجيل المجموعات التابعة له بنجاح.'
         );
     }
 

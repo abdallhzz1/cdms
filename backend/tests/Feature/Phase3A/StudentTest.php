@@ -200,6 +200,23 @@ class StudentTest extends TestCase
 
         $this->assertDatabaseHas('students', ['id' => $student->id]);
         $this->assertDatabaseHas('advising_records', ['student_id' => $student->id]);
+
+        $this->actingAs($this->admin)
+            ->deleteJson("/api/v1/students/{$student->id}", [
+                'force' => true,
+                'confirmation' => $student->university_number,
+                'reason' => 'حذف طالب تجريبي وبيانات الاختبار',
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseMissing('students', ['id' => $student->id]);
+        $this->assertDatabaseMissing('advising_records', ['student_id' => $student->id]);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'student.force_deleted',
+            'entity_type' => 'student',
+            'entity_id' => $student->id,
+            'is_override' => true,
+        ]);
     }
 
     public function test_academic_advisor_can_only_access_assigned_students(): void

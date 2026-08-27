@@ -252,16 +252,28 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
 
   // Delete Student Mutation
   const deleteStudentMutation = useMutation({
-    mutationFn: (id: number) => apiFetch(`/students/${id}`, { method: 'DELETE' }),
+    mutationFn: ({ id, force = false, confirmation, reason }: { id: number; universityNumber: string; force?: boolean; confirmation?: string; reason?: string }) =>
+      apiFetch(`/students/${id}`, { method: 'DELETE', body: { force, confirmation, reason } }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['directory', 'students'] });
       queryClient.invalidateQueries({ queryKey: ['group-registration-cycles'] });
       queryClient.invalidateQueries({ queryKey: ['student-main-groups'] });
     },
-    onError: (err: any) => {
+    onError: (err: any, variables) => {
       const protectedRecordMessage = Array.isArray(err?.errors?.student)
         ? err.errors.student[0]
         : null;
+      const forceAvailable = Array.isArray(err?.errors?.force_delete)
+        && err.errors.force_delete.includes('available');
+      if (!variables.force && forceAvailable) {
+        if (!window.confirm(`${protectedRecordMessage}\n\nهل تريد حذف الطالب نهائياً مع كل الحضور والتقييمات والعلامات والبيانات المرتبطة؟ لا يمكن التراجع عن هذا الإجراء.`)) return;
+        const confirmation = window.prompt(`للتأكيد اكتب الرقم الجامعي للطالب: ${variables.universityNumber}`);
+        if (confirmation === null) return;
+        const reason = window.prompt('اكتب سبب الحذف النهائي (5 أحرف على الأقل):');
+        if (reason === null) return;
+        deleteStudentMutation.mutate({ id: variables.id, universityNumber: variables.universityNumber, force: true, confirmation: confirmation.trim(), reason: reason.trim() });
+        return;
+      }
       alert(protectedRecordMessage || err?.message || (locale === 'ar' ? 'تعذر حذف سجل الطالب.' : 'Failed to delete student.'));
     }
   });
@@ -321,7 +333,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     e.stopPropagation();
     const studentName = locale === 'ar' ? student.full_name_ar : (student.full_name_en || student.full_name_ar);
     if (window.confirm(locale === 'ar' ? `هل أنت متأكد من رغبتك في حذف الطالب "${studentName}" (${student.university_number})؟` : `Are you sure you want to delete student "${studentName}"?`)) {
-      deleteStudentMutation.mutate(student.id);
+      deleteStudentMutation.mutate({ id: student.id, universityNumber: student.university_number });
     }
   };
 
