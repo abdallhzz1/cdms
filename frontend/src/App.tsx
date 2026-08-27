@@ -90,11 +90,12 @@ export function App() {
                 <Route path="/distribution/groups" element={<StudentGroupsPage />} />
                 <Route path="/staff/:id" element={<StaffProfilePage />} />
 
-                {/* System Admin Routes (SYS_ADMIN Only) */}
+                {/* Technical administration screens are governed by the same
+                    permissions exposed in the admin matrix. */}
                 <Route 
                   path="/users" 
                   element={
-                    <ProtectedRoute requiredRole="SYS_ADMIN">
+                    <ProtectedRoute requiredPermission="users.manage">
                       <UsersPage />
                     </ProtectedRoute>
                   } 
@@ -102,7 +103,7 @@ export function App() {
                 <Route 
                   path="/audit-logs" 
                   element={
-                    <ProtectedRoute requiredRole="SYS_ADMIN">
+                    <ProtectedRoute requiredPermission="audit.view">
                       <AuditLogsPage />
                     </ProtectedRoute>
                   } 
@@ -110,7 +111,7 @@ export function App() {
                 <Route 
                   path="/admin/sessions" 
                   element={
-                    <ProtectedRoute requiredRole="SYS_ADMIN">
+                    <ProtectedRoute requiredPermission="users.manage">
                       <ActiveSessionsPage />
                     </ProtectedRoute>
                   } 
@@ -118,7 +119,7 @@ export function App() {
                 <Route 
                   path="/admin/permissions" 
                   element={
-                    <ProtectedRoute requiredRole="SYS_ADMIN">
+                    <ProtectedRoute requiredPermission="roles.manage">
                       <PermissionMatrixPage />
                     </ProtectedRoute>
                   } 
@@ -126,7 +127,7 @@ export function App() {
                 <Route 
                   path="/admin/departments" 
                   element={
-                    <ProtectedRoute requiredRole="SYS_ADMIN">
+                    <ProtectedRoute requiredPermission="users.manage">
                       <DepartmentsManagementPage />
                     </ProtectedRoute>
                   } 
@@ -134,7 +135,7 @@ export function App() {
                 <Route 
                   path="/admin/health" 
                   element={
-                    <ProtectedRoute requiredRole="SYS_ADMIN">
+                    <ProtectedRoute requiredPermission="settings.manage">
                       <SystemHealthPage />
                     </ProtectedRoute>
                   } 
@@ -142,7 +143,7 @@ export function App() {
                 <Route 
                   path="/admin/settings" 
                   element={
-                    <ProtectedRoute requiredRole="SYS_ADMIN">
+                    <ProtectedRoute requiredPermission="settings.manage">
                       <SystemSettingsPage />
                     </ProtectedRoute>
                   } 

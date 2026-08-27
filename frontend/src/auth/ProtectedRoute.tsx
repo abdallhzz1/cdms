@@ -32,11 +32,6 @@ export function ProtectedRoute({ children, requiredPermission, requiredRole }: P
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  // SYS_ADMIN has access to administrative pages
-  if (hasRole('SYS_ADMIN')) {
-    return <>{children}</>;
-  }
-
   // Stealth Access Control: Renders <NotFound /> for unauthorized users to prevent route disclosure
   if (requiredPermission && !can(requiredPermission)) {
     return <NotFound />;

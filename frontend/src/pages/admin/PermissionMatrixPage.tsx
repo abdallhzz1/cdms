@@ -10,7 +10,7 @@ import {
   Check, X, CheckCircle2, Search, Filter, LayoutGrid,
   ShieldCheck, Users, Monitor, BookOpen, ClipboardCheck,
   GraduationCap, Calendar, FolderGit2, BarChart3,
-  Eye, Shield
+  Eye, Shield, AlertTriangle, LockKeyhole
 } from 'lucide-react';
 
 const ROLE_LABELS: Record<string, { ar: string; icon?: any; color?: string }> = {
@@ -51,6 +51,7 @@ const MODULE_LABELS: Record<string, { ar: string; icon: any }> = {
   Groups: { ar: 'المجموعات والشعب الطلابية', icon: Users },
   'Training Sites': { ar: 'المستشفيات ومواقع التدريب', icon: ShieldCheck },
   Partnerships: { ar: 'الاتفاقيات والشراكات السريرية', icon: ShieldCheck },
+  GroupRegistration: { ar: 'تسجيل وتوزيع مجموعات الطلبة', icon: GraduationCap },
 };
 
 const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
@@ -164,6 +165,14 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   'training_sites.manage': { ar: 'إدارة وتخصيص مواقع التدريب والمستشفيات' },
   'partnerships.view': { ar: 'عرض الاتفاقيات والشراكات السريرية' },
   'partnerships.manage': { ar: 'إدارة وتوثيق الشراكات السريرية' },
+
+  // Student group self-registration
+  'group_registration.view': { ar: 'دخول شاشة تسجيل مجموعات الطلبة', isScreen: true },
+  'group_registration.manage_roster': { ar: 'استيراد وإدارة قائمة طلبة دورة التسجيل' },
+  'group_registration.manage_groups': { ar: 'إنشاء وتعديل وحذف الدورات والمجموعات الفرعية' },
+  'group_registration.open_close': { ar: 'فتح وإغلاق بوابة تسجيل الطلبة' },
+  'group_registration.override': { ar: 'تسجيل الطالب أو سحبه إدارياً من مجموعة' },
+  'group_registration.export': { ar: 'تصدير نتائج تسجيل المجموعات' },
 };
 
 function displayModule(module: string): string {
@@ -177,6 +186,7 @@ export function PermissionMatrixPage() {
   const [search, setSearch] = useState('');
   const [selectedModule, setSelectedModule] = useState<string>('ALL');
   const [screensOnlyFilter, setScreensOnlyFilter] = useState(false);
+  const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
 
   // Local optimistic state for immediate 0ms UI feedback
   const [localMatrix, setLocalMatrix] = useState<any[]>([]);
@@ -196,7 +206,7 @@ export function PermissionMatrixPage() {
   }, [data, selectedRoleId]);
 
   const toggleMutation = useMutation({
-    mutationFn: (body: { role_id: number; permission_id: number }) =>
+    mutationFn: (body: { role_id: number; permission_id: number; granted: boolean }) =>
       apiFetch('/admin/permissions/toggle', { method: 'POST', body }),
     onSuccess: (res: any) => {
       setLocalMatrix((previous) => previous.map((roleEntry) => roleEntry.role_id !== res.role_id
@@ -208,9 +218,19 @@ export function PermissionMatrixPage() {
               : { ...permission, granted: Boolean(res.granted) }),
           }));
       setToastMessage('تم تحديث الصلاحية وحفظها بنجاح.');
+      setPendingCells((previous) => {
+        const next = new Set(previous);
+        next.delete(`${res.role_id}:${res.permission_id}`);
+        return next;
+      });
       setTimeout(() => setToastMessage(null), 2500);
     },
-    onError: () => {
+    onError: (_error, variables) => {
+      setPendingCells((previous) => {
+        const next = new Set(previous);
+        next.delete(`${variables.role_id}:${variables.permission_id}`);
+        return next;
+      });
       setToastMessage('تعذر حفظ الصلاحية؛ تمت استعادة الحالة المسجلة في الخادم.');
       void refetch();
       setTimeout(() => setToastMessage(null), 3500);
@@ -218,6 +238,19 @@ export function PermissionMatrixPage() {
   });
 
   const handleToggle = (roleId: number, permId: number) => {
+    const cellKey = `${roleId}:${permId}`;
+    if (pendingCells.has(cellKey)) return;
+    const roleEntry = localMatrix.find((entry: any) => entry.role_id === roleId);
+    const current = roleEntry?.permissions?.find((permission: any) => permission.permission_id === permId)?.granted ?? false;
+    const nextGranted = !current;
+    const role = roles.find((entry: any) => entry.id === roleId);
+    const permission = permissions.find((entry: any) => entry.id === permId);
+    if (role?.code === 'SYS_ADMIN' && permission?.code === 'roles.manage' && !nextGranted) {
+      setToastMessage('هذه الصلاحية أساسية ولا يمكن تعطيلها عن مدير النظام.');
+      setTimeout(() => setToastMessage(null), 3500);
+      return;
+    }
+    setPendingCells((previous) => new Set(previous).add(cellKey));
     // 1. Instant Optimistic Local Update (0ms delay, zero scroll jump)
     setLocalMatrix((prev) =>
       prev.map((roleEntry) => {
@@ -226,18 +259,20 @@ export function PermissionMatrixPage() {
           ...roleEntry,
           permissions: roleEntry.permissions.map((p: any) => {
             if (p.permission_id !== permId) return p;
-            return { ...p, granted: !p.granted };
+            return { ...p, granted: nextGranted };
           }),
         };
       })
     );
 
     // 2. Silent backend sync
-    toggleMutation.mutate({ role_id: roleId, permission_id: permId });
+    toggleMutation.mutate({ role_id: roleId, permission_id: permId, granted: nextGranted });
   };
 
   const roles = data?.roles || [];
   const permissions = data?.permissions || [];
+  const audit = data?.audit;
+  const unlabeledPermissions = permissions.filter((permission: any) => !PERMISSION_LABELS[permission.code]);
 
   // Group permissions by module
   const modules = useMemo<string[]>(() => {
@@ -379,6 +414,40 @@ export function PermissionMatrixPage() {
         </div>
       </Card>
 
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="rounded-3xl border-slate-200 p-4">
+          <p className="text-[11px] font-bold text-slate-500">إجمالي الصلاحيات</p>
+          <p className="mt-1 text-2xl font-black text-teal-700">{permissions.length}</p>
+        </Card>
+        <Card className="rounded-3xl border-slate-200 p-4">
+          <p className="text-[11px] font-bold text-slate-500">الأدوار المعرفة</p>
+          <p className="mt-1 text-2xl font-black text-teal-700">{roles.length}</p>
+        </Card>
+        <Card className="rounded-3xl border-slate-200 p-4">
+          <p className="text-[11px] font-bold text-slate-500">أكواد حماية مسارات API</p>
+          <p className="mt-1 text-2xl font-black text-teal-700">{audit?.guarded_permission_codes ?? '—'}</p>
+        </Card>
+        <Card className={`rounded-3xl p-4 ${audit?.is_complete && unlabeledPermissions.length === 0 ? 'border-teal-100 bg-teal-50/40' : 'border-amber-200 bg-amber-50/60'}`}>
+          <div className="flex items-center gap-2">
+            {audit?.is_complete && unlabeledPermissions.length === 0
+              ? <ShieldCheck className="h-4 w-4 text-teal-600" />
+              : <AlertTriangle className="h-4 w-4 text-amber-600" />}
+            <p className="text-[11px] font-black text-slate-700">تغطية المصفوفة</p>
+          </div>
+          <p className="mt-2 text-xs font-bold text-slate-600">
+            {audit?.is_complete && unlabeledPermissions.length === 0
+              ? 'مكتملة: جميع الصلاحيات محمية ومعنونة'
+              : `${audit?.missing_route_permissions?.length ?? 0} مفقودة · ${unlabeledPermissions.length} بلا عنوان واضح`}
+          </p>
+        </Card>
+      </div>
+
+      {audit && !audit.is_complete && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
+          توجد أكواد مستخدمة لحماية مسارات وليست مسجلة في المصفوفة: {audit.missing_route_permissions.join('، ')}
+        </div>
+      )}
+
       {/* VIEW 1: Role-Centric Cards View (100% Arabic) */}
       {viewMode === 'role_cards' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -415,6 +484,9 @@ export function PermissionMatrixPage() {
                       </div>
                       <div className="truncate text-right">
                         <div className="text-xs font-black truncate">{rInfo.ar}</div>
+                        <div className={`mt-0.5 text-[10px] ${isSelected ? 'text-white/75' : 'text-slate-400'}`}>
+                          {role.users_count ?? 0} مستخدم
+                        </div>
                       </div>
                     </div>
 
@@ -477,16 +549,18 @@ export function PermissionMatrixPage() {
                       const isScreen = permLabel.isScreen;
                       const permEntry = selectedRoleMatrix?.permissions?.find((p: any) => p.permission_id === perm.id);
                       const isGranted = permEntry?.granted ?? false;
+                      const isPending = selectedRole ? pendingCells.has(`${selectedRole.id}:${perm.id}`) : false;
+                      const isLocked = selectedRole?.code === 'SYS_ADMIN' && perm.code === 'roles.manage';
 
                       return (
                         <div
                           key={perm.id}
-                          onClick={() => selectedRole && handleToggle(selectedRole.id, perm.id)}
+                          onClick={() => selectedRole && !isPending && handleToggle(selectedRole.id, perm.id)}
                           className={`p-3 rounded-2xl flex items-center justify-between gap-4 cursor-pointer transition-all duration-150 select-none ${
                             isGranted
                               ? 'bg-teal-50/40 hover:bg-teal-50/80 border border-teal-100/60'
                               : 'hover:bg-slate-50 border border-transparent'
-                          }`}
+                          } ${isPending ? 'pointer-events-none opacity-60' : ''}`}
                         >
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
@@ -498,7 +572,13 @@ export function PermissionMatrixPage() {
                                   <LayoutGrid className="w-2.5 h-2.5" /> شاشة
                                 </span>
                               )}
+                              {isLocked && (
+                                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                                  <LockKeyhole className="h-2.5 w-2.5" /> أساسية
+                                </span>
+                              )}
                             </div>
+                            <p dir="ltr" className="mt-1 text-left font-mono text-[10px] text-slate-400">{perm.code}</p>
                           </div>
 
                           {/* Toggle Button Switch */}
@@ -595,6 +675,8 @@ export function PermissionMatrixPage() {
                           const roleEntry = localMatrix.find((m: any) => m.role_id === role.id);
                           const permEntry = roleEntry?.permissions?.find((p: any) => p.permission_id === perm.id);
                           const isGranted = permEntry?.granted ?? false;
+                          const isPending = pendingCells.has(`${role.id}:${perm.id}`);
+                          const isLocked = role.code === 'SYS_ADMIN' && perm.code === 'roles.manage';
 
                           return (
                             <TableCell
@@ -605,12 +687,13 @@ export function PermissionMatrixPage() {
                                 <button
                                   type="button"
                                   onClick={() => handleToggle(role.id, perm.id)}
+                                  disabled={isPending}
                                   className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
                                     isGranted
                                       ? 'bg-teal-600 text-white shadow-xs hover:bg-teal-700'
                                       : 'bg-slate-100 text-slate-300 hover:bg-slate-200 hover:text-slate-500 border border-slate-200'
-                                  }`}
-                                  title={isGranted ? 'انقر للتعطيل' : 'انقر للتفعيل'}
+                                  } ${isPending ? 'cursor-wait opacity-50' : ''}`}
+                                  title={isLocked ? 'صلاحية أساسية لمدير النظام' : isGranted ? 'انقر للتعطيل' : 'انقر للتفعيل'}
                                 >
                                   {isGranted ? (
                                     <Check className="w-4 h-4 stroke-[3]" />

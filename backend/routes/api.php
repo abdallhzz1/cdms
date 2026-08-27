@@ -489,11 +489,13 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         // Technical administration. These endpoints intentionally live only
         // under /admin; the UI routes use the same canonical API namespace.
-        Route::prefix('admin')->name('admin.')->middleware(['permission:users.manage'])->group(function () {
+        Route::prefix('admin')->name('admin.')->group(function () {
             Route::get('health', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'health'])
                 ->middleware('permission:settings.manage')->name('health');
-            Route::get('sessions', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'sessions'])->name('sessions.index');
-            Route::post('sessions/{user}/revoke', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'revokeSession'])->name('sessions.revoke');
+            Route::get('sessions', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'sessions'])
+                ->middleware('permission:users.manage')->name('sessions.index');
+            Route::post('sessions/{user}/revoke', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'revokeSession'])
+                ->middleware('permission:users.manage')->name('sessions.revoke');
             Route::get('permissions/matrix', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'permissionMatrix'])
                 ->middleware('permission:roles.manage')->name('permissions.matrix');
             Route::post('permissions/toggle', [\App\Http\Controllers\Api\V1\SystemAdminController::class, 'togglePermission'])

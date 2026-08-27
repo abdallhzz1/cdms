@@ -133,8 +133,14 @@ class SystemAdminController extends Controller
      */
     public function permissionMatrix()
     {
-        $roles = Role::with('permissions:id,code')->get(['id', 'code', 'name_key']);
-        $permissions = Permission::all(['id', 'code', 'module', 'action']);
+        $roles = Role::with('permissions:id,code')
+            ->withCount('users')
+            ->orderBy('id')
+            ->get(['id', 'code', 'name_key']);
+        $permissions = Permission::query()
+            ->orderBy('module')
+            ->orderBy('code')
+            ->get(['id', 'code', 'module', 'action']);
 
         $matrix = $roles->map(function ($role) use ($permissions) {
             $rolePermIds = $role->permissions->pluck('id')->toArray();
@@ -155,10 +161,54 @@ class SystemAdminController extends Controller
         });
 
         return ApiResponse::success([
-            'roles' => $roles->map(fn($r) => ['id' => $r->id, 'code' => $r->code, 'name' => $r->code]),
+            'roles' => $roles->map(fn($r) => [
+                'id' => $r->id,
+                'code' => $r->code,
+                'name' => $r->code,
+                'users_count' => $r->users_count,
+            ]),
             'permissions' => $permissions,
             'matrix' => $matrix,
+            'audit' => $this->permissionCoverage($permissions->pluck('code')->all()),
         ]);
+    }
+
+    /**
+     * Compare every permission referenced by route middleware with the
+     * permission records displayed in the matrix. This makes missing
+     * registrations visible immediately instead of surfacing later as 403s.
+     *
+     * @param  array<int, string>  $registeredCodes
+     * @return array<string, mixed>
+     */
+    private function permissionCoverage(array $registeredCodes): array
+    {
+        $guardedCodes = [];
+
+        foreach (app('router')->getRoutes() as $route) {
+            foreach ($route->gatherMiddleware() as $middleware) {
+                if (! is_string($middleware)) {
+                    continue;
+                }
+
+                if (str_starts_with($middleware, 'permission:')) {
+                    $guardedCodes[] = substr($middleware, strlen('permission:'));
+                } elseif (str_starts_with($middleware, 'permission.any:')) {
+                    array_push($guardedCodes, ...explode(',', substr($middleware, strlen('permission.any:'))));
+                }
+            }
+        }
+
+        $guardedCodes = array_values(array_unique(array_filter(array_map('trim', $guardedCodes))));
+        sort($guardedCodes);
+        $missing = array_values(array_diff($guardedCodes, $registeredCodes));
+
+        return [
+            'registered_permissions' => count($registeredCodes),
+            'guarded_permission_codes' => count($guardedCodes),
+            'missing_route_permissions' => $missing,
+            'is_complete' => $missing === [],
+        ];
     }
 
     /**
@@ -169,29 +219,41 @@ class SystemAdminController extends Controller
         $request->validate([
             'role_id' => 'required|exists:roles,id',
             'permission_id' => 'required|exists:permissions,id',
+            'granted' => 'sometimes|boolean',
         ]);
 
-        $role = Role::findOrFail($request->role_id);
-        $permId = $request->permission_id;
+        $role = Role::findOrFail($request->integer('role_id'));
+        $permission = Permission::findOrFail($request->integer('permission_id'));
+        $currentlyGranted = $role->permissions()->where('permissions.id', $permission->id)->exists();
+        $granted = $request->has('granted') ? $request->boolean('granted') : ! $currentlyGranted;
 
-
-
-        if ($role->permissions()->where('permissions.id', $permId)->exists()) {
-            $role->permissions()->detach($permId);
-            $granted = false;
-        } else {
-            $role->permissions()->attach($permId, ['scope_type' => 'global']);
-            $granted = true;
+        if ($role->code === 'SYS_ADMIN' && $permission->code === 'roles.manage' && ! $granted) {
+            return ApiResponse::error(
+                'لا يمكن تعطيل إدارة مصفوفة الصلاحيات عن دور مدير النظام حتى لا يتم إغلاق إدارة النظام.',
+                [],
+                [],
+                422
+            );
         }
 
+        DB::transaction(function () use ($role, $permission, $granted): void {
+            if ($granted) {
+                $role->permissions()->syncWithoutDetaching([
+                    $permission->id => ['scope_type' => 'global'],
+                ]);
+            } else {
+                $role->permissions()->detach($permission->id);
+            }
+        });
+
         $this->audit->record('role.permission_changed', Role::class, $role->id, [
-            'permission_id' => (int) $permId,
+            'permission_id' => $permission->id,
             'granted' => $granted,
         ]);
 
         return ApiResponse::success([
             'role_id' => $role->id,
-            'permission_id' => $permId,
+            'permission_id' => $permission->id,
             'granted' => $granted,
         ], 'تم تحديث مصفوفة الصلاحيات بنجاح.');
     }

@@ -114,8 +114,8 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         title: locale === 'ar' ? 'إدارة النظام والأمان' : 'System Administration',
         items: [
           { path: '/users', label: locale === 'ar' ? 'المستخدمون والأدوار' : 'Users & Roles', icon: Users, permission: 'users.manage' },
-          { path: '/admin/departments', label: locale === 'ar' ? 'إدارة أقسام الكلية والقيادات' : 'Departments & Leaders Management', icon: Building2, customCheck: () => isSuperAdmin || can('users.manage') || can('departments.manage') },
-          { path: '/admin/permissions', label: locale === 'ar' ? 'مصفوفة الصلاحيات والشاشات' : 'Permission Matrix', icon: ShieldCheck, customCheck: () => isSuperAdmin || can('roles.manage') },
+          { path: '/admin/departments', label: locale === 'ar' ? 'إدارة أقسام الكلية والقيادات' : 'Departments & Leaders Management', icon: Building2, permission: 'users.manage' },
+          { path: '/admin/permissions', label: locale === 'ar' ? 'مصفوفة الصلاحيات والشاشات' : 'Permission Matrix', icon: ShieldCheck, permission: 'roles.manage' },
           { path: '/admin/sessions', label: locale === 'ar' ? 'الجلسات والأمان الحية' : 'Active Sessions & Security', icon: Monitor, permission: 'users.manage' },
           { path: '/admin/health', label: locale === 'ar' ? 'مراقبة صحة السيرفر' : 'System Health Monitor', icon: Activity, permission: 'settings.manage' },
           { path: '/admin/settings', label: locale === 'ar' ? 'إعدادات النظام والنسخ الاحتياطي' : 'System Settings & Backup', icon: Settings, permission: 'settings.manage' },
