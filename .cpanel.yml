@@ -1,0 +1,4 @@
+---
+deployment:
+  tasks:
+    - /usr/bin/rsync -a --delete --exclude=.git/ --exclude=backend/.env --exclude=backend/storage/ --exclude=backend/vendor/ --exclude=backend/bootstrap/cache/ /home/alfajrhe/repositories/cdms/ /home/alfajrhe/cdms.alfajrhealth.com/
