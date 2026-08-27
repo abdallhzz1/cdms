@@ -2,3 +2,5 @@
 deployment:
   tasks:
     - /usr/bin/rsync -a --delete --exclude=.git/ --exclude=backend/.env --exclude=backend/storage/ --exclude=backend/vendor/ --exclude=backend/bootstrap/cache/ /home/alfajrhe/repositories/cdms/ /home/alfajrhe/cdms.alfajrhealth.com/
+    - /bin/chmod 755 /home/alfajrhe/cdms.alfajrhealth.com
+    - /bin/chmod 600 /home/alfajrhe/cdms.alfajrhealth.com/backend/.env
