@@ -38,7 +38,9 @@ class PublicGroupRegistrationController extends Controller
         if (!$cycle->isOpen()) abort(409, 'فترة التسجيل الذاتي مغلقة حالياً.');
 
         $student = Student::where('university_number', $data['university_number'])->first();
-        $roster = $student ? StudentGroupRoster::where('group_registration_cycle_id',$cycle->id)->where('student_id',$student->id)->first() : null;
+        $roster = $student && $student->academic_level === $cycle->academic_level
+            ? StudentGroupRoster::where('group_registration_cycle_id',$cycle->id)->where('student_id',$student->id)->first()
+            : null;
         if (!$student || !$roster) {
             throw ValidationException::withMessages(['university_number'=>['تعذر متابعة الطلب. يرجى التواصل مع إدارة الدائرة السريرية للتحقق من بياناتك.']]);
         }
@@ -160,7 +162,7 @@ class PublicGroupRegistrationController extends Controller
         $challenge=GroupRegistrationOtpChallenge::with('student')->where('group_registration_cycle_id',$cycle->id)->where('access_token_hash',hash('sha256',$token))->whereNotNull('verified_at')->where('access_expires_at','>',now())->first();
         if(!$challenge) abort(401,'انتهت جلسة التحقق. يرجى طلب رمز جديد.');
         $roster=StudentGroupRoster::with('group')->where('group_registration_cycle_id',$cycle->id)->where('student_id',$challenge->student_id)->first();
-        if(!$roster || $challenge->student->academic_registration_status!=='registered') abort(403,'لا يمكنك متابعة التسجيل. يرجى التواصل مع إدارة الدائرة السريرية.');
+        if(!$roster || $challenge->student->academic_level!==$cycle->academic_level || $challenge->student->academic_registration_status!=='registered') abort(403,'لا يمكنك متابعة التسجيل. يرجى التواصل مع إدارة الدائرة السريرية.');
         return [$challenge,$roster];
     }
     private function audit(string $action,int $id,int $studentId,array $changes=[]): void { AuditLog::create(['action'=>$action,'entity_type'=>'group_registration','entity_id'=>$id,'student_id'=>$studentId,'changes'=>$changes]); }

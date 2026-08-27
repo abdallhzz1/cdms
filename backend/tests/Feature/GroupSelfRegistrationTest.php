@@ -211,6 +211,48 @@ class GroupSelfRegistrationTest extends TestCase
         $this->assertDatabaseMissing('student_group_rosters', ['student_id' => $this->student->id]);
     }
 
+    public function test_mismatched_students_are_excluded_and_bulk_updates_clean_their_old_rosters(): void
+    {
+        $permissions = collect(['students.create', 'group_registration.view'])->map(fn (string $code) =>
+            Permission::firstOrCreate(
+                ['code' => $code],
+                ['module' => 'Students', 'action' => 'VIEW', 'description_key' => "permissions.$code.description"]
+            )
+        );
+        $role = Role::create(['code' => 'TEST_ROSTER_CLEANER', 'name_key' => 'test.roster.cleaner']);
+        foreach ($permissions as $permission) {
+            $role->permissions()->attach($permission->id, ['scope_type' => 'global']);
+        }
+        $user = User::factory()->create();
+        $user->roles()->attach($role);
+
+        $staleStudent = Student::factory()->create([
+            'academic_level' => 'fifth',
+            'academic_year_id' => $this->year->id,
+        ]);
+        StudentGroupRoster::create([
+            'group_registration_cycle_id' => $this->cycle->id,
+            'student_id' => $staleStudent->id,
+            'student_group_id' => $this->group->id,
+        ]);
+
+        $this->actingAs($user)->getJson('/api/v1/group-registration-cycles')
+            ->assertOk()
+            ->assertJsonPath('data.0.rosters_count', 1)
+            ->assertJsonPath('data.0.groups.0.roster_count', 1);
+
+        $this->actingAs($user)->postJson('/api/v1/students/bulk-import', [
+            'students' => [[
+                'university_number' => $staleStudent->university_number,
+                'full_name_ar' => $staleStudent->full_name_ar,
+                'academic_level' => 'fifth',
+                'academic_registration_status' => 'registered',
+            ]],
+        ])->assertOk();
+
+        $this->assertDatabaseMissing('student_group_rosters', ['student_id' => $staleStudent->id]);
+    }
+
     public function test_a_fixed_subgroup_count_balances_each_main_group_and_is_idempotent(): void
     {
         $permission=Permission::where('code','group_registration.manage_groups')->firstOrFail();

@@ -58,7 +58,13 @@ export function StudentGroupsPage() {
   const [assignmentDrafts, setAssignmentDrafts] = useState<Record<number, string>>({});
   const [reasonDrafts, setReasonDrafts] = useState<Record<number, string>>({});
 
-  const { data: cycles = [], refetch } = useQuery({ queryKey: ['group-registration-cycles'], queryFn: () => apiFetch<Cycle[]>('/group-registration-cycles') });
+  const { data: cycles = [], refetch } = useQuery({
+    queryKey: ['group-registration-cycles'],
+    queryFn: () => apiFetch<Cycle[]>('/group-registration-cycles'),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+  });
   const { data: yearsResponse, isLoading: yearsLoading, isError: yearsError } = useQuery({ queryKey: ['academic-years'], queryFn: () => apiFetch<YearsResponse>('/academic-years?per_page=100') });
   const years = useMemo(() => Array.isArray(yearsResponse) ? yearsResponse : (yearsResponse?.data ?? []), [yearsResponse]);
   const selected = useMemo(() => cycles.find(cycle => cycle.id === selectedId) || cycles[0], [cycles, selectedId]);

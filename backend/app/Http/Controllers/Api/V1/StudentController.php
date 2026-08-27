@@ -440,6 +440,7 @@ class StudentController extends Controller
                 $student = Student::where('university_number', $univNumber)->first();
                 if ($student) {
                     $student->update($data);
+                    $this->detachMismatchedRegistrationRosters($student->fresh());
                     $updated++;
                 } else {
                     $data['university_number'] = $univNumber;
@@ -553,5 +554,29 @@ class StudentController extends Controller
         }
 
         StudentGroupRoster::where('student_id', $student->id)->delete();
+    }
+
+    private function detachMismatchedRegistrationRosters(Student $student): void
+    {
+        $mismatchedRosters = StudentGroupRoster::query()
+            ->with('cycle')
+            ->where('student_id', $student->id)
+            ->whereHas('cycle', fn ($query) => $query->where('academic_level', '!=', $student->academic_level))
+            ->get();
+
+        $academicYearIds = $mismatchedRosters
+            ->pluck('cycle.academic_year_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($academicYearIds->isNotEmpty()) {
+            StudentGroupAssignment::query()
+                ->where('student_id', $student->id)
+                ->whereIn('academic_year_id', $academicYearIds)
+                ->delete();
+        }
+
+        StudentGroupRoster::whereIn('id', $mismatchedRosters->pluck('id'))->delete();
     }
 }

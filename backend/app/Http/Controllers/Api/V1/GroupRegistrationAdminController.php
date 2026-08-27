@@ -92,6 +92,7 @@ class GroupRegistrationAdminController extends Controller
 
         $rosterCounts = StudentGroupRoster::query()
             ->where('group_registration_cycle_id', $cycle->id)
+            ->whereHas('student', fn ($query) => $query->where('academic_level', $cycle->academic_level))
             ->selectRaw('student_group_id, COUNT(*) as students_count')
             ->groupBy('student_group_id')
             ->pluck('students_count', 'student_group_id');
@@ -439,6 +440,7 @@ class GroupRegistrationAdminController extends Controller
     {
         $rosterCounts = StudentGroupRoster::query()
             ->where('group_registration_cycle_id', $cycle->id)
+            ->where('students.academic_level', $cycle->academic_level)
             ->selectRaw("student_group_id, COUNT(*) as students_count, SUM(CASE WHEN students.academic_registration_status = 'registered' THEN 1 ELSE 0 END) as registered_students_count")
             ->join('students', 'students.id', '=', 'student_group_rosters.student_id')
             ->groupBy('student_group_id')
@@ -482,6 +484,7 @@ class GroupRegistrationAdminController extends Controller
             })->values();
         $rosters = StudentGroupRoster::with(['student', 'group'])
             ->where('group_registration_cycle_id', $cycle->id)
+            ->whereHas('student', fn ($query) => $query->where('academic_level', $cycle->academic_level))
             ->orderBy('student_group_id')->orderBy('student_id')->get();
         $currentAssignments = StudentGroupAssignment::with('subgroup')
             ->where('academic_year_id', $cycle->academic_year_id)
@@ -505,7 +508,8 @@ class GroupRegistrationAdminController extends Controller
             'id'=>$cycle->id, 'public_id'=>$cycle->public_id, 'academic_year_id'=>$cycle->academic_year_id,
             'academic_year'=>$cycle->academicYear, 'academic_level'=>$cycle->academic_level, 'status'=>$cycle->status,
             'default_capacity'=>$cycle->default_capacity, 'opens_at'=>$cycle->opens_at, 'closes_at'=>$cycle->closes_at,
-            'rosters_count'=>$cycle->rosters()->count(), 'registered_rosters_count'=>$cycle->rosters()->whereHas('student', fn($q)=>$q->where('academic_registration_status','registered'))->count(),
+            'rosters_count'=>$cycle->rosters()->whereHas('student', fn($q)=>$q->where('academic_level',$cycle->academic_level))->count(),
+            'registered_rosters_count'=>$cycle->rosters()->whereHas('student', fn($q)=>$q->where('academic_level',$cycle->academic_level)->where('academic_registration_status','registered'))->count(),
             'public_url'=>'/student-registration/'.$cycle->public_id, 'groups'=>$groups, 'roster_students'=>$rosterStudents,
         ];
     }
