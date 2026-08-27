@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -8,139 +8,60 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
-import { CheckCircle, Clock, Search, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock3, RotateCcw, Search, Users, X } from 'lucide-react';
+
+type Assessment = any;
+type Payload = { items: Assessment[]; pagination: { current_page: number; last_page: number; total: number } };
+type Summary = { total: number; submitted: number; returned: number; approved: number; draft: number; batches: number; approved_average_percentage: number | null };
+const input = 'h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
 
 export function AssessmentsMasterPage() {
   const { can, user } = useAuth();
   const { locale } = useI18n();
-  const queryClient = useQueryClient();
-  const [statusFilter,setStatusFilter]=useState('');
-  const [search,setSearch]=useState('');
-  const [returning,setReturning]=useState<any|null>(null);
-  const [returnReason,setReturnReason]=useState('');
+  const ar = locale === 'ar';
+  const tr = (a: string, e: string) => ar ? a : e;
+  const client = useQueryClient();
+  const [status, setStatus] = useState('submitted');
+  const [level, setLevel] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [returning, setReturning] = useState<Assessment | null>(null);
+  const [reason, setReason] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
+  const deferredSearch = useDeferredValue(search.trim());
+  const params = useMemo(() => {
+    const value = new URLSearchParams({ page_payload: '1', per_page: '25', page: String(page) });
+    if (status) value.set('status', status);
+    if (level) value.set('academic_level', level);
+    if (deferredSearch) value.set('search', deferredSearch);
+    return value.toString();
+  }, [status, level, deferredSearch, page]);
+  const list = useQuery({ queryKey: ['clinical-assessments', params], queryFn: () => apiFetch<Payload>(`/clinical-assessments?${params}`), enabled: can('assessment.view') });
+  const summary = useQuery({ queryKey: ['clinical-assessments-summary'], queryFn: () => apiFetch<Summary>('/clinical-assessments-summary'), enabled: can('assessment.view') });
+  const refresh = async (text: string) => { setNotice(text); setReturning(null); setReason(''); await Promise.all([client.invalidateQueries({ queryKey: ['clinical-assessments'] }), client.invalidateQueries({ queryKey: ['clinical-assessments-summary'] }), client.invalidateQueries({ queryKey: ['grade-entries'] })]); };
+  const fail = (error: any) => setNotice(error?.message || tr('تعذر تنفيذ العملية.', 'The operation could not be completed.'));
+  const approve = useMutation({ mutationFn: (a: Assessment) => apiFetch(a.assessment_batch_uuid ? `/clinical-assessment-batches/${a.assessment_batch_uuid}/approve` : `/clinical-assessments/${a.id}/approve`, { method: 'POST' }), onSuccess: () => refresh(tr('تم الاعتماد بنجاح.', 'Approved successfully.')), onError: fail });
+  const returnItem = useMutation({ mutationFn: ({ a, text }: { a: Assessment; text: string }) => apiFetch(a.assessment_batch_uuid ? `/clinical-assessment-batches/${a.assessment_batch_uuid}/return` : `/clinical-assessments/${a.id}/return`, { method: 'POST', body: { reason: text } }), onSuccess: () => refresh(tr('تمت إعادة التقييم للمشرف.', 'Assessment returned to supervisor.')), onError: fail });
+  if (!can('assessment.view')) return <ErrorState title={tr('لا تملك صلاحية مشاهدة التقييمات', 'You do not have permission to view assessments')} />;
+  if (list.isLoading || summary.isLoading) return <LoadingState />;
+  if (list.isError || summary.isError) return <ErrorState onRetry={() => { list.refetch(); summary.refetch(); }} />;
+  const data = list.data ?? { items: [], pagination: { current_page: 1, last_page: 1, total: 0 } };
+  const stats = summary.data ?? { total: 0, submitted: 0, returned: 0, approved: 0, draft: 0, batches: 0, approved_average_percentage: null };
+  const grouped = groupItems(data.items);
+  const busy = approve.isPending || returnItem.isPending;
 
-  const { data: assessments, isLoading, isError, refetch } = useQuery({
-    queryKey: ['clinical-assessments',statusFilter],
-    queryFn: () => apiFetch<any>(`/clinical-assessments?per_page=100${statusFilter?`&status=${statusFilter}`:''}`),
-  });
-
-  const approveMutation = useMutation({
-    mutationFn: (id: number) => apiFetch(`/clinical-assessments/${id}/approve`, { method: 'POST' }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clinical-assessments'] }),
-  });
-  const approveBatchMutation=useMutation({mutationFn:(batchUuid:string)=>apiFetch(`/clinical-assessment-batches/${batchUuid}/approve`,{method:'POST'}),onSuccess:()=>queryClient.invalidateQueries({queryKey:['clinical-assessments']})});
-
-  const returnMutation = useMutation({
-    mutationFn: ({ id, batchUuid, reason }: { id?: number; batchUuid?:string; reason: string }) =>
-      apiFetch(batchUuid?`/clinical-assessment-batches/${batchUuid}/return`:`/clinical-assessments/${id}/return`, { method: 'POST', body: { reason } }),
-    onSuccess: async () => {setReturning(null);setReturnReason('');await queryClient.invalidateQueries({ queryKey: ['clinical-assessments'] });},
-  });
-
-  if (!can('assessment.view')) return <ErrorState title="Access Denied" />;
-  if (isLoading) return <LoadingState />;
-  if (isError) return <ErrorState onRetry={refetch} />;
-
-  const items = (Array.isArray(assessments) ? assessments : assessments?.items || []).filter((item:any)=>{const q=search.trim().toLowerCase();return !q||String(item.student?.university_number??'').toLowerCase().includes(q)||String(item.student?.full_name_ar??'').toLowerCase().includes(q)||String(item.student?.full_name_en??'').toLowerCase().includes(q)||String(item.evaluator?.full_name_ar??'').toLowerCase().includes(q)||String(item.evaluator?.full_name_en??'').toLowerCase().includes(q)});
-
-  const getStatusBadge = (status: string) => {
-    const map: Record<string, { label_ar: string; label_en: string; classes: string; icon: any }> = {
-      draft:     { label_ar: 'مسودة',    label_en: 'Draft',     classes: 'bg-slate-100 text-slate-600', icon: Clock },
-      submitted: { label_ar: 'مرسل',     label_en: 'Submitted', classes: 'bg-teal-50 text-teal-700', icon: Clock },
-      approved:  { label_ar: 'معتمد',    label_en: 'Approved',  classes: 'bg-teal-100 text-teal-800', icon: CheckCircle },
-      returned:  { label_ar: 'مُعاد',    label_en: 'Returned',  classes: 'bg-slate-100 text-slate-600', icon: XCircle },
-    };
-    const cfg = map[status] ?? map.draft;
-    const Icon = cfg.icon;
-    return (
-      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold ${cfg.classes}`}>
-        <Icon className="w-3.5 h-3.5" />
-        {locale === 'ar' ? cfg.label_ar : cfg.label_en}
-      </span>
-    );
-  };
-
-  return (
-    <div className="mx-auto max-w-[1200px] space-y-6 pb-12">
-      <PageHeader
-        title={locale === 'ar' ? 'التقييمات السريرية' : 'Clinical Assessments'}
-        description={locale === 'ar' ? 'مراجعة واعتماد تقييمات الطلاب المرسلة من المشرفين' : 'Review and approve student assessments submitted by supervisors'}
-      />
-
-      <section className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_14rem]">
-        <label className="relative"><Search className="absolute right-3 top-3 h-4 w-4 text-slate-400"/><input className="input pr-10" value={search} onChange={event=>setSearch(event.target.value)} placeholder={locale==='ar'?'البحث بالطالب أو الرقم الجامعي أو الطبيب…':'Search student, university ID, or evaluator…'}/></label>
-        <select className="input" value={statusFilter} onChange={event=>setStatusFilter(event.target.value)}><option value="">{locale==='ar'?'جميع الحالات':'All statuses'}</option><option value="submitted">{locale==='ar'?'بانتظار المراجعة':'Awaiting review'}</option><option value="returned">{locale==='ar'?'مُعاد للتعديل':'Returned'}</option><option value="approved">{locale==='ar'?'معتمد':'Approved'}</option></select>
-      </section>
-
-      {returning&&<section className="rounded-3xl border border-teal-200 bg-teal-50 p-4"><h2 className="text-sm font-black text-slate-900">{returning.assessment_batch_uuid?(locale==='ar'?'إعادة تقييم المجموعة كاملة':'Return full group assessment'):(locale==='ar'?'إعادة التقييم للمشرف':'Return assessment to supervisor')}</h2><p className="mt-1 text-xs text-slate-600">{returning.assessment_batch_uuid?(locale==='ar'?'سيتم إرجاع جميع تقييمات هذه المجموعة بنفس السبب.':'Every assessment in this group batch will be returned with the same reason.'):(locale==='ar'?`الطالب: ${returning.student?.full_name_ar??''}`:`Student: ${returning.student?.full_name_en||returning.student?.full_name_ar||''}`)}</p><textarea className="input mt-3 min-h-24" value={returnReason} onChange={event=>setReturnReason(event.target.value)} placeholder={locale==='ar'?'اكتب سبب الإرجاع والتعديل المطلوب بوضوح…':'Clearly state the return reason and required revision…'}/><div className="mt-3 flex gap-2"><Button disabled={returnReason.trim().length<3||returnMutation.isPending} isLoading={returnMutation.isPending} onClick={()=>returnMutation.mutate({id:returning.assessment_batch_uuid?undefined:returning.id,batchUuid:returning.assessment_batch_uuid||undefined,reason:returnReason.trim()})}>{locale==='ar'?'تأكيد الإرجاع':'Confirm return'}</Button><Button variant="outline" onClick={()=>{setReturning(null);setReturnReason('')}}>{locale==='ar'?'إلغاء':'Cancel'}</Button></div></section>}
-
-      {!items.length ? (
-        <EmptyState message={locale === 'ar' ? 'لا توجد تقييمات سريرية بعد' : 'No clinical assessments yet'} />
-      ) : (
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wider text-slate-500">
-                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'الطالب' : 'Student'}</th>
-                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'المقيّم' : 'Evaluator'}</th>
-                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'النتيجة' : 'Score'}</th>
-                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'المساق والتاريخ' : 'Course & date'}</th>
-                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'الحالة' : 'Status'}</th>
-                  <th className="px-6 py-4 font-semibold">{locale === 'ar' ? 'إجراءات' : 'Actions'}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {items.map((a: any, i: number) => {const batchLeader=!a.assessment_batch_uuid||!items.slice(0,i).some((previous:any)=>previous.assessment_batch_uuid===a.assessment_batch_uuid);return (
-                  <tr key={a.id ?? i} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-bold text-slate-900">{locale === 'ar' ? a.student?.full_name_ar : a.student?.full_name_en || a.student?.full_name_ar}</div>
-                      <div className="text-xs text-slate-500">{a.student?.university_number}</div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {locale === 'ar' ? a.evaluator?.full_name_ar : a.evaluator?.full_name_en || a.evaluator?.full_name_ar || '—'}
-                    </td>
-                    <td className="px-6 py-4">
-                      {a.score != null ? (
-                        <span className="text-sm font-bold text-slate-800">
-                          {Number(a.score).toFixed(1)}
-                          {a.max_score && <span className="text-slate-400 font-normal"> / {Number(a.max_score).toFixed(1)}</span>}
-                        </span>
-                      ) : <span className="text-slate-400">—</span>}
-                    </td>
-                    <td className="px-6 py-4 text-xs text-slate-600"><div className="font-bold text-slate-800">{locale==='ar'?a.session?.rotation_block?.rotation?.course?.name_ar:a.session?.rotation_block?.rotation?.course?.name_en||a.session?.rotation_block?.rotation?.course?.name_ar||'—'}</div><div className="mt-1 text-slate-400">{String(a.session?.session_date??'').slice(0,10)}</div></td>
-                    <td className="px-6 py-4">{getStatusBadge(a.status)}</td>
-                    <td className="px-6 py-4">
-                      {a.status === 'submitted' && can('assessment.approve') && a.evaluator?.user_id!==user?.id && batchLeader && (
-                        <div className="flex items-center gap-2">
-                          <Button
-                            onClick={() => a.assessment_batch_uuid?approveBatchMutation.mutate(a.assessment_batch_uuid):approveMutation.mutate(a.id)}
-                            isLoading={approveMutation.isPending||approveBatchMutation.isPending}
-                            className="!py-1.5 !px-3 !text-xs"
-                          >
-                            {a.assessment_batch_uuid?(locale==='ar'?'اعتماد المجموعة':'Approve group'):(locale === 'ar' ? 'اعتماد' : 'Approve')}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            onClick={() => {setReturning(a);setReturnReason('')}}
-                            isLoading={returnMutation.isPending}
-                            className="!py-1.5 !px-3 !text-xs"
-                          >
-                            {a.assessment_batch_uuid?(locale==='ar'?'إعادة المجموعة':'Return group'):(locale === 'ar' ? 'إعادة' : 'Return')}
-                          </Button>
-                        </div>
-                      )}
-                      {a.status==='submitted'&&a.assessment_batch_uuid&&!batchLeader&&<span className="text-[10px] font-bold text-teal-700">{locale==='ar'?'ضمن حزمة المجموعة':'Part of group batch'}</span>}
-                      {a.status === 'submitted' && can('assessment.approve') && a.evaluator?.user_id===user?.id && <span className="text-xs font-bold text-slate-400">{locale==='ar'?'لا يمكن اعتماد تقييمك':'Cannot approve your own'}</span>}
-                      {a.status === 'returned' && a.return_reason && <p className="max-w-xs text-xs text-slate-500">{locale==='ar'?'سبب الإرجاع: ':'Return reason: '}{a.return_reason}</p>}
-                      {a.status !== 'submitted' && !(a.status === 'returned' && a.return_reason) && <span className="text-slate-400 text-sm">—</span>}
-                    </td>
-                  </tr>
-                )})}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <div className="mx-auto max-w-[1280px] space-y-5 pb-12">
+    <PageHeader title={tr('مراجعة التقييمات السريرية', 'Clinical Assessment Review')} description={tr('اعتماد تقييمات المشرفين وإرجاعها للتعديل؛ العلامة المعتمدة فقط تدخل كشف العلامات.', 'Review supervisor assessments. Only approved results enter the official grade sheet.')} />
+    <section className="grid grid-cols-2 gap-3 lg:grid-cols-4"><Metric icon={Clock3} label={tr('بانتظار الاعتماد', 'Awaiting review')} value={stats.submitted} hint={tr('تحتاج إجراء', 'Action required')} /><Metric icon={CheckCircle2} label={tr('معتمدة', 'Approved')} value={stats.approved} hint={stats.approved_average_percentage === null ? '—' : `${stats.approved_average_percentage}% ${tr('متوسط', 'average')}`} /><Metric icon={RotateCcw} label={tr('معادة', 'Returned')} value={stats.returned} hint={tr('عند المشرف', 'With supervisor')} /><Metric icon={Users} label={tr('حزم مجموعات', 'Group batches')} value={stats.batches} hint={`${stats.total} ${tr('تقييم', 'assessments')}`} /></section>
+    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 lg:grid-cols-[1fr_13rem_13rem_auto]"><label className="relative"><Search className={`absolute top-3.5 h-4 w-4 text-slate-400 ${ar ? 'right-3' : 'left-3'}`} /><input className={`${input} ${ar ? 'pr-10' : 'pl-10'}`} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder={tr('بحث بالطالب أو الرقم أو الطبيب أو المساق…', 'Search student, ID, evaluator, or course…')} /></label><select className={input} value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option value="">{tr('كل الحالات', 'All statuses')}</option><option value="submitted">{tr('بانتظار المراجعة', 'Awaiting review')}</option><option value="returned">{tr('معاد', 'Returned')}</option><option value="approved">{tr('معتمد', 'Approved')}</option><option value="draft">{tr('مسودة', 'Draft')}</option></select><select className={input} value={level} onChange={e => { setLevel(e.target.value); setPage(1); }}><option value="">{tr('كل الدفعات المخولة', 'All authorized cohorts')}</option><option value="fourth">{tr('السنة الرابعة', 'Fourth year')}</option><option value="fifth">{tr('السنة الخامسة', 'Fifth year')}</option><option value="sixth">{tr('السنة السادسة', 'Sixth year')}</option></select><button className="h-11 rounded-xl border border-slate-200 px-4 text-xs font-bold text-slate-600" onClick={() => { setSearch(''); setStatus('submitted'); setLevel(''); setPage(1); }}>{tr('مسح', 'Clear')}</button></div><p className="mt-3 border-t border-slate-100 pt-3 text-[11px] text-slate-500">{tr(`النتائج: ${data.pagination.total}`, `${data.pagination.total} results`)}</p></section>
+    {notice && <div className="flex items-center justify-between rounded-2xl border border-teal-100 bg-teal-50 px-4 py-3 text-xs font-bold text-teal-800"><span>{notice}</span><button onClick={() => setNotice(null)}><X className="h-4 w-4" /></button></div>}
+    {!grouped.length ? <EmptyState message={tr('لا توجد تقييمات مطابقة للفلاتر.', 'No assessments match the filters.')} /> : <section className="space-y-3">{grouped.map(group => <GroupCard key={group.key} group={group} ar={ar} canApprove={can('assessment.approve')} own={group.first.evaluator?.user_id === user?.id} busy={busy} onApprove={() => approve.mutate(group.first)} onReturn={() => { setReturning(group.first); setReason(''); }} />)}</section>}
+    {data.pagination.last_page > 1 && <nav className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-3 text-xs"><button disabled={page <= 1} className="rounded-xl border border-slate-200 px-3 py-2 font-bold disabled:opacity-40" onClick={() => setPage(p => p - 1)}>{tr('السابق', 'Previous')}</button><span>{tr(`صفحة ${data.pagination.current_page} من ${data.pagination.last_page}`, `Page ${data.pagination.current_page} of ${data.pagination.last_page}`)}</span><button disabled={page >= data.pagination.last_page} className="rounded-xl border border-slate-200 px-3 py-2 font-bold disabled:opacity-40" onClick={() => setPage(p => p + 1)}>{tr('التالي', 'Next')}</button></nav>}
+    {returning && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/20 p-4 backdrop-blur-sm"><div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl"><div className="flex justify-between gap-4"><div><h2 className="text-base font-black text-slate-900">{returning.assessment_batch_uuid ? tr('إعادة تقييم المجموعة', 'Return group assessment') : tr('إعادة تقييم طالب', 'Return student assessment')}</h2><p className="mt-1 text-xs text-slate-500">{tr('اكتب المطلوب من المشرف بوضوح.', 'State the required revision clearly.')}</p></div><button onClick={() => setReturning(null)}><X className="h-5 w-5 text-slate-400" /></button></div><textarea autoFocus className={`${input} mt-4 min-h-32 resize-y py-3`} value={reason} onChange={e => setReason(e.target.value)} placeholder={tr('سبب الإرجاع…', 'Return reason…')} /><div className="mt-4 flex justify-end gap-2"><Button variant="outline" onClick={() => setReturning(null)}>{tr('إلغاء', 'Cancel')}</Button><Button disabled={reason.trim().length < 3 || returnItem.isPending} isLoading={returnItem.isPending} onClick={() => returnItem.mutate({ a: returning, text: reason.trim() })}>{tr('تأكيد الإرجاع', 'Confirm return')}</Button></div></div></div>}
+  </div>;
 }
+
+function Metric({ icon: Icon, label, value, hint }: any) { return <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700"><Icon className="h-5 w-5" /></span><div><p className="text-[11px] font-bold text-slate-500">{label}</p><p className="text-xl font-black text-slate-900">{value}</p></div></div><p className="mt-3 border-t border-slate-100 pt-2 text-[10px] text-slate-400">{hint}</p></article>; }
+function groupItems(items: Assessment[]) { const map = new Map<string, any>(); items.forEach(item => { const key = item.assessment_batch_uuid || `single-${item.id}`; const group = map.get(key) || { key, first: item, items: [] }; group.items.push(item); map.set(key, group); }); return [...map.values()]; }
+function GroupCard({ group, ar, canApprove, own, busy, onApprove, onReturn }: any) { const tr = (a: string, e: string) => ar ? a : e; const first = group.first; const course = first.session?.rotation_block?.rotation?.course; const score = group.items.reduce((sum: number, item: any) => sum + (Number(item.max_score) ? Number(item.score) / Number(item.max_score) * 20 : 0), 0) / group.items.length; const submitted = first.status === 'submitted'; const status = statusLabel(first.status, ar); return <article className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><header className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-black text-slate-900">{first.assessment_batch_uuid ? tr(`تقييم مجموعة · ${group.items.length} طلاب`, `Group assessment · ${group.items.length} students`) : tr('تقييم طالب', 'Student assessment')}</h2><span className={`rounded-lg px-2 py-1 text-[10px] font-bold ${status.className}`}>{status.label}</span></div><p className="mt-1 truncate text-[11px] text-slate-500">{ar ? course?.name_ar : course?.name_en || course?.name_ar || '—'} {course?.code ? `· ${course.code}` : ''}</p><p className="mt-1 text-[10px] text-slate-400">{ar ? first.evaluator?.full_name_ar : first.evaluator?.full_name_en || first.evaluator?.full_name_ar || '—'} · {String(first.session?.session_date || first.submitted_at || first.created_at || '').slice(0, 10)}</p></div><div className="flex items-center gap-3"><span className="rounded-xl bg-teal-50 px-3 py-2 text-sm font-black text-teal-700">{score.toFixed(1)} / 20</span>{submitted && canApprove && !own && <div className="flex gap-2"><Button disabled={busy} onClick={onApprove} className="!px-3 !py-2 !text-xs">{tr('اعتماد', 'Approve')}</Button><Button disabled={busy} variant="outline" onClick={onReturn} className="!px-3 !py-2 !text-xs">{tr('إعادة', 'Return')}</Button></div>}</div></header><div className="divide-y divide-slate-100">{group.items.map((item: any, index: number) => <div key={item.id} className="grid gap-3 px-4 py-3 sm:grid-cols-[2rem_1fr_7rem_1.2fr] sm:items-center"><span className="hidden h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-black text-slate-500 sm:flex">{index + 1}</span><div><p className="text-xs font-black text-slate-800">{ar ? item.student?.full_name_ar : item.student?.full_name_en || item.student?.full_name_ar || '—'}</p><p className="font-mono text-[10px] text-slate-500">{item.student?.university_number}</p></div><span className="w-fit rounded-xl bg-teal-50 px-3 py-1.5 text-sm font-black text-teal-700">{Number(item.score).toFixed(1)} / {Number(item.max_score).toFixed(0)}</span><p className="text-[11px] leading-5 text-slate-500">{item.notes || tr('لا توجد ملاحظات.', 'No notes.')}{item.return_reason && <span className="mt-1 block font-bold text-slate-700">{tr('سبب الإرجاع: ', 'Return reason: ')}{item.return_reason}</span>}</p></div>)}</div>{submitted && canApprove && own && <p className="bg-slate-50 px-4 py-3 text-[11px] font-bold text-slate-500">{tr('لا يمكنك اعتماد تقييم أدخلته بنفسك.', 'You cannot approve an assessment you entered.')}</p>}</article>; }
+function statusLabel(status: string, ar: boolean) { const values: any = { draft: [ar ? 'مسودة' : 'Draft', 'bg-slate-100 text-slate-600'], submitted: [ar ? 'بانتظار المراجعة' : 'Awaiting review', 'bg-teal-50 text-teal-700'], approved: [ar ? 'معتمد' : 'Approved', 'bg-teal-100 text-teal-800'], returned: [ar ? 'معاد للتعديل' : 'Returned', 'bg-slate-100 text-slate-700'] }; const item = values[status] || values.draft; return { label: item[0], className: item[1] }; }

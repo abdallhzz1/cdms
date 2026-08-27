@@ -257,6 +257,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('attendance-warnings/send', [AttendanceWarningController::class, 'send'])->middleware(['permission:attendance.view', 'permission:attendance.notify', 'throttle:attendance-notification']);
         Route::get('dashboard/overview', [DashboardOverviewController::class, 'show'])->middleware('throttle:operational-read');
         Route::get('clinical-assessments', [ClinicalAssessmentController::class, 'index'])->middleware('permission:assessment.view');
+        Route::get('clinical-assessments-summary', [ClinicalAssessmentController::class, 'summary'])->middleware('permission:assessment.view');
         Route::post('clinical-assessments', [ClinicalAssessmentController::class, 'store'])->middleware('permission:assessment.create');
         Route::post('clinical-assessments/{clinicalAssessment}/submit', [ClinicalAssessmentController::class, 'submit'])->middleware('permission:assessment.submit');
         Route::post('clinical-assessments/{clinicalAssessment}/approve', [ClinicalAssessmentController::class, 'approve'])->middleware('permission:assessment.approve');
