@@ -329,6 +329,64 @@ class GroupSelfRegistrationTest extends TestCase
             ->assertJsonPath('data.0.groups.0.subgroups.0.registered_students.0.university_number','22210466');
     }
 
+    public function test_rta_can_only_view_and_access_registration_cycles_for_assigned_cohorts(): void
+    {
+        $fifthCycle = GroupRegistrationCycle::create([
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fifth',
+            'public_id' => (string) Str::uuid(),
+            'status' => 'draft',
+            'default_capacity' => 6,
+        ]);
+        StudentGroup::create([
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fifth',
+            'name' => 'A',
+            'group_type' => 'self_registration',
+        ]);
+
+        $role = Role::firstOrCreate(['code' => 'RTA'], ['name_key' => 'roles.rta.name']);
+        $permissions = Permission::whereIn('code', [
+            'group_registration.view',
+            'group_registration.export',
+            'group_registration.open_close',
+        ])->get();
+        $role->permissions()->syncWithoutDetaching($permissions->mapWithKeys(fn (Permission $permission) => [
+            $permission->id => ['scope_type' => 'global'],
+        ])->all());
+
+        $rta = User::factory()->create(['assigned_levels' => ['fourth']]);
+        $rta->roles()->attach($role->id);
+
+        $this->actingAs($rta)->getJson('/api/v1/group-registration-cycles')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $this->cycle->id)
+            ->assertJsonPath('data.0.academic_level', 'fourth');
+
+        $this->actingAs($rta)->getJson("/api/v1/group-registration-cycles/{$fifthCycle->id}")
+            ->assertNotFound();
+        $this->actingAs($rta)->get("/api/v1/group-registration-cycles/{$fifthCycle->id}/export")
+            ->assertNotFound();
+        $this->actingAs($rta)->putJson("/api/v1/group-registration-cycles/{$fifthCycle->id}", ['status' => 'closed'])
+            ->assertNotFound();
+    }
+
+    public function test_rta_without_an_assigned_cohort_sees_no_registration_cycles(): void
+    {
+        $role = Role::firstOrCreate(['code' => 'RTA'], ['name_key' => 'roles.rta.name']);
+        $permission = Permission::where('code', 'group_registration.view')->firstOrFail();
+        $role->permissions()->syncWithoutDetaching([
+            $permission->id => ['scope_type' => 'global'],
+        ]);
+        $rta = User::factory()->create(['assigned_levels' => null]);
+        $rta->roles()->attach($role->id);
+
+        $this->actingAs($rta)->getJson('/api/v1/group-registration-cycles')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
     public function test_authorized_administrator_can_create_cycle_import_roster_and_open_it(): void
     {
         $role=Role::create(['code'=>'TEST_GROUP_ADMIN','name_key'=>'test.group.admin']);

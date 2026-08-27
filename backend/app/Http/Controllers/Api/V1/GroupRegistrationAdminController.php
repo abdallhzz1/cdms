@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
+use App\Traits\ScopesByDepartmentAndLevel;
 use App\Models\AuditLog;
 use App\Models\GroupRegistrationCycle;
 use App\Models\Student;
@@ -20,11 +21,15 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class GroupRegistrationAdminController extends Controller
 {
+    use ScopesByDepartmentAndLevel;
+
     public function index(Request $request): JsonResponse
     {
+        $levelScope = $this->getEffectiveAcademicLevelScope();
         $cycles = GroupRegistrationCycle::query()
             ->with('academicYear')
             ->withCount('rosters')
+            ->when($levelScope !== null, fn ($q) => $q->whereIn('academic_level', $levelScope))
             ->when($request->integer('academic_year_id'), fn ($q, $id) => $q->where('academic_year_id', $id))
             ->orderByDesc('id')->get();
 
@@ -32,8 +37,9 @@ class GroupRegistrationAdminController extends Controller
         return ApiResponse::success($data);
     }
 
-    public function show(GroupRegistrationCycle $cycle): JsonResponse
+    public function show(Request $request, GroupRegistrationCycle $cycle): JsonResponse
     {
+        $this->ensureCycleInUserScope($cycle);
         return ApiResponse::success($this->cycleData($cycle->load('academicYear')));
     }
 
@@ -46,6 +52,7 @@ class GroupRegistrationAdminController extends Controller
             'letters' => ['nullable', 'array', 'size:3'],
             'letters.*' => ['required', 'string', 'max:2', 'distinct'],
         ]);
+        $this->ensureAcademicLevelInUserScope($data['academic_level']);
         $defaults = ['fourth' => ['L','M','N'], 'fifth' => ['A','B','C'], 'sixth' => ['Q','R','S']];
         $letters = array_map(fn ($v) => strtoupper(trim($v)), $data['letters'] ?? $defaults[$data['academic_level']]);
 
@@ -70,6 +77,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function generateSubgroups(Request $request, GroupRegistrationCycle $cycle): JsonResponse
     {
+        $this->ensureCycleInUserScope($cycle);
         $data = $request->validate([
             'strategy' => ['required', 'in:fixed_count,target_capacity'],
             'subgroups_per_main_group' => ['required_if:strategy,fixed_count', 'nullable', 'integer', 'min:1', 'max:30'],
@@ -176,6 +184,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function update(Request $request, GroupRegistrationCycle $cycle): JsonResponse
     {
+        $this->ensureCycleInUserScope($cycle);
         $data = $request->validate([
             'status' => ['sometimes', 'in:draft,open,closed,archived'],
             'default_capacity' => ['sometimes', 'integer', 'min:1', 'max:30'],
@@ -196,6 +205,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function destroy(Request $request, GroupRegistrationCycle $cycle): JsonResponse
     {
+        $this->ensureCycleInUserScope($cycle);
         if ($cycle->status === 'open') {
             throw ValidationException::withMessages([
                 'cycle' => ['أغلق التسجيل أولاً قبل حذف دورة التسجيل.'],
@@ -225,6 +235,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function importRoster(Request $request, GroupRegistrationCycle $cycle): JsonResponse
     {
+        $this->ensureCycleInUserScope($cycle);
         $data = $request->validate([
             'students' => ['required', 'array', 'min:1', 'max:1000'],
             'students.*.university_number' => ['required', 'string', 'max:20'],
@@ -270,6 +281,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function storeSubgroup(Request $request, GroupRegistrationCycle $cycle, StudentGroup $group): JsonResponse
     {
+        $this->ensureCycleInUserScope($cycle);
         $this->ensureCycleGroup($cycle, $group);
         $data = $request->validate(['name'=>['required','string','max:10'], 'capacity'=>['required','integer','min:1','max:30']]);
         if (!str_starts_with(strtoupper($data['name']), strtoupper($group->name))) throw ValidationException::withMessages(['name'=>['اسم المجموعة الفرعية يجب أن يبدأ بحرف المجموعة الرئيسية.']]);
@@ -281,6 +293,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function updateSubgroup(Request $request, GroupRegistrationCycle $cycle, StudentSubgroup $subgroup): JsonResponse
     {
+        $this->ensureCycleInUserScope($cycle);
         $this->ensureCycleGroup($cycle, $subgroup->group);
         $data = $request->validate(['name'=>['sometimes','string','max:10'], 'capacity'=>['sometimes','integer','min:1','max:30'], 'is_active'=>['sometimes','boolean']]);
         if (isset($data['capacity']) && $subgroup->assignments()->whereNull('valid_until')->count() > $data['capacity']) throw ValidationException::withMessages(['capacity'=>['لا يمكن تخفيض السعة عن عدد الطلبة المسجلين حالياً.']]);
@@ -295,6 +308,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function archiveSubgroup(Request $request, GroupRegistrationCycle $cycle, StudentSubgroup $subgroup): JsonResponse
     {
+        $this->ensureCycleInUserScope($cycle);
         $this->ensureCycleGroup($cycle, $subgroup->group);
         if ($subgroup->assignments()->current()->exists()) {
             throw ValidationException::withMessages([
@@ -315,6 +329,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function overrideAssignment(Request $request, GroupRegistrationCycle $cycle, Student $student): JsonResponse
     {
+        $this->ensureCycleInUserScope($cycle);
         $data = $request->validate([
             'student_subgroup_id' => ['nullable', 'integer', 'exists:student_subgroups,id'],
             'reason' => ['required', 'string', 'min:3', 'max:500'],
@@ -401,8 +416,9 @@ class GroupRegistrationAdminController extends Controller
         );
     }
 
-    public function export(GroupRegistrationCycle $cycle): StreamedResponse
+    public function export(Request $request, GroupRegistrationCycle $cycle): StreamedResponse
     {
+        $this->ensureCycleInUserScope($cycle);
         $cycle->load('academicYear');
         $rosters = StudentGroupRoster::with(['student', 'group'])
             ->where('group_registration_cycle_id', $cycle->id)
@@ -545,6 +561,22 @@ class GroupRegistrationAdminController extends Controller
     {
         abort_unless($group->academic_year_id === $cycle->academic_year_id && $group->academic_level === $cycle->academic_level && $group->group_type === 'self_registration', 404);
     }
+
+    private function ensureCycleInUserScope(GroupRegistrationCycle $cycle): void
+    {
+        $this->ensureAcademicLevelInUserScope($cycle->academic_level);
+    }
+
+    private function ensureAcademicLevelInUserScope(string $academicLevel): void
+    {
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+
+        // Null means the user's effective role combination is global. An
+        // empty array means a cohort-scoped user (such as an RTA) has not
+        // been assigned any cohort and must therefore see no cohort data.
+        abort_if($levelScope !== null && ! in_array($academicLevel, $levelScope, true), 404);
+    }
+
     private function audit(Request $request, string $action, int $id, array $changes=[]): void
     {
         AuditLog::create(['user_id'=>$request->user()->id,'action'=>$action,'entity_type'=>'group_registration','entity_id'=>$id,'changes'=>$changes]);
