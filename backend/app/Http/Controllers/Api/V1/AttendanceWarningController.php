@@ -281,19 +281,48 @@ class AttendanceWarningController extends Controller
     {
         $studentName = $summary['student']['full_name_ar'];
         $courseName = $summary['course']['name_ar'];
-        $severity = $threshold === 20 ? 'إنذار عاجل' : 'تنبيه أولي';
+        $courseNameEn = $summary['course']['name_en'] ?: $courseName;
+
+        if ($threshold === 20) {
+            return <<<TEXT
+الطالب/ة {$studentName} المحترم/ة،
+
+الموضوع: إنذار رسمي بسبب تجاوز نسبة الغياب المسموح بها
+
+تشير سجلات الحضور في مساق {$courseName} ({$summary['course']['code']}) إلى أن نسبة غيابك بلغت {$summary['absence_percentage']}%، بواقع {$summary['absent_days']} أيام غياب من أصل {$summary['total_required_days']} يوماً تدريبياً معتمداً للمساق (الساعات المعتمدة × 5 أيام).
+
+نظراً لتجاوز نسبة الغياب 20%، يرجى مراجعة عمادة كلية الطب في أقرب وقت ممكن للتحقق من السجل واستكمال الإجراءات الأكاديمية اللازمة.
+
+Dear Student,
+
+Subject: Formal warning for exceeding the permitted absence rate
+
+Your recorded absence in {$courseNameEn} ({$summary['course']['code']}) has reached {$summary['absence_percentage']}% ({$summary['absent_days']} of {$summary['total_required_days']} required clinical days).
+
+As your absence rate has exceeded 20%, please visit the Dean's Office of the Faculty of Medicine as soon as possible to review your attendance record and complete the required academic procedures.
+
+Clinical Department Management System
+Hebron University
+TEXT;
+        }
 
         return <<<TEXT
 الطالب/ة {$studentName} المحترم/ة،
 
-{$severity}: بلغت نسبة غيابك المسجلة في مساق {$courseName} ({$summary['course']['code']}) نسبة {$summary['absence_percentage']}%.
+الموضوع: تنبيه أولي بخصوص نسبة الغياب
+
+نود تنبيهك إلى أن نسبة غيابك المسجلة في مساق {$courseName} ({$summary['course']['code']}) بلغت {$summary['absence_percentage']}%.
 عدد أيام الغياب: {$summary['absent_days']} من أصل {$summary['total_required_days']} يوماً تدريبياً معتمداً للمساق (الساعات المعتمدة × 5 أيام).
 
-يرجى مراجعة مساعد البحث والتدريس أو إدارة الدائرة السريرية فوراً للتحقق من السجل واتخاذ الإجراء اللازم.
+هذا تنبيه أولي بعد تجاوز نسبة 10%. يرجى الالتزام بالدوام ومراجعة سجل حضورك مع مساعد البحث والتدريس أو إدارة الدائرة السريرية لتجنب الوصول إلى مرحلة الإنذار الرسمي.
 
 Dear Student,
-Your recorded absence in {$summary['course']['name_en']} ({$summary['course']['code']}) has exceeded the {$threshold}% attendance-warning threshold and is currently {$summary['absence_percentage']}% ({$summary['absent_days']} of {$summary['total_required_days']} required clinical days).
-Please contact the Research and Teaching Assistant or the Clinical Department administration promptly.
+
+Subject: Initial attendance notice
+
+Your recorded absence in {$courseNameEn} ({$summary['course']['code']}) is currently {$summary['absence_percentage']}% ({$summary['absent_days']} of {$summary['total_required_days']} required clinical days), which exceeds the 10% initial-notice threshold.
+
+Please maintain regular attendance and review your record with the Research and Teaching Assistant or the Clinical Department administration to avoid reaching the formal-warning stage.
 
 Clinical Department Management System
 Hebron University

@@ -93,7 +93,13 @@ class AttendanceWarningWorkflowTest extends TestCase
 
     public function test_authorized_user_can_send_and_explicitly_resend_a_warning(): void
     {
-        Mail::fake();
+        Mail::shouldReceive('raw')->twice()->withArgs(function (string $body) {
+            $this->assertStringContainsString('إنذار رسمي بسبب تجاوز نسبة الغياب المسموح بها', $body);
+            $this->assertStringContainsString('مراجعة عمادة كلية الطب', $body);
+            $this->assertStringContainsString("Dean's Office of the Faculty of Medicine", $body);
+
+            return true;
+        });
         $this->record('2026-09-01', 'absent');
         $this->record('2026-09-02', 'absent');
         $this->record('2026-09-03', 'absent');
@@ -123,6 +129,25 @@ class AttendanceWarningWorkflowTest extends TestCase
             ->assertOk();
 
         $this->assertDatabaseCount('attendance_warning_notifications', 2);
+    }
+
+    public function test_ten_percent_email_is_an_initial_notice(): void
+    {
+        Mail::shouldReceive('raw')->once()->withArgs(function (string $body) {
+            $this->assertStringContainsString('تنبيه أولي بخصوص نسبة الغياب', $body);
+            $this->assertStringContainsString('لتجنب الوصول إلى مرحلة الإنذار الرسمي', $body);
+            $this->assertStringNotContainsString('مراجعة عمادة كلية الطب', $body);
+
+            return true;
+        });
+        $this->record('2026-09-01', 'absent');
+        $this->record('2026-09-02', 'absent');
+
+        $this->actingAs($this->rta)->postJson('/api/v1/attendance-warnings/send', [
+            'student_id' => $this->student->id,
+            'rotation_id' => $this->rotation->id,
+            'threshold_percent' => 10,
+        ])->assertOk();
     }
 
     public function test_mail_failure_is_recorded_as_failed_and_not_sent(): void
@@ -207,6 +232,31 @@ class AttendanceWarningWorkflowTest extends TestCase
             'rotation_id' => $this->rotation->id,
             'threshold_percent' => 10,
         ])->assertForbidden();
+    }
+
+    public function test_staging_command_prepares_and_cleans_an_isolated_warning_fixture(): void
+    {
+        $this->artisan('cdms:attendance-warning-test', [
+            'university_number' => '22999999',
+            '--threshold' => 20,
+            '--force' => true,
+        ])->assertSuccessful();
+
+        $student = Student::where('university_number', '22999999')->firstOrFail();
+        $course = Course::where('code', 'QA-ATT-WARNING')->firstOrFail();
+        $rotation = Rotation::where('course_id', $course->id)->firstOrFail();
+        $sessionIds = ClinicalSession::whereHas('rotationBlock', fn ($query) => $query->where('rotation_id', $rotation->id))->pluck('id');
+
+        $this->assertSame(3, AttendanceRecord::where('student_id', $student->id)->whereIn('clinical_session_id', $sessionIds)->count());
+
+        $this->artisan('cdms:attendance-warning-test', [
+            'university_number' => '22999999',
+            '--cleanup' => true,
+            '--force' => true,
+        ])->assertSuccessful();
+
+        $this->assertDatabaseMissing('courses', ['code' => 'QA-ATT-WARNING']);
+        $this->assertDatabaseMissing('students', ['university_number' => '22999999']);
     }
 
     private function record(string $date, string $status, ?string $title = null): AttendanceRecord
