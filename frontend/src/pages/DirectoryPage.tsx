@@ -216,6 +216,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     mutationFn: (body: any) => apiFetch('/students', { method: 'POST', body }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['directory', 'students'] });
+      queryClient.invalidateQueries({ queryKey: ['group-registration-cycles'] });
+      queryClient.invalidateQueries({ queryKey: ['student-main-groups'] });
       setModalSuccessMsg(locale === 'ar' ? 'تمت إضافة الطالب بنجاح!' : 'Student added successfully!');
       setTimeout(() => {
         setModalSuccessMsg('');
@@ -233,6 +235,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     mutationFn: ({ id, body }: { id: number; body: any }) => apiFetch(`/students/${id}`, { method: 'PUT', body }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['directory', 'students'] });
+      queryClient.invalidateQueries({ queryKey: ['group-registration-cycles'] });
+      queryClient.invalidateQueries({ queryKey: ['student-main-groups'] });
       setModalSuccessMsg(locale === 'ar' ? 'تم تحديث بيانات الطالب بنجاح!' : 'Student updated successfully!');
       setTimeout(() => {
         setModalSuccessMsg('');
@@ -251,6 +255,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     mutationFn: (id: number) => apiFetch(`/students/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['directory', 'students'] });
+      queryClient.invalidateQueries({ queryKey: ['group-registration-cycles'] });
+      queryClient.invalidateQueries({ queryKey: ['student-main-groups'] });
     },
     onError: (err: any) => {
       const protectedRecordMessage = Array.isArray(err?.errors?.student)

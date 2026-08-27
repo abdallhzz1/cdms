@@ -160,6 +160,57 @@ class GroupSelfRegistrationTest extends TestCase
         ]);
     }
 
+    public function test_directory_update_moves_and_detaches_a_student_from_registration_rosters(): void
+    {
+        $permissions = collect(['students.update', 'students.view'])->map(fn (string $code) =>
+            Permission::firstOrCreate(
+                ['code' => $code],
+                ['module' => 'Students', 'action' => 'UPDATE', 'description_key' => "permissions.$code.description"]
+            )
+        );
+        $role = Role::create(['code' => 'TEST_STUDENT_EDITOR', 'name_key' => 'test.student.editor']);
+        foreach ($permissions as $permission) {
+            $role->permissions()->attach($permission->id, ['scope_type' => 'global']);
+        }
+        $user = User::factory()->create();
+        $user->roles()->attach($role);
+
+        $groupM = StudentGroup::create([
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'name' => 'M',
+            'group_type' => 'self_registration',
+        ]);
+        $subgroup = $this->group->subgroups()->firstOrFail();
+        StudentGroupAssignment::create([
+            'student_id' => $this->student->id,
+            'academic_year_id' => $this->year->id,
+            'student_group_id' => $this->group->id,
+            'student_subgroup_id' => $subgroup->id,
+            'valid_from' => now()->toDateString(),
+            'change_reason' => 'initial selection',
+        ]);
+
+        $this->actingAs($user)->putJson("/api/v1/students/{$this->student->id}", [
+            'group_registration_cycle_id' => $this->cycle->id,
+            'main_group_code' => 'M',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('student_group_rosters', [
+            'group_registration_cycle_id' => $this->cycle->id,
+            'student_id' => $this->student->id,
+            'student_group_id' => $groupM->id,
+        ]);
+        $this->assertDatabaseMissing('student_group_assignments', ['student_id' => $this->student->id]);
+
+        $this->actingAs($user)->putJson("/api/v1/students/{$this->student->id}", [
+            'group_registration_cycle_id' => null,
+            'main_group_code' => null,
+        ])->assertOk();
+
+        $this->assertDatabaseMissing('student_group_rosters', ['student_id' => $this->student->id]);
+    }
+
     public function test_a_fixed_subgroup_count_balances_each_main_group_and_is_idempotent(): void
     {
         $permission=Permission::where('code','group_registration.manage_groups')->firstOrFail();

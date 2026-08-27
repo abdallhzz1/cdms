@@ -207,6 +207,8 @@ class StudentController extends Controller
         $this->authorizeStudentAccess($student);
 
         $data = $request->validated();
+        $shouldSyncRoster = $request->exists('group_registration_cycle_id')
+            || $request->exists('main_group_code');
         $cycleId = $data['group_registration_cycle_id'] ?? null;
         $mainGroupCode = $data['main_group_code'] ?? null;
         unset($data['group_registration_cycle_id'], $data['main_group_code']);
@@ -221,9 +223,11 @@ class StudentController extends Controller
             unset($data['academic_advisor_id']);
         }
 
-        DB::transaction(function () use ($student, $data, $cycleId, $mainGroupCode) {
+        DB::transaction(function () use ($student, $data, $cycleId, $mainGroupCode, $shouldSyncRoster) {
             $student->update($data);
-            $this->syncRegistrationRoster($student, $cycleId, $mainGroupCode);
+            if ($shouldSyncRoster) {
+                $this->syncRegistrationRoster($student, $cycleId, $mainGroupCode, true);
+            }
         });
 
         return ApiResponse::success(
@@ -463,9 +467,18 @@ class StudentController extends Controller
         ], 'تمت معالجة '.($imported + $updated).' طالب بنجاح.');
     }
 
-    private function syncRegistrationRoster(Student $student, mixed $cycleId, mixed $mainGroupCode): void
+    private function syncRegistrationRoster(
+        Student $student,
+        mixed $cycleId,
+        mixed $mainGroupCode,
+        bool $detachWhenEmpty = false,
+    ): void
     {
         if (! $cycleId) {
+            if ($detachWhenEmpty) {
+                $this->detachRegistrationRosters($student);
+            }
+
             return;
         }
 
@@ -488,10 +501,57 @@ class StudentController extends Controller
             throw ValidationException::withMessages(['main_group_code' => ['المجموعة الرئيسية غير موجودة في دورة التسجيل المختارة.']]);
         }
 
+        $existingRosters = StudentGroupRoster::query()
+            ->with('cycle')
+            ->where('student_id', $student->id)
+            ->get();
+        $changedRosters = $existingRosters->filter(fn (StudentGroupRoster $roster) =>
+            (int) $roster->group_registration_cycle_id !== (int) $cycle->id
+            || (int) $roster->student_group_id !== (int) $group->id
+        );
+        $affectedAcademicYearIds = $changedRosters
+            ->pluck('cycle.academic_year_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($affectedAcademicYearIds->isNotEmpty()) {
+            StudentGroupAssignment::query()
+                ->where('student_id', $student->id)
+                ->whereIn('academic_year_id', $affectedAcademicYearIds)
+                ->delete();
+        }
+
+        StudentGroupRoster::query()
+            ->where('student_id', $student->id)
+            ->where('group_registration_cycle_id', '!=', $cycle->id)
+            ->delete();
+
         $student->update(['academic_year_id' => $cycle->academic_year_id]);
         StudentGroupRoster::updateOrCreate(
             ['group_registration_cycle_id' => $cycle->id, 'student_id' => $student->id],
             ['student_group_id' => $group->id],
         );
+    }
+
+    private function detachRegistrationRosters(Student $student): void
+    {
+        $academicYearIds = StudentGroupRoster::query()
+            ->with('cycle')
+            ->where('student_id', $student->id)
+            ->get()
+            ->pluck('cycle.academic_year_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($academicYearIds->isNotEmpty()) {
+            StudentGroupAssignment::query()
+                ->where('student_id', $student->id)
+                ->whereIn('academic_year_id', $academicYearIds)
+                ->delete();
+        }
+
+        StudentGroupRoster::where('student_id', $student->id)->delete();
     }
 }
