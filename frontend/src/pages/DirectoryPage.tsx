@@ -75,6 +75,14 @@ function decodeImportFile(buffer: ArrayBuffer): string {
   }
 }
 
+function normalizeAssignedLevel(level: string): string | null {
+  const value = String(level).trim().toLowerCase();
+  if (['fourth', 'الرابعة', '4', 'year4'].includes(value)) return 'fourth';
+  if (['fifth', 'الخامسة', '5', 'year5'].includes(value)) return 'fifth';
+  if (['sixth', 'السادسة', '6', 'year6'].includes(value)) return 'sixth';
+  return null;
+}
+
 function mapStudentImportRows(rows: unknown[][]): any[] {
   return rows.slice(1).flatMap((rawRow) => {
     const cols = rawRow.map(value => String(value ?? '').trim());
@@ -101,17 +109,36 @@ function mapStudentImportRows(rows: unknown[][]): any[] {
 export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const navigate = useNavigate();
   const { t, locale } = useI18n();
-  const { can } = useAuth();
+  const { can, user } = useAuth();
+  const userRoles = (user?.roles ?? []).map(role => role.toUpperCase());
+  const hasGlobalCohortRole = userRoles.some(role => ['SYS_ADMIN', 'DEAN', 'VICE_DEAN', 'CLINICAL_DIRECTOR'].includes(role));
+  const isCohortScopedRta = userRoles.includes('RTA') && !hasGlobalCohortRole;
+  const assignedRtaLevels = Array.from(new Set(
+    (user?.assigned_levels ?? [])
+      .map(normalizeAssignedLevel)
+      .filter((level): level is string => Boolean(level)),
+  ));
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Search input state with debouncing to prevent losing focus
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [levelFilter, setLevelFilter] = useState('');
+  const [levelFilter, setLevelFilter] = useState(
+    kind === 'students' && isCohortScopedRta ? (assignedRtaLevels[0] ?? '') : '',
+  );
   const [mainGroupFilter, setMainGroupFilter] = useState('');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState('50');
+
+  useEffect(() => {
+    if (kind !== 'students' || !isCohortScopedRta) return;
+    if (!assignedRtaLevels.includes(levelFilter)) {
+      setLevelFilter(assignedRtaLevels[0] ?? '');
+      setMainGroupFilter('');
+      setPage(1);
+    }
+  }, [assignedRtaLevels.join('|'), isCohortScopedRta, kind, levelFilter]);
   
   // Debounce search input by 250ms
   useEffect(() => {
@@ -490,6 +517,9 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     { value: 'fifth', label_ar: 'الدفعة الخامسة (سنة 5)', label_en: '5th Year (Cohort 5)' },
     { value: 'sixth', label_ar: 'الدفعة السادسة (سنة 6)', label_en: '6th Year (Cohort 6)' },
   ];
+  const visibleCohorts = isCohortScopedRta
+    ? cohorts.filter(cohort => cohort.value !== '' && assignedRtaLevels.includes(cohort.value))
+    : cohorts;
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-5 pb-14">
@@ -549,7 +579,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       {kind === 'students' && (
         <div className="space-y-2 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-sm">
           <div className="flex gap-1.5 overflow-x-auto">
-            {cohorts.map((c) => (
+            {visibleCohorts.map((c) => (
               <button
                 key={c.value}
                 onClick={() => { setLevelFilter(c.value); setMainGroupFilter(''); setPage(1); }}
@@ -562,6 +592,13 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                 {locale === 'ar' ? c.label_ar : c.label_en}
               </button>
             ))}
+            {isCohortScopedRta && visibleCohorts.length === 0 && (
+              <div className="w-full rounded-xl bg-amber-50 px-4 py-3 text-center text-xs font-bold text-amber-700">
+                {locale === 'ar'
+                  ? 'لم يتم تكليف حسابك بأي دفعة بعد. تواصل مع مدير الدائرة السريرية.'
+                  : 'No cohort is assigned to your account yet. Contact the Clinical Department Director.'}
+              </div>
+            )}
           </div>
         </div>
       )}
