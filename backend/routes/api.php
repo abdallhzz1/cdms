@@ -186,6 +186,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('clinical-sessions', [\App\Http\Controllers\Api\V1\ClinicalSessionController::class, 'store'])->middleware('permission:attendance.record');
         Route::get('attendance-records', [\App\Http\Controllers\Api\V1\AttendanceRecordController::class, 'index'])->middleware('permission:attendance.view');
         Route::post('attendance-records', [\App\Http\Controllers\Api\V1\AttendanceRecordController::class, 'store'])->middleware('permission:attendance.record');
+        Route::get('attendance-warnings', [\App\Http\Controllers\Api\V1\AttendanceWarningController::class, 'index'])->middleware('permission:attendance.view');
+        Route::post('attendance-warnings/send', [\App\Http\Controllers\Api\V1\AttendanceWarningController::class, 'send'])->middleware(['permission:attendance.view', 'permission:attendance.notify', 'throttle:attendance-notification']);
         Route::get('clinical-assessments', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'index'])->middleware('permission:assessment.view');
         Route::post('clinical-assessments', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'store'])->middleware('permission:assessment.create');
         Route::post('clinical-assessments/{clinicalAssessment}/submit', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'submit'])->middleware('permission:assessment.submit');

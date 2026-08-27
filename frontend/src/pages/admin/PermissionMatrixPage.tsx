@@ -97,6 +97,7 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   'attendance.view': { ar: 'دخول شاشة سجل الحضور والغياب', isScreen: true },
   'attendance.record': { ar: 'تسجيل وتأكيد حضور الطلبة' },
   'attendance.excuse': { ar: 'قبول وتوثيق الأعذار الطبية' },
+  'attendance.notify': { ar: 'إرسال إنذارات الغياب عبر البريد الجامعي' },
 
   // Assessment
   'assessment.view': { ar: 'دخول بوابة التقييم والإشراف السريري', isScreen: true },

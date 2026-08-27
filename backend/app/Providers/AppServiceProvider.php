@@ -62,6 +62,14 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(15)->by($key);
         });
 
+        RateLimiter::for('attendance-notification', function (Request $request) {
+            $key = $request->user()?->id
+                ? 'attendance-mail:user:'.$request->user()->id
+                : 'attendance-mail:ip:'.$request->ip();
+
+            return Limit::perMinute(10)->by($key);
+        });
+
         RateLimiter::for('student-otp-request', fn (Request $request) => [
             // University and mobile networks commonly place many students
             // behind one public IP, so keep the network-wide ceiling high
