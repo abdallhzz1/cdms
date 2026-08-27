@@ -32,7 +32,23 @@ export function PublicStudentRegistrationPage() {
   },[challenge,accessToken,otpSeconds]);
 
   const selected=useMemo(()=>options?.subgroups.find(group=>group.is_selected)??null,[options]);
-  const fail=(e:unknown)=>{setMessage('');setError(e instanceof ApiError?e.message:'تعذر إتمام العملية. يرجى المحاولة لاحقاً.');};
+  const fail=(e:unknown)=>{
+    setMessage('');
+    if (!(e instanceof ApiError)) {
+      setError('تعذر إتمام العملية. يرجى المحاولة لاحقاً.');
+      return;
+    }
+    if (e.status === 0) {
+      setError('تعذر الاتصال بالخادم. تحقق من اتصال الإنترنت ثم حاول مرة أخرى.');
+      return;
+    }
+    if (e.status === 429) {
+      setError('تم إرسال طلبات كثيرة خلال وقت قصير. انتظر قليلاً ثم حاول مرة أخرى.');
+      return;
+    }
+    const englishFallback = /^[\x00-\x7F\s.,'!?():-]+$/.test(e.message);
+    setError(englishFallback ? 'تعذر إتمام العملية حالياً. يرجى المحاولة مرة أخرى.' : e.message);
+  };
   const requestOtp=async(e?:FormEvent)=>{e?.preventDefault();if(!publicId||busy)return;setBusy(true);setError('');setMessage('');try{const r=await apiFetch<{challenge_token:string;email_hint:string;expires_in_seconds:number}>(`/public/group-registration/${publicId}/request-otp`,{method:'POST',body:{university_number:number.trim()}});setChallenge(r.challenge_token);setEmailHint(r.email_hint);setOtp('');setOtpSeconds(r.expires_in_seconds);setMessage('تم إرسال رمز التحقق إلى بريدك الجامعي.');}catch(err){fail(err)}finally{setBusy(false)}};
   const verify=async(e:FormEvent)=>{e.preventDefault();if(!publicId)return;setBusy(true);setError('');setMessage('');try{const r=await apiFetch<{access_token:string}>(`/public/group-registration/${publicId}/verify-otp`,{method:'POST',body:{challenge_token:challenge,otp}});setAccessToken(r.access_token);const data=await apiFetch<Options>(`/public/group-registration/${publicId}/options`,{method:'POST',body:{access_token:r.access_token}});setOptions(data);setMessage('تم التحقق من هويتك بنجاح. يمكنك الآن اختيار مجموعتك.');}catch(err){fail(err)}finally{setBusy(false)}};
   const refresh=async()=>{if(publicId&&accessToken)setOptions(await apiFetch<Options>(`/public/group-registration/${publicId}/options`,{method:'POST',body:{access_token:accessToken}}));};

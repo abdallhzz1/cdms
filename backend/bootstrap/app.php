@@ -56,31 +56,32 @@ return Application::configure(basePath: dirname(__DIR__))
             }
 
             $httpMessage = static fn (int $status): string => match ($status) {
-                400 => 'The request could not be processed.',
-                403 => 'This action is unauthorized.',
-                405 => 'The requested method is not allowed.',
-                409 => 'The request conflicts with the current resource state.',
-                419 => 'Your session has expired. Please refresh and try again.',
-                429 => 'Too many requests. Please try again later.',
-                default => 'Request could not be processed.',
+                400 => 'تعذر معالجة الطلب. يرجى التحقق من البيانات والمحاولة مرة أخرى.',
+                403 => 'لا تملك صلاحية تنفيذ هذا الإجراء.',
+                405 => 'هذه العملية غير متاحة من خلال الرابط المستخدم.',
+                409 => 'تعذر تنفيذ الطلب بسبب تعارض مع الحالة الحالية. حدّث الصفحة وحاول مجدداً.',
+                419 => 'انتهت صلاحية الجلسة. حدّث الصفحة وحاول مرة أخرى.',
+                429 => 'تم إرسال طلبات كثيرة خلال وقت قصير. انتظر قليلاً ثم حاول مرة أخرى.',
+                503 => 'خدمة إرسال الرمز غير متاحة مؤقتاً. يرجى المحاولة لاحقاً.',
+                default => 'تعذر معالجة الطلب. يرجى المحاولة مرة أخرى.',
             };
 
             return match (true) {
                 $e instanceof ValidationException => ApiResponse::error(
-                    message: 'Validation Error: ' . collect($e->errors())->flatten()->first(),
+                    message: (string) collect($e->errors())->flatten()->first(),
                     errors: $e->errors(),
                     status: 422,
                 ),
                 $e instanceof AuthenticationException => ApiResponse::error(
-                    message: 'Unauthenticated.',
+                    message: 'انتهت صلاحية الجلسة أو لم يتم التحقق من الهوية.',
                     status: 401,
                 ),
                 $e instanceof AuthorizationException => ApiResponse::error(
-                    message: 'This action is unauthorized.',
+                    message: 'لا تملك صلاحية تنفيذ هذا الإجراء.',
                     status: 403,
                 ),
                 $e instanceof ModelNotFoundException, $e instanceof NotFoundHttpException => ApiResponse::error(
-                    message: 'The requested resource was not found.',
+                    message: 'العنصر المطلوب غير موجود أو لم يعد متاحاً.',
                     status: 404,
                 ),
                 $e instanceof HttpExceptionInterface => ApiResponse::error(
@@ -98,7 +99,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     ]);
 
                     return ApiResponse::error(
-                        message: 'An unexpected error occurred. Please try again later.',
+                        message: 'حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى لاحقاً.',
                         meta: ['reference_id' => $referenceId],
                         status: 500,
                     );

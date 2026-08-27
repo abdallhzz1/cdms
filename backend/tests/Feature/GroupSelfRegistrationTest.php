@@ -52,6 +52,22 @@ class GroupSelfRegistrationTest extends TestCase
         $this->assertDatabaseCount('group_registration_otp_challenges',1);
     }
 
+    public function test_student_can_request_ten_codes_per_hour_before_receiving_an_arabic_rate_limit_message(): void
+    {
+        Mail::fake();
+
+        foreach (range(1, 10) as $attempt) {
+            $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/request-otp", [
+                'university_number' => '22210466',
+            ])->assertOk();
+        }
+
+        $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/request-otp", [
+            'university_number' => '22210466',
+        ])->assertStatus(429)
+            ->assertJsonPath('message', 'تم إرسال طلبات كثيرة خلال وقت قصير. انتظر قليلاً ثم حاول مرة أخرى.');
+    }
+
     public function test_unregistered_student_cannot_receive_otp_or_see_groups(): void
     {
         Mail::fake();
