@@ -55,6 +55,12 @@ class StudentController extends Controller
                 $request->query('academic_year_id'),
                 fn ($q, $y) => $q->where('academic_year_id', $y)
             )
+            ->when($request->query('main_group_code'), function ($q, $groupCode) {
+                $normalized = strtoupper(trim((string) $groupCode));
+                $q->whereHas('groupRegistrationRosters.group', fn ($group) =>
+                    $group->whereRaw('UPPER(name) = ?', [$normalized])
+                );
+            })
             ->when(
                 $request->query('registration_status'),
                 fn ($q, $s) => $q->where('registration_status', $s)

@@ -109,6 +109,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
+  const [mainGroupFilter, setMainGroupFilter] = useState('');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState('50');
   
@@ -181,9 +182,10 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const query = new URLSearchParams({ per_page: perPage, page: String(page) });
   if (debouncedSearch.trim()) query.set('search', debouncedSearch.trim());
   if (kind === 'students' && levelFilter) query.set('academic_level', levelFilter);
+  if (kind === 'students' && mainGroupFilter) query.set('main_group_code', mainGroupFilter);
   
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['directory', kind, page, perPage, debouncedSearch, levelFilter],
+    queryKey: ['directory', kind, page, perPage, debouncedSearch, levelFilter, mainGroupFilter],
     queryFn: () => apiFetch<RecordItem[]>(`${paths[kind]}?${query.toString()}`),
     placeholderData: (previousData) => previousData,
   });
@@ -512,20 +514,41 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       
       {/* Cohort Tabs for Students */}
       {kind === 'students' && (
-        <div className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 gap-1.5 overflow-x-auto">
-          {cohorts.map((c) => (
-            <button
-              key={c.value}
-              onClick={() => { setLevelFilter(c.value); setPage(1); }}
-              className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
-                levelFilter === c.value
-                  ? 'bg-teal-600 text-white shadow-md shadow-teal-500/20 font-bold'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              {locale === 'ar' ? c.label_ar : c.label_en}
-            </button>
-          ))}
+        <div className="space-y-2 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-sm">
+          <div className="flex gap-1.5 overflow-x-auto">
+            {cohorts.map((c) => (
+              <button
+                key={c.value}
+                onClick={() => { setLevelFilter(c.value); setPage(1); }}
+                className={`whitespace-nowrap rounded-xl px-4 py-2.5 text-xs font-semibold transition-all sm:text-sm ${
+                  levelFilter === c.value
+                    ? 'bg-teal-600 font-bold text-white shadow-md shadow-teal-500/20'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {locale === 'ar' ? c.label_ar : c.label_en}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1.5 overflow-x-auto border-t border-slate-100 px-1 pt-2">
+            <span className="ml-1 shrink-0 text-[11px] font-bold text-slate-400">
+              {locale === 'ar' ? 'المجموعة الرئيسية:' : 'Main group:'}
+            </span>
+            {['', 'L', 'M', 'N'].map((group) => (
+              <button
+                key={group || 'all'}
+                type="button"
+                onClick={() => { setMainGroupFilter(group); setPage(1); }}
+                className={`min-w-10 rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                  mainGroupFilter === group
+                    ? 'bg-slate-800 text-white'
+                    : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {group || (locale === 'ar' ? 'الكل' : 'All')}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

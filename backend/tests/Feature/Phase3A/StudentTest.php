@@ -60,6 +60,47 @@ class StudentTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    public function test_can_filter_students_by_main_registration_group(): void
+    {
+        $year = AcademicYear::factory()->create();
+        $cycle = GroupRegistrationCycle::create([
+            'academic_year_id' => $year->id,
+            'academic_level' => 'fourth',
+            'public_id' => (string) Str::uuid(),
+            'status' => 'open',
+            'default_capacity' => 6,
+        ]);
+        $groupL = StudentGroup::create([
+            'academic_year_id' => $year->id,
+            'academic_level' => 'fourth',
+            'name' => 'L',
+            'group_type' => 'self_registration',
+        ]);
+        $groupM = StudentGroup::create([
+            'academic_year_id' => $year->id,
+            'academic_level' => 'fourth',
+            'name' => 'M',
+            'group_type' => 'self_registration',
+        ]);
+        $studentL = Student::factory()->create(['academic_year_id' => $year->id, 'academic_level' => 'fourth']);
+        $studentM = Student::factory()->create(['academic_year_id' => $year->id, 'academic_level' => 'fourth']);
+        StudentGroupRoster::create([
+            'group_registration_cycle_id' => $cycle->id,
+            'student_id' => $studentL->id,
+            'student_group_id' => $groupL->id,
+        ]);
+        StudentGroupRoster::create([
+            'group_registration_cycle_id' => $cycle->id,
+            'student_id' => $studentM->id,
+            'student_group_id' => $groupM->id,
+        ]);
+
+        $this->actingAs($this->admin)->getJson('/api/v1/students?main_group_code=L')
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $studentL->id)
+            ->assertJsonPath('data.0.registration_main_group', 'L');
+    }
+
     public function test_can_create_student()
     {
         $year = AcademicYear::factory()->create();
