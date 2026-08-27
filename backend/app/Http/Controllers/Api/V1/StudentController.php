@@ -30,6 +30,42 @@ class StudentController extends Controller
     use ScopesByDepartmentAndLevel;
 
     /**
+     * Return the main-group values actually assigned to visible students.
+     * The selected cohort is applied so each batch gets its own dynamic list.
+     */
+    public function mainGroups(Request $request): JsonResponse
+    {
+        $scopedLevels = $this->getUserScopedLevels();
+        $visibleStudents = $this->applyStudentAccessScope(Student::query())
+            ->when(
+                ! empty($scopedLevels) && ! $request->query('academic_level'),
+                fn ($query) => $query->whereIn('academic_level', $scopedLevels)
+            )
+            ->when(
+                $request->query('academic_level'),
+                fn ($query, $level) => $query->where('academic_level', $level)
+            )
+            ->select('students.id');
+
+        $groups = StudentGroupRoster::query()
+            ->join('student_groups', 'student_groups.id', '=', 'student_group_rosters.student_group_id')
+            ->whereIn('student_group_rosters.student_id', $visibleStudents)
+            ->whereRaw('student_group_rosters.group_registration_cycle_id = (
+                SELECT MAX(latest_roster.group_registration_cycle_id)
+                FROM student_group_rosters AS latest_roster
+                WHERE latest_roster.student_id = student_group_rosters.student_id
+            )')
+            ->whereNotNull('student_groups.name')
+            ->where('student_groups.name', '!=', '')
+            ->distinct()
+            ->orderBy('student_groups.name')
+            ->pluck('student_groups.name')
+            ->values();
+
+        return ApiResponse::success($groups);
+    }
+
+    /**
      * GET /api/v1/students
      * Permission: students.view
      *

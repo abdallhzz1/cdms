@@ -190,6 +190,21 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     placeholderData: (previousData) => previousData,
   });
 
+  const groupOptionsQuery = new URLSearchParams();
+  if (levelFilter) groupOptionsQuery.set('academic_level', levelFilter);
+  const { data: mainGroupOptions = [] } = useQuery({
+    queryKey: ['student-main-groups', levelFilter],
+    queryFn: () => apiFetch<string[]>(`/students/main-groups?${groupOptionsQuery.toString()}`),
+    enabled: kind === 'students',
+  });
+
+  useEffect(() => {
+    if (mainGroupFilter && !mainGroupOptions.includes(mainGroupFilter)) {
+      setMainGroupFilter('');
+      setPage(1);
+    }
+  }, [mainGroupFilter, mainGroupOptions]);
+
   const { data: registrationCycles = [] } = useQuery({
     queryKey: ['group-registration-cycles', 'student-directory'],
     queryFn: () => apiFetch<RegistrationCycle[]>('/group-registration-cycles'),
@@ -519,7 +534,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
             {cohorts.map((c) => (
               <button
                 key={c.value}
-                onClick={() => { setLevelFilter(c.value); setPage(1); }}
+                onClick={() => { setLevelFilter(c.value); setMainGroupFilter(''); setPage(1); }}
                 className={`whitespace-nowrap rounded-xl px-4 py-2.5 text-xs font-semibold transition-all sm:text-sm ${
                   levelFilter === c.value
                     ? 'bg-teal-600 font-bold text-white shadow-md shadow-teal-500/20'
@@ -530,41 +545,37 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-1.5 overflow-x-auto border-t border-slate-100 px-1 pt-2">
-            <span className="ml-1 shrink-0 text-[11px] font-bold text-slate-400">
-              {locale === 'ar' ? 'المجموعة الرئيسية:' : 'Main group:'}
-            </span>
-            {['', 'L', 'M', 'N'].map((group) => (
-              <button
-                key={group || 'all'}
-                type="button"
-                onClick={() => { setMainGroupFilter(group); setPage(1); }}
-                className={`min-w-10 rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                  mainGroupFilter === group
-                    ? 'bg-slate-800 text-white'
-                    : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                {group || (locale === 'ar' ? 'الكل' : 'All')}
-              </button>
-            ))}
-          </div>
         </div>
       )}
 
       {/* Search & Filter Bar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-        <div className="relative w-full sm:max-w-md">
-          <div className="absolute inset-y-0 right-0 rtl:right-0 rtl:left-auto ltr:left-0 ltr:right-auto flex items-center px-3.5 pointer-events-none text-slate-400">
-            <Search className="h-4 w-4" />
+        <div className="flex w-full flex-col gap-2 sm:max-w-2xl sm:flex-row">
+          <div className="relative min-w-0 flex-1">
+            <div className="absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-400 pointer-events-none rtl:right-0 rtl:left-auto ltr:left-0 ltr:right-auto">
+              <Search className="h-4 w-4" />
+            </div>
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder={locale === 'ar' ? 'البحث بالاسم أو الرقم الجامعي...' : 'Search by name or university ID...'}
+              className="block w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 text-sm text-slate-800 transition-colors focus:border-teal-500 focus:bg-white focus:ring-1 focus:ring-teal-500 rtl:pr-10 ltr:pl-10"
+            />
           </div>
-          <input 
-            type="text"
-            value={searchInput} 
-            onChange={(e) => setSearchInput(e.target.value)} 
-            placeholder={locale === 'ar' ? 'البحث بالاسم أو الرقم الجامعي...' : 'Search by name or university ID...'} 
-            className="block w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 rtl:pr-10 ltr:pl-10 text-sm text-slate-800 focus:bg-white focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition-colors" 
-          />
+          {kind === 'students' && (
+            <select
+              value={mainGroupFilter}
+              onChange={(event) => { setMainGroupFilter(event.target.value); setPage(1); }}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-bold text-slate-700 focus:border-teal-500 sm:w-44"
+              aria-label={locale === 'ar' ? 'تصنيف حسب المجموعة الرئيسية' : 'Filter by main group'}
+            >
+              <option value="">{locale === 'ar' ? 'كل المجموعات الرئيسية' : 'All main groups'}</option>
+              {mainGroupOptions.map((group) => (
+                <option key={group} value={group}>{group}</option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="flex items-center gap-3 self-start sm:self-auto">

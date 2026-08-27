@@ -99,6 +99,15 @@ class StudentTest extends TestCase
             ->assertOk()->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $studentL->id)
             ->assertJsonPath('data.0.registration_main_group', 'L');
+
+        $this->actingAs($this->admin)->getJson('/api/v1/students/main-groups?academic_level=fourth')
+            ->assertOk()
+            ->assertExactJson([
+                'success' => true,
+                'data' => ['L', 'M'],
+                'message' => null,
+                'meta' => [],
+            ]);
     }
 
     public function test_can_create_student()

@@ -114,6 +114,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::prefix('students')->name('students.')->group(function () {
             Route::get('/', [\App\Http\Controllers\Api\V1\StudentController::class, 'index'])
                 ->middleware('permission:students.view')->name('index');
+            Route::get('/main-groups', [\App\Http\Controllers\Api\V1\StudentController::class, 'mainGroups'])
+                ->middleware('permission:students.view')->name('main-groups');
             Route::post('/', [\App\Http\Controllers\Api\V1\StudentController::class, 'store'])
                 ->middleware('permission:students.create')->name('store');
             Route::post('/bulk-import', [\App\Http\Controllers\Api\V1\StudentController::class, 'bulkImport'])
