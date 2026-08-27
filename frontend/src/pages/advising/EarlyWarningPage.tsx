@@ -24,26 +24,13 @@ export function EarlyWarningPage() {
   }, [user]);
 
   const hasAccess = useMemo(() => {
-    if (!user) return false;
-    const roles = user.roles ? user.roles.map(r => (typeof r === 'string' ? r : (r as any).name || '').toUpperCase()) : [];
-    const isAcademicUser = roles.some(r => [
-      'RTA', 
-      'CLINICAL_SUPERVISOR', 
-      'ACADEMIC_ADVISOR', 
-      'DEPARTMENT_HEAD', 
-      'CLINICAL_DIRECTOR', 
-      'ADMIN_ASSISTANT', 
-      'SYS_ADMIN', 
-      'DEAN', 
-      'VICE_DEAN'
-    ].includes(r));
-    return can('advising.view') || can('advising.manage') || can('students.view') || can('students.manage') || isAcademicUser;
+    return Boolean(user) && can('advising.view');
   }, [user, can]);
 
   // Fetch advisors lookup for admin filter dropdown
   const { data: usersLookup } = useQuery({
     queryKey: ['users-lookup-early-warning'],
-    queryFn: () => apiFetch<any>('/users/lookup'),
+    queryFn: () => apiFetch<any>('/users/lookup?purpose=advising'),
     enabled: isAdminOrHead
   });
 

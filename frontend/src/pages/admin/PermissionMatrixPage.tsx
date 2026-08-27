@@ -115,6 +115,7 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   // Advising
   'advising.view': { ar: 'دخول شاشة الإرشاد الأكاديمي والإنذار المبكر', isScreen: true },
   'advising.manage': { ar: 'إدارة جلسات وسجلات الإرشاد' },
+  'advising.assign': { ar: 'تعيين وتغيير المرشدين الأكاديميين للطلبة' },
   'advising.export_pdf': { ar: 'تصدير ملفات وتقارير الإرشاد' },
 
   // Quality & KPIs & Performance

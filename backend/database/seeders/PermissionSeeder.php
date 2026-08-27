@@ -61,6 +61,7 @@ class PermissionSeeder extends Seeder
             ['code' => 'course_report.approve', 'module' => 'Course Reports', 'action' => 'APPROVE', 'description_key' => 'permissions.course_report_approve.description'],
             ['code' => 'advising.view', 'module' => 'Advising', 'action' => 'VIEW', 'description_key' => 'permissions.advising_view.description'],
             ['code' => 'advising.manage', 'module' => 'Advising', 'action' => 'MANAGE', 'description_key' => 'permissions.advising_manage.description'],
+            ['code' => 'advising.assign', 'module' => 'Advising', 'action' => 'ASSIGN_ADVISORS', 'description_key' => 'permissions.advising_assign.description'],
             ['code' => 'advising.export_pdf', 'module' => 'Advising', 'action' => 'EXPORT_PDF', 'description_key' => 'permissions.advising_export_pdf.description'],
             ['code' => 'quality.manage', 'module' => 'Quality', 'action' => 'MANAGE', 'description_key' => 'permissions.quality_manage.description'],
             ['code' => 'quality.view', 'module' => 'Quality', 'action' => 'VIEW', 'description_key' => 'permissions.quality_view.description'],

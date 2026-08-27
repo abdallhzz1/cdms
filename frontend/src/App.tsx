@@ -29,6 +29,8 @@ import { AdvisingDashboardPage } from '@/pages/advising/AdvisingDashboardPage';
 import { AdvisingAssignmentsPage } from '@/pages/advising/AdvisingAssignmentsPage';
 import { EarlyWarningPage } from '@/pages/advising/EarlyWarningPage';
 import { AdvisingFormsPage } from '@/pages/advising/AdvisingFormsPage';
+import { AdvisingLogsPage } from '@/pages/advising/AdvisingLogsPage';
+import { AdvisingDetailsPage } from '@/pages/AdvisingDetailsPage';
 import { TasksPage } from '@/pages/TasksPage';
 // New Quality Module
 import { QualityDashboardPage } from '@/pages/quality/QualityDashboardPage';
@@ -189,7 +191,8 @@ export function App() {
                 <Route path="/advising" element={<AdvisingDashboardPage />} />
                 <Route path="/advising/assignments" element={<AdvisingAssignmentsPage />} />
                 <Route path="/advising/forms" element={<AdvisingFormsPage />} />
-                <Route path="/advising/logs" element={<AdvisingFormsPage />} />
+                <Route path="/advising/logs" element={<AdvisingLogsPage />} />
+                <Route path="/advising/records/:id" element={<AdvisingDetailsPage />} />
                 <Route path="/advising/early-warning" element={<EarlyWarningPage />} />
                 <Route path="/external-electives" element={<ExternalElectivesPage />} />
                 <Route path="/research-projects" element={<ResearchProjectsPage />} />

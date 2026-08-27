@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
+use Database\Factories\StudentFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -19,22 +21,22 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $full_name_ar
  * @property string|null $full_name_en
  * @property string|null $national_id
- * @property string|null $gender  'male'|'female'
- * @property \Carbon\Carbon|null $date_of_birth
+ * @property string|null $gender 'male'|'female'
+ * @property Carbon|null $date_of_birth
  * @property string|null $city
  * @property string|null $phone
  * @property string|null $guardian_phone
  * @property string|null $university_email
  * @property string|null $photo_url
  * @property int|null $batch_year
- * @property string $academic_level  'fourth'|'fifth'|'sixth'
+ * @property string $academic_level 'fourth'|'fifth'|'sixth'
  * @property int|null $academic_year_id
  * @property string|null $study_plan_code
  * @property string $registration_status
  * @property float|null $gpa
  * @property int|null $credit_hours_passed
  * @property int $warning_count
- * @property \Carbon\Carbon|null $last_warning_date
+ * @property Carbon|null $last_warning_date
  * @property int|null $academic_advisor_id
  * @property string $clinical_fees_status
  * @property bool $has_amboss_subscription
@@ -43,7 +45,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Student extends Model
 {
-    /** @use HasFactory<\Database\Factories\StudentFactory> */
+    /** @use HasFactory<StudentFactory> */
     use HasFactory;
 
     protected $fillable = [
@@ -78,9 +80,9 @@ class Student extends Model
     protected function casts(): array
     {
         return [
-            'date_of_birth'           => 'date',
-            'last_warning_date'       => 'date',
-            'gpa'                     => 'decimal:2',
+            'date_of_birth' => 'date',
+            'last_warning_date' => 'date',
+            'gpa' => 'decimal:2',
             'has_amboss_subscription' => 'boolean',
         ];
     }
@@ -98,6 +100,11 @@ class Student extends Model
     public function groupRegistrationRosters(): HasMany
     {
         return $this->hasMany(StudentGroupRoster::class)->orderByDesc('group_registration_cycle_id');
+    }
+
+    public function advisingRecords(): HasMany
+    {
+        return $this->hasMany(AdvisingRecord::class);
     }
 
     /** @return BelongsTo<Person, $this> */
@@ -171,7 +178,7 @@ class Student extends Model
             $course = $enrollment->course;
             if ($grade && $grade->status === 'approved' && $grade->score !== null && $course && $course->credit_hours) {
                 $percentage = ($grade->score / $grade->max_score) * 100;
-                $creditHours = (int)$course->credit_hours;
+                $creditHours = (int) $course->credit_hours;
 
                 $totalPoints += ($percentage * $creditHours);
                 $totalHours += $creditHours;

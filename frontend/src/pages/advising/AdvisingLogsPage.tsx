@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, type FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -7,7 +7,7 @@ import { useI18n } from '@/i18n/I18nContext';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { AdvisingNavTabs } from '@/components/advising/AdvisingNavTabs';
-import { Plus, Calendar, FileText } from 'lucide-react';
+import { Plus, Calendar, FileText, Search, ArrowLeft } from 'lucide-react';
 
 export function AdvisingLogsPage() {
   const { can, user } = useAuth();
@@ -15,6 +15,10 @@ export function AdvisingLogsPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const studentParam = searchParams.get('student');
+  const createParam = searchParams.get('new');
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('');
+  const [category, setCategory] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
@@ -27,51 +31,32 @@ export function AdvisingLogsPage() {
 
   // Auto-open modal and preselect student if student URL parameter is present
   useEffect(() => {
-    if (studentParam) {
+    if ((studentParam || createParam === '1') && can('advising.manage')) {
       setIsModalOpen(true);
-      setFormData(prev => ({ ...prev, student_id: studentParam }));
+      setFormData(prev => ({ ...prev, student_id: studentParam ?? '' }));
     }
-  }, [studentParam]);
-
-  // Check if current user is an Administrator / Department Head / Dean
-  const isAdminOrHead = useMemo(() => {
-    if (!user?.roles) return false;
-    const roles = user.roles.map(r => (typeof r === 'string' ? r : (r as any).name || '').toUpperCase());
-    return roles.some(r => ['DEPARTMENT_HEAD', 'CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
-  }, [user]);
+  }, [can, createParam, studentParam]);
 
   const hasAccess = useMemo(() => {
-    if (!user) return false;
-    const roles = user.roles ? user.roles.map(r => (typeof r === 'string' ? r : (r as any).name || '').toUpperCase()) : [];
-    const isAcademicUser = roles.some(r => [
-      'RTA', 
-      'CLINICAL_SUPERVISOR', 
-      'ACADEMIC_ADVISOR', 
-      'DEPARTMENT_HEAD', 
-      'CLINICAL_DIRECTOR', 
-      'ADMIN_ASSISTANT', 
-      'SYS_ADMIN', 
-      'DEAN', 
-      'VICE_DEAN'
-    ].includes(r));
-    return can('advising.view') || can('advising.manage') || can('students.view') || can('students.manage') || isAcademicUser;
+    return Boolean(user) && can('advising.view');
   }, [user, can]);
 
+  const recordsParams = new URLSearchParams({ per_page: '100' });
+  if (search.trim()) recordsParams.set('search', search.trim());
+  if (status) recordsParams.set('status', status);
+  if (category) recordsParams.set('category', category);
   const { data: records, isLoading: recordsLoading } = useQuery({
-    queryKey: ['advising-records'],
-    queryFn: () => apiFetch<any>('/advising-records?per_page=100')
+    queryKey: ['advising-records', search, status, category],
+    queryFn: () => apiFetch<any>(`/advising-records?${recordsParams.toString()}`)
   });
 
   // Students dropdown for session modal: load all accessible students
-  const studentsEndpoint = useMemo(() => {
-    if (isAdminOrHead) return `/students?per_page=1000`;
-    return `/students?academic_advisor_id=${user?.id}&per_page=1000`;
-  }, [isAdminOrHead, user?.id]);
+  const studentsEndpoint = '/students?per_page=1000';
 
   const { data: students } = useQuery({
     queryKey: ['students-for-advising-modal', studentsEndpoint],
     queryFn: () => apiFetch<any>(studentsEndpoint),
-    enabled: isModalOpen
+    enabled: isModalOpen && can('advising.manage')
   });
 
   const createMutation = useMutation({
@@ -107,7 +92,7 @@ export function AdvisingLogsPage() {
     }
     createMutation.mutate({
       student_id: Number(formData.student_id),
-      advisor_person_id: (user as any)?.person_id || user?.id || null,
+      advisor_person_id: (user as any)?.person_id || null,
       meeting_date: formData.meeting_date,
       category: formData.category,
       notes: formData.notes,
@@ -133,17 +118,23 @@ export function AdvisingLogsPage() {
           </div>
         </div>
 
-        <button
+        {can('advising.manage') && <button
           onClick={() => setIsModalOpen(true)}
           className="w-full sm:w-auto px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           <span>{locale === 'ar' ? 'تسجيل جلسة إرشاد' : 'New Advising Log'}</span>
-        </button>
+        </button>}
       </div>
 
       {/* Advising Sub-Navigation Tabs */}
       <AdvisingNavTabs />
+
+      <div className="grid gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xs sm:grid-cols-[minmax(0,1fr)_180px_180px]">
+        <label className="relative"><Search className="absolute start-3 top-2.5 h-3.5 w-3.5 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={locale === 'ar' ? 'بحث باسم الطالب أو رقمه الجامعي...' : 'Search student name or university ID...'} className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 ps-9 pe-3 text-[10px] outline-none focus:border-teal-300 focus:bg-white" /></label>
+        <select value={status} onChange={(event) => setStatus(event.target.value)} className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-bold text-slate-600"><option value="">{locale === 'ar' ? 'كل الحالات' : 'All statuses'}</option><option value="open">{locale === 'ar' ? 'مفتوح' : 'Open'}</option><option value="closed">{locale === 'ar' ? 'مغلق' : 'Closed'}</option></select>
+        <select value={category} onChange={(event) => setCategory(event.target.value)} className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-bold text-slate-600"><option value="">{locale === 'ar' ? 'كل التصنيفات' : 'All categories'}</option><option value="academic">{locale === 'ar' ? 'أكاديمي' : 'Academic'}</option><option value="risk">{locale === 'ar' ? 'تعثر وإنذار' : 'Risk'}</option><option value="general">{locale === 'ar' ? 'عام' : 'General'}</option></select>
+      </div>
 
       {/* Records Table Card */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
@@ -161,6 +152,8 @@ export function AdvisingLogsPage() {
                 <th className="p-2.5 text-center w-28">{locale === 'ar' ? 'التصنيف' : 'Category'}</th>
                 <th className="p-2.5">{locale === 'ar' ? 'ملاحظات الجلسة' : 'Meeting Notes'}</th>
                 <th className="p-2.5">{locale === 'ar' ? 'خطة العمل (Action Plan)' : 'Action Plan'}</th>
+                <th className="p-2.5 text-center">{locale === 'ar' ? 'الحالة' : 'Status'}</th>
+                <th className="w-10" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
@@ -194,6 +187,8 @@ export function AdvisingLogsPage() {
                     <td className="p-2.5 text-slate-700 max-w-xs text-xs">
                       <div className="whitespace-pre-line leading-relaxed">{r.notes}</div>
                     </td>
+                    <td className="p-2.5 text-center"><span className={`rounded-full px-2.5 py-1 text-[9px] font-black ${r.status === 'closed' ? 'bg-slate-100 text-slate-500' : 'bg-teal-50 text-teal-700'}`}>{r.status === 'closed' ? (locale === 'ar' ? 'مغلق' : 'Closed') : (locale === 'ar' ? 'مفتوح' : 'Open')}</span></td>
+                    <td className="pe-3"><Link to={`/advising/records/${r.id}`} className="text-teal-700"><ArrowLeft className="h-4 w-4 rtl:rotate-180" /></Link></td>
                     <td className="p-2.5 text-slate-700 max-w-xs text-xs">
                       {r.action_plan ? (
                         <div className="whitespace-pre-line bg-teal-50/80 p-2 rounded-xl border border-teal-100 text-teal-900 font-medium">
@@ -208,7 +203,7 @@ export function AdvisingLogsPage() {
               })}
               {!recordsList.length && (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-xs text-slate-400">
+                  <td colSpan={7} className="p-8 text-center text-xs text-slate-400">
                     {locale === 'ar' ? 'لا توجد جلسات إرشادية موثقة بعد' : 'No advising logs documented yet.'}
                   </td>
                 </tr>
@@ -219,7 +214,7 @@ export function AdvisingLogsPage() {
       </div>
 
       {/* Modal: Log New Advising Session */}
-      {isModalOpen && (
+      {isModalOpen && can('advising.manage') && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl border border-slate-200 p-4 sm:p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">

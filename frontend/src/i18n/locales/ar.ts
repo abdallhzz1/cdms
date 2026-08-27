@@ -280,6 +280,7 @@ const ar: typeof en = {
     course_report_approve: { description: 'اعتماد تقارير المساق' },
     advising_view: { description: 'عرض الإرشاد' },
     advising_manage: { description: 'إدارة الإرشاد' },
+    advising_assign: { description: 'تعيين المرشدين الأكاديميين للطلبة' },
     advising_export_pdf: { description: 'تصدير PDF' },
     quality_manage: { description: 'إدارة الجودة' },
     quality_view: { description: 'عرض الجودة' },

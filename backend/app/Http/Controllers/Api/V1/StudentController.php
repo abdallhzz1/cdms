@@ -8,8 +8,8 @@ use App\Http\Requests\V1\UpdateStudentRequest;
 use App\Http\Resources\V1\StudentResource;
 use App\Http\Responses\ApiResponse;
 use App\Models\AdvisingRecord;
-use App\Models\AuditLog;
 use App\Models\AttendanceRecord;
+use App\Models\AuditLog;
 use App\Models\ClinicalAssessment;
 use App\Models\GroupRegistrationCycle;
 use App\Models\Person;
@@ -94,8 +94,7 @@ class StudentController extends Controller
             )
             ->when($request->query('main_group_code'), function ($q, $groupCode) {
                 $normalized = strtoupper(trim((string) $groupCode));
-                $q->whereHas('groupRegistrationRosters.group', fn ($group) =>
-                    $group->whereRaw('UPPER(name) = ?', [$normalized])
+                $q->whereHas('groupRegistrationRosters.group', fn ($group) => $group->whereRaw('UPPER(name) = ?', [$normalized])
                 );
             })
             ->when(
@@ -250,6 +249,21 @@ class StudentController extends Controller
 
         $assignments = $request->input('assignments', []);
 
+        $requestedStudentIds = collect($assignments)
+            ->pluck('student_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+        $accessibleCount = $this->applyStudentAccessScope(Student::query())
+            ->whereIn('id', $requestedStudentIds)
+            ->count();
+
+        if ($accessibleCount !== $requestedStudentIds->count()) {
+            throw ValidationException::withMessages([
+                'assignments' => ['One or more students are outside your advising scope.'],
+            ]);
+        }
+
         // Normalize user IDs to the canonical people.id foreign key before
         // beginning the transaction. An unresolved advisor rejects the full batch.
         $grouped = [];
@@ -257,11 +271,31 @@ class StudentController extends Controller
             $advisorId = null;
             if (! empty($item['academic_advisor_id'])) {
                 $candidateId = (int) $item['academic_advisor_id'];
-                $person = Person::find($candidateId)
-                    ?: Person::where('user_id', $candidateId)->first();
+                $advisorUser = User::with('roles')->find($candidateId);
+                if ($advisorUser && ! $advisorUser->roles->contains('code', 'ACADEMIC_ADVISOR')) {
+                    throw ValidationException::withMessages([
+                        'assignments' => ["User {$candidateId} is not an academic advisor."],
+                    ]);
+                }
+
+                $person = $advisorUser
+                    ? Person::firstOrCreate(
+                        ['user_id' => $advisorUser->id],
+                        [
+                            'full_name_ar' => $advisorUser->name,
+                            'full_name_en' => $advisorUser->name,
+                            'email' => $advisorUser->email,
+                            'is_active' => true,
+                        ],
+                    )
+                    : Person::with('user.roles')->find($candidateId);
+
+                if ($person && (! $person->user || ! $person->user->roles->contains('code', 'ACADEMIC_ADVISOR'))) {
+                    $person = null;
+                }
                 if (! $person) {
                     throw ValidationException::withMessages([
-                        'assignments' => ["Advisor {$candidateId} does not resolve to a staff profile."],
+                        'assignments' => ["Advisor {$candidateId} is unavailable or does not hold the academic-advisor role."],
                     ]);
                 }
                 $advisorId = $person->id;
@@ -535,8 +569,7 @@ class StudentController extends Controller
         mixed $cycleId,
         mixed $mainGroupCode,
         bool $detachWhenEmpty = false,
-    ): void
-    {
+    ): void {
         if (! $cycleId) {
             if ($detachWhenEmpty) {
                 $this->detachRegistrationRosters($student);
@@ -568,8 +601,7 @@ class StudentController extends Controller
             ->with('cycle')
             ->where('student_id', $student->id)
             ->get();
-        $changedRosters = $existingRosters->filter(fn (StudentGroupRoster $roster) =>
-            (int) $roster->group_registration_cycle_id !== (int) $cycle->id
+        $changedRosters = $existingRosters->filter(fn (StudentGroupRoster $roster) => (int) $roster->group_registration_cycle_id !== (int) $cycle->id
             || (int) $roster->student_group_id !== (int) $group->id
         );
         $affectedAcademicYearIds = $changedRosters

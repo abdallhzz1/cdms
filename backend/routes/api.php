@@ -121,7 +121,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::post('/bulk-import', [\App\Http\Controllers\Api\V1\StudentController::class, 'bulkImport'])
                 ->middleware('permission:students.create')->name('bulk-import');
             Route::post('/bulk-assign-advisor', [\App\Http\Controllers\Api\V1\StudentController::class, 'bulkAssignAdvisor'])
-                ->middleware('permission:students.update')
+                ->middleware('permission:advising.assign')
                 ->name('bulk-assign-advisor');
             Route::get('/{student}', [\App\Http\Controllers\Api\V1\StudentController::class, 'show'])
                 ->middleware('permission:students.view')->name('show');
@@ -195,6 +195,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('clinical-assessments/{clinicalAssessment}/approve', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'approve'])->middleware('permission:assessment.approve');
         Route::post('clinical-assessment-batches/{batchUuid}/approve', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'approveBatch'])->middleware('permission:assessment.approve');
         Route::post('clinical-assessment-batches/{batchUuid}/return', [\App\Http\Controllers\Api\V1\ClinicalAssessmentController::class, 'returnBatch'])->middleware('permission:assessment.approve');
+        Route::get('advising-overview', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'overview'])->middleware('permission:advising.view');
         Route::get('advising-records', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'index'])->middleware('permission:advising.view');
         Route::get('advising-records/{advisingRecord}', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'show'])->middleware('permission:advising.view');
         Route::post('advising-records', [\App\Http\Controllers\Api\V1\AdvisingRecordController::class, 'store'])->middleware('permission:advising.manage');
@@ -481,7 +482,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->name('operational.clinical-schedule-options');
 
         Route::get('users/lookup', [\App\Http\Controllers\Api\V1\UserController::class, 'lookup'])
-            ->middleware('permission.any:people.view,students.view,correspondence.view,tasks.manage,meetings.manage');
+            ->middleware('permission.any:people.view,students.view,advising.assign,correspondence.view,tasks.manage,meetings.manage');
 
         // Keep static user paths before apiResource('users') so "rta-list"
         // can never be consumed by the /users/{user} model-binding route.

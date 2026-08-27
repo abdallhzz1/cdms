@@ -2,22 +2,23 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\HasSafePagination;
-use App\Models\User;
-use App\Models\Role;
+use App\Http\Controllers\Controller;
+use App\Http\Responses\ApiResponse;
 use App\Models\ClinicalSupervisorProfile;
-use App\Models\Person;
 use App\Models\Course;
+use App\Models\Person;
+use App\Models\Role;
 use App\Models\Student;
-use App\Services\SecurityAuditService;
+use App\Models\User;
 use App\Services\CorrespondenceRecipientService;
+use App\Services\SecurityAuditService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
-use Illuminate\Support\Facades\DB;
-use App\Http\Responses\ApiResponse;
+use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
 {
@@ -41,7 +42,7 @@ class UserController extends Controller
                     'CLINICAL_SUPERVISOR', 'ACADEMIC_ADVISOR', 'QUALITY',
                 ]);
             })
-            ->with('roles')
+            ->with(['roles', 'person'])
             ->orderBy('name')
             ->get();
 
@@ -52,15 +53,21 @@ class UserController extends Controller
                 ->values();
         }
 
+        if ($request->query('purpose') === 'advising') {
+            $users = $users
+                ->filter(fn (User $advisor) => $advisor->roles->contains('code', 'ACADEMIC_ADVISOR'))
+                ->values();
+        }
+
         $result = $users->map(function ($u) {
             return [
                 'id' => $u->id,
                 'name' => $u->name,
                 'email' => $u->email,
-                'roles' => $u->roles->map(fn($r) => [
+                'roles' => $u->roles->map(fn ($r) => [
                     'id' => $r->id,
                     'code' => $r->code,
-                    'name_key' => $r->name_key
+                    'name_key' => $r->name_key,
                 ]),
             ];
         });
@@ -79,9 +86,9 @@ class UserController extends Controller
 
         if ($request->filled('search')) {
             $search = $request->search;
-            $query->where(function($q) use ($search) {
+            $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%");
+                    ->orWhere('email', 'like', "%{$search}%");
             });
         }
 
@@ -92,9 +99,10 @@ class UserController extends Controller
             $scopedRole = $user->roles->first(function ($role) {
                 return in_array($role->code, ['DEPARTMENT_HEAD', 'RTA'])
                     && $role->pivot->scope_type === 'department'
-                    && !is_null($role->pivot->scope_id);
+                    && ! is_null($role->pivot->scope_id);
             });
             $user->department_id = $scopedRole ? (int) $scopedRole->pivot->scope_id : null;
+
             return $user;
         });
 
@@ -111,12 +119,12 @@ class UserController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name'          => 'required|string|max:255',
-            'email'         => 'required|email|unique:users,email',
-            'password'      => ['required', 'string', Password::min(12)->mixedCase()->numbers()->symbols()],
-            'roles'         => 'required|array|min:1',
-            'roles.*'       => 'exists:roles,code',
-            'is_active'     => 'boolean',
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
+            'password' => ['required', 'string', Password::min(12)->mixedCase()->numbers()->symbols()],
+            'roles' => 'required|array|min:1',
+            'roles.*' => 'exists:roles,code',
+            'is_active' => 'boolean',
             'department_id' => 'nullable|integer|exists:departments,id',
         ]);
 
@@ -124,12 +132,13 @@ class UserController extends Controller
 
         $user = DB::transaction(function () use ($validated) {
             $user = User::create([
-                'name'      => $validated['name'],
-                'email'     => $validated['email'],
-                'password'  => Hash::make($validated['password']),
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'password' => Hash::make($validated['password']),
                 'is_active' => $validated['is_active'] ?? true,
             ]);
             $this->syncRolesWithScope($user, $validated['roles'], $validated['department_id'] ?? null);
+
             return $user;
         });
 
@@ -153,11 +162,11 @@ class UserController extends Controller
             'roles' => $user->roles()->pluck('code')->all(),
         ];
         $validated = $request->validate([
-            'name'          => 'required|string|max:255',
-            'email'         => ['required', 'email', Rule::unique('users')->ignore($user->id)],
-            'roles'         => 'required|array|min:1',
-            'roles.*'       => 'exists:roles,code',
-            'is_active'     => 'boolean',
+            'name' => 'required|string|max:255',
+            'email' => ['required', 'email', Rule::unique('users')->ignore($user->id)],
+            'roles' => 'required|array|min:1',
+            'roles.*' => 'exists:roles,code',
+            'is_active' => 'boolean',
             'department_id' => 'nullable|integer|exists:departments,id',
         ]);
 
@@ -165,8 +174,8 @@ class UserController extends Controller
 
         DB::transaction(function () use ($user, $validated) {
             $user->update([
-                'name'      => $validated['name'],
-                'email'     => $validated['email'],
+                'name' => $validated['name'],
+                'email' => $validated['email'],
                 'is_active' => $validated['is_active'] ?? $user->is_active,
             ]);
             $this->syncRolesWithScope($user, $validated['roles'], $validated['department_id'] ?? null);
@@ -200,17 +209,19 @@ class UserController extends Controller
         $syncData = [];
         foreach ($roleCodes as $code) {
             $role = Role::where('code', $code)->first();
-            if (!$role) continue;
+            if (! $role) {
+                continue;
+            }
 
             if (in_array($code, $scopedRoles) && $departmentId) {
                 $syncData[$role->id] = [
                     'scope_type' => 'department',
-                    'scope_id'   => $departmentId,
+                    'scope_id' => $departmentId,
                 ];
             } else {
                 $syncData[$role->id] = [
                     'scope_type' => 'global',
-                    'scope_id'   => null,
+                    'scope_id' => null,
                 ];
             }
         }
@@ -225,7 +236,7 @@ class UserController extends Controller
     private function validateScopedRoles(array $roleCodes, ?int $departmentId): void
     {
         if (array_intersect(['DEPARTMENT_HEAD', 'RTA'], $roleCodes) && ! $departmentId) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
+            throw ValidationException::withMessages([
                 'department_id' => ['A department is required for the Department Head or RTA role.'],
             ]);
         }
@@ -319,10 +330,10 @@ class UserController extends Controller
             return ApiResponse::error('لا يمكن تجميد حسابك الشخصي المتصل حالياً.', [], [], 422);
         }
 
-        $user->is_active = !$user->is_active;
+        $user->is_active = ! $user->is_active;
         $user->save();
 
-        if (!$user->is_active) {
+        if (! $user->is_active) {
             \DB::table(config('session.table', 'sessions'))->where('user_id', $user->id)->delete();
         }
 
@@ -331,6 +342,7 @@ class UserController extends Controller
         ]);
 
         $status = $user->is_active ? 'تفعيل' : 'تجميد';
+
         return ApiResponse::success($user, "تم {$status} الحساب بنجاح.");
     }
 
@@ -368,7 +380,7 @@ class UserController extends Controller
             'assigned_levels.*' => 'string|in:fourth,fifth,sixth',
         ]);
 
-        $user->assigned_levels = !empty($validated['assigned_levels']) ? $validated['assigned_levels'] : null;
+        $user->assigned_levels = ! empty($validated['assigned_levels']) ? $validated['assigned_levels'] : null;
         $user->save();
         $this->audit->record('rta.cohorts_assigned', User::class, $user->id, [
             'assigned_levels' => $user->assigned_levels ?? [],
@@ -386,15 +398,17 @@ class UserController extends Controller
     public function rtaList()
     {
         $users = User::with('roles')
-            ->whereHas('roles', fn($q) => $q->where('code', 'RTA'))
+            ->whereHas('roles', fn ($q) => $q->where('code', 'RTA'))
             ->get(['id', 'name', 'email', 'assigned_levels', 'is_active']);
 
         return ApiResponse::success($users->map(function ($u) {
             $levels = $u->assigned_levels ?? [];
+
             return [
                 'id' => $u->id,
                 'name' => $u->name,
                 'email' => $u->email,
+                'person_id' => $u->person?->id,
                 'assigned_levels' => $u->assigned_levels,
                 'is_active' => $u->is_active,
                 'roles' => $u->roles->pluck('code'),

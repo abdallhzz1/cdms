@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, AlertTriangle, FileCheck } from 'lucide-react';
+import { LayoutDashboard, Users, AlertTriangle, FileCheck, NotebookTabs } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nContext';
 import { useAuth } from '@/auth/AuthContext';
 
@@ -21,12 +21,19 @@ export function AdvisingNavTabs() {
       exact: false,
       label: locale === 'ar' ? 'تعيين المرشدين' : 'Advisor Assignments',
       icon: Users,
-      show: can('advising.manage'),
+      show: can('advising.assign'),
+    },
+    {
+      path: '/advising/logs',
+      exact: false,
+      label: locale === 'ar' ? 'سجل الجلسات' : 'Session Log',
+      icon: NotebookTabs,
+      show: true,
     },
     {
       path: '/advising/forms',
       exact: false,
-      label: locale === 'ar' ? 'محاضر ونماذج الإرشاد' : 'Advising Forms & Records',
+      label: locale === 'ar' ? 'النماذج الرسمية' : 'Official Forms',
       icon: FileCheck,
       show: true,
     },

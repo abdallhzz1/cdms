@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -9,7 +9,7 @@ import { AdvisingNavTabs } from '@/components/advising/AdvisingNavTabs';
 import { Save, UserCheck, Search, Users, Zap, Shuffle } from 'lucide-react';
 
 export function AdvisingAssignmentsPage() {
-  const { can, user } = useAuth();
+  const { can } = useAuth();
   const { locale, t } = useI18n();
   const queryClient = useQueryClient();
 
@@ -21,13 +21,6 @@ export function AdvisingAssignmentsPage() {
   const [bulkLevel, setBulkLevel] = useState<'fourth' | 'fifth' | 'sixth' | 'unassigned_only'>('fourth');
   const [bulkAdvisorId, setBulkAdvisorId] = useState<string>('');
 
-  // Check if current user is an Administrator / Department Head / Dean / RTA
-  const isAdminOrHead = useMemo(() => {
-    if (!user?.roles) return false;
-    const roles = user.roles.map(r => (typeof r === 'string' ? r : (r as any).name || '').toUpperCase());
-    return roles.some(r => ['DEPARTMENT_HEAD', 'CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN', 'RTA'].includes(r));
-  }, [user]);
-
   // Fetch ALL students without 100 limit
   const { data: students, isLoading: studentsLoading } = useQuery({
     queryKey: ['students-for-assignment'],
@@ -36,7 +29,7 @@ export function AdvisingAssignmentsPage() {
 
   const { data: users, isLoading: usersLoading } = useQuery({
     queryKey: ['users-lookup'],
-    queryFn: () => apiFetch<any>(`/users/lookup`)
+    queryFn: () => apiFetch<any>(`/users/lookup?purpose=advising`)
   });
 
   const updateMutation = useMutation({
@@ -60,7 +53,7 @@ export function AdvisingAssignmentsPage() {
     }
   });
 
-  const hasAccess = can('advising.manage') || can('advising.view') || can('students.view') || can('students.manage') || isAdminOrHead;
+  const hasAccess = can('advising.assign');
 
   if (!hasAccess) return <ErrorState title={t('state.forbidden.title')} message={t('state.forbidden.message')} />;
   if (studentsLoading || usersLoading) return <LoadingState />;

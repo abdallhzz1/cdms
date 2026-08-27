@@ -291,6 +291,7 @@ const en = {
     course_report_approve: { description: 'Approve course reports' },
     advising_view: { description: 'View advising' },
     advising_manage: { description: 'Manage advising' },
+    advising_assign: { description: 'Assign academic advisors to students' },
     advising_export_pdf: { description: 'Export PDF' },
     quality_manage: { description: 'Manage quality' },
     quality_view: { description: 'View quality' },
