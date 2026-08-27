@@ -5,17 +5,21 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\DistributionVersion;
 use App\Services\Distribution\DistributionPublicationService;
+use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
 class DistributionPublicationController extends Controller
 {
+    use ScopesByDepartmentAndLevel;
+
     public function __construct(
         private DistributionPublicationService $publicationService
     ) {}
 
     public function store(Request $request, DistributionVersion $version): JsonResponse
     {
+        $this->ensureVersionInUserScope($version);
         $validated = $request->validate([
             'last_updated_at' => 'required|string',
             'force' => 'boolean',
@@ -38,5 +42,13 @@ class DistributionPublicationController extends Controller
             'message' => 'Distribution version published successfully.',
             'data' => $version
         ], 200);
+    }
+
+    private function ensureVersionInUserScope(DistributionVersion $version): void
+    {
+        $version->loadMissing('rotation');
+        abort_unless($version->rotation, 404);
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+        abort_if($levelScope !== null && ! in_array($version->rotation->academic_level, $levelScope, true), 404);
     }
 }

@@ -9,6 +9,7 @@ use App\Models\DistributionVersion;
 use App\Models\Permission;
 use App\Models\Person;
 use App\Models\Role;
+use App\Models\Rotation;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroup;
@@ -65,6 +66,64 @@ class CourseDistributionWorkflowTest extends TestCase
             ->assertOk()
             ->assertJsonFragment(['id' => $this->course->id, 'academic_level' => 'fourth'])
             ->assertJsonPath('data.hospitals.0.supervisors.0.id', $this->doctor->id);
+    }
+
+    public function test_rta_distribution_options_and_operations_are_limited_to_assigned_cohort(): void
+    {
+        $rtaRole = Role::where('code', 'RTA')->firstOrFail();
+        $permissionIds = Permission::whereIn('code', [
+            'distribution.view',
+            'distribution.update',
+            'distribution.schedule_rows.manage',
+            'distribution.approve',
+            'distribution.publish',
+            'rotations.create',
+        ])->pluck('id');
+        $rtaRole->permissions()->syncWithoutDetaching(
+            $permissionIds->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $rta = User::factory()->create(['assigned_levels' => ['fourth']]);
+        $rta->roles()->attach($rtaRole->id);
+        $fifthCourse = Course::where('academic_level', 'fifth')->firstOrFail();
+
+        $options = $this->actingAs($rta)->getJson('/api/v1/course-distribution/options')
+            ->assertOk();
+        $this->assertSame(['fourth'], collect($options->json('data.courses'))->pluck('academic_level')->unique()->values()->all());
+        $this->assertNotContains($fifthCourse->id, collect($options->json('data.courses'))->pluck('id')->all());
+
+        $this->actingAs($rta)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fifth&course_id='.$fifthCourse->id)
+            ->assertNotFound();
+        $this->actingAs($rta)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fifth',
+            'course_id' => $fifthCourse->id,
+            'start_date' => '2026-09-01',
+            'weeks_count' => 2,
+        ])->assertNotFound();
+
+        $rotation = Rotation::factory()->create([
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fifth',
+            'course_id' => $fifthCourse->id,
+        ]);
+        $version = DistributionVersion::create([
+            'rotation_id' => $rotation->id,
+            'name' => 'جدول الخامسة',
+            'status' => 'manual',
+        ]);
+        $this->actingAs($rta)->postJson("/api/v1/course-distribution/versions/{$version->id}/rows", [
+            'row_type' => 'vacancy',
+            'training_site_id' => $this->doctor->primary_site_id,
+            'label' => 'شاغر',
+        ])->assertNotFound();
+        $this->actingAs($rta)->postJson("/api/v1/distribution-versions/{$version->id}/approve")
+            ->assertNotFound();
+        $this->actingAs($rta)->postJson("/api/v1/distribution-versions/{$version->id}/publish", [
+            'last_updated_at' => $version->updated_at->toIso8601String(),
+        ])->assertNotFound();
+        $this->actingAs($rta)->getJson('/api/v1/distribution-versions?per_page=100')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.data');
     }
 
     public function test_can_create_weekly_course_schedule_and_assign_a_group_to_doctor_cell(): void

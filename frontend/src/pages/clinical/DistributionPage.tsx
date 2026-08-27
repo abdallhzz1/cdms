@@ -30,6 +30,14 @@ const levels: Record<Level, string> = { fourth: 'السنة الرابعة', fif
 const statusLabels: Record<string, string> = { draft: 'مسودة', suggested: 'مقترح', manual: 'قيد الإعداد', published: 'منشور', withdrawn: 'ملغى النشر' };
 const inputClass = 'w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100';
 
+function normalizeAssignedLevel(value: string): Level | null {
+  const level = String(value).trim().toLowerCase();
+  if (['fourth', 'الرابعة', '4', 'year4'].includes(level)) return 'fourth';
+  if (['fifth', 'الخامسة', '5', 'year5'].includes(level)) return 'fifth';
+  if (['sixth', 'السادسة', '6', 'year6'].includes(level)) return 'sixth';
+  return null;
+}
+
 function message(error: unknown, fallback: string): string {
   if (!(error instanceof ApiError)) return fallback;
   const validation = Object.values(error.errors).flat().find((item) => typeof item === 'string');
@@ -48,10 +56,17 @@ function weekDate(startDate: string | null | undefined, week: number): string {
 }
 
 export function DistributionPage() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
+  const userRoles = (user?.roles ?? []).map((role) => role.toUpperCase());
+  const hasGlobalCohortRole = userRoles.some((role) => ['SYS_ADMIN', 'DEAN', 'VICE_DEAN', 'CLINICAL_DIRECTOR'].includes(role));
+  const isCohortScopedRta = userRoles.includes('RTA') && !hasGlobalCohortRole;
+  const assignedRtaLevels = Array.from(new Set(
+    (user?.assigned_levels ?? []).map(normalizeAssignedLevel).filter((item): item is Level => item !== null),
+  ));
+  const visibleLevels = (Object.keys(levels) as Level[]).filter((item) => !isCohortScopedRta || assignedRtaLevels.includes(item));
   const queryClient = useQueryClient();
   const [yearId, setYearId] = useState('');
-  const [level, setLevel] = useState<Level>('fourth');
+  const [level, setLevel] = useState<Level>(isCohortScopedRta ? (assignedRtaLevels[0] ?? 'fourth') : 'fourth');
   const [courseId, setCourseId] = useState('');
   const [startDate, setStartDate] = useState('');
   const [weeksCount, setWeeksCount] = useState(12);
@@ -67,6 +82,11 @@ export function DistributionPage() {
   const courses = optionsQuery.data?.courses ?? [];
   const availableCourses = useMemo(() => courses.filter((course) => course.academic_level === level), [courses, level]);
 
+  useEffect(() => {
+    if (isCohortScopedRta && assignedRtaLevels.length && !assignedRtaLevels.includes(level)) {
+      setLevel(assignedRtaLevels[0]);
+    }
+  }, [assignedRtaLevels.join('|'), isCohortScopedRta, level]);
   useEffect(() => { if (!yearId && years.length) setYearId(String(years.find((year) => year.is_current)?.id ?? years[0].id)); }, [yearId, years]);
   useEffect(() => { if (!availableCourses.some((course) => String(course.id) === courseId)) setCourseId(availableCourses[0] ? String(availableCourses[0].id) : ''); }, [availableCourses, courseId]);
   useEffect(() => { const year = years.find((item) => String(item.id) === yearId); if (year && !startDate) setStartDate(year.start_date); }, [startDate, yearId, years]);
@@ -188,7 +208,7 @@ export function DistributionPage() {
 
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 md:grid-cols-3">
       <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">العام الأكاديمي</span><select className={inputClass} value={yearId} onChange={(event) => { setYearId(event.target.value); setStartDate(''); }}><option value="">اختر العام</option>{years.map((year) => <option key={year.id} value={year.id}>{year.code}{year.is_current ? ' — الحالي' : ''}</option>)}</select></label>
-      <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">الدفعة / المستوى</span><select className={inputClass} value={level} onChange={(event) => setLevel(event.target.value as Level)}>{Object.entries(levels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">الدفعة / المستوى</span><select className={inputClass} value={level} onChange={(event) => setLevel(event.target.value as Level)} disabled={isCohortScopedRta && visibleLevels.length <= 1}>{visibleLevels.map((value) => <option key={value} value={value}>{levels[value]}</option>)}</select>{isCohortScopedRta && visibleLevels.length === 0 && <span className="mt-1 block text-[10px] font-bold text-amber-700">لم يتم تكليف حسابك بأي دفعة.</span>}</label>
       <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">المساق السريري</span><select className={inputClass} value={courseId} onChange={(event) => setCourseId(event.target.value)} disabled={!availableCourses.length}><option value="">{availableCourses.length ? 'اختر المساق' : 'لا توجد مساقات لهذه الدفعة'}</option>{availableCourses.map((course) => <option key={course.id} value={course.id}>{course.code} — {course.name_ar}</option>)}</select></label>
     </div></section>
 

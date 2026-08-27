@@ -19,6 +19,7 @@ use App\Models\StudentSubgroup;
 use App\Models\TrainingSite;
 use App\Models\User;
 use App\Services\Distribution\DistributionApprovalService;
+use App\Traits\ScopesByDepartmentAndLevel;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,11 +29,14 @@ use Illuminate\Validation\ValidationException;
 
 class CourseDistributionController extends Controller
 {
+    use ScopesByDepartmentAndLevel;
+
     public function __construct(private readonly DistributionApprovalService $approvalService) {}
 
     public function options(): JsonResponse
     {
         $directory = $this->doctorDirectory();
+        $levelScope = $this->getEffectiveAcademicLevelScope();
 
         return ApiResponse::success([
             'academic_years' => AcademicYear::query()->active()
@@ -40,6 +44,7 @@ class CourseDistributionController extends Controller
                 ->get(['id', 'code', 'start_date', 'end_date', 'is_current']),
             'courses' => Course::query()->where('is_active', true)
                 ->whereIn('academic_level', ['fourth', 'fifth', 'sixth'])
+                ->when($levelScope !== null, fn ($query) => $query->whereIn('academic_level', $levelScope))
                 ->orderBy('academic_level')->orderBy('semester')->orderBy('code')
                 ->get(['id', 'code', 'name_ar', 'name_en', 'academic_level', 'semester']),
             'hospitals' => $this->hospitals($directory),
@@ -64,6 +69,7 @@ class CourseDistributionController extends Controller
             'academic_level' => ['required', 'in:fourth,fifth,sixth'],
             'course_id' => ['required', 'integer', 'exists:courses,id'],
         ]);
+        $this->ensureAcademicLevelInUserScope($data['academic_level']);
 
         $directory = $this->doctorDirectory();
         $rotation = Rotation::query()
@@ -145,6 +151,7 @@ class CourseDistributionController extends Controller
             'start_date' => ['required', 'date'],
             'weeks_count' => ['required', 'integer', 'min:1', 'max:52'],
         ]);
+        $this->ensureAcademicLevelInUserScope($data['academic_level']);
         $course = Course::findOrFail($data['course_id']);
         if ($course->academic_level !== $data['academic_level']) {
             throw ValidationException::withMessages(['course_id' => ['المساق لا يتبع الدفعة المحددة.']]);
@@ -184,6 +191,7 @@ class CourseDistributionController extends Controller
 
     public function assignCell(Request $request, DistributionVersion $version): JsonResponse
     {
+        $this->ensureVersionInUserScope($version);
         if (in_array($version->status, ['published', 'withdrawn'], true)) {
             throw ValidationException::withMessages(['version' => ['أنشئ نسخة تعديل قبل تغيير جدول منشور أو ملغى النشر.']]);
         }
@@ -258,6 +266,7 @@ class CourseDistributionController extends Controller
 
     public function clearCell(Request $request, DistributionVersion $version): JsonResponse
     {
+        $this->ensureVersionInUserScope($version);
         if (in_array($version->status, ['published', 'withdrawn'], true)) {
             throw ValidationException::withMessages(['version' => ['أنشئ نسخة تعديل قبل تغيير جدول منشور أو ملغى النشر.']]);
         }
@@ -279,6 +288,7 @@ class CourseDistributionController extends Controller
 
     public function storeScheduleRow(Request $request, DistributionVersion $version): JsonResponse
     {
+        $this->ensureVersionInUserScope($version);
         $this->ensureEditableVersion($version);
         $data = $this->validateScheduleRow($request);
         $data['distribution_version_id'] = $version->id;
@@ -291,6 +301,7 @@ class CourseDistributionController extends Controller
 
     public function updateScheduleRow(Request $request, DistributionVersion $version, CourseScheduleRow $row): JsonResponse
     {
+        $this->ensureVersionInUserScope($version);
         $this->ensureEditableVersion($version);
         abort_unless($row->distribution_version_id === $version->id, 404);
         $data = $this->validateScheduleRow($request, $row);
@@ -310,6 +321,7 @@ class CourseDistributionController extends Controller
 
     public function destroyScheduleRow(Request $request, DistributionVersion $version, CourseScheduleRow $row): JsonResponse
     {
+        $this->ensureVersionInUserScope($version);
         $this->ensureEditableVersion($version);
         abort_unless($row->distribution_version_id === $version->id, 404);
 
@@ -324,6 +336,7 @@ class CourseDistributionController extends Controller
 
     public function reviseSchedule(Request $request, DistributionVersion $version): JsonResponse
     {
+        $this->ensureVersionInUserScope($version);
         if (! in_array($version->status, ['published', 'withdrawn'], true)) {
             throw ValidationException::withMessages(['version' => ['يمكن إنشاء نسخة تعديل من جدول منشور أو ملغى النشر فقط.']]);
         }
@@ -380,6 +393,7 @@ class CourseDistributionController extends Controller
 
     public function unpublishSchedule(Request $request, DistributionVersion $version): JsonResponse
     {
+        $this->ensureVersionInUserScope($version);
         $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:1000']]);
 
         DB::transaction(function () use ($request, $version, $data) {
@@ -417,6 +431,7 @@ class CourseDistributionController extends Controller
 
     public function destroySchedule(Request $request, Rotation $rotation): JsonResponse
     {
+        $this->ensureAcademicLevelInUserScope($rotation->academic_level);
         if ($rotation->distributionVersions()->where('status', 'published')->where('is_current', true)->exists()) {
             throw ValidationException::withMessages(['rotation' => ['يجب إلغاء نشر الجدول قبل حذفه.']]);
         }
@@ -578,6 +593,19 @@ class CourseDistributionController extends Controller
         if (in_array($version->status, ['published', 'withdrawn'], true)) {
             throw ValidationException::withMessages(['version' => ['أنشئ نسخة تعديل قبل تغيير جدول منشور أو ملغى النشر.']]);
         }
+    }
+
+    private function ensureVersionInUserScope(DistributionVersion $version): void
+    {
+        $version->loadMissing('rotation');
+        abort_unless($version->rotation, 404);
+        $this->ensureAcademicLevelInUserScope($version->rotation->academic_level);
+    }
+
+    private function ensureAcademicLevelInUserScope(string $academicLevel): void
+    {
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+        abort_if($levelScope !== null && ! in_array($academicLevel, $levelScope, true), 404);
     }
 
     private function doctorDirectory()

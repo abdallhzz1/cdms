@@ -103,7 +103,9 @@ class DistributionVersionController extends Controller
         ]);
 
         $rotation = Rotation::findOrFail($data['rotation_id']);
-        $departmentId = $this->getUserDepartmentId();
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+        abort_if($levelScope !== null && ! in_array($rotation->academic_level, $levelScope, true), 404);
+        $departmentId = $this->getClinicalOperationsDepartmentId();
         if ($departmentId && !$rotation->departments()->whereKey($departmentId)->exists()) {
             throw new \Illuminate\Auth\Access\AuthorizationException('This action is unauthorized.');
         }
@@ -247,7 +249,12 @@ class DistributionVersionController extends Controller
 
     private function applyDistributionVersionScope($query): void
     {
-        $departmentId = $this->getUserDepartmentId();
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+        if ($levelScope !== null) {
+            $query->whereHas('rotation', fn ($rotation) => $rotation->whereIn('academic_level', $levelScope));
+        }
+
+        $departmentId = $this->getClinicalOperationsDepartmentId();
         if ($departmentId) {
             $query->whereHas('rotation.departments', fn ($q) => $q->whereKey($departmentId));
         }
@@ -255,7 +262,11 @@ class DistributionVersionController extends Controller
 
     private function authorizeDistributionVersionAccess(DistributionVersion $version): void
     {
-        $departmentId = $this->getUserDepartmentId();
+        $version->loadMissing('rotation');
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+        abort_if($levelScope !== null && (! $version->rotation || ! in_array($version->rotation->academic_level, $levelScope, true)), 404);
+
+        $departmentId = $this->getClinicalOperationsDepartmentId();
         if ($departmentId && !$version->rotation()->whereHas(
             'departments',
             fn ($q) => $q->whereKey($departmentId)
