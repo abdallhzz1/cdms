@@ -683,14 +683,14 @@ export function DeptHeadProfilePage() {
       {/* ========================================================================= */}
       {/* 2. EXECUTIVE ACADEMIC PROFILE HERO CARD */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-7 shadow-xs">
-        <div className="flex flex-col md:flex-row items-center md:items-start justify-between gap-6 text-center md:text-start">
+      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-5 text-center md:flex-row md:items-center md:justify-start md:text-right">
           
           {/* Avatar & Personal Metadata */}
-          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
+          <div className="flex min-w-0 flex-1 flex-col items-center gap-4 sm:flex-row sm:items-center sm:text-right">
             
             {/* Real Image File Upload Avatar */}
-            <div className="relative group w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-slate-100 text-slate-700 border border-slate-200 flex items-center justify-center text-3xl font-bold shrink-0 shadow-2xs overflow-hidden">
+            <div className="relative group flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-teal-100 bg-teal-50 text-2xl font-black text-teal-800 shadow-sm sm:h-24 sm:w-24">
               {profileData.avatar_url ? (
                 <img src={profileData.avatar_url} alt={profileData.name} className="w-full h-full object-cover" />
               ) : (
@@ -720,11 +720,11 @@ export function DeptHeadProfilePage() {
             </div>
 
             {/* Profile Identity Details */}
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">{profileData.name}</h1>
+            <div className="min-w-0 flex-1 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                <h1 className="text-xl font-black text-slate-900 sm:text-2xl">{profileData.name}</h1>
                 
-                <span className="bg-teal-50 text-teal-800 border border-teal-200/60 text-xs font-medium px-3 py-1 rounded-full">
+                <span className="rounded-full border border-teal-100 bg-teal-50 px-2.5 py-1 text-[11px] font-bold text-teal-800">
                   رئيس {displayDeptTitle}
                 </span>
 
@@ -736,7 +736,7 @@ export function DeptHeadProfilePage() {
                       if (isEditMode) handleSaveProfileData();
                       else setIsEditMode(true);
                     }}
-                    className={`p-1.5 rounded-full transition-all cursor-pointer shadow-2xs ${
+                    className={`rounded-full p-1.5 transition-all cursor-pointer shadow-sm ${
                       isEditMode 
                         ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 
                         : 'bg-teal-700 hover:bg-teal-800 text-white'
@@ -752,7 +752,7 @@ export function DeptHeadProfilePage() {
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-4 gap-y-1.5 text-xs text-slate-600 font-medium">
+              <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-xs font-medium text-slate-600 sm:justify-start">
                 <span className="flex items-center gap-1.5">
                   <GraduationCap className="w-4 h-4 text-teal-600 shrink-0" />
                   <span>{profileData.title}</span>
@@ -765,8 +765,8 @@ export function DeptHeadProfilePage() {
               </div>
 
               {/* Contact Info Pills */}
-              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1 text-xs">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-mono text-[11px]">
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-0.5 text-xs sm:justify-start">
+                <span className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-mono text-slate-700">
                   <Mail className="w-3.5 h-3.5 text-slate-400" />
                   <span>{profileData.email}</span>
                 </span>
