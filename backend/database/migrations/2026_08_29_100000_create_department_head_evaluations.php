@@ -9,35 +9,50 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('department_head_evaluations', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('department_head_user_id')->constrained('users')->cascadeOnDelete();
-            $table->foreignId('department_id')->nullable()->constrained('departments')->nullOnDelete();
-            $table->foreignId('academic_year_id')->nullable()->constrained('academic_years')->nullOnDelete();
-            $table->string('evaluation_purpose')->default('annual_performance');
-            $table->string('status')->default('draft');
-            $table->json('domains');
-            $table->json('major_achievements')->nullable();
-            $table->json('development_areas')->nullable();
-            $table->decimal('overall_score', 5, 1)->default(0);
-            $table->string('overall_rating')->nullable();
-            $table->string('recommendation')->nullable();
-            $table->text('recommendation_notes')->nullable();
-            $table->foreignId('evaluator_user_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->string('evaluator_name')->nullable();
-            $table->string('evaluator_role')->nullable();
-            $table->timestamp('evaluator_signed_at')->nullable();
-            $table->foreignId('dean_user_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->string('dean_name')->nullable();
-            $table->string('dean_role')->nullable();
-            $table->timestamp('dean_signed_at')->nullable();
-            $table->timestamp('submitted_at')->nullable();
-            $table->timestamp('approved_at')->nullable();
-            $table->json('activity_log')->nullable();
-            $table->timestamps();
-            $table->index(['department_head_user_id', 'academic_year_id']);
-            $table->index(['status', 'academic_year_id']);
-        });
+        // MySQL keeps the table that was created before a later DDL statement
+        // fails. Keeping creation and index creation separate makes a failed
+        // deployment safely re-runnable as well as avoiding auto-generated
+        // index names that exceed MySQL's 64-character limit.
+        if (! Schema::hasTable('department_head_evaluations')) {
+            Schema::create('department_head_evaluations', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('department_head_user_id')->constrained('users')->cascadeOnDelete();
+                $table->foreignId('department_id')->nullable()->constrained('departments')->nullOnDelete();
+                $table->foreignId('academic_year_id')->nullable()->constrained('academic_years')->nullOnDelete();
+                $table->string('evaluation_purpose')->default('annual_performance');
+                $table->string('status')->default('draft');
+                $table->json('domains');
+                $table->json('major_achievements')->nullable();
+                $table->json('development_areas')->nullable();
+                $table->decimal('overall_score', 5, 1)->default(0);
+                $table->string('overall_rating')->nullable();
+                $table->string('recommendation')->nullable();
+                $table->text('recommendation_notes')->nullable();
+                $table->foreignId('evaluator_user_id')->nullable()->constrained('users')->nullOnDelete();
+                $table->string('evaluator_name')->nullable();
+                $table->string('evaluator_role')->nullable();
+                $table->timestamp('evaluator_signed_at')->nullable();
+                $table->foreignId('dean_user_id')->nullable()->constrained('users')->nullOnDelete();
+                $table->string('dean_name')->nullable();
+                $table->string('dean_role')->nullable();
+                $table->timestamp('dean_signed_at')->nullable();
+                $table->timestamp('submitted_at')->nullable();
+                $table->timestamp('approved_at')->nullable();
+                $table->json('activity_log')->nullable();
+                $table->timestamps();
+            });
+        }
+
+        if (! Schema::hasIndex('department_head_evaluations', 'dhe_head_year_idx')) {
+            Schema::table('department_head_evaluations', function (Blueprint $table) {
+                $table->index(['department_head_user_id', 'academic_year_id'], 'dhe_head_year_idx');
+            });
+        }
+        if (! Schema::hasIndex('department_head_evaluations', 'dhe_status_year_idx')) {
+            Schema::table('department_head_evaluations', function (Blueprint $table) {
+                $table->index(['status', 'academic_year_id'], 'dhe_status_year_idx');
+            });
+        }
 
         $permissions = [
             ['code' => 'department_head_evaluations.view', 'module' => 'Department Head Evaluations', 'action' => 'VIEW', 'description_key' => 'permissions.department_head_evaluations_view.description'],
