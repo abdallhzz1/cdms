@@ -26,6 +26,7 @@ import { SupervisorPortalPage } from '@/pages/clinical/SupervisorPortalPage';
 import { DeptHeadProfilePage } from '@/pages/department/DeptHeadProfilePage';
 import { ClinicalSupervisorsDirectoryPage } from '@/pages/clinical/ClinicalSupervisorsDirectoryPage';
 import { ClinicalSupervisorProfilePage } from '@/pages/clinical/ClinicalSupervisorProfilePage';
+import { ClinicalSupervisorEvaluationsPage } from '@/pages/clinical/ClinicalSupervisorEvaluationsPage';
 import { AdvisingDashboardPage } from '@/pages/advising/AdvisingDashboardPage';
 import { AdvisingAssignmentsPage } from '@/pages/advising/AdvisingAssignmentsPage';
 import { EarlyWarningPage } from '@/pages/advising/EarlyWarningPage';
@@ -207,6 +208,7 @@ export function App() {
                 <Route path="/dept-heads/me" element={<DeptHeadProfilePage />} />
                 
                 <Route path="/clinical-supervisors" element={<ClinicalSupervisorsDirectoryPage />} />
+                <Route path="/clinical-supervisor-evaluations" element={<ClinicalSupervisorEvaluationsPage />} />
                 <Route path="/clinical-supervisors/me" element={<ClinicalSupervisorProfilePage />} />
                 <Route path="/clinical-supervisors/:id" element={<ClinicalSupervisorProfilePage />} />
                 <Route path="/partnerships" element={<PartnershipsPage />} />

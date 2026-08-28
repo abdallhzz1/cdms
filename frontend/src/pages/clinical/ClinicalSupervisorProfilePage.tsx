@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ChangeEvent } from "react";
+import { useState, useEffect, type ChangeEvent } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/api/client";
@@ -6,17 +6,14 @@ import { useAuth } from "@/auth/AuthContext";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { Modal } from "@/components/ui/Modal";
 import {
-  ChevronRight, User, FileText, BookOpen, Award, BarChart3,
-  Pencil, Plus, Trash2, Save, Star, ShieldCheck, CheckCircle2,
+  ChevronRight, User, FileText, BookOpen, Award,
+  Pencil, Plus, Trash2, Save, ShieldCheck,
   Phone, Mail, Info, Upload, FolderOpen, Download, Eye, Stethoscope, Building2,
 } from "lucide-react";
 
 interface PublicationItem  { title: string; journal: string; year: string; doi?: string }
 interface ConferenceItem   { name: string; location: string; date: string; role: string }
 interface DocumentItem     { id?: string; name: string; category: string; file_url: string; file_type: string; file_size?: string; created_at: string }
-interface OfficialEvaluation { evaluator_name: string; evaluator_role: string; leadership_score: number; clinical_score: number; comments: string; evaluation_date: string }
-interface KpiWeights       { sessionAttendanceWeight: number; researchWeight: number; confWeight: number; evaluationWeight: number; studentFeedbackWeight: number }
-interface KpiOverrides     { sessionAttendanceScore?: number; researchScore?: number; confScore?: number; studentFeedbackScore?: number }
 interface SupervisorProfileData {
   id: string; user_id: number | string;
   name: string; name_en?: string; title: string;
@@ -24,9 +21,7 @@ interface SupervisorProfileData {
   avatar_url?: string; email: string; phone?: string;
   contract_type: string; appointment_date: string; cv_summary: string;
   publications: PublicationItem[]; conferences: ConferenceItem[];
-  documents?: DocumentItem[]; evaluation?: OfficialEvaluation;
-  kpi_weights?: KpiWeights; kpi_overrides?: KpiOverrides;
-  kpi_score?: number | null; kpi_rating?: string; kpi_complete?: boolean; kpi_breakdown?: any;
+  documents?: DocumentItem[];
 }
 
 const getCategoryLabel = (cat: string) => {
@@ -36,22 +31,14 @@ const getCategoryLabel = (cat: string) => {
   };
   return m[cat] || "وثيقة أخرى";
 };
-const ratingColors: Record<string, string> = {
-  "ممتاز": "text-emerald-700 bg-emerald-50 border-emerald-200",
-  "جيد جداً": "text-teal-700 bg-teal-50 border-teal-200",
-  "جيد": "text-blue-700 bg-blue-50 border-blue-200",
-  "مقبول": "text-amber-700 bg-amber-50 border-amber-200",
-};
-const barFill = (s: number, max: number) => max > 0 ? Math.min(100, (s / max) * 100) : 0;
 
 export function ClinicalSupervisorProfilePage() {
   const { id: paramId } = useParams<{ id: string }>();
   const { user, refreshUser } = useAuth();
   const queryClient     = useQueryClient();
 
-  const [activeTab, setActiveTab] = useState<"cv"|"research"|"conferences"|"documents"|"kpi">("cv");
+  const [activeTab, setActiveTab] = useState<"cv"|"research"|"conferences"|"documents">("cv");
   const [isEditMode, setIsEditMode]           = useState(false);
-  const [isEvalModalOpen, setIsEvalModalOpen] = useState(false);
   const [isDocModalOpen, setIsDocModalOpen]   = useState(false);
   const [previewDoc, setPreviewDoc]           = useState<DocumentItem | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -67,9 +54,6 @@ export function ClinicalSupervisorProfilePage() {
   const [newConfLocation, setNewConfLocation] = useState("");
   const [newConfDate, setNewConfDate]     = useState("");
   const [newConfRole, setNewConfRole]     = useState("متحدث ورئيس جلسة");
-  const [evalLeadership, setEvalLeadership] = useState<number>(7.5);
-  const [evalClinical, setEvalClinical]     = useState<number>(7.5);
-  const [evalComments, setEvalComments]     = useState("");
 
   const targetId = !paramId || paramId === "me" ? "me" : paramId;
   const userRoles = (user?.roles || []).map((r: any) =>
@@ -120,19 +104,7 @@ export function ClinicalSupervisorProfilePage() {
       publications: rawProfile.publications || [],
       conferences: rawProfile.conferences || [],
       documents: Array.from(docMap.values()),
-      evaluation: rawProfile.evaluation,
-      kpi_weights: rawProfile.kpi_weights,
-      kpi_overrides: rawProfile.kpi_overrides,
-      kpi_score: rawProfile.kpi_score,
-      kpi_rating: rawProfile.kpi_rating,
-      kpi_complete: Boolean(rawProfile.kpi_complete),
-      kpi_breakdown: rawProfile.kpi_breakdown,
     });
-    if (rawProfile.evaluation) {
-      setEvalLeadership(rawProfile.evaluation.leadership_score || 7.5);
-      setEvalClinical(rawProfile.evaluation.clinical_score || 7.5);
-      setEvalComments(rawProfile.evaluation.comments || "");
-    }
   }, [rawProfile, targetId]);
 
   useEffect(() => {
@@ -146,25 +118,6 @@ export function ClinicalSupervisorProfilePage() {
     queryClient.invalidateQueries({ queryKey: ["clinical-supervisor-profile-v1"] });
     queryClient.invalidateQueries({ queryKey: ["clinical-supervisors-directory-v1"] });
   };
-
-  const kpiBreakdown = useMemo(() => {
-    if (profileData?.kpi_breakdown) return profileData.kpi_breakdown;
-    const w = profileData?.kpi_weights || { sessionAttendanceWeight:30, researchWeight:20, confWeight:15, evaluationWeight:20, studentFeedbackWeight:15 };
-    const ov = profileData?.kpi_overrides || {};
-    const ev = profileData?.evaluation;
-    const sessionScore = ov.sessionAttendanceScore !== undefined ? ov.sessionAttendanceScore : 0;
-    const pubCount = profileData?.publications?.length || 0;
-    const resScore = ov.researchScore !== undefined ? ov.researchScore : Math.min(w.researchWeight||20, pubCount * 5);
-    const confCount = profileData?.conferences?.length || 0;
-    const confScore = ov.confScore !== undefined ? ov.confScore : Math.min(w.confWeight||15, confCount * 5);
-    const rawEval = ev ? ((ev.leadership_score||0) + (ev.clinical_score||0)) : 0;
-    const evalScore = ev ? Math.round((rawEval/15) * (w.evaluationWeight||20) * 10)/10 : 0;
-    const feedbackScore = ov.studentFeedbackScore !== undefined ? ov.studentFeedbackScore : 0;
-    const total = Math.min(100, Math.round((sessionScore+resScore+confScore+evalScore+feedbackScore)*10)/10);
-    const isComplete = ov.sessionAttendanceScore !== undefined && ov.studentFeedbackScore !== undefined && Boolean(ev);
-    let rating="غير مكتمل"; if (isComplete) { rating="مقبول"; if(total>=90) rating="ممتاز"; else if(total>=80) rating="جيد جداً"; else if(total>=70) rating="جيد"; }
-    return { sessionAttendanceScore:sessionScore, researchScore:resScore, confScore, directorEvalScore:evalScore, studentFeedbackScore:feedbackScore, totalScore:isComplete ? total : null, rating, isComplete, weights:w };
-  }, [profileData]);
 
   const handleAvatarUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -188,15 +141,6 @@ export function ClinicalSupervisorProfilePage() {
       await apiFetch(`/clinical-supervisors/${targetId}`, { method:"PUT", body: profileData });
       refreshAll(); setIsEditMode(false); alert("تم حفظ التعديلات بنجاح ✓");
     } catch { setIsEditMode(false); alert("حدث خطأ أثناء الحفظ"); }
-  };
-
-  const handleSaveEval = async () => {
-    if (!profileData) return;
-    const ev = { evaluator_name: user?.name || "المدير السريري", evaluator_role: "مدير الدائرة السريرية", leadership_score: Number(evalLeadership), clinical_score: Number(evalClinical), comments: evalComments.trim() || "تم التقييم والاعتماد الرسمي.", evaluation_date: new Date().toLocaleDateString("ar-EG") };
-    try {
-      await apiFetch(`/clinical-supervisors/${targetId}/evaluation`, { method:"POST", body: ev });
-      refreshAll(); setIsEvalModalOpen(false); alert("تم حفظ التقييم بنجاح ✓");
-    } catch { alert("حدث خطأ أثناء حفظ التقييم"); }
   };
 
   const handleAddPub = async () => {
@@ -263,7 +207,6 @@ export function ClinicalSupervisorProfilePage() {
     { id:"research",    label:"الأبحاث",          icon:BookOpen },
     { id:"conferences", label:"المؤتمرات",        icon:Award },
     { id:"documents",   label:"الوثائق",          icon:FolderOpen },
-    { id:"kpi",         label:"مؤشرات الأداء",   icon:BarChart3 },
   ] as const;
 
   return (
@@ -303,12 +246,6 @@ export function ClinicalSupervisorProfilePage() {
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-50 border border-teal-200 text-[11px] font-bold text-teal-700">
                   <ShieldCheck className="w-3.5 h-3.5" /> مشرف سريري
                 </span>
-                {profileData.kpi_complete && profileData.kpi_rating && (
-                  <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${ratingColors[profileData.kpi_rating]||ratingColors["مقبول"]}`}>
-                    <Star className="w-3 h-3 inline mr-0.5 fill-current" />
-                    {profileData.kpi_rating} — {kpiBreakdown.totalScore} / 100
-                  </span>
-                )}
               </div>
               <h1 className="text-xl font-black text-slate-900">{profileData.name}</h1>
               {profileData.name_en && <p className="text-sm font-medium text-slate-400 font-mono">{profileData.name_en}</p>}
@@ -325,12 +262,6 @@ export function ClinicalSupervisorProfilePage() {
                 <button type="button" onClick={() => isEditMode ? handleSaveProfile() : setIsEditMode(true)}
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-sm transition-colors">
                   {isEditMode ? <><Save className="w-3.5 h-3.5" /><span>حفظ التعديلات</span></> : <><Pencil className="w-3.5 h-3.5" /><span>تعديل البروفايل</span></>}
-                </button>
-              )}
-              {canEvaluate && (
-                <button type="button" onClick={() => setIsEvalModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-colors">
-                  <CheckCircle2 className="w-3.5 h-3.5" /><span>إضافة تقييم رسمي</span>
                 </button>
               )}
             </div>
@@ -465,80 +396,8 @@ export function ClinicalSupervisorProfilePage() {
             </div>
           )}
 
-          {activeTab === "kpi" && (
-            <div className="space-y-5">
-              <div className="bg-teal-50 rounded-2xl border border-teal-100 p-6 flex flex-col sm:flex-row items-center gap-5">
-                <div className="text-center">
-                  <div className="text-4xl font-black text-teal-700 font-mono">{kpiBreakdown.isComplete ? kpiBreakdown.totalScore : '—'}</div>
-                  <div className="text-xs text-teal-500 font-bold mt-0.5">{kpiBreakdown.isComplete ? 'من أصل 100' : 'بانتظار استكمال بيانات التقييم'}</div>
-                </div>
-                <div className="flex-1 w-full space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-black text-slate-800">مجموع نقاط الأداء</span>
-                    <span className={`text-xs font-black px-2.5 py-1 rounded-full border ${ratingColors[kpiBreakdown.rating]||ratingColors["مقبول"]}`}>{kpiBreakdown.rating}</span>
-                  </div>
-                  <div className="h-3 bg-white rounded-full overflow-hidden border border-teal-100">
-                    <div className="h-full bg-teal-500 rounded-full transition-all" style={{width:`${kpiBreakdown.totalScore ?? 0}%`}} />
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {[
-                  {label:"حضور الجلسات السريرية", score:kpiBreakdown.sessionAttendanceScore, max:(kpiBreakdown.weights?.sessionAttendanceWeight||30), color:"bg-teal-500", icon:"📋"},
-                  {label:"الأبحاث والنشر العلمي",  score:kpiBreakdown.researchScore,          max:(kpiBreakdown.weights?.researchWeight||20),          color:"bg-blue-500",   icon:"📚"},
-                  {label:"المؤتمرات والفعاليات",   score:kpiBreakdown.confScore,              max:(kpiBreakdown.weights?.confWeight||15),               color:"bg-emerald-500", icon:"🎤"},
-                  {label:"تقييم الإدارة السريرية", score:kpiBreakdown.directorEvalScore,      max:(kpiBreakdown.weights?.evaluationWeight||20),         color:"bg-emerald-500",icon:"✅"},
-                  {label:"تقييم الطلاب للمشرف",   score:kpiBreakdown.studentFeedbackScore,   max:(kpiBreakdown.weights?.studentFeedbackWeight||15),    color:"bg-amber-500",  icon:"⭐"},
-                ].map(({label,score,max,color,icon})=>(
-                  <div key={label} className="bg-white border border-slate-200 rounded-2xl p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-slate-700 flex items-center gap-2">{icon} {label} <span className="text-[10px] text-slate-400">(الوزن: {max} نقطة)</span></span>
-                      <span className="text-xs font-mono font-black text-slate-800">{score} / {max}</span>
-                    </div>
-                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div className={`h-full ${color} rounded-full transition-all`} style={{width:`${barFill(score,max)}%`}} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {profileData.evaluation && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2">
-                  <p className="text-xs font-black text-emerald-800 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" />التقييم الرسمي من الإدارة</p>
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div><span className="text-slate-500">المقيّم:</span><span className="font-bold text-slate-800 mr-1">{profileData.evaluation.evaluator_name}</span></div>
-                    <div><span className="text-slate-500">الصفة:</span><span className="font-bold text-slate-800 mr-1">{profileData.evaluation.evaluator_role}</span></div>
-                    <div><span className="text-slate-500">القيادة:</span><span className="font-bold text-slate-800 mr-1">{profileData.evaluation.leadership_score} / 7.5</span></div>
-                    <div><span className="text-slate-500">السريري:</span><span className="font-bold text-slate-800 mr-1">{profileData.evaluation.clinical_score} / 7.5</span></div>
-                  </div>
-                  {profileData.evaluation.comments && <p className="text-xs text-slate-600 bg-white rounded-xl p-2.5 border border-emerald-100 leading-relaxed">{profileData.evaluation.comments}</p>}
-                  <p className="text-[10.5px] text-slate-400 font-mono">{profileData.evaluation.evaluation_date}</p>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
-
-      <Modal isOpen={isEvalModalOpen} onClose={()=>setIsEvalModalOpen(false)} title="تقييم رسمي للمشرف السريري" maxWidth="md">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            {[{label:"درجة القيادة (0 – 7.5)",val:evalLeadership,fn:setEvalLeadership},{label:"الكفاءة السريرية (0 – 7.5)",val:evalClinical,fn:setEvalClinical}].map(({label,val,fn})=>(
-              <div key={label} className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700">{label}</label>
-                <input type="number" min={0} max={7.5} step={0.5} value={val} onChange={e=>fn(Math.min(7.5,Math.max(0,Number(e.target.value))))} className="w-full text-sm font-mono bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-300" />
-              </div>
-            ))}
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700">ملاحظات التقييم</label>
-            <textarea rows={4} value={evalComments} onChange={e=>setEvalComments(e.target.value)} className="w-full text-sm bg-slate-50 border border-slate-200 rounded-2xl p-3 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-300" placeholder="أدخل ملاحظاتك وتقييمك الرسمي للمشرف السريري..." />
-          </div>
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={handleSaveEval} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm transition-colors"><Save className="w-4 h-4" /> حفظ التقييم</button>
-            <button type="button" onClick={()=>setIsEvalModalOpen(false)} className="px-5 py-2.5 rounded-2xl border border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 transition-colors">إلغاء</button>
-          </div>
-        </div>
-      </Modal>
 
       <Modal isOpen={isDocModalOpen} onClose={()=>setIsDocModalOpen(false)} title="رفع وثيقة رسمية" maxWidth="md">
         <form onSubmit={handleDocUpload} className="space-y-4">

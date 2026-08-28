@@ -29,6 +29,7 @@ class LogicalPermissionSeeder extends Seeder
                 'people.view', 'people.manage',
                 'performance.view',
                 'department_head_evaluations.view', 'department_head_evaluations.create', 'department_head_evaluations.approve', 'department_head_evaluations.export',
+                'clinical_supervisor_evaluations.view', 'clinical_supervisor_evaluations.create', 'clinical_supervisor_evaluations.approve', 'clinical_supervisor_evaluations.export',
                 'quality.view',
                 'reports.view', 'reports.export',
                 'rotations.view', 'rotations.create', 'rotations.update', 'rotations.delete',
@@ -114,6 +115,7 @@ class LogicalPermissionSeeder extends Seeder
                 'meetings.manage', 'meetings.approve_minutes',
                 'performance.view',
                 'department_head_evaluations.view', 'department_head_evaluations.create', 'department_head_evaluations.approve', 'department_head_evaluations.export',
+                'clinical_supervisor_evaluations.view', 'clinical_supervisor_evaluations.create', 'clinical_supervisor_evaluations.approve', 'clinical_supervisor_evaluations.export',
                 'reports.view', 'reports.export',
             ],
             'VICE_DEAN' => [

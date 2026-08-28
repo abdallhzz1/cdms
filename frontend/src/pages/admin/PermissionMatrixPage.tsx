@@ -126,6 +126,10 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   'department_head_evaluations.view': { ar: 'دخول سجل تقييم رؤساء الأقسام الرسمي', isScreen: true },
   'department_head_evaluations.create': { ar: 'إنشاء وتعديل وتوقيع تقييم رئيس قسم' },
   'department_head_evaluations.approve': { ar: 'اعتماد التقييم النهائي وتوقيع العميد' },
+  'clinical_supervisor_evaluations.view': { ar: 'دخول سجل التقييم الرسمي للمشرفين السريريين', isScreen: true },
+  'clinical_supervisor_evaluations.create': { ar: 'إنشاء وتعديل وتوقيع تقييم مشرف سريري' },
+  'clinical_supervisor_evaluations.approve': { ar: 'اعتماد التقييم النهائي للمشرف السريري' },
+  'clinical_supervisor_evaluations.export': { ar: 'طباعة أو تصدير تقييم مشرف سريري' },
   'department_head_evaluations.export': { ar: 'طباعة أو تصدير نموذج تقييم رئيس قسم' },
 
   // Correspondence

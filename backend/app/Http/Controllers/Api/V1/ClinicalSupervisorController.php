@@ -54,7 +54,6 @@ class ClinicalSupervisorController extends Controller
             }
 
             $deptName = $this->resolveDeptName($u, $profile);
-            $kpi      = $this->calculateKpi($profile);
 
             return [
                 'id'               => (string) $u->id,
@@ -73,12 +72,6 @@ class ClinicalSupervisorController extends Controller
                 'publications'     => $profile->publications ?: [],
                 'conferences'      => $profile->conferences ?: [],
                 'documents'        => $profile->documents ?: [],
-                'kpi_weights'      => $profile->kpi_weights ?: $this->defaultWeights(),
-                'kpi_overrides'    => $profile->kpi_overrides ?: [],
-                'evaluation'       => $profile->evaluation,
-                'kpi_score'        => $kpi['totalScore'],
-                'kpi_rating'       => $kpi['rating'],
-                'kpi_complete'     => $kpi['isComplete'],
             ];
         });
 
@@ -109,7 +102,6 @@ class ClinicalSupervisorController extends Controller
         }
 
         $deptName = $this->resolveDeptName($u, $profile);
-        $kpi      = $this->calculateKpi($profile);
 
         return response()->json([
             'success' => true,
@@ -130,13 +122,6 @@ class ClinicalSupervisorController extends Controller
                 'publications'     => $profile->publications ?: [],
                 'conferences'      => $profile->conferences ?: [],
                 'documents'        => $profile->documents ?: [],
-                'kpi_weights'      => $profile->kpi_weights ?: $this->defaultWeights(),
-                'kpi_overrides'    => $profile->kpi_overrides ?: [],
-                'evaluation'       => $profile->evaluation,
-                'kpi_score'        => $kpi['totalScore'],
-                'kpi_rating'       => $kpi['rating'],
-                'kpi_complete'     => $kpi['isComplete'],
-                'kpi_breakdown'    => $kpi,
             ],
         ]);
     }

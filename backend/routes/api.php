@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClinicalAssessmentController;
 use App\Http\Controllers\Api\V1\ClinicalSessionController;
 use App\Http\Controllers\Api\V1\ClinicalSupervisorController;
+use App\Http\Controllers\Api\V1\ClinicalSupervisorEvaluationController;
 use App\Http\Controllers\Api\V1\CorrespondenceController;
 use App\Http\Controllers\Api\V1\CourseController;
 use App\Http\Controllers\Api\V1\CourseDistributionController;
@@ -359,11 +360,19 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->middleware('permission:people.manage');
         Route::get('clinical-supervisors/{id}', [ClinicalSupervisorController::class, 'show']);
         Route::put('clinical-supervisors/{id}', [ClinicalSupervisorController::class, 'update']);
-        Route::post('clinical-supervisors/{id}/evaluation', [ClinicalSupervisorController::class, 'saveEvaluation']);
         Route::post('clinical-supervisors/{id}/avatar', [ClinicalSupervisorController::class, 'uploadAvatar']);
         Route::post('clinical-supervisors/{id}/documents', [ClinicalSupervisorController::class, 'uploadDocument']);
         Route::get('clinical-supervisors/{id}/documents/{docId}/download', [ClinicalSupervisorController::class, 'downloadDocument']);
         Route::delete('clinical-supervisors/{id}/documents/{docId}', [ClinicalSupervisorController::class, 'deleteDocument']);
+
+        Route::get('clinical-supervisor-evaluations', [ClinicalSupervisorEvaluationController::class, 'index'])->middleware('permission:clinical_supervisor_evaluations.view');
+        Route::get('clinical-supervisor-evaluations/options', [ClinicalSupervisorEvaluationController::class, 'options'])->middleware('permission:clinical_supervisor_evaluations.view');
+        Route::post('clinical-supervisor-evaluations', [ClinicalSupervisorEvaluationController::class, 'store'])->middleware('permission:clinical_supervisor_evaluations.create');
+        Route::get('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}', [ClinicalSupervisorEvaluationController::class, 'show'])->middleware('permission:clinical_supervisor_evaluations.view');
+        Route::put('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}', [ClinicalSupervisorEvaluationController::class, 'update'])->middleware('permission:clinical_supervisor_evaluations.create');
+        Route::post('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}/submit', [ClinicalSupervisorEvaluationController::class, 'submit'])->middleware('permission:clinical_supervisor_evaluations.create');
+        Route::post('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}/approve', [ClinicalSupervisorEvaluationController::class, 'approve'])->middleware('permission:clinical_supervisor_evaluations.approve');
+        Route::post('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}/reopen', [ClinicalSupervisorEvaluationController::class, 'reopen'])->middleware('permission:clinical_supervisor_evaluations.approve');
         Route::get('academic-calendar-events', [AcademicCalendarEventController::class, 'index'])->middleware('permission:academic_years.view');
         Route::post('academic-calendar-events', [AcademicCalendarEventController::class, 'store'])->middleware('permission:academic_years.manage');
         // Supervisor Annual Workloads
