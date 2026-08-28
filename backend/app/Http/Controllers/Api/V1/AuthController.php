@@ -92,7 +92,7 @@ class AuthController extends Controller
      */
     private function presentUser(User $user): array
     {
-        $user->loadMissing('roles.permissions');
+        $user->loadMissing('roles.permissions', 'person', 'userProfile', 'clinicalSupervisorProfile', 'departmentHeadProfile');
 
         $permissions = $user->roles
             ->flatMap(fn ($role) => $role->permissions)
@@ -123,8 +123,12 @@ class AuthController extends Controller
 
         return [
             'id'              => $user->id,
-            'name'            => $user->name,
+            'name'            => $user->person?->full_name_ar ?: $user->name,
             'email'           => $user->email,
+            'avatar_url'      => $user->userProfile?->avatar_url
+                ?: $user->person?->photo_url
+                ?: $user->clinicalSupervisorProfile?->avatar_url
+                ?: $user->departmentHeadProfile?->avatar_url,
             'roles'           => $user->roles->pluck('code')->values()->all(),
             'permissions'     => $permissions,
             'assigned_levels' => $user->assigned_levels ?? null,

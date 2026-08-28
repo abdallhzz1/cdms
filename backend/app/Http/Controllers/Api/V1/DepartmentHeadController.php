@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DepartmentHeadProfile;
 use App\Models\DepartmentHeadAssignment;
 use App\Models\User;
+use App\Models\UserProfile;
 use App\Services\ProfileAuthorizationService;
 use App\Services\SecureFileUploadService;
 use Illuminate\Http\JsonResponse;
@@ -24,7 +25,7 @@ class DepartmentHeadController extends Controller
     {
         $assignments = DepartmentHeadAssignment::query()->current()->heads()
             ->whereHas('person.user', fn ($query) => $query->where('is_active', true))
-            ->with(['department:id,name_ar,name_en', 'person.user.departmentHeadProfile', 'person.user.roles'])
+            ->with(['department:id,name_ar,name_en', 'person.user.departmentHeadProfile', 'person.user.userProfile', 'person.user.roles'])
             ->orderBy('department_id')->get();
 
         $data = $assignments->map(function (DepartmentHeadAssignment $assignment) {
@@ -47,7 +48,7 @@ class DepartmentHeadController extends Controller
                 'appointment_date' => $profile->appointment_date,
                 'specialty' => $profile->specialty,
                 'phone' => $profile->phone ?: $person->phone,
-                'avatar_url' => $profile->avatar_url ?: $user->avatar_url,
+                'avatar_url' => $user->userProfile?->avatar_url ?: $person->photo_url ?: $profile->avatar_url,
                 'cv_summary' => $profile->cv_summary ?: '',
                 'publications' => $profile->publications ?: [],
                 'conferences' => $profile->conferences ?: [],
@@ -73,9 +74,10 @@ class DepartmentHeadController extends Controller
     public function show(Request $request, string $id): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->ensureCurrentDepartmentHead($userId);
         $this->profileAuthorization->authorizeView($request->user(), $userId);
 
-        $u = User::with(['roles', 'person.department', 'person.headAssignments' => fn ($query) => $query->current()->heads()->with('department'), 'departmentHeadProfile.department'])->find($userId);
+        $u = User::with(['roles', 'person.department', 'person.headAssignments' => fn ($query) => $query->current()->heads()->with('department'), 'departmentHeadProfile.department', 'userProfile'])->find($userId);
 
         if (!$u) {
             return response()->json([
@@ -109,7 +111,7 @@ class DepartmentHeadController extends Controller
                 'appointment_date' => $profile->appointment_date,
                 'specialty' => $profile->specialty,
                 'phone' => $profile->phone ?: $u->person?->phone,
-                'avatar_url' => $profile->avatar_url ?: $u->avatar_url,
+                'avatar_url' => $u->userProfile?->avatar_url ?: $u->person?->photo_url ?: $profile->avatar_url,
                 'cv_summary' => $profile->cv_summary ?: '',
                 'publications' => $profile->publications ?: [],
                 'conferences' => $profile->conferences ?: [],
@@ -132,6 +134,7 @@ class DepartmentHeadController extends Controller
     public function update(Request $request, string $id): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->ensureCurrentDepartmentHead($userId);
         $this->profileAuthorization->authorizeEdit($request->user(), $userId);
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
@@ -149,6 +152,20 @@ class DepartmentHeadController extends Controller
             'conferences' => isset($payload['conferences']) ? $payload['conferences'] : $profile->conferences,
         ]);
 
+        $user = User::with('person')->find($userId);
+        if ($user?->person) {
+            $user->person->update([
+                'phone' => $payload['phone'] ?? $user->person->phone,
+                'specialty' => $payload['specialty'] ?? $user->person->specialty,
+                'academic_degree' => $payload['title'] ?? $payload['academic_title'] ?? $user->person->academic_degree,
+            ]);
+        }
+        UserProfile::updateOrCreate(['user_id' => $userId], [
+            'phone' => $payload['phone'] ?? null,
+            'specialty' => $payload['specialty'] ?? null,
+            'academic_degree' => $payload['title'] ?? $payload['academic_title'] ?? null,
+        ]);
+
         return $this->show($request, (string)$userId);
     }
 
@@ -159,6 +176,7 @@ class DepartmentHeadController extends Controller
     public function saveEvaluation(Request $request, string $id): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->ensureCurrentDepartmentHead($userId);
         $this->profileAuthorization->authorizeEvaluation($request->user());
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
@@ -185,6 +203,7 @@ class DepartmentHeadController extends Controller
     public function saveWeights(Request $request, string $id): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->ensureCurrentDepartmentHead($userId);
         $this->profileAuthorization->authorizeEvaluation($request->user());
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
@@ -204,6 +223,7 @@ class DepartmentHeadController extends Controller
     public function saveOverrides(Request $request, string $id): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->ensureCurrentDepartmentHead($userId);
         $this->profileAuthorization->authorizeEvaluation($request->user());
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
@@ -224,6 +244,7 @@ class DepartmentHeadController extends Controller
     public function uploadAvatar(Request $request, string $id, SecureFileUploadService $files): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->ensureCurrentDepartmentHead($userId);
         $this->profileAuthorization->authorizeEdit($request->user(), $userId);
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
@@ -239,6 +260,9 @@ class DepartmentHeadController extends Controller
             'avatar_url' => $stored['url'],
             'avatar_storage_path' => $stored['path'],
         ]);
+        $sharedProfile = UserProfile::firstOrCreate(['user_id' => $userId]);
+        $sharedProfile->update(['avatar_url' => $stored['url'], 'avatar_storage_path' => $stored['path']]);
+        User::with('person')->find($userId)?->person?->update(['photo_url' => $stored['url']]);
         if ($oldPath && $oldPath !== $stored['path']) {
             Storage::disk('public')->delete($oldPath);
         }
@@ -253,6 +277,7 @@ class DepartmentHeadController extends Controller
     public function uploadDocument(Request $request, string $id, SecureFileUploadService $files): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->ensureCurrentDepartmentHead($userId);
         $this->profileAuthorization->authorizeEdit($request->user(), $userId);
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
@@ -300,6 +325,7 @@ class DepartmentHeadController extends Controller
     public function deleteDocument(Request $request, string $id, string $docId): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->ensureCurrentDepartmentHead($userId);
         $this->profileAuthorization->authorizeEdit($request->user(), $userId);
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
@@ -325,6 +351,7 @@ class DepartmentHeadController extends Controller
     public function downloadDocument(Request $request, string $id, string $docId)
     {
         $userId = $this->resolveUserId($request, $id);
+        $this->ensureCurrentDepartmentHead($userId);
         $this->profileAuthorization->authorizeView($request->user(), $userId);
         $profile = DepartmentHeadProfile::where('user_id', $userId)->firstOrFail();
         $document = collect($profile->documents ?: [])->first(
@@ -415,6 +442,17 @@ class DepartmentHeadController extends Controller
         }
 
         return 0;
+    }
+
+    private function ensureCurrentDepartmentHead(int $userId): void
+    {
+        $assigned = DepartmentHeadAssignment::query()
+            ->current()
+            ->heads()
+            ->whereHas('person', fn ($query) => $query->where('user_id', $userId))
+            ->exists();
+
+        abort_unless($assigned, 404, 'Department head profile not found.');
     }
 
 }

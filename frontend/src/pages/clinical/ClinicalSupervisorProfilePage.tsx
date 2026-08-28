@@ -46,7 +46,7 @@ const barFill = (s: number, max: number) => max > 0 ? Math.min(100, (s / max) * 
 
 export function ClinicalSupervisorProfilePage() {
   const { id: paramId } = useParams<{ id: string }>();
-  const { user }        = useAuth();
+  const { user, refreshUser } = useAuth();
   const queryClient     = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<"cv"|"research"|"conferences"|"documents"|"kpi">("cv");
@@ -176,7 +176,7 @@ export function ClinicalSupervisorProfilePage() {
       if (profileData) setProfileData({ ...profileData, avatar_url: b64 });
       try {
         await apiFetch(`/clinical-supervisors/${targetId}/avatar`, { method:"POST", body:{ avatar_base64: b64 } });
-        refreshAll(); alert("تم رفع الصورة بنجاح ✓");
+        refreshAll(); await refreshUser(); alert("تم رفع الصورة بنجاح ✓");
       } catch { } finally { setIsUploadingAvatar(false); }
     };
     reader.readAsDataURL(file);

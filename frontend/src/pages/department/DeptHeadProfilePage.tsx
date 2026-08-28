@@ -90,7 +90,7 @@ export interface DepartmentHeadData {
 export function DeptHeadProfilePage() {
   const { id: paramId } = useParams<{ id: string }>();
   const { locale } = useI18n();
-  const { user } = useAuth();
+  const { user, can, refreshUser } = useAuth();
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<'cv' | 'research' | 'conferences' | 'documents' | 'kpi'>('cv');
@@ -134,8 +134,7 @@ export function DeptHeadProfilePage() {
 
   // Check permissions for evaluator and roster viewing
   const userRoles = (user?.roles || []).map((r: any) => typeof r === 'string' ? r.toUpperCase() : String(r.code || r.name || '').toUpperCase());
-  const canEvaluate = userRoles.some(r => ['CLINICAL_DIRECTOR', 'DEAN', 'VICE_DEAN', 'SYS_ADMIN', 'SYSTEM_ADMIN'].includes(r)) || 
-                      (user?.email && (user.email.includes('director') || user.email.includes('dean') || user.email.includes('admin')));
+  const canEvaluate = can('performance.view');
 
   // Query Department Head profile directly from Laravel MySQL Database API
   const { data: dbProfileResponse, isLoading: isProfileLoading } = useQuery({
@@ -146,10 +145,7 @@ export function DeptHeadProfilePage() {
     }
   });
 
-  const isOwnProfile = paramId === 'me' || 
-                       String(targetId) === String(user?.id) ||
-                       (user?.email && dbProfileResponse?.email && user.email.toLowerCase() === dbProfileResponse.email.toLowerCase()) ||
-                       (user?.email && (user.email.includes('iyad') || user.email.includes('jadaa')) && (targetId === '17' || targetId === '69' || paramId === '17' || paramId === '69'));
+  const isOwnProfile = String(dbProfileResponse?.user_id || targetId) === String(user?.id);
 
   const canViewRoster = canEvaluate || userRoles.some(r => ['CLINICAL_DIRECTOR', 'DEAN', 'VICE_DEAN', 'SYS_ADMIN', 'SYSTEM_ADMIN'].includes(r));
 
@@ -236,13 +232,13 @@ export function DeptHeadProfilePage() {
       user_id: data.user_id || data.id,
       name: data.name,
       name_en: data.name_en,
-      title: data.title || 'أستاذ مشارك — استشاري سريري',
+      title: data.title || '',
       department_name: data.department_name || 'القسم السريري',
       avatar_url: data.avatar_url,
       email: data.email,
-      phone: data.phone || '+970 599 000000',
-      contract_type: data.contract_type || 'عقد دائم — متفرغ',
-      appointment_date: data.appointment_date || '2024-09-01',
+      phone: data.phone || '',
+      contract_type: data.contract_type || '',
+      appointment_date: data.appointment_date || '',
       cv_summary: data.cv_summary || '',
       specialty: data.specialty || `استشاري ${data.department_name || 'سريري'}`,
       publications: data.publications || [],
@@ -379,6 +375,7 @@ export function DeptHeadProfilePage() {
             body: { avatar_base64: base64Image }
           });
           refreshAllQueries();
+          await refreshUser();
           alert(locale === 'ar' ? 'تم رفع وحفظ الصورة الشخصية بنجاح ✓' : 'Avatar uploaded successfully ✓');
         } catch (err) {
           console.error('Avatar upload API error:', err);

@@ -60,6 +60,7 @@ use App\Http\Controllers\Api\V1\SystemAdminController;
 use App\Http\Controllers\Api\V1\TrainingSiteController;
 use App\Http\Controllers\Api\V1\TrainingSiteRosterController;
 use App\Http\Controllers\Api\V1\UserController;
+use App\Http\Controllers\Api\V1\UserProfileController;
 use App\Http\Controllers\ProgramOutcomeController;
 use Illuminate\Support\Facades\Route;
 
@@ -112,6 +113,14 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // All routes: auth:sanctum (authentication) + permission:<code> (authorization)
     // -------------------------------------------------------------------------
     Route::middleware('auth:sanctum')->group(function () {
+
+        // Every authenticated account owns one shared professional profile.
+        // Role-specific CV/performance pages link to this identity rather than
+        // becoming parallel sources for the user's photo and contact details.
+        Route::get('profile/me', [UserProfileController::class, 'show']);
+        Route::put('profile/me', [UserProfileController::class, 'update']);
+        Route::post('profile/me/avatar', [UserProfileController::class, 'uploadAvatar']);
+        Route::put('profile/me/password', [UserProfileController::class, 'updatePassword']);
 
         Route::get('student-schedule-portal', [StudentSchedulePortalController::class, 'show'])
             ->middleware('permission:clinical_schedule.view');

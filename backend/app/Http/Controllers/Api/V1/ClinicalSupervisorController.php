@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ClinicalSupervisorProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\UserProfile;
 use App\Services\ProfileAuthorizationService;
 use App\Services\SecureFileUploadService;
 use App\Traits\ScopesByDepartmentAndLevel;
@@ -23,7 +24,7 @@ class ClinicalSupervisorController extends Controller
     {
         $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->first();
 
-        $query = User::with(['roles', 'person.department', 'clinicalSupervisorProfile.department']);
+        $query = User::with(['roles', 'person.department', 'clinicalSupervisorProfile.department', 'userProfile']);
 
         if ($supervisorRole) {
             $query->whereHas('roles', function ($q) use ($supervisorRole) {
@@ -65,9 +66,9 @@ class ClinicalSupervisorController extends Controller
                 'department_name'  => $deptName,
                 'contract_type'    => $profile->contract_type,
                 'appointment_date' => $profile->appointment_date,
-                'specialty'        => $profile->specialty ?: $u->person?->specialty,
-                'phone'            => $profile->phone ?: ($u->person ? $u->person->phone : null),
-                'avatar_url'       => $profile->avatar_url ?: $u->avatar_url,
+                'specialty'        => $u->person?->specialty ?: $profile->specialty,
+                'phone'            => $u->userProfile?->phone ?: ($u->person?->phone ?: $profile->phone),
+                'avatar_url'       => $u->userProfile?->avatar_url ?: ($u->person?->photo_url ?: $profile->avatar_url),
                 'cv_summary'       => $profile->cv_summary ?: '',
                 'publications'     => $profile->publications ?: [],
                 'conferences'      => $profile->conferences ?: [],
@@ -92,7 +93,7 @@ class ClinicalSupervisorController extends Controller
         $userId = $this->resolveUserId($request, $id);
         $this->profileAuthorization->authorizeView($request->user(), $userId);
 
-        $u = User::with(['roles', 'person.department', 'clinicalSupervisorProfile.department'])->find($userId);
+        $u = User::with(['roles', 'person.department', 'clinicalSupervisorProfile.department', 'userProfile'])->find($userId);
 
         if (!$u) {
             return response()->json([
@@ -122,9 +123,9 @@ class ClinicalSupervisorController extends Controller
                 'department_name'  => $deptName,
                 'contract_type'    => $profile->contract_type,
                 'appointment_date' => $profile->appointment_date,
-                'specialty'        => $profile->specialty ?: $u->person?->specialty,
-                'phone'            => $profile->phone ?: ($u->person ? $u->person->phone : null),
-                'avatar_url'       => $profile->avatar_url ?: $u->avatar_url,
+                'specialty'        => $u->person?->specialty ?: $profile->specialty,
+                'phone'            => $u->userProfile?->phone ?: ($u->person?->phone ?: $profile->phone),
+                'avatar_url'       => $u->userProfile?->avatar_url ?: ($u->person?->photo_url ?: $profile->avatar_url),
                 'cv_summary'       => $profile->cv_summary ?: '',
                 'publications'     => $profile->publications ?: [],
                 'conferences'      => $profile->conferences ?: [],
@@ -156,6 +157,20 @@ class ClinicalSupervisorController extends Controller
             'cv_summary'       => $payload['cv_summary'] ?? $profile->cv_summary,
             'publications'     => isset($payload['publications']) ? $payload['publications'] : $profile->publications,
             'conferences'      => isset($payload['conferences']) ? $payload['conferences'] : $profile->conferences,
+        ]);
+
+        $user = User::with('person')->find($userId);
+        if ($user?->person) {
+            $user->person->update([
+                'phone' => $payload['phone'] ?? $user->person->phone,
+                'specialty' => $payload['specialty'] ?? $user->person->specialty,
+                'academic_degree' => $payload['title'] ?? $payload['academic_title'] ?? $user->person->academic_degree,
+            ]);
+        }
+        UserProfile::updateOrCreate(['user_id' => $userId], [
+            'phone' => $payload['phone'] ?? null,
+            'specialty' => $payload['specialty'] ?? null,
+            'academic_degree' => $payload['title'] ?? $payload['academic_title'] ?? null,
         ]);
 
         return $this->show($request, (string) $userId);
@@ -199,6 +214,9 @@ class ClinicalSupervisorController extends Controller
             'avatar_url' => $stored['url'],
             'avatar_storage_path' => $stored['path'],
         ]);
+        $sharedProfile = UserProfile::firstOrCreate(['user_id' => $userId]);
+        $sharedProfile->update(['avatar_url' => $stored['url'], 'avatar_storage_path' => $stored['path']]);
+        User::with('person')->find($userId)?->person?->update(['photo_url' => $stored['url']]);
         if ($oldPath && $oldPath !== $stored['path']) {
             Storage::disk('public')->delete($oldPath);
         }

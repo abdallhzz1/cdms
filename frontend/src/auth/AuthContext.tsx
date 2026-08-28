@@ -11,6 +11,7 @@ interface AuthContextValue {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   /**
    * Server-driven permission check — never a hardcoded role/permission list
    * on the frontend (Prompt 02 §17). This is a UX convenience only
@@ -85,6 +86,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [queryClient]);
 
+  const refreshUser = useCallback(async () => {
+    const authenticated = await fetchCurrentUser();
+    setUser(authenticated);
+  }, []);
+
   const can = useCallback(
     (permissionCode: string) => {
       if (!user) return false;
@@ -110,8 +116,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, isAuthenticated: user !== null, isLoading, login, logout, can, hasRole, departmentIds, primaryDepartmentId }),
-    [user, isLoading, login, logout, can, hasRole, departmentIds, primaryDepartmentId],
+    () => ({ user, isAuthenticated: user !== null, isLoading, login, logout, refreshUser, can, hasRole, departmentIds, primaryDepartmentId }),
+    [user, isLoading, login, logout, refreshUser, can, hasRole, departmentIds, primaryDepartmentId],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

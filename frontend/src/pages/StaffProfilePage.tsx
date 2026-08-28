@@ -75,7 +75,7 @@ export function StaffProfilePage() {
         <div className="px-6 sm:px-8 pb-8 relative">
           <div className="flex flex-col sm:flex-row sm:items-end gap-6 -mt-14 mb-4">
             <div className="h-28 w-28 rounded-full border-4 border-white bg-white shadow-md flex items-center justify-center shrink-0 overflow-hidden">
-              <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=e0f2fe&color=0284c7&size=150`} alt={name} className="h-full w-full object-cover" />
+              {person.photo_url ? <img src={person.photo_url} alt={name} className="h-full w-full object-cover" /> : <span className="text-3xl font-black text-teal-700">{name.slice(0, 1)}</span>}
             </div>
             <div className="pb-2">
               <h1 className="text-3xl font-bold text-slate-900 tracking-tight">{name}</h1>

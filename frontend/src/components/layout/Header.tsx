@@ -266,8 +266,8 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
                 }`}
               >
                 {/* User Avatar Circle */}
-                <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-teal-500 to-teal-400 text-white flex items-center justify-center font-black text-xs shrink-0 shadow-xs">
-                  {user.name.charAt(0).toUpperCase()}
+                <div className="h-8 w-8 overflow-hidden rounded-full bg-gradient-to-tr from-teal-500 to-teal-400 text-white flex items-center justify-center font-black text-xs shrink-0 shadow-xs">
+                  {user.avatar_url ? <img src={user.avatar_url} alt="" className="h-full w-full object-cover" /> : user.name.charAt(0).toUpperCase()}
                 </div>
 
                 {/* User Name & Role Label (Desktop) */}
@@ -290,8 +290,8 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
                   
                   {/* User Profile Card */}
                   <div className="p-3 rounded-2xl bg-slate-50/80 border border-slate-100 flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-teal-500 to-teal-400 text-white flex items-center justify-center font-black text-sm shrink-0 shadow-xs">
-                      {user.name.charAt(0).toUpperCase()}
+                    <div className="h-10 w-10 overflow-hidden rounded-full bg-gradient-to-tr from-teal-500 to-teal-400 text-white flex items-center justify-center font-black text-sm shrink-0 shadow-xs">
+                      {user.avatar_url ? <img src={user.avatar_url} alt="" className="h-full w-full object-cover" /> : user.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="min-w-0 flex-1">
                       <h4 className="text-xs font-bold text-slate-800 truncate">{user.name}</h4>
@@ -306,11 +306,11 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
                   {/* Links */}
                   <div className="space-y-0.5">
                     <button
-                      onClick={() => { setIsUserMenuOpen(false); navigate('/dept-heads/me'); }}
+                      onClick={() => { setIsUserMenuOpen(false); navigate('/profile'); }}
                       className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-teal-800 hover:bg-teal-50 transition-colors text-start"
                     >
                       <UserIcon className="w-4 h-4 text-teal-600" />
-                      <span>{locale === 'ar' ? 'بروفايلي الأكاديمي والـ Score' : 'My Academic Profile'}</span>
+                      <span>{locale === 'ar' ? 'ملفي الشخصي' : 'My Profile'}</span>
                     </button>
                     <button
                       onClick={() => { setIsUserMenuOpen(false); navigate('/directory'); }}

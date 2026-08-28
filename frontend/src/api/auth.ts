@@ -9,6 +9,7 @@ export interface AuthenticatedUser {
   id: number;
   name: string;
   email: string;
+  avatar_url?: string | null;
   roles: string[];
   permissions: Permission[];
   assigned_levels?: string[] | null;

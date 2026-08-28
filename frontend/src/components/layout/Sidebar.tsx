@@ -5,7 +5,7 @@ import {
   Users, Calendar, LayoutDashboard,
   Map, FileText, ClipboardCheck, BookOpen, Clock, ShieldCheck,
   MessagesSquare, FolderGit2, BarChart3,
-  GraduationCap, X, Monitor, Settings, Activity, Award, Building2
+  GraduationCap, X, Monitor, Settings, Activity, Award, Building2, UserRound
 } from 'lucide-react';
 
 interface NavItem {
@@ -54,6 +54,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         {
           title: locale === 'ar' ? 'الملف الشخصي والمراسلات' : 'Profile & Messages',
           items: [
+            { path: '/profile', label: locale === 'ar' ? 'ملفي الشخصي' : 'My Profile', icon: UserRound },
             { path: '/clinical-supervisors/me', label: locale === 'ar' ? 'بروفايلي السريري والـ Score' : 'My Clinical Profile', icon: Award },
             { path: '/inbox', label: locale === 'ar' ? 'المراسلات' : 'Mail', icon: MessagesSquare, permission: 'correspondence.view' },
             { path: '/tasks', label: locale === 'ar' ? 'المهام' : 'Tasks', icon: FolderGit2, permission: 'tasks.view' },
@@ -88,7 +89,8 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
       {
         title: locale === 'ar' ? 'الكادر ورؤساء الأقسام' : 'Staff & Department Heads',
         items: [
-          { path: '/dept-heads/me', label: locale === 'ar' ? 'بروفايلي الأكاديمي والـ Score' : 'My Academic Profile', icon: GraduationCap, customCheck: () => isDeptHead || isClinicalDirector },
+          { path: '/profile', label: locale === 'ar' ? 'ملفي الشخصي' : 'My Profile', icon: GraduationCap },
+          { path: '/dept-heads/me', label: locale === 'ar' ? 'ملفي كرئيس قسم' : 'My Department-Head Profile', icon: GraduationCap, customCheck: () => isDeptHead },
           { path: '/department-heads', label: locale === 'ar' ? 'دليل رؤساء الأقسام' : 'Department Heads Directory', icon: Users, permission: 'people.view' },
           { path: '/clinical-supervisors', label: locale === 'ar' ? 'المستشفيات والمشرفون' : 'Hospitals & Supervisors', icon: ShieldCheck, permission: 'people.view' },
           { path: '/rta-assignments', label: locale === 'ar' ? 'تكليف مساعدي البحث والتدريس' : 'RTA Cohort Assignments', icon: Users, permission: 'rta_assignments.manage' },

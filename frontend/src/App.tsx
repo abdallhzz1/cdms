@@ -11,6 +11,7 @@ import { DirectoryPage } from '@/pages/DirectoryPage';
 import { StudentProfilePage } from '@/pages/StudentProfilePage';
 import { StudentGroupsPage } from '@/pages/StudentGroupsPage';
 import { StaffProfilePage } from '@/pages/StaffProfilePage';
+import { MyProfilePage } from '@/pages/MyProfilePage';
 import { CoursesPage } from '@/pages/CoursesPage';
 import { CourseDetailsPage } from '@/pages/CourseDetailsPage';
 import { GradesPage } from '@/pages/GradesPage';
@@ -91,6 +92,7 @@ export function App() {
                 <Route path="/students/groups" element={<StudentGroupsPage />} />
                 <Route path="/distribution/groups" element={<StudentGroupsPage />} />
                 <Route path="/staff/:id" element={<StaffProfilePage />} />
+                <Route path="/profile" element={<MyProfilePage />} />
 
                 {/* Technical administration screens are governed by the same
                     permissions exposed in the admin matrix. */}
