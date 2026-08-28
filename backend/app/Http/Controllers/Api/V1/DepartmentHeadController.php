@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\DepartmentHeadProfile;
 use App\Models\DepartmentHeadAssignment;
+use App\Models\DepartmentHeadEvaluation;
 use App\Models\User;
 use App\Models\UserProfile;
 use App\Services\ProfileAuthorizationService;
@@ -20,7 +21,7 @@ class DepartmentHeadController extends Controller
 
     /**
      * GET /api/v1/dept-heads
-     * List all Department Heads with their database profile and KPI calculations.
+     * List all current Department Heads with their latest approved official evaluation.
      */
     public function index(Request $request): JsonResponse
     {
@@ -29,12 +30,18 @@ class DepartmentHeadController extends Controller
             ->whereHas('person.user', fn ($query) => $query->where('is_active', true))
             ->with(['department:id,name_ar,name_en', 'person.user.departmentHeadProfile', 'person.user.userProfile', 'person.user.roles'])
             ->orderBy('department_id')->get();
+        $officialByHead = $canViewEvaluation
+            ? DepartmentHeadEvaluation::query()->where('status', 'approved')
+                ->whereIn('department_head_user_id', $assignments->pluck('person.user_id')->filter())
+                ->with('academicYear:id,code')->orderByDesc('approved_at')->get()
+                ->unique('department_head_user_id')->keyBy('department_head_user_id')
+            : collect();
 
-        $data = $assignments->map(function (DepartmentHeadAssignment $assignment) use ($canViewEvaluation) {
+        $data = $assignments->map(function (DepartmentHeadAssignment $assignment) use ($canViewEvaluation, $officialByHead) {
             $person = $assignment->person;
             $user = $person->user;
             $profile = $user->departmentHeadProfile ?: new DepartmentHeadProfile(['user_id' => $user->id]);
-            $kpi = $this->calculateKpi($profile);
+            $officialEvaluation = $officialByHead->get($user->id);
             $deptName = preg_replace('/^قسم\s+/', '', $assignment->department?->name_ar ?: 'غير محدد');
 
             return [
@@ -55,12 +62,12 @@ class DepartmentHeadController extends Controller
                 'publications' => $profile->publications ?: [],
                 'conferences' => $profile->conferences ?: [],
                 'documents' => $profile->documents ?: [],
-                'kpi_weights' => $profile->kpi_weights ?: $this->defaultWeights(),
-                'kpi_overrides' => $profile->kpi_overrides ?: [],
-                'evaluation' => $canViewEvaluation ? $profile->evaluation : null,
-                'kpi_score' => $canViewEvaluation ? $kpi['totalScore'] : null,
-                'kpi_rating' => $canViewEvaluation ? $kpi['rating'] : null,
-                'kpi_complete' => $canViewEvaluation && $kpi['isComplete'],
+                'official_evaluation' => $canViewEvaluation ? $this->officialEvaluationSummary($officialEvaluation) : null,
+                // Compatibility fields now intentionally mirror the official
+                // approved form; the legacy automatic KPI is no longer used.
+                'kpi_score' => $canViewEvaluation ? (float) ($officialEvaluation?->overall_score ?? 0) : null,
+                'kpi_rating' => $canViewEvaluation ? $officialEvaluation?->overall_rating : null,
+                'kpi_complete' => $canViewEvaluation && $officialEvaluation !== null,
             ];
         })->values();
 
@@ -97,8 +104,12 @@ class DepartmentHeadController extends Controller
             $deptName = preg_replace('/^قسم\s+/', '', $deptName);
         }
 
-        $kpi = $this->calculateKpi($profile);
         $canViewEvaluation = Gate::forUser($request->user())->allows('permission', ['department_head_evaluations.view']);
+        $officialEvaluation = $canViewEvaluation
+            ? DepartmentHeadEvaluation::query()->where('department_head_user_id', $u->id)
+                ->where('status', 'approved')->with('academicYear:id,code')
+                ->orderByDesc('approved_at')->first()
+            : null;
 
         return response()->json([
             'success' => true,
@@ -119,13 +130,11 @@ class DepartmentHeadController extends Controller
                 'publications' => $profile->publications ?: [],
                 'conferences' => $profile->conferences ?: [],
                 'documents' => $profile->documents ?: [],
-                'kpi_weights' => $profile->kpi_weights ?: $this->defaultWeights(),
-                'kpi_overrides' => $profile->kpi_overrides ?: [],
-                'evaluation' => $canViewEvaluation ? $profile->evaluation : null,
-                'kpi_score' => $canViewEvaluation ? $kpi['totalScore'] : null,
-                'kpi_rating' => $canViewEvaluation ? $kpi['rating'] : null,
-                'kpi_complete' => $canViewEvaluation && $kpi['isComplete'],
-                'kpi_breakdown' => $canViewEvaluation ? $kpi : null,
+                'official_evaluation' => $canViewEvaluation ? $this->officialEvaluationSummary($officialEvaluation) : null,
+                'kpi_score' => $canViewEvaluation ? (float) ($officialEvaluation?->overall_score ?? 0) : null,
+                'kpi_rating' => $canViewEvaluation ? $officialEvaluation?->overall_rating : null,
+                'kpi_complete' => $canViewEvaluation && $officialEvaluation !== null,
+                'kpi_breakdown' => null,
             ]
         ]);
     }
@@ -445,6 +454,23 @@ class DepartmentHeadController extends Controller
         }
 
         return 0;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function officialEvaluationSummary(?DepartmentHeadEvaluation $evaluation): ?array
+    {
+        if (! $evaluation) {
+            return null;
+        }
+
+        return [
+            'id' => $evaluation->id,
+            'overall_score' => (float) $evaluation->overall_score,
+            'overall_rating' => $evaluation->overall_rating,
+            'academic_year_name' => $evaluation->academicYear?->code,
+            'evaluation_purpose' => $evaluation->evaluation_purpose,
+            'approved_at' => $evaluation->approved_at?->toIso8601String(),
+        ];
     }
 
     private function ensureCurrentDepartmentHead(int $userId): void

@@ -85,6 +85,14 @@ export interface DepartmentHeadData {
   kpi_score?: number;
   kpi_rating?: string;
   kpi_breakdown?: any;
+  official_evaluation?: {
+    id: number;
+    overall_score: number;
+    overall_rating: string;
+    academic_year_name?: string | null;
+    evaluation_purpose: string;
+    approved_at?: string | null;
+  };
 }
 
 export function DeptHeadProfilePage() {
@@ -136,6 +144,8 @@ export function DeptHeadProfilePage() {
   const userRoles = (user?.roles || []).map((r: any) => typeof r === 'string' ? r.toUpperCase() : String(r.code || r.name || '').toUpperCase());
   const canEvaluate = can('performance.view');
   const canViewOfficialEvaluation = can('department_head_evaluations.view');
+  // Kept only for data compatibility while the legacy KPI feature is retired.
+  const showLegacyKpi = false;
 
   // Query Department Head profile directly from Laravel MySQL Database API
   const { data: dbProfileResponse, isLoading: isProfileLoading } = useQuery({
@@ -250,7 +260,8 @@ export function DeptHeadProfilePage() {
       evaluation: data.evaluation || undefined,
       kpi_score: data.kpi_score,
       kpi_rating: data.kpi_rating,
-      kpi_breakdown: data.kpi_breakdown
+      kpi_breakdown: data.kpi_breakdown,
+      official_evaluation: data.official_evaluation || undefined,
     });
 
     if (data.evaluation) {
@@ -821,14 +832,15 @@ export function DeptHeadProfilePage() {
           </div>
 
           {/* Official evaluation is intentionally private from the department head. */}
-          {!isOwnProfile && canViewOfficialEvaluation && <Link to={`/department-head-evaluations?head=${profileData.user_id}`} className="flex w-full shrink-0 flex-col items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 p-4 text-center text-teal-800 transition-colors hover:bg-teal-100 md:w-48">
-            <ShieldCheck className="h-5 w-5" />
-            <span className="text-xs font-black">التقييم الرسمي</span>
-            <span className="text-[10px] font-semibold">فتح نموذج التقييم والاعتماد</span>
+          {!isOwnProfile && canViewOfficialEvaluation && <Link to={`/department-head-evaluations?head=${profileData.user_id}`} className="flex w-full shrink-0 flex-col items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-gradient-to-b from-teal-50 to-white p-4 text-center text-teal-800 shadow-sm transition-all hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-md md:w-52">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-600 text-white shadow-sm"><ShieldCheck className="h-5 w-5" /></div>
+            <span className="text-xs font-black">نموذج التقييم الرسمي</span>
+            {profileData.official_evaluation ? <><span className="text-2xl font-black">{profileData.official_evaluation.overall_score}<span className="mr-1 text-xs font-bold">/ 100</span></span><span className="rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-teal-700">{profileData.official_evaluation.overall_rating} · {profileData.official_evaluation.academic_year_name || 'التقييم المعتمد'}</span></> : <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-slate-500">لا يوجد تقييم معتمد بعد</span>}
+            <span className="text-[10px] font-bold text-teal-700">فتح النموذج والتوقيع ←</span>
           </Link>}
 
           {/* Legacy KPI is available only to authorized leadership, never in the head's own profile. */}
-          {!isOwnProfile && canViewOfficialEvaluation && <div className="bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200/80 text-center shrink-0 w-full md:w-48 space-y-1">
+          {showLegacyKpi && !isOwnProfile && canViewOfficialEvaluation && <div className="bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200/80 text-center shrink-0 w-full md:w-48 space-y-1">
             <span className="text-[11px] font-semibold text-slate-500 block">تقييم مؤشر الأداء الكلي</span>
             <div dir="ltr" className="text-3xl font-bold text-slate-900 font-mono tracking-tight">
               {automatedKpiBreakdown.totalScore} <span className="text-xs font-medium text-slate-400">/ 100</span>
@@ -939,7 +951,7 @@ export function DeptHeadProfilePage() {
           <span>الوثائق والملفات ({profileData.documents?.length || 0})</span>
         </button>
 
-        {!isOwnProfile && canViewOfficialEvaluation && <button
+        {showLegacyKpi && !isOwnProfile && canViewOfficialEvaluation && <button
           type="button"
           onClick={() => setActiveTab('kpi')}
           className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
@@ -1375,7 +1387,7 @@ export function DeptHeadProfilePage() {
         )}
 
         {/* TAB 5: AUTOMATED KPI SCORECARD TABLE */}
-        {!isOwnProfile && canViewOfficialEvaluation && activeTab === 'kpi' && (
+        {showLegacyKpi && !isOwnProfile && canViewOfficialEvaluation && activeTab === 'kpi' && (
           <div className="space-y-5 text-xs">
             
             {/* Scorecard Header */}
