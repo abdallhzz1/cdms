@@ -14,6 +14,10 @@ class WorkflowTransitionService
         $from = $record->status;
         
         $allowed = [
+            'open' => ['in_progress', 'under_review', 'closed'],
+            'in_progress' => ['under_review', 'closed'],
+            'under_review' => ['in_progress', 'closed'],
+            'closed' => ['in_progress'],
             'draft' => ['submitted'],
             'submitted' => ['under_review', 'returned', 'approved', 'rejected', 'closed'],
             'under_review' => ['returned', 'approved', 'rejected', 'closed'],

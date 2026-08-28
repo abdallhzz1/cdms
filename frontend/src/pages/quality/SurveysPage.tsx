@@ -60,7 +60,7 @@ export function SurveysPage() {
             <div key={s.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all overflow-hidden flex flex-col">
               <div className="p-6 flex-1">
                 <div className="flex items-start justify-between gap-2 mb-3">
-                  <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg">{s.code}</span>
+                  <span className="text-xs font-black text-teal-700 bg-teal-50 px-2 py-1 rounded-lg">{s.code}</span>
                   <div className="flex items-center gap-1">
                     {s.is_mandatory && <span className="text-xs px-2 py-1 bg-red-100 text-red-700 font-bold rounded-lg">{locale === 'ar' ? 'إلزامي' : 'Mandatory'}</span>}
                   </div>
@@ -76,11 +76,11 @@ export function SurveysPage() {
                 </div>
               </div>
               <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between gap-2">
-                <Link to={`/quality/surveys/${s.id}`} className="text-sm font-bold text-indigo-600 hover:underline">
+                  <Link to={`/quality/surveys/${s.id}`} className="text-sm font-bold text-teal-700 hover:underline">
                   {locale === 'ar' ? 'عرض التفاصيل' : 'View Details'}
                 </Link>
                 {s.form_url && (
-                  <a href={s.form_url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 flex items-center gap-1 hover:text-indigo-600">
+                  <a href={s.form_url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 flex items-center gap-1 hover:text-teal-700">
                     <ExternalLink className="w-3.5 h-3.5" />
                     {locale === 'ar' ? 'الاستبيان' : 'Form'}
                   </a>
@@ -102,29 +102,29 @@ export function SurveysPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الكود' : 'Code'}</label>
-                  <input required value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" placeholder="QS-001" />
+                  <input required value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" placeholder="QS-001" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الفئة المستهدفة' : 'Target Group'}</label>
-                  <input required value={form.target_group} onChange={e => setForm({ ...form, target_group: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" placeholder={locale === 'ar' ? 'الطلاب' : 'Students'} />
+                  <input required value={form.target_group} onChange={e => setForm({ ...form, target_group: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" placeholder={locale === 'ar' ? 'الطلاب' : 'Students'} />
                 </div>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'عنوان الاستبيان' : 'Survey Title'}</label>
-                <input required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" />
+                <input required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الغرض' : 'Purpose'}</label>
-                <textarea rows={2} value={form.purpose} onChange={e => setForm({ ...form, purpose: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" />
+                <textarea rows={2} value={form.purpose} onChange={e => setForm({ ...form, purpose: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'التكرار' : 'Frequency'}</label>
-                  <input value={form.frequency} onChange={e => setForm({ ...form, frequency: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" placeholder={locale === 'ar' ? 'فصلي' : 'Semester'} />
+                  <input value={form.frequency} onChange={e => setForm({ ...form, frequency: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" placeholder={locale === 'ar' ? 'فصلي' : 'Semester'} />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'رابط الاستبيان' : 'Form URL'}</label>
-                  <input type="url" value={form.form_url} onChange={e => setForm({ ...form, form_url: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" placeholder="https://..." />
+                  <input type="url" value={form.form_url} onChange={e => setForm({ ...form, form_url: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" placeholder="https://..." />
                 </div>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">

@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiFetch } from '@/api/client';
+import { useMemo, useState, type FormEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { BarChart3, Calendar, CheckCircle2, Plus, Ruler, Target } from 'lucide-react';
+import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -8,144 +9,36 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
-import { Plus, Target } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
+
+type Measurement = { id: number; measured_at: string; display_value: string; achievement_status: string; academic_year?: string; evidence?: string };
+type Kpi = { id: number; code: string; name: string; category?: string; measurement_method?: string; data_source?: string; target_value?: string; measurement_frequency?: string; responsible?: string; weight?: number; latest_measurement?: Measurement | null; measurements?: Measurement[] };
+const inputClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
+const statusLabel: Record<string, { ar: string; en: string }> = { achieved: { ar: 'متحقق', en: 'Achieved' }, partially_achieved: { ar: 'متحقق جزئيًا', en: 'Partially achieved' }, not_achieved: { ar: 'غير متحقق', en: 'Not achieved' }, not_assessed: { ar: 'غير مقاس', en: 'Not assessed' } };
+const initialKpi = { code: '', name: '', category: '', target_value: '', measurement_frequency: '', responsible: '', weight: '', measurement_method: '', data_source: '' };
+const today = new Date().toISOString().slice(0, 10);
 
 export function KpiPage() {
-  const { can } = useAuth();
-  const { locale } = useI18n();
-  const queryClient = useQueryClient();
+  const { can } = useAuth(); const { locale } = useI18n(); const isAr = locale === 'ar'; const client = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false); const [measuring, setMeasuring] = useState<Kpi | null>(null); const [category, setCategory] = useState('all');
+  const [form, setForm] = useState(initialKpi); const [measurement, setMeasurement] = useState({ academic_year: '', measured_at: today, numeric_value: '', display_value: '', achievement_status: 'not_assessed', evidence: '', notes: '' });
+  const query = useQuery({ queryKey: ['quality-kpis'], queryFn: () => apiFetch<Kpi[]>('/quality-kpis?per_page=100') });
+  const refresh = async () => { await Promise.all([client.invalidateQueries({ queryKey: ['quality-kpis'] }), client.invalidateQueries({ queryKey: ['quality-overview'] })]); };
+  const create = useMutation({ mutationFn: () => apiFetch('/quality-kpis', { method: 'POST', body: { ...form, weight: form.weight ? Number(form.weight) : null } }), onSuccess: async () => { await refresh(); setCreateOpen(false); setForm(initialKpi); } });
+  const record = useMutation({ mutationFn: () => apiFetch(`/quality-kpis/${measuring!.id}/measurements`, { method: 'POST', body: { ...measurement, numeric_value: measurement.numeric_value === '' ? null : Number(measurement.numeric_value) } }), onSuccess: async () => { await refresh(); setMeasuring(null); setMeasurement({ academic_year: '', measured_at: today, numeric_value: '', display_value: '', achievement_status: 'not_assessed', evidence: '', notes: '' }); } });
+  const items = query.data || []; const categories = useMemo(() => [...new Set(items.map(item => item.category).filter(Boolean))] as string[], [items]); const filtered = category === 'all' ? items : items.filter(item => item.category === category);
+  const error = create.error || record.error; const errorMessage = error instanceof ApiError ? error.message : (isAr ? 'تعذر حفظ البيانات.' : 'Unable to save data.');
+  if (!can('quality.view')) return <ErrorState title={isAr ? 'غير مصرح' : 'Access denied'} />;
+  if (query.isLoading) return <LoadingState />;
+  if (query.isError) return <ErrorState onRetry={() => query.refetch()} />;
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [form, setForm] = useState({ code: '', name: '', category: '', target_value: '', measurement_frequency: '', responsible: '', weight: '' });
+  return <div className="mx-auto max-w-7xl space-y-5 pb-14">
+    <PageHeader title={isAr ? 'سجل مؤشرات الجودة' : 'Quality Indicator Register'} description={isAr ? 'تعريف المؤشر وحده لا يكفي؛ سجّل القياسات الدورية، قارنها بالمستهدف، واربط النتيجة بدليل.' : 'Define each indicator, record periodic measurements, compare against target, and retain evidence.'}>{can('kpi.manage') && <Button onClick={() => setCreateOpen(true)}><Plus className="ml-2 h-4 w-4" />{isAr ? 'مؤشر جديد' : 'New indicator'}</Button>}</PageHeader>
+    <section className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"><BarChart3 className="h-5 w-5" /></span><div><p className="text-sm font-black text-slate-800">{items.length} {isAr ? 'مؤشرًا معرفًا' : 'defined indicators'}</p><p className="text-xs text-slate-500">{items.filter(i => i.latest_measurement?.achievement_status === 'achieved').length} {isAr ? 'مؤشرات متحققة في آخر قياس' : 'achieved in latest measurement'}</p></div></div><select value={category} onChange={e => setCategory(e.target.value)} className={`${inputClass} sm:w-60`}><option value="all">{isAr ? 'جميع المحاور' : 'All categories'}</option>{categories.map(item => <option key={item}>{item}</option>)}</select></section>
+    {!filtered.length ? <EmptyState message={isAr ? 'لا توجد مؤشرات جودة بعد.' : 'No quality indicators yet.'} /> : <section className="grid gap-4 lg:grid-cols-2">{filtered.map(kpi => { const latest = kpi.latest_measurement; const status = latest?.achievement_status || 'not_assessed'; return <article key={kpi.id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-black text-teal-700">{kpi.code}</span>{kpi.category && <span className="text-[10px] font-bold text-slate-400">{kpi.category}</span>}</div><h2 className="mt-2 text-sm font-black leading-6 text-slate-800">{kpi.name}</h2></div><span className="shrink-0 rounded-xl bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">{isAr ? statusLabel[status]?.ar : statusLabel[status]?.en}</span></div><div className="mt-4 grid grid-cols-2 gap-2"><div className="rounded-2xl bg-slate-50 p-3"><p className="flex items-center gap-1 text-[10px] font-bold text-slate-400"><Target className="h-3.5 w-3.5" />{isAr ? 'المستهدف' : 'Target'}</p><p className="mt-1 text-sm font-black text-slate-700">{kpi.target_value || '—'}</p></div><div className="rounded-2xl bg-teal-50/70 p-3"><p className="flex items-center gap-1 text-[10px] font-bold text-teal-600"><Ruler className="h-3.5 w-3.5" />{isAr ? 'آخر نتيجة' : 'Latest result'}</p><p className="mt-1 text-sm font-black text-teal-800">{latest?.display_value || (isAr ? 'غير مقاس' : 'Not measured')}</p></div></div><div className="mt-3 flex flex-wrap items-center gap-3 text-[10px] text-slate-400">{latest?.measured_at && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{latest.measured_at}</span>}<span>{isAr ? 'المسؤول' : 'Owner'}: {kpi.responsible || '—'}</span><span>{isAr ? 'الدورية' : 'Frequency'}: {kpi.measurement_frequency || '—'}</span></div>{can('kpi.manage') && <div className="mt-4 flex justify-end border-t border-slate-100 pt-3"><Button size="sm" variant="outline" onClick={() => setMeasuring(kpi)}><CheckCircle2 className="ml-1 h-4 w-4" />{isAr ? 'تسجيل قياس' : 'Record measurement'}</Button></div>}</article>})}</section>}
 
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['quality-kpis'],
-    queryFn: () => apiFetch<any>('/quality-kpis?per_page=50'),
-  });
+    <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title={isAr ? 'تعريف مؤشر جودة' : 'Define quality indicator'} maxWidth="2xl"><form onSubmit={(e:FormEvent) => { e.preventDefault(); create.mutate(); }} className="space-y-4"><div className="grid gap-3 sm:grid-cols-2"><label><span className="mb-1 block text-xs font-bold">{isAr ? 'رمز المؤشر' : 'Indicator code'}</span><input required value={form.code} onChange={e => setForm({...form, code:e.target.value})} className={inputClass} placeholder="KPI-01" /></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'المحور' : 'Category'}</span><input value={form.category} onChange={e => setForm({...form, category:e.target.value})} className={inputClass} placeholder={isAr ? 'التعليم والتعلم' : 'Teaching & Learning'} /></label></div><label><span className="mb-1 block text-xs font-bold">{isAr ? 'اسم المؤشر' : 'Indicator name'}</span><input required value={form.name} onChange={e => setForm({...form, name:e.target.value})} className={inputClass} /></label><div className="grid gap-3 sm:grid-cols-2"><label><span className="mb-1 block text-xs font-bold">{isAr ? 'القيمة المستهدفة' : 'Target value'}</span><input required value={form.target_value} onChange={e => setForm({...form, target_value:e.target.value})} className={inputClass} placeholder="≥ 80%" /></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'دورية القياس' : 'Frequency'}</span><input required value={form.measurement_frequency} onChange={e => setForm({...form, measurement_frequency:e.target.value})} className={inputClass} placeholder={isAr ? 'فصلي' : 'Semester'} /></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'المسؤول' : 'Owner'}</span><input required value={form.responsible} onChange={e => setForm({...form, responsible:e.target.value})} className={inputClass} /></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'مصدر البيانات' : 'Data source'}</span><input value={form.data_source} onChange={e => setForm({...form, data_source:e.target.value})} className={inputClass} /></label></div><label><span className="mb-1 block text-xs font-bold">{isAr ? 'طريقة القياس' : 'Measurement method'}</span><textarea rows={3} value={form.measurement_method} onChange={e => setForm({...form, measurement_method:e.target.value})} className={inputClass} /></label>{create.isError && <p className="text-sm font-bold text-red-600">{errorMessage}</p>}<div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>{isAr ? 'إلغاء' : 'Cancel'}</Button><Button type="submit" isLoading={create.isPending}>{isAr ? 'حفظ المؤشر' : 'Save indicator'}</Button></div></form></Modal>
 
-  const createMutation = useMutation({
-    mutationFn: (payload: any) => apiFetch('/quality-kpis', { method: 'POST', body: payload }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['quality-kpis'] }); setIsModalOpen(false); },
-  });
-
-  if (!can('quality.view')) return <ErrorState title="Access Denied" />;
-  if (isLoading) return <LoadingState />;
-  if (isError) return <ErrorState onRetry={refetch} />;
-
-  const items = Array.isArray(data) ? data : data?.items || [];
-
-  const categories = [...new Set(items.map((k: any) => k.category).filter(Boolean))];
-
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    createMutation.mutate({ ...form, weight: form.weight ? Number(form.weight) : null });
-  };
-
-  return (
-    <div className="mx-auto max-w-[1200px] space-y-6 pb-12">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <PageHeader
-          title={locale === 'ar' ? 'مؤشرات الجودة (KPIs)' : 'Quality KPIs'}
-          description={locale === 'ar' ? 'مؤشرات الأداء الرئيسية لقياس جودة البرنامج التعليمي' : 'Key performance indicators for measuring educational program quality'}
-        />
-        {can('quality.manage') && (
-          <Button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 shrink-0">
-            <Plus className="w-4 h-4" />
-            {locale === 'ar' ? 'مؤشر جديد' : 'New KPI'}
-          </Button>
-        )}
-      </div>
-
-      {!items.length ? (
-        <EmptyState message={locale === 'ar' ? 'لا توجد مؤشرات جودة بعد' : 'No KPIs defined yet'} />
-      ) : (
-        <div>
-          {/* Group by category */}
-          {categories.length > 0 ? (
-            categories.map((cat: any) => (
-              <div key={cat} className="mb-8">
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-3">{cat}</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {items.filter((k: any) => k.category === cat).map((k: any) => <KpiCard key={k.id} kpi={k} locale={locale} />)}
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {items.map((k: any) => <KpiCard key={k.id} kpi={k} locale={locale} />)}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 border-b border-slate-100 shrink-0">
-              <h3 className="font-bold text-lg text-slate-800">{locale === 'ar' ? 'مؤشر جودة جديد' : 'New KPI'}</h3>
-            </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الكود' : 'Code'}</label>
-                  <input required value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" placeholder="KPI-001" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الفئة' : 'Category'}</label>
-                  <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'اسم المؤشر' : 'KPI Name'}</label>
-                <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'القيمة المستهدفة' : 'Target Value'}</label>
-                  <input value={form.target_value} onChange={e => setForm({ ...form, target_value: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" placeholder="≥ 80%" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'تكرار القياس' : 'Measurement Frequency'}</label>
-                  <input value={form.measurement_frequency} onChange={e => setForm({ ...form, measurement_frequency: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" placeholder={locale === 'ar' ? 'سنوي' : 'Annual'} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'المسؤول' : 'Responsible'}</label>
-                  <input value={form.responsible} onChange={e => setForm({ ...form, responsible: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الوزن' : 'Weight'}</label>
-                  <input type="number" min="0" step="0.1" value={form.weight} onChange={e => setForm({ ...form, weight: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" />
-                </div>
-              </div>
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>{locale === 'ar' ? 'إلغاء' : 'Cancel'}</Button>
-                <Button type="submit" isLoading={createMutation.isPending}>{locale === 'ar' ? 'حفظ' : 'Save'}</Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function KpiCard({ kpi, locale }: { kpi: any; locale: string }) {
-  return (
-    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">{kpi.code}</span>
-        {kpi.weight && <span className="text-xs text-slate-400">{locale === 'ar' ? 'وزن' : 'Weight'}: {kpi.weight}</span>}
-      </div>
-      <p className="text-sm font-bold text-slate-800 leading-snug">{kpi.name}</p>
-      <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-        <Target className="w-4 h-4 text-emerald-500 shrink-0" />
-        <span className="text-sm font-bold text-emerald-700">{kpi.target_value || '—'}</span>
-        {kpi.measurement_frequency && <span className="text-xs text-slate-400 ml-auto">{kpi.measurement_frequency}</span>}
-      </div>
-      {kpi.responsible && <p className="text-xs text-slate-500">{locale === 'ar' ? 'المسؤول:' : 'Responsible:'} {kpi.responsible}</p>}
-    </div>
-  );
+    <Modal isOpen={Boolean(measuring)} onClose={() => setMeasuring(null)} title={isAr ? `تسجيل قياس — ${measuring?.code || ''}` : `Record measurement — ${measuring?.code || ''}`}><form onSubmit={(e:FormEvent) => { e.preventDefault(); record.mutate(); }} className="space-y-4"><div className="rounded-2xl bg-teal-50 p-3 text-xs text-teal-800"><strong>{isAr ? 'المستهدف:' : 'Target:'}</strong> {measuring?.target_value || '—'}</div><div className="grid gap-3 sm:grid-cols-2"><label><span className="mb-1 block text-xs font-bold">{isAr ? 'تاريخ القياس' : 'Measurement date'}</span><input required type="date" value={measurement.measured_at} onChange={e => setMeasurement({...measurement, measured_at:e.target.value})} className={inputClass} /></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'العام الأكاديمي' : 'Academic year'}</span><input value={measurement.academic_year} onChange={e => setMeasurement({...measurement, academic_year:e.target.value})} className={inputClass} placeholder="2026/2027" /></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'النتيجة المعروضة' : 'Display result'}</span><input required value={measurement.display_value} onChange={e => setMeasurement({...measurement, display_value:e.target.value})} className={inputClass} placeholder="84%" /></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'حالة التحقق' : 'Achievement status'}</span><select value={measurement.achievement_status} onChange={e => setMeasurement({...measurement, achievement_status:e.target.value})} className={inputClass}>{Object.entries(statusLabel).map(([key, value]) => <option key={key} value={key}>{isAr ? value.ar : value.en}</option>)}</select></label></div><label><span className="mb-1 block text-xs font-bold">{isAr ? 'الدليل أو مرجع البيانات' : 'Evidence or data reference'}</span><textarea required rows={3} value={measurement.evidence} onChange={e => setMeasurement({...measurement, evidence:e.target.value})} className={inputClass} /></label>{record.isError && <p className="text-sm font-bold text-red-600">{errorMessage}</p>}<div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={() => setMeasuring(null)}>{isAr ? 'إلغاء' : 'Cancel'}</Button><Button type="submit" isLoading={record.isPending}>{isAr ? 'اعتماد القياس' : 'Save measurement'}</Button></div></form></Modal>
+  </div>;
 }

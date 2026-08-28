@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiFetch } from '@/api/client';
+import { useMemo, useState, type FormEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Play, Plus, Search, ShieldCheck } from 'lucide-react';
+import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -8,164 +9,52 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
-import { Plus, Calendar, ArrowRight } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 
-const PRIORITY_STYLE: Record<string, { label_ar: string; label_en: string; classes: string }> = {
-  high:   { label_ar: 'عالية',    label_en: 'High',   classes: 'bg-red-100 text-red-700' },
-  normal: { label_ar: 'متوسطة',   label_en: 'Normal', classes: 'bg-amber-100 text-amber-700' },
-  low:    { label_ar: 'منخفضة',   label_en: 'Low',    classes: 'bg-slate-100 text-slate-600' },
-};
-
-const STATUS_STYLE: Record<string, { label_ar: string; label_en: string; classes: string }> = {
-  draft:       { label_ar: 'مسودة',       label_en: 'Draft',       classes: 'bg-slate-100 text-slate-600' },
-  in_progress: { label_ar: 'قيد التنفيذ', label_en: 'In Progress', classes: 'bg-blue-100 text-blue-700' },
-  under_review:{ label_ar: 'مراجعة',      label_en: 'Review',      classes: 'bg-amber-100 text-amber-700' },
-  approved:    { label_ar: 'معتمدة',      label_en: 'Approved',    classes: 'bg-emerald-100 text-emerald-700' },
-  closed:      { label_ar: 'مغلقة',       label_en: 'Closed',      classes: 'bg-slate-200 text-slate-500' },
-};
+type Plan = { id: number; academic_year?: string; source: string; reference?: string; observation: string; improvement_action: string; responsible: string; start_date?: string; due_date: string; priority: string; status: string; closure_evidence?: string; verification_result?: string };
+const initialForm = { observation: '', improvement_action: '', priority: 'normal', due_date: '', start_date: '', responsible: '', academic_year: '', source: 'ملاحظة داخلية', reference: '', data_source: '' };
+const inputClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
+const statusMap: Record<string, { ar: string; en: string }> = { open: { ar: 'مفتوحة', en: 'Open' }, in_progress: { ar: 'قيد التنفيذ', en: 'In progress' }, under_review: { ar: 'قيد التحقق', en: 'Under review' }, closed: { ar: 'مغلقة', en: 'Closed' } };
+const priorityMap: Record<string, { ar: string; en: string }> = { high: { ar: 'عالية', en: 'High' }, normal: { ar: 'متوسطة', en: 'Medium' }, low: { ar: 'منخفضة', en: 'Low' } };
 
 export function ImprovementPlansPage() {
-  const { can } = useAuth();
-  const { locale } = useI18n();
-  const queryClient = useQueryClient();
+  const { can } = useAuth(); const { locale } = useI18n(); const isAr = locale === 'ar'; const client = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false); const [actionPlan, setActionPlan] = useState<Plan | null>(null);
+  const [form, setForm] = useState(initialForm); const [search, setSearch] = useState(''); const [status, setStatus] = useState('all');
+  const [actionForm, setActionForm] = useState({ status: 'in_progress', reason: '', closure_evidence: '', verification_result: '' });
+  const query = useQuery({ queryKey: ['quality-plans'], queryFn: () => apiFetch<Plan[]>('/quality-improvement-plans?per_page=100') });
+  const create = useMutation({ mutationFn: () => apiFetch('/quality-improvement-plans', { method: 'POST', body: form }), onSuccess: async () => { await refresh(); setCreateOpen(false); setForm(initialForm); } });
+  const transition = useMutation({ mutationFn: () => apiFetch(`/quality-improvement-plans/${actionPlan!.id}/transition`, { method: 'POST', body: actionForm }), onSuccess: async () => { await refresh(); setActionPlan(null); } });
+  const refresh = async () => { await Promise.all([client.invalidateQueries({ queryKey: ['quality-plans'] }), client.invalidateQueries({ queryKey: ['quality-overview'] })]); };
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [form, setForm] = useState({ observation: '', improvement_action: '', priority: 'normal', due_date: '', responsible: '', academic_year: '', source: '' });
+  const items = useMemo(() => (query.data || []).filter(plan => (status === 'all' || plan.status === status) && (!search.trim() || `${plan.observation} ${plan.improvement_action} ${plan.responsible}`.toLowerCase().includes(search.toLowerCase()))), [query.data, search, status]);
+  const openAction = (plan: Plan, next: string) => { setActionPlan(plan); setActionForm({ status: next, reason: '', closure_evidence: '', verification_result: '' }); };
+  const error = create.error || transition.error; const errorMessage = error instanceof ApiError ? error.message : (isAr ? 'تعذر حفظ الإجراء.' : 'Unable to save the action.');
+  if (!can('quality.view')) return <ErrorState title={isAr ? 'غير مصرح' : 'Access denied'} />;
+  if (query.isLoading) return <LoadingState />;
+  if (query.isError) return <ErrorState onRetry={() => query.refetch()} />;
 
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['quality-plans'],
-    queryFn: () => apiFetch<any>('/quality-improvement-plans?per_page=50'),
-  });
+  return <div className="mx-auto max-w-7xl space-y-5 pb-14">
+    <PageHeader title={isAr ? 'خطط التحسين والمتابعة' : 'Improvement Plans'} description={isAr ? 'حوّل الملاحظات والنتائج إلى إجراءات محددة بمسؤول وموعد، ثم تحقق من أثرها قبل الإغلاق.' : 'Turn findings into owned, dated actions and verify their impact before closure.'}>
+      {can('quality.manage') && <Button onClick={() => setCreateOpen(true)}><Plus className="ml-2 h-4 w-4" />{isAr ? 'خطة تحسين جديدة' : 'New plan'}</Button>}
+    </PageHeader>
 
-  const createMutation = useMutation({
-    mutationFn: (payload: any) => apiFetch('/quality-improvement-plans', { method: 'POST', body: payload }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['quality-plans'] }); setIsModalOpen(false); setForm({ observation: '', improvement_action: '', priority: 'normal', due_date: '', responsible: '', academic_year: '', source: '' }); },
-  });
+    <section className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_14rem]">
+      <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3"><Search className="h-4 w-4 text-slate-400" /><input value={search} onChange={e => setSearch(e.target.value)} className="h-11 w-full bg-transparent text-sm outline-none" placeholder={isAr ? 'بحث بالملاحظة أو الإجراء أو المسؤول...' : 'Search observation, action, or owner...'} /></label>
+      <select value={status} onChange={e => setStatus(e.target.value)} className={inputClass}><option value="all">{isAr ? 'جميع الحالات' : 'All statuses'}</option>{Object.entries(statusMap).map(([key, value]) => <option key={key} value={key}>{isAr ? value.ar : value.en}</option>)}</select>
+    </section>
 
-  if (!can('quality.view')) return <ErrorState title="Access Denied" />;
-  if (isLoading) return <LoadingState />;
-  if (isError) return <ErrorState onRetry={refetch} />;
-
-  const items = Array.isArray(data) ? data : data?.items || [];
-
-  const handleSubmit = (e: FormEvent) => { e.preventDefault(); createMutation.mutate(form); };
-
-  return (
-    <div className="mx-auto max-w-[1200px] space-y-6 pb-12">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <PageHeader
-          title={locale === 'ar' ? 'خطط التحسين' : 'Improvement Plans'}
-          description={locale === 'ar' ? 'تتبع ملاحظات الجودة وإجراءات التحسين المستمر' : 'Track quality observations and continuous improvement actions'}
-        />
-        {can('quality.manage') && (
-          <Button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 shrink-0">
-            <Plus className="w-4 h-4" />
-            {locale === 'ar' ? 'خطة جديدة' : 'New Plan'}
-          </Button>
-        )}
-      </div>
-
-      {!items.length ? (
-        <EmptyState message={locale === 'ar' ? 'لا توجد خطط تحسين بعد' : 'No improvement plans yet'} />
-      ) : (
-        <div className="space-y-4">
-          {items.map((p: any) => {
-            const isOverdue = p.due_date && new Date(p.due_date) < new Date() && p.status !== 'closed' && p.status !== 'approved';
-            const priority = PRIORITY_STYLE[p.priority] ?? PRIORITY_STYLE.normal;
-            const status = STATUS_STYLE[p.status] ?? STATUS_STYLE.draft;
-            return (
-              <div key={p.id} className={`bg-white rounded-3xl border shadow-sm overflow-hidden ${isOverdue ? 'border-red-200' : 'border-slate-100'}`}>
-                <div className="p-6">
-                  <div className="flex flex-wrap items-center gap-2 mb-3">
-                    <span className={`text-xs font-bold px-2.5 py-1 rounded-xl ${priority.classes}`}>
-                      {locale === 'ar' ? priority.label_ar : priority.label_en}
-                    </span>
-                    <span className={`text-xs font-bold px-2.5 py-1 rounded-xl ${status.classes}`}>
-                      {locale === 'ar' ? status.label_ar : status.label_en}
-                    </span>
-                    {isOverdue && <span className="text-xs font-bold px-2.5 py-1 rounded-xl bg-red-100 text-red-700">{locale === 'ar' ? 'متأخر' : 'Overdue'}</span>}
-                    {p.academic_year && <span className="text-xs text-slate-400">{p.academic_year}</span>}
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">{locale === 'ar' ? 'الملاحظة' : 'Observation'}</p>
-                      <p className="text-sm text-slate-800 leading-relaxed">{p.observation}</p>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <ArrowRight className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0 rtl:rotate-180" />
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">{locale === 'ar' ? 'إجراء التحسين' : 'Improvement Action'}</p>
-                        <p className="text-sm text-slate-800 leading-relaxed">{p.improvement_action}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-4 mt-4 pt-4 border-t border-slate-100 text-xs text-slate-500">
-                    {p.due_date && (
-                      <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-600 font-bold' : ''}`}>
-                        <Calendar className="w-3.5 h-3.5" />
-                        {locale === 'ar' ? 'الموعد النهائي:' : 'Due:'} {p.due_date}
-                      </span>
-                    )}
-                    {p.responsible && <span>{locale === 'ar' ? 'المسؤول:' : 'Responsible:'} {p.responsible}</span>}
-                    {p.source && <span>{locale === 'ar' ? 'المصدر:' : 'Source:'} {p.source}</span>}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+    {!items.length ? <EmptyState message={isAr ? 'لا توجد خطط مطابقة.' : 'No matching plans.'} /> : <section className="space-y-3">{items.map(plan => {
+      const overdue = plan.status !== 'closed' && plan.due_date && new Date(plan.due_date) < new Date();
+      return <article key={plan.id} className={`overflow-hidden rounded-3xl border bg-white shadow-sm ${overdue ? 'border-amber-200' : 'border-slate-200'}`}>
+        <div className="p-4 sm:p-5"><div className="flex flex-col justify-between gap-3 md:flex-row"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-black text-teal-700">{isAr ? statusMap[plan.status]?.ar : statusMap[plan.status]?.en}</span><span className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">{isAr ? priorityMap[plan.priority]?.ar : priorityMap[plan.priority]?.en}</span>{overdue && <span className="flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700"><AlertTriangle className="h-3 w-3" />{isAr ? 'متأخرة' : 'Overdue'}</span>}</div><h2 className="mt-3 text-sm font-black text-slate-800">{plan.observation}</h2><div className="mt-3 flex items-start gap-2 rounded-2xl bg-slate-50 p-3"><ClipboardCheck className="mt-0.5 h-4 w-4 shrink-0 text-teal-600" /><p className="text-sm leading-6 text-slate-600">{plan.improvement_action}</p></div></div><aside className="grid shrink-0 grid-cols-2 gap-2 text-xs md:w-64 md:grid-cols-1"><div className="rounded-xl border border-slate-100 p-2"><span className="text-slate-400">{isAr ? 'المسؤول' : 'Owner'}</span><p className="mt-1 font-bold text-slate-700">{plan.responsible}</p></div><div className="rounded-xl border border-slate-100 p-2"><span className="text-slate-400">{isAr ? 'الموعد' : 'Due date'}</span><p className={`mt-1 font-bold ${overdue ? 'text-amber-700' : 'text-slate-700'}`}>{plan.due_date}</p></div></aside></div>
+        {can('quality.manage') && plan.status !== 'closed' && <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">{plan.status === 'open' && <Button size="sm" variant="outline" onClick={() => openAction(plan, 'in_progress')}><Play className="ml-1 h-4 w-4" />{isAr ? 'بدء التنفيذ' : 'Start'}</Button>}{['open','in_progress'].includes(plan.status) && <Button size="sm" variant="outline" onClick={() => openAction(plan, 'under_review')}><ShieldCheck className="ml-1 h-4 w-4" />{isAr ? 'إرسال للتحقق' : 'Send for review'}</Button>}{plan.status === 'under_review' && <Button size="sm" onClick={() => openAction(plan, 'closed')}><CheckCircle2 className="ml-1 h-4 w-4" />{isAr ? 'إغلاق بدليل' : 'Close with evidence'}</Button>}</div>}
+        {plan.status === 'closed' && <div className="mt-4 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2"><div><p className="text-[10px] font-black text-slate-400">{isAr ? 'دليل الإغلاق' : 'Closure evidence'}</p><p className="mt-1 text-xs text-slate-600">{plan.closure_evidence || '—'}</p></div><div><p className="text-[10px] font-black text-slate-400">{isAr ? 'نتيجة التحقق' : 'Verification result'}</p><p className="mt-1 text-xs text-slate-600">{plan.verification_result || '—'}</p></div></div>}
         </div>
-      )}
+      </article>})}</section>}
 
-      {/* Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 border-b border-slate-100 shrink-0">
-              <h3 className="font-bold text-lg text-slate-800">{locale === 'ar' ? 'خطة تحسين جديدة' : 'New Improvement Plan'}</h3>
-            </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الملاحظة / المشكلة' : 'Observation / Issue'}</label>
-                <textarea required rows={3} value={form.observation} onChange={e => setForm({ ...form, observation: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" placeholder={locale === 'ar' ? 'صف الملاحظة أو المشكلة...' : 'Describe the observation or issue...'} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'إجراء التحسين' : 'Improvement Action'}</label>
-                <textarea required rows={3} value={form.improvement_action} onChange={e => setForm({ ...form, improvement_action: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" placeholder={locale === 'ar' ? 'صف الإجراء المطلوب...' : 'Describe the required action...'} />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الأولوية' : 'Priority'}</label>
-                  <select required value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500">
-                    <option value="low">{locale === 'ar' ? 'منخفضة' : 'Low'}</option>
-                    <option value="normal">{locale === 'ar' ? 'متوسطة' : 'Normal'}</option>
-                    <option value="high">{locale === 'ar' ? 'عالية' : 'High'}</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الموعد النهائي' : 'Due Date'}</label>
-                  <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'المسؤول' : 'Responsible'}</label>
-                  <input value={form.responsible} onChange={e => setForm({ ...form, responsible: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'السنة الأكاديمية' : 'Academic Year'}</label>
-                  <input value={form.academic_year} onChange={e => setForm({ ...form, academic_year: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500" placeholder="2025-2026" />
-                </div>
-              </div>
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>{locale === 'ar' ? 'إلغاء' : 'Cancel'}</Button>
-                <Button type="submit" isLoading={createMutation.isPending}>{locale === 'ar' ? 'حفظ' : 'Save'}</Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+    <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title={isAr ? 'إنشاء خطة تحسين' : 'Create improvement plan'} maxWidth="2xl"><form onSubmit={(e: FormEvent) => { e.preventDefault(); create.mutate(); }} className="space-y-4"><div className="grid gap-3 sm:grid-cols-2"><label><span className="mb-1 block text-xs font-bold">{isAr ? 'مصدر الملاحظة' : 'Finding source'}</span><select value={form.source} onChange={e => setForm({...form, source:e.target.value})} className={inputClass}><option>ملاحظة داخلية</option><option>نتائج استبيان</option><option>مؤشر جودة</option><option>تدقيق أو اعتماد</option><option>قرار مجلس الكلية</option></select></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'المرجع' : 'Reference'}</span><input value={form.reference} onChange={e => setForm({...form, reference:e.target.value})} className={inputClass} placeholder="SUR-01 / KPI-03" /></label></div><label><span className="mb-1 block text-xs font-bold">{isAr ? 'الملاحظة أو فجوة الجودة' : 'Quality finding or gap'}</span><textarea required rows={3} value={form.observation} onChange={e => setForm({...form, observation:e.target.value})} className={inputClass} /></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'إجراء التحسين المحدد' : 'Specific improvement action'}</span><textarea required rows={3} value={form.improvement_action} onChange={e => setForm({...form, improvement_action:e.target.value})} className={inputClass} /></label><div className="grid gap-3 sm:grid-cols-2"><label><span className="mb-1 block text-xs font-bold">{isAr ? 'المسؤول' : 'Owner'}</span><input required value={form.responsible} onChange={e => setForm({...form, responsible:e.target.value})} className={inputClass} /></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'الموعد النهائي' : 'Due date'}</span><input required type="date" value={form.due_date} onChange={e => setForm({...form, due_date:e.target.value})} className={inputClass} /></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'الأولوية' : 'Priority'}</span><select value={form.priority} onChange={e => setForm({...form, priority:e.target.value})} className={inputClass}><option value="low">{isAr ? 'منخفضة' : 'Low'}</option><option value="normal">{isAr ? 'متوسطة' : 'Medium'}</option><option value="high">{isAr ? 'عالية' : 'High'}</option></select></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'العام الأكاديمي' : 'Academic year'}</span><input value={form.academic_year} onChange={e => setForm({...form, academic_year:e.target.value})} className={inputClass} placeholder="2026/2027" /></label></div>{create.isError && <p className="text-sm font-bold text-red-600">{errorMessage}</p>}<div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>{isAr ? 'إلغاء' : 'Cancel'}</Button><Button type="submit" isLoading={create.isPending}>{isAr ? 'حفظ الخطة' : 'Save plan'}</Button></div></form></Modal>
+
+    <Modal isOpen={Boolean(actionPlan)} onClose={() => setActionPlan(null)} title={actionForm.status === 'closed' ? (isAr ? 'التحقق وإغلاق الخطة' : 'Verify and close plan') : (isAr ? 'تحديث سير الخطة' : 'Update plan workflow')}><form onSubmit={(e:FormEvent) => { e.preventDefault(); transition.mutate(); }} className="space-y-4">{actionForm.status === 'closed' && <><label><span className="mb-1 block text-xs font-bold">{isAr ? 'دليل تنفيذ الإجراء' : 'Implementation evidence'}</span><textarea required rows={4} value={actionForm.closure_evidence} onChange={e => setActionForm({...actionForm, closure_evidence:e.target.value})} className={inputClass} placeholder={isAr ? 'صف الوثيقة، المحضر، النتيجة أو الرابط الذي يثبت التنفيذ...' : 'Describe the document, result, or link proving implementation...'} /></label><label><span className="mb-1 block text-xs font-bold">{isAr ? 'نتيجة التحقق من الأثر' : 'Impact verification result'}</span><textarea rows={3} value={actionForm.verification_result} onChange={e => setActionForm({...actionForm, verification_result:e.target.value})} className={inputClass} /></label></>}<label><span className="mb-1 block text-xs font-bold">{isAr ? 'ملاحظة الحركة' : 'Workflow note'}</span><textarea rows={2} value={actionForm.reason} onChange={e => setActionForm({...actionForm, reason:e.target.value})} className={inputClass} /></label>{transition.isError && <p className="text-sm font-bold text-red-600">{errorMessage}</p>}<div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={() => setActionPlan(null)}>{isAr ? 'إلغاء' : 'Cancel'}</Button><Button type="submit" isLoading={transition.isPending}>{isAr ? 'اعتماد الحركة' : 'Confirm'}</Button></div></form></Modal>
+  </div>;
 }
