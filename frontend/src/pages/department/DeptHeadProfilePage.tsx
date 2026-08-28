@@ -135,6 +135,7 @@ export function DeptHeadProfilePage() {
   // Check permissions for evaluator and roster viewing
   const userRoles = (user?.roles || []).map((r: any) => typeof r === 'string' ? r.toUpperCase() : String(r.code || r.name || '').toUpperCase());
   const canEvaluate = can('performance.view');
+  const canViewOfficialEvaluation = can('department_head_evaluations.view');
 
   // Query Department Head profile directly from Laravel MySQL Database API
   const { data: dbProfileResponse, isLoading: isProfileLoading } = useQuery({
@@ -819,8 +820,15 @@ export function DeptHeadProfilePage() {
 
           </div>
 
-          {/* Clean KPI Executive Score Card */}
-          <div className="bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200/80 text-center shrink-0 w-full md:w-48 space-y-1">
+          {/* Official evaluation is intentionally private from the department head. */}
+          {!isOwnProfile && canViewOfficialEvaluation && <Link to={`/department-head-evaluations?head=${profileData.user_id}`} className="flex w-full shrink-0 flex-col items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 p-4 text-center text-teal-800 transition-colors hover:bg-teal-100 md:w-48">
+            <ShieldCheck className="h-5 w-5" />
+            <span className="text-xs font-black">التقييم الرسمي</span>
+            <span className="text-[10px] font-semibold">فتح نموذج التقييم والاعتماد</span>
+          </Link>}
+
+          {/* Legacy KPI is available only to authorized leadership, never in the head's own profile. */}
+          {!isOwnProfile && canViewOfficialEvaluation && <div className="bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200/80 text-center shrink-0 w-full md:w-48 space-y-1">
             <span className="text-[11px] font-semibold text-slate-500 block">تقييم مؤشر الأداء الكلي</span>
             <div dir="ltr" className="text-3xl font-bold text-slate-900 font-mono tracking-tight">
               {automatedKpiBreakdown.totalScore} <span className="text-xs font-medium text-slate-400">/ 100</span>
@@ -831,7 +839,7 @@ export function DeptHeadProfilePage() {
                 <span>تقدير {automatedKpiBreakdown.rating}</span>
               </span>
             </div>
-          </div>
+          </div>}
 
         </div>
       </div>
@@ -846,7 +854,7 @@ export function DeptHeadProfilePage() {
             <span dir="ltr">{profileData.publications?.length || 0}</span>
             <BookOpen className="w-4 h-4 text-teal-600 opacity-80" />
           </div>
-          <span className="text-[10px] text-slate-400 font-medium block">تساهم بـ {automatedKpiBreakdown.researchScore} درجة</span>
+          <span className="text-[10px] text-slate-400 font-medium block">{!isOwnProfile && canViewOfficialEvaluation ? `تساهم بـ ${automatedKpiBreakdown.researchScore} درجة` : 'سجل مهني محدث'}</span>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-1">
@@ -855,7 +863,7 @@ export function DeptHeadProfilePage() {
             <span dir="ltr">{profileData.conferences?.length || 0}</span>
             <Award className="w-4 h-4 text-slate-500 opacity-80" />
           </div>
-          <span className="text-[10px] text-slate-400 font-medium block">تساهم بـ {automatedKpiBreakdown.confScore} درجة</span>
+          <span className="text-[10px] text-slate-400 font-medium block">{!isOwnProfile && canViewOfficialEvaluation ? `تساهم بـ ${automatedKpiBreakdown.confScore} درجة` : 'سجل مهني محدث'}</span>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-1">
@@ -931,7 +939,7 @@ export function DeptHeadProfilePage() {
           <span>الوثائق والملفات ({profileData.documents?.length || 0})</span>
         </button>
 
-        <button
+        {!isOwnProfile && canViewOfficialEvaluation && <button
           type="button"
           onClick={() => setActiveTab('kpi')}
           className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
@@ -942,7 +950,7 @@ export function DeptHeadProfilePage() {
         >
           <BarChart3 className="w-4 h-4" />
           <span>جدول تقييم الأداء التفصيلي</span>
-        </button>
+        </button>}
       </div>
 
       {/* ========================================================================= */}
@@ -1367,7 +1375,7 @@ export function DeptHeadProfilePage() {
         )}
 
         {/* TAB 5: AUTOMATED KPI SCORECARD TABLE */}
-        {activeTab === 'kpi' && (
+        {!isOwnProfile && canViewOfficialEvaluation && activeTab === 'kpi' && (
           <div className="space-y-5 text-xs">
             
             {/* Scorecard Header */}

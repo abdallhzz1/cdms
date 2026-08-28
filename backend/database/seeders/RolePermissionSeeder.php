@@ -68,6 +68,10 @@ class RolePermissionSeeder extends Seeder
             'roles.manage',
             'audit.view',
             'settings.manage',
+            'department_head_evaluations.view',
+            'department_head_evaluations.create',
+            'department_head_evaluations.approve',
+            'department_head_evaluations.export',
         ];
 
         foreach ($bootstrapGrants as $code) {

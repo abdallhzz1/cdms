@@ -47,6 +47,7 @@ import { ExternalElectivesPage } from '@/pages/ExternalElectivesPage';
 import { ResearchProjectsPage } from '@/pages/ResearchProjectsPage';
 import { SkillLogbookPage } from '@/pages/SkillLogbookPage';
 import { StaffAllocationsPage } from '@/pages/StaffAllocationsPage';
+import { DepartmentHeadEvaluationsPage } from '@/pages/DepartmentHeadEvaluationsPage';
 import { PartnershipsPage } from '@/pages/PartnershipsPage';
 import { UsersPage } from '@/pages/UsersPage';
 import { AuditLogsPage } from '@/pages/AuditLogsPage';
@@ -200,6 +201,7 @@ export function App() {
                 <Route path="/research-projects" element={<ResearchProjectsPage />} />
                 <Route path="/skill-logbook" element={<SkillLogbookPage />} />
                 <Route path="/department-heads" element={<StaffAllocationsPage />} />
+                <Route path="/department-head-evaluations" element={<DepartmentHeadEvaluationsPage />} />
                 <Route path="/staff-allocations" element={<Navigate to="/department-heads" replace />} />
                 <Route path="/dept-heads/:id" element={<DeptHeadProfilePage />} />
                 <Route path="/dept-heads/me" element={<DeptHeadProfilePage />} />

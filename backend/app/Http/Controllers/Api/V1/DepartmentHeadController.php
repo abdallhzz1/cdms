@@ -12,6 +12,7 @@ use App\Services\SecureFileUploadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Gate;
 
 class DepartmentHeadController extends Controller
 {
@@ -23,12 +24,13 @@ class DepartmentHeadController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $canViewEvaluation = Gate::forUser($request->user())->allows('permission', ['department_head_evaluations.view']);
         $assignments = DepartmentHeadAssignment::query()->current()->heads()
             ->whereHas('person.user', fn ($query) => $query->where('is_active', true))
             ->with(['department:id,name_ar,name_en', 'person.user.departmentHeadProfile', 'person.user.userProfile', 'person.user.roles'])
             ->orderBy('department_id')->get();
 
-        $data = $assignments->map(function (DepartmentHeadAssignment $assignment) {
+        $data = $assignments->map(function (DepartmentHeadAssignment $assignment) use ($canViewEvaluation) {
             $person = $assignment->person;
             $user = $person->user;
             $profile = $user->departmentHeadProfile ?: new DepartmentHeadProfile(['user_id' => $user->id]);
@@ -55,10 +57,10 @@ class DepartmentHeadController extends Controller
                 'documents' => $profile->documents ?: [],
                 'kpi_weights' => $profile->kpi_weights ?: $this->defaultWeights(),
                 'kpi_overrides' => $profile->kpi_overrides ?: [],
-                'evaluation' => $profile->evaluation,
-                'kpi_score' => $kpi['totalScore'],
-                'kpi_rating' => $kpi['rating'],
-                'kpi_complete' => $kpi['isComplete'],
+                'evaluation' => $canViewEvaluation ? $profile->evaluation : null,
+                'kpi_score' => $canViewEvaluation ? $kpi['totalScore'] : null,
+                'kpi_rating' => $canViewEvaluation ? $kpi['rating'] : null,
+                'kpi_complete' => $canViewEvaluation && $kpi['isComplete'],
             ];
         })->values();
 
@@ -96,6 +98,7 @@ class DepartmentHeadController extends Controller
         }
 
         $kpi = $this->calculateKpi($profile);
+        $canViewEvaluation = Gate::forUser($request->user())->allows('permission', ['department_head_evaluations.view']);
 
         return response()->json([
             'success' => true,
@@ -118,11 +121,11 @@ class DepartmentHeadController extends Controller
                 'documents' => $profile->documents ?: [],
                 'kpi_weights' => $profile->kpi_weights ?: $this->defaultWeights(),
                 'kpi_overrides' => $profile->kpi_overrides ?: [],
-                'evaluation' => $profile->evaluation,
-                'kpi_score' => $kpi['totalScore'],
-                'kpi_rating' => $kpi['rating'],
-                'kpi_complete' => $kpi['isComplete'],
-                'kpi_breakdown' => $kpi,
+                'evaluation' => $canViewEvaluation ? $profile->evaluation : null,
+                'kpi_score' => $canViewEvaluation ? $kpi['totalScore'] : null,
+                'kpi_rating' => $canViewEvaluation ? $kpi['rating'] : null,
+                'kpi_complete' => $canViewEvaluation && $kpi['isComplete'],
+                'kpi_breakdown' => $canViewEvaluation ? $kpi : null,
             ]
         ]);
     }
@@ -177,7 +180,7 @@ class DepartmentHeadController extends Controller
     {
         $userId = $this->resolveUserId($request, $id);
         $this->ensureCurrentDepartmentHead($userId);
-        $this->profileAuthorization->authorizeEvaluation($request->user());
+        $this->authorizeEvaluationManager($request->user());
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
@@ -204,7 +207,7 @@ class DepartmentHeadController extends Controller
     {
         $userId = $this->resolveUserId($request, $id);
         $this->ensureCurrentDepartmentHead($userId);
-        $this->profileAuthorization->authorizeEvaluation($request->user());
+        $this->authorizeEvaluationManager($request->user());
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
@@ -224,7 +227,7 @@ class DepartmentHeadController extends Controller
     {
         $userId = $this->resolveUserId($request, $id);
         $this->ensureCurrentDepartmentHead($userId);
-        $this->profileAuthorization->authorizeEvaluation($request->user());
+        $this->authorizeEvaluationManager($request->user());
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
@@ -453,6 +456,15 @@ class DepartmentHeadController extends Controller
             ->exists();
 
         abort_unless($assigned, 404, 'Department head profile not found.');
+    }
+
+    private function authorizeEvaluationManager(?User $user): void
+    {
+        if ($user && Gate::forUser($user)->allows('permission', ['department_head_evaluations.create'])) {
+            return;
+        }
+
+        abort(403, 'This action is unauthorized.');
     }
 
 }

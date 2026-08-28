@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { Building2, Search, ShieldCheck, UserRound } from 'lucide-react';
+import { Building2, ClipboardCheck, Search, ShieldCheck, UserRound } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { Button } from '@/components/ui/Button';
@@ -29,6 +29,7 @@ type DepartmentHead = {
 export function StaffAllocationsPage() {
   const navigate = useNavigate();
   const { can } = useAuth();
+  const canViewOfficialEvaluations = can('department_head_evaluations.view');
   const [search, setSearch] = useState('');
   const [departmentId, setDepartmentId] = useState('all');
 
@@ -58,7 +59,10 @@ export function StaffAllocationsPage() {
 
   return <div className="space-y-5 pb-20">
     <PageHeader title="دليل رؤساء الأقسام" description="يعرض رؤساء الأقسام المكلفين حاليًا فقط، ويفتح ملفاتهم القيادية والتقييمات الموثقة.">
-      {(can('departments.manage') || can('users.manage')) && <Link to="/admin/departments" className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800"><Building2 className="h-4 w-4" />إدارة الأقسام والتكليفات</Link>}
+      <div className="flex flex-wrap gap-2">
+        {canViewOfficialEvaluations && <Link to="/department-head-evaluations" className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800"><ClipboardCheck className="h-4 w-4" />التقييمات الرسمية</Link>}
+        {(can('departments.manage') || can('users.manage')) && <Link to="/admin/departments" className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800"><Building2 className="h-4 w-4" />إدارة الأقسام والتكليفات</Link>}
+      </div>
     </PageHeader>
 
     <section className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_16rem_auto]">

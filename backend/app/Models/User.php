@@ -80,4 +80,9 @@ class User extends Authenticatable
     {
         return $this->hasOne(UserProfile::class);
     }
+
+    public function departmentHeadEvaluations()
+    {
+        return $this->hasMany(DepartmentHeadEvaluation::class, 'department_head_user_id');
+    }
 }

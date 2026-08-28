@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\V1\CsvExportController;
 use App\Http\Controllers\Api\V1\DashboardOverviewController;
 use App\Http\Controllers\Api\V1\DepartmentController;
 use App\Http\Controllers\Api\V1\DepartmentHeadController;
+use App\Http\Controllers\Api\V1\DepartmentHeadEvaluationController;
 use App\Http\Controllers\Api\V1\DepartmentRosterController;
 use App\Http\Controllers\Api\V1\DistributionApprovalController;
 use App\Http\Controllers\Api\V1\DistributionAssignmentController;
@@ -318,7 +319,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         // Department Heads Routes
         Route::get('dept-heads', [DepartmentHeadController::class, 'index'])
-            ->middleware('permission:people.view');
+            ->middleware('permission.any:people.view,performance.view');
         // ProfileAuthorizationService allows a head to manage their own profile,
         // while people.manage/performance.view govern administrative operations.
         Route::get('dept-heads/{id}', [DepartmentHeadController::class, 'show']);
@@ -330,6 +331,25 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('dept-heads/{id}/documents', [DepartmentHeadController::class, 'uploadDocument']);
         Route::get('dept-heads/{id}/documents/{docId}/download', [DepartmentHeadController::class, 'downloadDocument']);
         Route::delete('dept-heads/{id}/documents/{docId}', [DepartmentHeadController::class, 'deleteDocument']);
+
+        // Official annual performance and renewal assessments for current
+        // department heads. The department head never receives these grants.
+        Route::get('department-head-evaluations', [DepartmentHeadEvaluationController::class, 'index'])
+            ->middleware('permission:department_head_evaluations.view');
+        Route::get('department-head-evaluations/options', [DepartmentHeadEvaluationController::class, 'options'])
+            ->middleware('permission:department_head_evaluations.view');
+        Route::post('department-head-evaluations', [DepartmentHeadEvaluationController::class, 'store'])
+            ->middleware('permission:department_head_evaluations.create');
+        Route::get('department-head-evaluations/{departmentHeadEvaluation}', [DepartmentHeadEvaluationController::class, 'show'])
+            ->middleware('permission:department_head_evaluations.view');
+        Route::put('department-head-evaluations/{departmentHeadEvaluation}', [DepartmentHeadEvaluationController::class, 'update'])
+            ->middleware('permission:department_head_evaluations.create');
+        Route::post('department-head-evaluations/{departmentHeadEvaluation}/submit', [DepartmentHeadEvaluationController::class, 'submit'])
+            ->middleware('permission:department_head_evaluations.create');
+        Route::post('department-head-evaluations/{departmentHeadEvaluation}/approve', [DepartmentHeadEvaluationController::class, 'approve'])
+            ->middleware('permission:department_head_evaluations.approve');
+        Route::post('department-head-evaluations/{departmentHeadEvaluation}/reopen', [DepartmentHeadEvaluationController::class, 'reopen'])
+            ->middleware('permission:department_head_evaluations.approve');
 
         // Clinical Supervisors Routes
         Route::get('clinical-supervisors', [ClinicalSupervisorController::class, 'index'])

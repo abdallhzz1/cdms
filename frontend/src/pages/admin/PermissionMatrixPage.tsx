@@ -123,6 +123,10 @@ const PERMISSION_LABELS: Record<string, { ar: string; isScreen?: boolean }> = {
   'quality.manage': { ar: 'إدارة الاستبيانات وخطط التحسين' },
   'kpi.manage': { ar: 'إدارة واحتساب مؤشرات الأداء الرئيسية' },
   'performance.view': { ar: 'مراقبة تقارير الأداء الأكاديمي والسريري' },
+  'department_head_evaluations.view': { ar: 'دخول سجل تقييم رؤساء الأقسام الرسمي', isScreen: true },
+  'department_head_evaluations.create': { ar: 'إنشاء وتعديل وتوقيع تقييم رئيس قسم' },
+  'department_head_evaluations.approve': { ar: 'اعتماد التقييم النهائي وتوقيع العميد' },
+  'department_head_evaluations.export': { ar: 'طباعة أو تصدير نموذج تقييم رئيس قسم' },
 
   // Correspondence
   'correspondence.view': { ar: 'دخول شاشات المراسلات (الوارد والصادر)', isScreen: true },
