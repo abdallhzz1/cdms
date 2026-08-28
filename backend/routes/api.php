@@ -324,9 +324,6 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         // while people.manage/performance.view govern administrative operations.
         Route::get('dept-heads/{id}', [DepartmentHeadController::class, 'show']);
         Route::put('dept-heads/{id}', [DepartmentHeadController::class, 'update']);
-        Route::post('dept-heads/{id}/evaluation', [DepartmentHeadController::class, 'saveEvaluation']);
-        Route::post('dept-heads/{id}/weights', [DepartmentHeadController::class, 'saveWeights']);
-        Route::post('dept-heads/{id}/overrides', [DepartmentHeadController::class, 'saveOverrides']);
         Route::post('dept-heads/{id}/avatar', [DepartmentHeadController::class, 'uploadAvatar']);
         Route::post('dept-heads/{id}/documents', [DepartmentHeadController::class, 'uploadDocument']);
         Route::get('dept-heads/{id}/documents/{docId}/download', [DepartmentHeadController::class, 'downloadDocument']);

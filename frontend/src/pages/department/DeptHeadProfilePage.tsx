@@ -678,41 +678,6 @@ export function DeptHeadProfilePage() {
           )}
         </div>
 
-        {/* Left Side: Managerial Actions Floating Toolbar */}
-        {!isOwnProfile && canEvaluate && (
-          <div className="bg-white border border-slate-200/90 shadow-2xs rounded-full p-1.5 flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setIsManualOverrideModalOpen(true)}
-              className="w-9 h-9 rounded-full text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-all cursor-pointer"
-              title="رصد وتعديل الدرجات يدوياً"
-            >
-              <Sliders className="w-4 h-4 text-teal-600" />
-            </button>
-
-            <div className="h-4 w-px bg-slate-200/80 my-auto" />
-
-            <button
-              type="button"
-              onClick={() => setIsWeightModalOpen(true)}
-              className="w-9 h-9 rounded-full text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-all cursor-pointer"
-              title="ضبط أوزان معايير الـ KPI"
-            >
-              <Settings className="w-4 h-4 text-slate-600" />
-            </button>
-
-            <div className="h-4 w-px bg-slate-200/80 my-auto" />
-
-            <button
-              type="button"
-              onClick={() => setIsEvalModalOpen(true)}
-              className="w-9 h-9 rounded-full bg-teal-600 hover:bg-teal-700 text-white flex items-center justify-center transition-all cursor-pointer shadow-2xs"
-              title="تقييم الإدارة والعميد الرسمية"
-            >
-              <ShieldCheck className="w-4 h-4" />
-            </button>
-          </div>
-        )}
       </div>
 
       {/* ========================================================================= */}
