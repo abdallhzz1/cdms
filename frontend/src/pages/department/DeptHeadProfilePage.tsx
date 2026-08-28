@@ -898,71 +898,76 @@ export function DeptHeadProfilePage() {
       {/* ========================================================================= */}
       {/* 4. CLEAN TABS NAVIGATION */}
       {/* ========================================================================= */}
-      <div className="bg-white p-1.5 rounded-xl border border-slate-200/80 shadow-2xs flex items-center gap-1 overflow-x-auto scrollbar-none">
+      <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <button
           type="button"
           onClick={() => setActiveTab('cv')}
-          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+          className={`min-h-14 rounded-xl border px-3 py-2.5 text-right text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
             activeTab === 'cv' 
-              ? 'bg-teal-700 text-white shadow-2xs' 
-              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              ? 'border-teal-500 bg-teal-500 text-white shadow-sm'
+              : 'border-transparent bg-slate-50 text-slate-600 hover:border-teal-100 hover:bg-teal-50 hover:text-teal-800'
           }`}
         >
-          <User className="w-4 h-4" />
-          <span>السيرة الذاتية والعقد</span>
+          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${activeTab === 'cv' ? 'bg-white/20' : 'bg-white text-teal-600 shadow-sm'}`}><User className="w-4 h-4" /></span>
+          <span className="leading-5">السيرة الذاتية والعقد</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('research')}
-          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+          className={`min-h-14 rounded-xl border px-3 py-2.5 text-right text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
             activeTab === 'research' 
-              ? 'bg-teal-700 text-white shadow-2xs' 
-              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              ? 'border-teal-500 bg-teal-500 text-white shadow-sm'
+              : 'border-transparent bg-slate-50 text-slate-600 hover:border-teal-100 hover:bg-teal-50 hover:text-teal-800'
           }`}
         >
-          <BookOpen className="w-4 h-4" />
-          <span>الأبحاث المنشورة ({profileData.publications?.length || 0})</span>
+          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${activeTab === 'research' ? 'bg-white/20' : 'bg-white text-teal-600 shadow-sm'}`}><BookOpen className="w-4 h-4" /></span>
+          <span className="min-w-0 flex-1 leading-5">الأبحاث المنشورة</span>
+          <span className={`rounded-md px-1.5 py-0.5 text-[10px] ${activeTab === 'research' ? 'bg-white/20' : 'bg-white text-slate-500'}`}>{profileData.publications?.length || 0}</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('conferences')}
-          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+          className={`min-h-14 rounded-xl border px-3 py-2.5 text-right text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
             activeTab === 'conferences' 
-              ? 'bg-teal-700 text-white shadow-2xs' 
-              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              ? 'border-teal-500 bg-teal-500 text-white shadow-sm'
+              : 'border-transparent bg-slate-50 text-slate-600 hover:border-teal-100 hover:bg-teal-50 hover:text-teal-800'
           }`}
         >
-          <Award className="w-4 h-4" />
-          <span>المؤتمرات والورش ({profileData.conferences?.length || 0})</span>
+          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${activeTab === 'conferences' ? 'bg-white/20' : 'bg-white text-teal-600 shadow-sm'}`}><Award className="w-4 h-4" /></span>
+          <span className="min-w-0 flex-1 leading-5">المؤتمرات والورش</span>
+          <span className={`rounded-md px-1.5 py-0.5 text-[10px] ${activeTab === 'conferences' ? 'bg-white/20' : 'bg-white text-slate-500'}`}>{profileData.conferences?.length || 0}</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('documents')}
-          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+          className={`min-h-14 rounded-xl border px-3 py-2.5 text-right text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
             activeTab === 'documents' 
-              ? 'bg-teal-700 text-white shadow-2xs' 
-              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              ? 'border-teal-500 bg-teal-500 text-white shadow-sm'
+              : 'border-transparent bg-slate-50 text-slate-600 hover:border-teal-100 hover:bg-teal-50 hover:text-teal-800'
           }`}
         >
-          <FolderOpen className="w-4 h-4" />
-          <span>الوثائق والملفات ({profileData.documents?.length || 0})</span>
+          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${activeTab === 'documents' ? 'bg-white/20' : 'bg-white text-teal-600 shadow-sm'}`}><FolderOpen className="w-4 h-4" /></span>
+          <span className="min-w-0 flex-1 leading-5">الوثائق والملفات</span>
+          <span className={`rounded-md px-1.5 py-0.5 text-[10px] ${activeTab === 'documents' ? 'bg-white/20' : 'bg-white text-slate-500'}`}>{profileData.documents?.length || 0}</span>
         </button>
 
         {showLegacyKpi && !isOwnProfile && canViewOfficialEvaluation && <button
           type="button"
           onClick={() => setActiveTab('kpi')}
-          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+          className={`min-h-14 rounded-xl border px-3 py-2.5 text-right text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
             activeTab === 'kpi' 
-              ? 'bg-teal-700 text-white shadow-2xs' 
-              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              ? 'border-teal-500 bg-teal-500 text-white shadow-sm'
+              : 'border-transparent bg-slate-50 text-slate-600 hover:border-teal-100 hover:bg-teal-50 hover:text-teal-800'
           }`}
         >
-          <BarChart3 className="w-4 h-4" />
-          <span>جدول تقييم الأداء التفصيلي</span>
+          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${activeTab === 'kpi' ? 'bg-white/20' : 'bg-white text-teal-600 shadow-sm'}`}><BarChart3 className="w-4 h-4" /></span>
+          <span className="leading-5">جدول تقييم الأداء التفصيلي</span>
         </button>}
+        </div>
       </div>
 
       {/* ========================================================================= */}
