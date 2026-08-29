@@ -98,6 +98,8 @@ export interface DepartmentHeadData {
 export function DeptHeadProfilePage() {
   const { id: paramId } = useParams<{ id: string }>();
   const { locale } = useI18n();
+  const ar = locale === 'ar';
+  const tr = (arabic: string, english: string) => ar ? arabic : english;
   const { user, can, refreshUser } = useAuth();
   const queryClient = useQueryClient();
 
@@ -171,7 +173,7 @@ export function DeptHeadProfilePage() {
   const [newConfName, setNewConfName] = useState('');
   const [newConfLocation, setNewConfLocation] = useState('');
   const [newConfDate, setNewConfDate] = useState('');
-  const [newConfRole, setNewConfRole] = useState('متحدث ورئيس جلسة');
+  const [newConfRole, setNewConfRole] = useState('');
 
   const [evalLeadership, setEvalLeadership] = useState<number>(7.5);
   const [evalClinical, setEvalClinical] = useState<number>(7.5);
@@ -656,9 +658,9 @@ export function DeptHeadProfilePage() {
     }
   };
 
-  const displayDeptTitle = profileData.department_name.startsWith('قسم') 
-    ? profileData.department_name 
-    : `قسم ${profileData.department_name}`;
+  const displayDeptTitle = ar && !profileData.department_name.startsWith('قسم')
+    ? `قسم ${profileData.department_name}`
+    : profileData.department_name;
 
   return (
     <div className="space-y-6 pb-16 max-w-7xl mx-auto">
@@ -671,7 +673,7 @@ export function DeptHeadProfilePage() {
             <Link 
               to="/department-heads"
               className="w-9 h-9 rounded-full bg-white border border-slate-200/90 shadow-2xs text-slate-700 hover:bg-slate-50 flex items-center justify-center transition-all cursor-pointer"
-              title="العودة لدليل رؤساء الأقسام"
+              title={tr('العودة لدليل رؤساء الأقسام', 'Back to department heads directory')}
             >
               <ChevronRight className="w-5 h-5 text-slate-600" />
             </Link>
@@ -692,16 +694,16 @@ export function DeptHeadProfilePage() {
             {/* Real Image File Upload Avatar */}
             <div className="relative group flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-teal-100 bg-teal-50 text-2xl font-black text-teal-800 shadow-sm sm:h-24 sm:w-24">
               {profileData.avatar_url ? (
-                <img src={profileData.avatar_url} alt={profileData.name} className="w-full h-full object-cover" />
+                <img src={profileData.avatar_url} alt={ar ? profileData.name : profileData.name_en || profileData.name} className="w-full h-full object-cover" />
               ) : (
-                profileData.name.split(' ').map(n => n[0]).join('').slice(0, 2) || 'د.'
+                (ar ? profileData.name : profileData.name_en || profileData.name).split(' ').map(n => n[0]).join('').slice(0, 2) || 'H.'
               )}
 
               {/* Upload Hover Overlay */}
               {(isOwnProfile || isEditMode) && (
                 <label className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer p-1 text-center">
                   <Camera className="w-5 h-5 mb-1 text-teal-300" />
-                  <span className="text-[10px] font-semibold">تغيير الصورة</span>
+                  <span className="text-[10px] font-semibold">{tr('تغيير الصورة', 'Change photo')}</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -714,7 +716,7 @@ export function DeptHeadProfilePage() {
 
               {isUploadingAvatar && (
                 <div className="absolute inset-0 bg-slate-900/70 flex items-center justify-center text-white text-xs font-semibold">
-                  جاري الرفع...
+                  {tr('جاري الرفع...', 'Uploading...')}
                 </div>
               )}
             </div>
@@ -722,10 +724,10 @@ export function DeptHeadProfilePage() {
             {/* Profile Identity Details */}
             <div className="min-w-0 flex-1 space-y-2.5">
               <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-                <h1 className="text-xl font-black text-slate-900 sm:text-2xl">{profileData.name}</h1>
+                <h1 className="text-xl font-black text-slate-900 sm:text-2xl">{ar ? profileData.name : profileData.name_en || profileData.name}</h1>
                 
                 <span className="rounded-full border border-teal-100 bg-teal-50 px-2.5 py-1 text-[11px] font-bold text-teal-800">
-                  رئيس {displayDeptTitle}
+                  {tr('رئيس', 'Head of')} {displayDeptTitle}
                 </span>
 
                 {/* Integrated Edit Profile Icon Button inline with name */}
@@ -741,7 +743,7 @@ export function DeptHeadProfilePage() {
                         ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 
                         : 'bg-teal-700 hover:bg-teal-800 text-white'
                     }`}
-                    title={isEditMode ? "حفظ التغييرات" : "تعديل البروفايل والصورة"}
+                    title={isEditMode ? tr('حفظ التغييرات', 'Save changes') : tr('تعديل البروفايل والصورة', 'Edit profile and photo')}
                   >
                     {isEditMode ? (
                       <Save className="w-3.5 h-3.5 text-white" />
@@ -760,7 +762,7 @@ export function DeptHeadProfilePage() {
                 <span className="hidden sm:inline text-slate-300">•</span>
                 <span className="flex items-center gap-1.5">
                   <Building className="w-4 h-4 text-slate-400 shrink-0" />
-                  <span>كلية الطب البشري</span>
+                  <span>{tr('كلية الطب البشري', 'Faculty of Medicine')}</span>
                 </span>
               </div>
 
@@ -781,7 +783,7 @@ export function DeptHeadProfilePage() {
                 {(isOwnProfile || isEditMode) && (
                   <label className="cursor-pointer inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white font-medium text-[11px] transition-colors shadow-2xs">
                     <Upload className="w-3.5 h-3.5" />
-                    <span>{isUploadingAvatar ? 'جاري التحميل...' : 'رفع صورة جديدة'}</span>
+                    <span>{isUploadingAvatar ? tr('جاري التحميل...', 'Uploading...') : tr('رفع صورة جديدة', 'Upload new photo')}</span>
                     <input
                       type="file"
                       accept="image/*"
@@ -799,9 +801,9 @@ export function DeptHeadProfilePage() {
           {/* Official evaluation is intentionally private from the department head. */}
           {!isOwnProfile && canViewOfficialEvaluation && <Link to={`/department-head-evaluations?head=${profileData.user_id}`} className="flex w-full shrink-0 flex-col items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-gradient-to-b from-teal-50 to-white p-4 text-center text-teal-800 shadow-sm transition-all hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-md md:w-52">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-600 text-white shadow-sm"><ShieldCheck className="h-5 w-5" /></div>
-            <span className="text-xs font-black">نموذج التقييم الرسمي</span>
-            {profileData.official_evaluation ? <><span className="text-2xl font-black">{profileData.official_evaluation.overall_score}<span className="mr-1 text-xs font-bold">/ 100</span></span><span className="rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-teal-700">{profileData.official_evaluation.overall_rating} · {profileData.official_evaluation.academic_year_name || 'التقييم المعتمد'}</span></> : <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-slate-500">لا يوجد تقييم معتمد بعد</span>}
-            <span className="text-[10px] font-bold text-teal-700">فتح النموذج والتوقيع ←</span>
+            <span className="text-xs font-black">{tr('نموذج التقييم الرسمي', 'Official evaluation form')}</span>
+            {profileData.official_evaluation ? <><span className="text-2xl font-black">{profileData.official_evaluation.overall_score}<span className="ms-1 text-xs font-bold">/ 100</span></span><span className="rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-teal-700">{profileData.official_evaluation.overall_rating} · {profileData.official_evaluation.academic_year_name || tr('التقييم المعتمد', 'Approved evaluation')}</span></> : <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-slate-500">{tr('لا يوجد تقييم معتمد بعد', 'No approved evaluation yet')}</span>}
+            <span className="text-[10px] font-bold text-teal-700">{tr('فتح النموذج والتوقيع ←', 'Open form and sign →')}</span>
           </Link>}
 
           {/* Legacy KPI is available only to authorized leadership, never in the head's own profile. */}
@@ -826,37 +828,37 @@ export function DeptHeadProfilePage() {
       {/* ========================================================================= */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-1">
-          <span className="text-[11px] font-semibold text-slate-500 block">الأبحاث والنشرات</span>
+          <span className="text-[11px] font-semibold text-slate-500 block">{tr('الأبحاث والنشرات', 'Research and publications')}</span>
           <div className="text-xl font-bold text-slate-900 flex items-center justify-between">
             <span dir="ltr">{profileData.publications?.length || 0}</span>
             <BookOpen className="w-4 h-4 text-teal-600 opacity-80" />
           </div>
-          <span className="text-[10px] text-slate-400 font-medium block">{!isOwnProfile && canViewOfficialEvaluation ? `تساهم بـ ${automatedKpiBreakdown.researchScore} درجة` : 'سجل مهني محدث'}</span>
+          <span className="text-[10px] text-slate-400 font-medium block">{!isOwnProfile && canViewOfficialEvaluation ? tr(`تساهم بـ ${automatedKpiBreakdown.researchScore} درجة`, `Contributes ${automatedKpiBreakdown.researchScore} points`) : tr('سجل مهني محدث', 'Updated professional record')}</span>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-1">
-          <span className="text-[11px] font-semibold text-slate-500 block">المؤتمرات الطبية</span>
+          <span className="text-[11px] font-semibold text-slate-500 block">{tr('المؤتمرات الطبية', 'Medical conferences')}</span>
           <div className="text-xl font-bold text-slate-900 flex items-center justify-between">
             <span dir="ltr">{profileData.conferences?.length || 0}</span>
             <Award className="w-4 h-4 text-slate-500 opacity-80" />
           </div>
-          <span className="text-[10px] text-slate-400 font-medium block">{!isOwnProfile && canViewOfficialEvaluation ? `تساهم بـ ${automatedKpiBreakdown.confScore} درجة` : 'سجل مهني محدث'}</span>
+          <span className="text-[10px] text-slate-400 font-medium block">{!isOwnProfile && canViewOfficialEvaluation ? tr(`تساهم بـ ${automatedKpiBreakdown.confScore} درجة`, `Contributes ${automatedKpiBreakdown.confScore} points`) : tr('سجل مهني محدث', 'Updated professional record')}</span>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-1">
-          <span className="text-[11px] font-semibold text-slate-500 block">نوع العقد والتكليف</span>
+          <span className="text-[11px] font-semibold text-slate-500 block">{tr('نوع العقد والتكليف', 'Contract and appointment')}</span>
           <div className="text-xs font-bold text-slate-900 flex items-center justify-between pt-1">
-            <span className="truncate">{profileData.contract_type || 'عقد دائم — متفرغ'}</span>
+            <span className="truncate">{profileData.contract_type || tr('عقد دائم — متفرغ', 'Permanent full-time contract')}</span>
           </div>
-          <span className="text-[10px] text-slate-400 font-medium block">تاريخ التكليف: {profileData.appointment_date || '2024-09-01'}</span>
+          <span className="text-[10px] text-slate-400 font-medium block">{tr('تاريخ التكليف:', 'Appointment date:')} {profileData.appointment_date || '2024-09-01'}</span>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-1">
-          <span className="text-[11px] font-semibold text-slate-500 block">التخصص الأكاديمي</span>
+          <span className="text-[11px] font-semibold text-slate-500 block">{tr('التخصص الأكاديمي', 'Academic specialty')}</span>
           <div className="text-xs font-bold text-slate-900 flex items-center justify-between pt-1">
             <span className="truncate">{profileData.specialty || `استشاري ${profileData.department_name}`}</span>
           </div>
-          <span className="text-[10px] text-slate-400 font-medium block">كلية الطب البشري</span>
+          <span className="text-[10px] text-slate-400 font-medium block">{tr('كلية الطب البشري', 'Faculty of Medicine')}</span>
         </div>
       </div>
 
@@ -875,7 +877,7 @@ export function DeptHeadProfilePage() {
           }`}
         >
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${activeTab === 'cv' ? 'bg-white/20' : 'bg-white text-teal-600 shadow-sm'}`}><User className="w-4 h-4" /></span>
-          <span className="leading-5">السيرة الذاتية والعقد</span>
+          <span className="leading-5">{tr('السيرة الذاتية والعقد', 'Profile and contract')}</span>
         </button>
 
         <button
@@ -888,7 +890,7 @@ export function DeptHeadProfilePage() {
           }`}
         >
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${activeTab === 'research' ? 'bg-white/20' : 'bg-white text-teal-600 shadow-sm'}`}><BookOpen className="w-4 h-4" /></span>
-          <span className="min-w-0 flex-1 leading-5">الأبحاث المنشورة</span>
+          <span className="min-w-0 flex-1 leading-5">{tr('الأبحاث المنشورة', 'Published research')}</span>
           <span className={`rounded-md px-1.5 py-0.5 text-[10px] ${activeTab === 'research' ? 'bg-white/20' : 'bg-white text-slate-500'}`}>{profileData.publications?.length || 0}</span>
         </button>
 
@@ -902,7 +904,7 @@ export function DeptHeadProfilePage() {
           }`}
         >
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${activeTab === 'conferences' ? 'bg-white/20' : 'bg-white text-teal-600 shadow-sm'}`}><Award className="w-4 h-4" /></span>
-          <span className="min-w-0 flex-1 leading-5">المؤتمرات والورش</span>
+          <span className="min-w-0 flex-1 leading-5">{tr('المؤتمرات والورش', 'Conferences and workshops')}</span>
           <span className={`rounded-md px-1.5 py-0.5 text-[10px] ${activeTab === 'conferences' ? 'bg-white/20' : 'bg-white text-slate-500'}`}>{profileData.conferences?.length || 0}</span>
         </button>
 
@@ -916,7 +918,7 @@ export function DeptHeadProfilePage() {
           }`}
         >
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${activeTab === 'documents' ? 'bg-white/20' : 'bg-white text-teal-600 shadow-sm'}`}><FolderOpen className="w-4 h-4" /></span>
-          <span className="min-w-0 flex-1 leading-5">الوثائق والملفات</span>
+          <span className="min-w-0 flex-1 leading-5">{tr('الوثائق والملفات', 'Documents and files')}</span>
           <span className={`rounded-md px-1.5 py-0.5 text-[10px] ${activeTab === 'documents' ? 'bg-white/20' : 'bg-white text-slate-500'}`}>{profileData.documents?.length || 0}</span>
         </button>
 
@@ -948,12 +950,12 @@ export function DeptHeadProfilePage() {
                 <div className="flex items-center justify-between border-b border-slate-200 pb-3">
                   <h3 className="font-semibold text-slate-900 text-sm flex items-center gap-2">
                     <Pencil className="w-4 h-4 text-teal-600" />
-                    <span>تعديل السيرة الذاتية والبيانات الأكاديمية</span>
+                    <span>{tr('تعديل السيرة الذاتية والبيانات الأكاديمية', 'Edit profile and academic details')}</span>
                   </h3>
 
                   <label className="cursor-pointer bg-teal-700 hover:bg-teal-800 text-white font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs transition-colors">
                     <Upload className="w-3.5 h-3.5" />
-                    <span>{isUploadingAvatar ? 'جاري التحميل...' : 'رفع صورة شخصية'}</span>
+                    <span>{isUploadingAvatar ? tr('جاري التحميل...', 'Uploading...') : tr('رفع صورة شخصية', 'Upload profile photo')}</span>
                     <input
                       type="file"
                       accept="image/*"
