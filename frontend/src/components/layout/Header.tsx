@@ -312,13 +312,6 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
                       <UserIcon className="w-4 h-4 text-teal-600" />
                       <span>{locale === 'ar' ? 'ملفي الشخصي' : 'My Profile'}</span>
                     </button>
-                    <button
-                      onClick={() => { setIsUserMenuOpen(false); navigate('/directory'); }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors text-start"
-                    >
-                      <UserIcon className="w-4 h-4 text-slate-400" />
-                      <span>{locale === 'ar' ? 'دليل وسجلات النظام' : 'Directory'}</span>
-                    </button>
                   </div>
 
                   {/* Divider & Logout */}
