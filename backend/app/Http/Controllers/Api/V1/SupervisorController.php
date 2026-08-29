@@ -190,6 +190,11 @@ class SupervisorController extends Controller
     {
         [$user, $person] = $this->supervisorIdentity($request);
         $assignments = $this->currentAssignments($person);
+        $assignments->each(function (StudentClinicalAssignment $assignment): void {
+            [$start, $end] = $this->assignmentDateRange($assignment);
+            $assignment->setAttribute('session_start_date', $start?->toDateString());
+            $assignment->setAttribute('session_end_date', $end?->toDateString());
+        });
         $studentIds = $assignments->pluck('student_id')->unique();
         $blockIds = $assignments->pluck('rotation_block_id')->filter()->unique();
 
@@ -455,15 +460,10 @@ class SupervisorController extends Controller
 
     private function ensureSessionDateWithinAssignment(StudentClinicalAssignment $assignment, string $date): void
     {
-        $assignment->loadMissing('rotationBlock.rotation');
-        $block = $assignment->rotationBlock;
-        $rotation = $block?->rotation;
-        if (! $rotation?->start_date || ! $block?->from_week || ! $block?->to_week) {
+        [$start, $end] = $this->assignmentDateRange($assignment);
+        if (! $start || ! $end) {
             return;
         }
-
-        $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
-        $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->endOfDay();
         $selected = Carbon::parse($date);
 
         if ($selected->lt($start) || $selected->gt($end)) {
@@ -475,5 +475,21 @@ class SupervisorController extends Controller
                 )],
             ]);
         }
+    }
+
+    /** Authoritative calendar bounds used by both the UI and write validation. */
+    private function assignmentDateRange(StudentClinicalAssignment $assignment): array
+    {
+        $assignment->loadMissing('rotationBlock.rotation');
+        $block = $assignment->rotationBlock;
+        $rotation = $block?->rotation;
+        if (! $rotation?->start_date || ! $block?->from_week || ! $block?->to_week) {
+            return [null, null];
+        }
+
+        $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
+        $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->endOfDay();
+
+        return [$start, $end];
     }
 }

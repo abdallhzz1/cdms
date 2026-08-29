@@ -413,6 +413,8 @@ class Phase5CTest extends TestCase
             ->getJson(route('api.v1.operational.my-supervisor-workspace'))
             ->assertOk()
             ->assertJsonPath('data.supervisor.person_id', $this->supervisor1->id)
+            ->assertJsonPath('data.assignments.0.session_start_date', '2026-09-01')
+            ->assertJsonPath('data.assignments.0.session_end_date', '2026-09-28')
             ->assertJsonCount(1, 'data.assignments');
     }
 
