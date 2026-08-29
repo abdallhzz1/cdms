@@ -33,13 +33,13 @@ class DistributionApprovalService
     ): AuditLog {
         if (!in_array($version->status, ['suggested', 'manual'])) {
             throw ValidationException::withMessages([
-                'version' => ['Only suggested or manual versions can be approved.']
+                'version' => [__('distribution.approval.invalid_status')]
             ]);
         }
 
         if (!Gate::allows('permission', ['distribution.approve'])) {
             throw ValidationException::withMessages([
-                'authorization' => ['You do not have permission to approve distributions.']
+                'authorization' => [__('distribution.approval.forbidden')]
             ]);
         }
 
@@ -47,7 +47,7 @@ class DistributionApprovalService
             $version = DistributionVersion::whereKey($version->id)->lockForUpdate()->firstOrFail();
             if (!in_array($version->status, ['suggested', 'manual'], true)) {
                 throw ValidationException::withMessages([
-                    'version' => ['Only suggested or manual versions can be approved.'],
+                    'version' => [__('distribution.approval.invalid_status')],
                 ]);
             }
 
@@ -60,17 +60,17 @@ class DistributionApprovalService
             if (!empty($unassignedIds)) {
                 if (!$force) {
                     throw ValidationException::withMessages([
-                        'unassigned' => ['There are unassigned students in this rotation.'],
+                        'unassigned' => [__('distribution.approval.unassigned')],
                     ]);
                 }
                 if (empty($overrideReason)) {
                     throw ValidationException::withMessages([
-                        'override_reason' => ['An override reason is required to approve with unassigned students.'],
+                        'override_reason' => [__('distribution.approval.override_reason_required')],
                     ]);
                 }
                 if (!Gate::allows('permission', ['distribution.override'])) {
                     throw ValidationException::withMessages([
-                        'authorization' => ['You do not have permission to override unassigned students.'],
+                        'authorization' => [__('distribution.approval.override_forbidden')],
                     ]);
                 }
             }
@@ -176,6 +176,35 @@ class DistributionApprovalService
     }
 
     /**
+     * Return a UI-safe approval state so users know whether approval is
+     * missing or was invalidated by a later schedule change.
+     *
+     * @return array{status:string, approved_at:?string, approved_by:?int}
+     */
+    public function getApprovalState(DistributionVersion $version): array
+    {
+        $validApproval = $this->getValidApproval($version);
+        if ($validApproval) {
+            return [
+                'status' => 'approved',
+                'approved_at' => $validApproval->created_at?->toIso8601String(),
+                'approved_by' => $validApproval->user_id,
+            ];
+        }
+
+        $latestApproval = AuditLog::where('action', 'version.approved')
+            ->where('distribution_version_id', $version->id)
+            ->latest('id')
+            ->first();
+
+        return [
+            'status' => $latestApproval ? 'revoked' : 'required',
+            'approved_at' => null,
+            'approved_by' => null,
+        ];
+    }
+
+    /**
      * Generates a deterministic SHA256 fingerprint for a given set of assignments.
      * 
      * @param array $assignments
@@ -183,10 +212,24 @@ class DistributionApprovalService
      */
     public function generateFingerprint(array $assignments): string
     {
-        // Sort by student_id to ensure determinism
-        usort($assignments, function ($a, $b) {
-            return $a['student_id'] <=> $b['student_id'];
-        });
+        // A student can appear in several weekly blocks. Sorting only by
+        // student_id leaves equal items in database-dependent order and can
+        // produce a different fingerprint during publication on MySQL.
+        usort($assignments, fn (array $a, array $b) => [
+            (int) ($a['student_id'] ?? 0),
+            (int) ($a['student_subgroup_id'] ?? 0),
+            (int) ($a['rotation_block_id'] ?? 0),
+            (int) ($a['training_site_id'] ?? 0),
+            (int) ($a['department_id'] ?? 0),
+            (int) ($a['supervisor_id'] ?? 0),
+        ] <=> [
+            (int) ($b['student_id'] ?? 0),
+            (int) ($b['student_subgroup_id'] ?? 0),
+            (int) ($b['rotation_block_id'] ?? 0),
+            (int) ($b['training_site_id'] ?? 0),
+            (int) ($b['department_id'] ?? 0),
+            (int) ($b['supervisor_id'] ?? 0),
+        ]);
 
         $str = '';
         foreach ($assignments as $a) {

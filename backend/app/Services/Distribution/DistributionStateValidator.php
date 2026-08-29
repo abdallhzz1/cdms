@@ -105,13 +105,13 @@ class DistributionStateValidator
 
             if (empty($overrideReason)) {
                 throw ValidationException::withMessages([
-                    'override_reason' => ['An override reason is required to bypass hard constraints.']
+                    'override_reason' => [__('distribution.constraints.override_reason_required')]
                 ]);
             }
 
             if (!Gate::allows('permission', ['distribution.override'])) {
                 throw ValidationException::withMessages([
-                    'authorization' => ['You do not have permission to override hard constraints.']
+                    'authorization' => [__('distribution.constraints.override_forbidden')]
                 ]);
             }
         }

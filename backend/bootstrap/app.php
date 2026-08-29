@@ -32,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // CORS is handled by config/cors.php (framework HandleCors middleware, applied globally).
         $middleware->api(prepend: [
             \App\Http\Middleware\ForceJsonResponse::class,
+            \App\Http\Middleware\SetRequestLocale::class,
         ]);
 
         $middleware->alias([

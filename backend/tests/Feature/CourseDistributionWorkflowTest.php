@@ -19,6 +19,7 @@ use App\Models\StudentSubgroup;
 use App\Models\TrainingSite;
 use App\Models\User;
 use App\Services\Distribution\CourseScheduleMembershipSyncService;
+use App\Services\Distribution\DistributionApprovalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -145,7 +146,8 @@ class CourseDistributionWorkflowTest extends TestCase
 
         $versionId = $created->json('data.version.id');
         $emptySchedule = $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
-            ->assertOk()->assertJsonCount(3, 'data.blocks')->assertJsonCount(0, 'data.rows')->assertJsonPath('data.subgroups.0.name', 'L1');
+            ->assertOk()->assertJsonCount(3, 'data.blocks')->assertJsonCount(0, 'data.rows')->assertJsonPath('data.subgroups.0.name', 'L1')
+            ->assertJsonPath('data.approval_state.status', 'required');
         $rowId = $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$versionId}/rows", [
             'row_type' => 'doctor',
             'person_id' => $this->doctor->id,
@@ -164,11 +166,52 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->assertSame(2, StudentClinicalAssignment::where('distribution_version_id', $versionId)->count());
         $this->actingAs($this->user)->postJson("/api/v1/distribution-versions/{$versionId}/approve")
             ->assertOk();
+        $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
+            ->assertOk()
+            ->assertJsonPath('data.approval_state.status', 'approved');
         $this->actingAs($this->user)->deleteJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
             'rotation_block_id' => $blockId,
             'course_schedule_row_id' => $rowId,
         ])->assertOk();
         $this->assertDatabaseCount('student_clinical_assignments', 0);
+        $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
+            ->assertOk()
+            ->assertJsonPath('data.approval_state.status', 'revoked');
+    }
+
+    public function test_publication_approval_error_follows_the_requested_system_language(): void
+    {
+        $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'course_id' => $this->course->id,
+            'start_date' => '2026-09-01',
+            'weeks_count' => 2,
+        ])->assertCreated();
+        $version = DistributionVersion::findOrFail($created->json('data.version.id'));
+        $payload = ['last_updated_at' => $version->updated_at->toIso8601String()];
+
+        $this->withHeader('Accept-Language', 'ar')
+            ->postJson("/api/v1/distribution-versions/{$version->id}/publish", $payload)
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.approval.0', 'الجدول غير معتمد حالياً. اعتمده مجدداً بعد إنهاء آخر التعديلات، ثم نفّذ النشر.');
+
+        $this->withHeader('Accept-Language', 'en')
+            ->postJson("/api/v1/distribution-versions/{$version->id}/publish", $payload)
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.approval.0', 'This schedule is not currently approved. Approve it again after completing the latest changes, then publish it.');
+    }
+
+    public function test_approval_fingerprint_is_stable_for_students_assigned_across_multiple_weeks(): void
+    {
+        $weekOne = ['student_id' => 10, 'student_subgroup_id' => 3, 'rotation_block_id' => 1, 'training_site_id' => 2, 'department_id' => 4, 'supervisor_id' => 5];
+        $weekTwo = ['student_id' => 10, 'student_subgroup_id' => 3, 'rotation_block_id' => 2, 'training_site_id' => 2, 'department_id' => 4, 'supervisor_id' => 5];
+        $service = app(DistributionApprovalService::class);
+
+        $this->assertSame(
+            $service->generateFingerprint([$weekOne, $weekTwo]),
+            $service->generateFingerprint([$weekTwo, $weekOne]),
+        );
     }
 
     public function test_schedule_must_fit_inside_the_selected_academic_year(): void

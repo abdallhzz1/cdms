@@ -36,7 +36,7 @@ class DistributionApprovalController extends Controller
         );
 
         return response()->json([
-            'message' => 'Distribution version approved successfully.',
+            'message' => __('distribution.approval.success'),
             'data' => [
                 'audit_id' => $audit->id,
                 'fingerprint' => $audit->changes['fingerprint']

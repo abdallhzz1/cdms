@@ -39,7 +39,7 @@ class DistributionPublicationController extends Controller
         );
 
         return response()->json([
-            'message' => 'Distribution version published successfully.',
+            'message' => __('distribution.publication.success'),
             'data' => $version
         ], 200);
     }

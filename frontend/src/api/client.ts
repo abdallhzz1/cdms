@@ -80,6 +80,13 @@ export async function ensureCsrfCookie(): Promise<void> {
 function buildHeaders(init: HeadersInit | undefined, method: string, isFormData = false): Headers {
   const headers = new Headers(init);
   if (!headers.has('Accept')) headers.set('Accept', 'application/json');
+  if (!headers.has('Accept-Language')) {
+    const storedLocale = window.localStorage?.getItem('cdms.locale');
+    const locale = storedLocale === 'en' || storedLocale === 'ar'
+      ? storedLocale
+      : (document.documentElement.lang === 'en' ? 'en' : 'ar');
+    headers.set('Accept-Language', locale);
+  }
   if (!isFormData && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
   if (MUTATING_METHODS.has(method.toUpperCase())) {

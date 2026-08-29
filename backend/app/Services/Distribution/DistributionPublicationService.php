@@ -43,13 +43,13 @@ class DistributionPublicationService
 
         if (!in_array($version->status, ['suggested', 'manual'])) {
             throw ValidationException::withMessages([
-                'version' => ['Only suggested or manual versions can be published.']
+                'version' => [__('distribution.publication.invalid_status')]
             ]);
         }
 
         if (!Gate::allows('permission', ['distribution.publish'])) {
             throw ValidationException::withMessages([
-                'authorization' => ['You do not have permission to publish distributions.']
+                'authorization' => [__('distribution.publication.forbidden')]
             ]);
         }
 
@@ -76,7 +76,7 @@ class DistributionPublicationService
 
             if (!in_array($version->status, ['suggested', 'manual'], true)) {
                 throw ValidationException::withMessages([
-                    'version' => ['Only suggested or manual versions can be published.'],
+                    'version' => [__('distribution.publication.invalid_status')],
                 ]);
             }
 
@@ -84,7 +84,7 @@ class DistributionPublicationService
             $approvalLog = $this->approvalService->getValidApproval($version);
             if (!$approvalLog) {
                 throw ValidationException::withMessages([
-                    'approval' => ['This version requires a valid approval before it can be published. Approval may have been revoked due to recent modifications.']
+                    'approval' => [__('distribution.approval.required_for_publish')]
                 ]);
             }
 
@@ -96,17 +96,17 @@ class DistributionPublicationService
             if (!empty($unassignedIds)) {
                 if (!$force) {
                     throw ValidationException::withMessages([
-                        'unassigned' => ['There are unassigned students in this rotation.']
+                        'unassigned' => [__('distribution.publication.unassigned')]
                     ]);
                 }
                 if (empty($overrideReason)) {
                     throw ValidationException::withMessages([
-                        'override_reason' => ['An override reason is required to publish with unassigned students.']
+                        'override_reason' => [__('distribution.publication.override_reason_required')]
                     ]);
                 }
                 if (!Gate::allows('permission', ['distribution.override'])) {
                     throw ValidationException::withMessages([
-                        'authorization' => ['You do not have permission to override unassigned students.']
+                        'authorization' => [__('distribution.publication.override_forbidden')]
                     ]);
                 }
             }

@@ -106,6 +106,7 @@ class CourseDistributionController extends Controller
 
         $cells = collect();
         $rows = collect();
+        $approvalState = null;
         if ($version) {
             $rows = CourseScheduleRow::query()
                 ->where('distribution_version_id', $version->id)
@@ -122,12 +123,14 @@ class CourseDistributionController extends Controller
                     'subgroup_name' => $cell->studentSubgroup?->name,
                     'main_group_name' => $cell->studentSubgroup?->group?->name,
                 ])->values();
+            $approvalState = $this->approvalService->getApprovalState($version);
         }
 
         return ApiResponse::success([
             'rotation' => $rotation,
             'version' => $version,
             'current_published_version' => $currentPublishedVersion,
+            'approval_state' => $approvalState,
             'blocks' => $rotation->blocks->sortBy('from_week')->values(),
             'subgroups' => $this->subgroups($rotation->academic_year_id, $rotation->academic_level),
             'hospitals' => $this->hospitals($directory),
