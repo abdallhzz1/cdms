@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\OperationalTask;
 use App\Notifications\AdministrativeWorkAssignedNotification;
+use App\Notifications\LocalSystemNotification;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,8 +23,12 @@ class OperationalTaskController extends Controller
         // A management permission permits creating and assigning tasks; it does
         // not turn the task directory into a department-wide public list.
         $query->where(fn ($q) => $q->where('assigned_to', $user->id)->orWhere('created_by', $user->id));
-        if ($request->query('scope') === 'assigned') $query->where('assigned_to', $user->id);
-        if ($request->query('scope') === 'created') $query->where('created_by', $user->id);
+        if ($request->query('scope') === 'assigned') {
+            $query->where('assigned_to', $user->id);
+        }
+        if ($request->query('scope') === 'created') {
+            $query->where('created_by', $user->id);
+        }
         $query
             ->when($request->filled('search'), function ($q) use ($request) {
                 $search = trim($request->string('search')->toString());
@@ -46,6 +51,7 @@ class OperationalTaskController extends Controller
                     && $task->meetingActionItem === null
             );
         });
+
         return ApiResponse::success($items->items(), null, [
             'current_page' => $items->currentPage(), 'last_page' => $items->lastPage(), 'total' => $items->total(),
         ]);
@@ -56,6 +62,7 @@ class OperationalTaskController extends Controller
         $data = $request->validate($this->rules());
         $task = OperationalTask::create($data + ['created_by' => $request->user()->id]);
         $this->notify($task);
+
         return ApiResponse::success($task->load(['creator.person', 'assignee.person']), 'Task created.', [], 201);
     }
 
@@ -86,9 +93,16 @@ class OperationalTaskController extends Controller
             throw new AuthorizationException('Only the assigned user may document task completion.');
         }
         $oldAssignee = $operationalTask->assigned_to;
-        if (($data['status'] ?? null) === 'in_progress' && ! $operationalTask->started_at) $data['started_at'] = now();
-        if (($data['status'] ?? null) === 'completed') $data['completed_at'] = now();
-        if (isset($data['status']) && $data['status'] !== 'completed') $data['completed_at'] = null;
+        $oldStatus = $operationalTask->status;
+        if (($data['status'] ?? null) === 'in_progress' && ! $operationalTask->started_at) {
+            $data['started_at'] = now();
+        }
+        if (($data['status'] ?? null) === 'completed') {
+            $data['completed_at'] = now();
+        }
+        if (isset($data['status']) && $data['status'] !== 'completed') {
+            $data['completed_at'] = null;
+        }
         $operationalTask->update($data);
         if ($operationalTask->meetingActionItem) {
             $operationalTask->meetingActionItem->update([
@@ -97,7 +111,13 @@ class OperationalTaskController extends Controller
                 'completion_evidence' => $operationalTask->completion_notes,
             ]);
         }
-        if ($oldAssignee !== $operationalTask->assigned_to) $this->notify($operationalTask);
+        if ($oldAssignee !== $operationalTask->assigned_to) {
+            $this->notify($operationalTask);
+        }
+        if ($oldStatus !== $operationalTask->status) {
+            $this->notifyStatusChanged($operationalTask, $request->user()->name);
+        }
+
         return ApiResponse::success($operationalTask->fresh()->load(['creator.person', 'assignee.person', 'meetingActionItem.meeting']));
     }
 
@@ -110,12 +130,14 @@ class OperationalTaskController extends Controller
             throw ValidationException::withMessages(['task' => ['A meeting task must be deleted from its meeting minutes.']]);
         }
         $operationalTask->delete();
+
         return ApiResponse::success(null, 'Task deleted.');
     }
 
     private function rules(bool $partial = false): array
     {
         $sometimes = $partial ? ['sometimes'] : [];
+
         return [
             'title' => [...$sometimes, 'required', 'string', 'max:255'], 'description' => ['nullable', 'string', 'max:5000'],
             'assigned_to' => ['nullable', 'exists:users,id'], 'due_date' => ['nullable', 'date'],
@@ -129,5 +151,35 @@ class OperationalTaskController extends Controller
     {
         $task->loadMissing('assignee');
         $task->assignee?->notify(new AdministrativeWorkAssignedNotification('task', $task->id, $task->title));
+    }
+
+    private function notifyStatusChanged(OperationalTask $task, string $actorName): void
+    {
+        $recipient = $task->status === 'cancelled' ? $task->assignee : $task->creator;
+        if (! $recipient || (int) $recipient->id === (int) auth()->id()) {
+            return;
+        }
+
+        $labels = [
+            'open' => ['ar' => 'أعيد فتح المهمة', 'en' => 'Task reopened'],
+            'in_progress' => ['ar' => 'بدأ تنفيذ المهمة', 'en' => 'Task started'],
+            'completed' => ['ar' => 'تم إنجاز المهمة', 'en' => 'Task completed'],
+            'cancelled' => ['ar' => 'تم إلغاء المهمة', 'en' => 'Task cancelled'],
+        ];
+        $label = $labels[$task->status] ?? $labels['open'];
+
+        $recipient->notify(new LocalSystemNotification([
+            'event_key' => 'task.status_changed',
+            'category' => 'tasks',
+            'severity' => in_array($task->status, ['completed', 'cancelled'], true) ? 'action' : 'info',
+            'title_ar' => $label['ar'],
+            'title_en' => $label['en'],
+            'message_ar' => $label['ar'].': '.$task->title,
+            'message_en' => $label['en'].': '.$task->title,
+            'action_url' => '/tasks',
+            'entity_type' => 'task',
+            'entity_id' => $task->id,
+            'actor_name' => $actorName,
+        ]));
     }
 }

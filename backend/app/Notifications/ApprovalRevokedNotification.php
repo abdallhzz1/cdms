@@ -22,13 +22,22 @@ class ApprovalRevokedNotification extends Notification
     public function toArray(object $notifiable): array
     {
         return [
-            'event_id'                => $this->event->eventId,
-            'title'                   => 'Distribution Approval Revoked',
+            'event_id' => $this->event->eventId,
+            'event_key' => 'distribution.approval_revoked',
+            'category' => 'distribution',
+            'severity' => 'urgent',
+            'title_ar' => 'سحب اعتماد جدول التوزيع',
+            'title_en' => 'Distribution approval revoked',
+            'message_ar' => 'تم سحب اعتماد الجدول بعد تعديل محتواه ويجب مراجعته مجدداً.',
+            'message_en' => 'The distribution approval was revoked after changes and requires review.',
+            'action_url' => '/distribution',
+            'entity_type' => 'distribution_version',
+            'entity_id' => $this->event->distributionVersionId,
             'distribution_version_id' => $this->event->distributionVersionId,
-            'rotation_id'             => $this->event->rotationId,
-            'revoked_by_user_id'      => $this->event->revokedByUserId,
-            'reason'                  => $this->event->reason,
-            'timestamp'               => $this->event->timestamp,
+            'rotation_id' => $this->event->rotationId,
+            'revoked_by_user_id' => $this->event->revokedByUserId,
+            'reason' => $this->event->reason,
+            'timestamp' => $this->event->timestamp,
         ];
     }
 }

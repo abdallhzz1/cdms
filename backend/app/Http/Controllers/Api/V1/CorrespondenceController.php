@@ -8,6 +8,7 @@ use App\Models\Correspondence;
 use App\Models\CorrespondenceAttachment;
 use App\Models\OperationalTask;
 use App\Notifications\AdministrativeWorkAssignedNotification;
+use App\Notifications\LocalSystemNotification;
 use App\Services\CorrespondenceRecipientService;
 use App\Services\WorkflowTransitionService;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -81,6 +82,7 @@ class CorrespondenceController extends Controller
             $correspondence->update(['read_at' => now()]);
         }
         $correspondence->messages()->where('recipient_id', $request->user()->id)->whereNull('read_at')->update(['read_at' => now()]);
+
         return ApiResponse::success($correspondence->fresh()->load([
             'sender.person', 'assignee.person', 'closer.person', 'transitions.user.person', 'attachments.uploader.person',
             'messages.sender.person',
@@ -96,7 +98,9 @@ class CorrespondenceController extends Controller
         if ($assignedTo && ! Gate::forUser($request->user())->allows('permission', ['correspondence.submit'])) {
             throw new AuthorizationException('You may create drafts but do not have permission to send correspondence.');
         }
-        if ($assignedTo) app(CorrespondenceRecipientService::class)->validate($request->user(), (int) $assignedTo);
+        if ($assignedTo) {
+            app(CorrespondenceRecipientService::class)->validate($request->user(), (int) $assignedTo);
+        }
         unset($data['assigned_to']);
 
         $correspondence = DB::transaction(function () use ($data, $assignedTo, $workflow) {
@@ -107,9 +111,11 @@ class CorrespondenceController extends Controller
                 $this->addParticipant($item, (int) $assignedTo, 'recipient');
                 $item = $workflow->transition($item->fresh(), 'submitted', 'Initial dispatch');
             }
+
             return $item;
         });
         $this->notifyAssignee($correspondence, 'correspondence');
+
         return ApiResponse::success($correspondence->load(['sender.person', 'assignee.person']), 'Correspondence created.', [], 201);
     }
 
@@ -119,6 +125,7 @@ class CorrespondenceController extends Controller
             throw new AuthorizationException('Only the sender may edit a draft or returned correspondence.');
         }
         $correspondence->update($request->validate($this->rules($correspondence)));
+
         return ApiResponse::success($correspondence->fresh(), 'Correspondence updated.');
     }
 
@@ -133,6 +140,7 @@ class CorrespondenceController extends Controller
         $this->addParticipant($correspondence, (int) $data['assigned_to'], 'recipient');
         $correspondence = $workflow->transition($correspondence->fresh(), 'submitted', $data['notes'] ?? null);
         $this->notifyAssignee($correspondence, 'correspondence');
+
         return ApiResponse::success($correspondence->fresh(), 'Correspondence submitted.');
     }
 
@@ -153,6 +161,7 @@ class CorrespondenceController extends Controller
         $correspondence->update(['assigned_to' => $data['assigned_to'], 'read_at' => null]);
         $this->addParticipant($correspondence, (int) $data['assigned_to'], 'recipient');
         $this->notifyAssignee($correspondence, 'correspondence');
+
         return ApiResponse::success($correspondence->fresh()->load('assignee.person'), 'Correspondence forwarded.');
     }
 
@@ -164,6 +173,7 @@ class CorrespondenceController extends Controller
         $correspondence->update(['assigned_to' => $correspondence->sender_id, 'returned_at' => now(), 'read_at' => null]);
         $this->addParticipant($correspondence, (int) $correspondence->sender_id, 'sender');
         $this->notifyAssignee($correspondence, 'correspondence_returned');
+
         return ApiResponse::success($correspondence->fresh(), 'Correspondence returned.');
     }
 
@@ -172,6 +182,8 @@ class CorrespondenceController extends Controller
         $this->ensureAssignedOrManager($request, $correspondence);
         $correspondence = $workflow->transition($correspondence, 'approved');
         $correspondence->update(['approved_at' => now()]);
+        $this->notifySenderOfStatus($correspondence, 'approved', $request->user()->name);
+
         return ApiResponse::success($correspondence->fresh(), 'Correspondence approved.');
     }
 
@@ -183,6 +195,8 @@ class CorrespondenceController extends Controller
         }
         $correspondence = $workflow->transition($correspondence, 'closed', $data['notes'] ?? null);
         $correspondence->update(['closed_at' => now(), 'closed_by' => $request->user()->id, 'close_notes' => $data['notes'] ?? null]);
+        $this->notifySenderOfStatus($correspondence, 'closed', $request->user()->name);
+
         return ApiResponse::success($correspondence->fresh(), 'Correspondence closed.');
     }
 
@@ -198,6 +212,7 @@ class CorrespondenceController extends Controller
             'created_by' => $request->user()->id, 'source_type' => Correspondence::class, 'source_id' => $correspondence->id,
         ]);
         $task->assignee?->notify(new AdministrativeWorkAssignedNotification('task', $task->id, $task->title));
+
         return ApiResponse::success($task->load(['assignee.person', 'creator.person']), 'Task created from correspondence.', [], 201);
     }
 
@@ -240,6 +255,7 @@ class CorrespondenceController extends Controller
             'uploaded_by' => $request->user()->id, 'original_name' => $file->getClientOriginalName(),
             'stored_path' => $path, 'mime_type' => $file->getMimeType(), 'file_size' => $file->getSize(),
         ]);
+
         return ApiResponse::success($attachment->load('uploader.person'), 'Attachment uploaded.', [], 201);
     }
 
@@ -248,6 +264,7 @@ class CorrespondenceController extends Controller
         $this->ensureVisible($request, $correspondence);
         abort_unless($attachment->correspondence_id === $correspondence->id, 404);
         abort_unless(Storage::disk('local')->exists($attachment->stored_path), 404);
+
         return Storage::disk('local')->download($attachment->stored_path, $attachment->original_name);
     }
 
@@ -260,6 +277,7 @@ class CorrespondenceController extends Controller
         }
         Storage::disk('local')->delete($attachment->stored_path);
         $attachment->delete();
+
         return ApiResponse::success(null, 'Attachment deleted.');
     }
 
@@ -282,35 +300,63 @@ class CorrespondenceController extends Controller
             throw new AuthorizationException('This action is unauthorized.');
         }
     }
+
     private function ensureAssignedOrSender(Request $request, Correspondence $item): void
     {
         if (! $this->isParticipant($item, $request->user()->id) && ! $this->canManageAll($request->user())) {
             throw new AuthorizationException('This action is unauthorized.');
         }
     }
+
     private function ensureAssignedOrManager(Request $request, Correspondence $item): void
     {
         if ($item->assigned_to !== $request->user()->id && ! $this->canManageAll($request->user())) {
             throw new AuthorizationException('This action is unauthorized.');
         }
     }
+
     private function canManageAll($user): bool
     {
         return Gate::forUser($user)->allows('permission', ['correspondence.approve'])
             || Gate::forUser($user)->allows('permission', ['correspondence.close']);
     }
+
     private function notifyAssignee(Correspondence $item, string $type): void
     {
         $item->loadMissing('assignee');
         $item->assignee?->notify(new AdministrativeWorkAssignedNotification($type, $item->id, $item->subject));
     }
+
     private function isParticipant(Correspondence $item, int $userId): bool
     {
         return $item->sender_id === $userId || $item->assigned_to === $userId
             || $item->participants()->where('user_id', $userId)->exists();
     }
+
     private function addParticipant(Correspondence $item, int $userId, string $role): void
     {
         $item->participants()->firstOrCreate(['user_id' => $userId], ['participant_role' => $role]);
+    }
+
+    private function notifySenderOfStatus(Correspondence $item, string $status, string $actorName): void
+    {
+        if ((int) $item->sender_id === (int) auth()->id()) {
+            return;
+        }
+        $item->loadMissing('sender');
+        $labels = $status === 'approved'
+            ? ['ar' => 'تم اعتماد المراسلة', 'en' => 'Correspondence approved']
+            : ['ar' => 'تم إغلاق المراسلة', 'en' => 'Correspondence closed'];
+        $item->sender?->notify(new LocalSystemNotification([
+            'event_key' => 'correspondence.'.$status,
+            'category' => 'correspondence',
+            'severity' => 'info',
+            'title_ar' => $labels['ar'], 'title_en' => $labels['en'],
+            'message_ar' => $labels['ar'].': '.$item->subject,
+            'message_en' => $labels['en'].': '.$item->subject,
+            'action_url' => '/correspondence/'.$item->id,
+            'entity_type' => 'correspondence', 'entity_id' => $item->id,
+            'actor_name' => $actorName,
+        ]));
     }
 }

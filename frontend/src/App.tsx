@@ -64,6 +64,7 @@ import { OutboxPage } from '@/pages/OutboxPage';
 import { CorrespondenceDetailsPage } from '@/pages/CorrespondenceDetailsPage';
 import { PublicClinicalSchedulePage } from '@/pages/public/PublicClinicalSchedulePage';
 import { PublicStudentRegistrationPage } from '@/pages/PublicStudentRegistrationPage';
+import { NotificationsPage } from '@/pages/NotificationsPage';
 
 export function App() {
   return (
@@ -97,6 +98,7 @@ export function App() {
                 <Route path="/distribution/groups" element={<StudentGroupsPage />} />
                 <Route path="/staff/:id" element={<StaffProfilePage />} />
                 <Route path="/profile" element={<MyProfilePage />} />
+                <Route path="/notifications" element={<NotificationsPage />} />
 
                 {/* Technical administration screens are governed by the same
                     permissions exposed in the admin matrix. */}

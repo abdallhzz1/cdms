@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\Meeting;
 use App\Models\CorrespondenceAttachment;
+use App\Models\Meeting;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -114,6 +114,23 @@ class AdministrativeWorkflowTest extends TestCase
         $this->assertDatabaseMissing('operational_tasks', ['id' => $id]);
     }
 
+    public function test_task_creator_receives_local_status_notifications(): void
+    {
+        $creator = $this->userWithPermissions(['tasks.view', 'tasks.manage']);
+        $assignee = $this->userWithPermissions(['tasks.view']);
+
+        $id = $this->asUser($creator)->postJson('/api/v1/operational-tasks', [
+            'title' => 'Complete rotation report', 'assigned_to' => $assignee->id, 'priority' => 'high',
+        ])->assertCreated()->json('data.id');
+
+        $this->asUser($assignee)->putJson("/api/v1/operational-tasks/{$id}", ['status' => 'in_progress'])->assertOk();
+
+        $notification = $creator->notifications()->firstOrFail();
+        $this->assertSame('task.status_changed', $notification->data['event_key']);
+        $this->assertSame('/tasks', $notification->data['action_url']);
+        $this->assertSame('بدأ تنفيذ المهمة', $notification->data['title_ar']);
+    }
+
     public function test_correspondence_attachments_are_private_and_limited_to_participants(): void
     {
         Storage::fake('local');
@@ -214,6 +231,7 @@ class AdministrativeWorkflowTest extends TestCase
         $this->grantPermissions($role, $codes);
         $user = User::factory()->create();
         $user->roles()->attach($role->id);
+
         return $user;
     }
 
@@ -231,6 +249,7 @@ class AdministrativeWorkflowTest extends TestCase
     private function asUser(User $user): static
     {
         $this->app['auth']->forgetGuards();
+
         return $this->actingAs($user, 'web');
     }
 }

@@ -35,6 +35,7 @@ use App\Http\Controllers\Api\V1\GradeEntryController;
 use App\Http\Controllers\Api\V1\GroupRegistrationAdminController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\MeetingController;
+use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OperationalDashboardController;
 use App\Http\Controllers\Api\V1\OperationalDistributionController;
 use App\Http\Controllers\Api\V1\OperationalReportController;
@@ -123,6 +124,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::put('profile/me', [UserProfileController::class, 'update']);
         Route::post('profile/me/avatar', [UserProfileController::class, 'uploadAvatar']);
         Route::put('profile/me/password', [UserProfileController::class, 'updatePassword']);
+
+        // Every authenticated user can access only their own local notification inbox.
+        Route::get('notifications', [NotificationController::class, 'index']);
+        Route::get('notifications/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::patch('notifications/{notification}/read', [NotificationController::class, 'markRead']);
+        Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
 
         Route::get('student-schedule-portal', [StudentSchedulePortalController::class, 'show'])
             ->middleware('permission:clinical_schedule.view');
