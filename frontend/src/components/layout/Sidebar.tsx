@@ -44,10 +44,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
         {
           title: locale === 'ar' ? 'التدريب السريري والتقييم' : 'Clinical Training & Grading',
           items: [
-            { path: '/supervisor/portal', label: locale === 'ar' ? 'مساحة عملي السريرية' : 'My Clinical Workspace', icon: Users, permission: 'supervisor.workspace.view' },
-            { path: '/supervisor/portal?tab=attendance', label: locale === 'ar' ? 'رصد حضور مجموعاتي' : 'My Groups Attendance', icon: Clock, customCheck: () => can('supervisor.workspace.view') && can('attendance.record') },
-            { path: '/supervisor/portal?tab=assessments', label: locale === 'ar' ? 'التقييم السريري (20)' : 'Clinical Assessment (/20)', icon: ClipboardCheck, customCheck: () => can('supervisor.workspace.view') && can('assessment.create') },
-            { path: '/supervisor/portal?tab=group_assessments', label: locale === 'ar' ? 'تقييم مجموعة كاملة' : 'Assess Full Group', icon: Users, customCheck: () => can('supervisor.workspace.view') && can('assessment.create') },
+            { path: '/supervisor/portal', label: locale === 'ar' ? 'مساحة التدريب السريري' : 'Clinical Training Workspace', icon: ClipboardCheck, permission: 'supervisor.workspace.view' },
             { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: GraduationCap, permission: 'advising.view' },
           ]
         },

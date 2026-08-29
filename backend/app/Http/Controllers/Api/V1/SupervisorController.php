@@ -13,6 +13,7 @@ use App\Models\StudentClinicalAssignment;
 use App\Models\WorkflowTransitionLog;
 use App\Services\Distribution\SupervisorReassignmentService;
 use App\Services\WorkflowTransitionService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -234,6 +235,7 @@ class SupervisorController extends Controller
         ]);
 
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
+        $this->ensureSessionDateWithinAssignment($assignment, $data['session_date']);
         $allowedStudentIds = $this->assignmentGroupQuery($assignment)->pluck('student_id')->map(fn ($id) => (int) $id);
         $requestedStudentIds = collect($data['records'])->pluck('student_id')->map(fn ($id) => (int) $id);
         abort_if($requestedStudentIds->diff($allowedStudentIds)->isNotEmpty(), 403, 'You may only record attendance for students assigned to you.');
@@ -269,6 +271,7 @@ class SupervisorController extends Controller
         ]);
 
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
+        $this->ensureSessionDateWithinAssignment($assignment, $data['session_date']);
         abort_unless($this->assignmentGroupQuery($assignment)->where('student_id', $data['student_id'])->exists(), 403, 'You may only assess students assigned to you.');
 
         $assessment = DB::transaction(function () use ($assignment, $data, $person, $workflow) {
@@ -333,6 +336,7 @@ class SupervisorController extends Controller
         ]);
 
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
+        $this->ensureSessionDateWithinAssignment($assignment, $data['session_date']);
         $allowedIds = $this->assignmentGroupQuery($assignment)->pluck('student_id')->map(fn ($id) => (int) $id)->sort()->values();
         $submittedIds = collect($data['assessments'])->pluck('student_id')->map(fn ($id) => (int) $id)->sort()->values();
         if ($allowedIds->all() !== $submittedIds->all()) {
@@ -447,5 +451,29 @@ class SupervisorController extends Controller
             'session_date' => $date,
             'title' => 'Clinical training session',
         ]);
+    }
+
+    private function ensureSessionDateWithinAssignment(StudentClinicalAssignment $assignment, string $date): void
+    {
+        $assignment->loadMissing('rotationBlock.rotation');
+        $block = $assignment->rotationBlock;
+        $rotation = $block?->rotation;
+        if (! $rotation?->start_date || ! $block?->from_week || ! $block?->to_week) {
+            return;
+        }
+
+        $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
+        $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->endOfDay();
+        $selected = Carbon::parse($date);
+
+        if ($selected->lt($start) || $selected->gt($end)) {
+            throw ValidationException::withMessages([
+                'session_date' => [sprintf(
+                    'تاريخ الجلسة يجب أن يكون ضمن فترة تكليف المجموعة من %s إلى %s.',
+                    $start->toDateString(),
+                    $end->toDateString(),
+                )],
+            ]);
+        }
     }
 }

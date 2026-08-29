@@ -513,6 +513,25 @@ class Phase5CTest extends TestCase
         ])->assertUnprocessable();
     }
 
+    public function test_supervisor_cannot_record_outside_the_assigned_rotation_block(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::whereIn('code', ['attendance.record'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
+            'assignment_id' => $this->assignment1->id,
+            'session_date' => '2026-11-15',
+            'records' => [['student_id' => $this->student1->id, 'status' => 'present']],
+        ])->assertUnprocessable()->assertJsonValidationErrors('session_date');
+
+        $this->assertDatabaseCount('clinical_sessions', 0);
+        $this->assertDatabaseCount('attendance_records', 0);
+    }
+
     public function test_supervisor_can_submit_and_reviewer_can_approve_a_complete_group_batch(): void
     {
         $this->supervisor1->update(['user_id' => $this->admin->id]);

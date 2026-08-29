@@ -466,7 +466,7 @@ class GradeEntryController extends Controller
             ->where('status', 'approved')->where('max_score', '>', 0)->whereIn('student_id', $studentIds)
             ->when($courseId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $courseId)))
             ->when($academicYearId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $academicYearId)))
-            ->selectRaw('student_id, ROUND(AVG((score / max_score) * 20), 2) as clinical_score, COUNT(*) as assessments_count')
+            ->selectRaw('student_id, ROUND(AVG((score * 20.0) / max_score), 2) as clinical_score, COUNT(*) as assessments_count')
             ->groupBy('student_id')->get()->keyBy('student_id')->map(fn ($item) => $withMetadata
                 ? ['clinical_score' => (float) $item->clinical_score, 'assessments_count' => (int) $item->assessments_count]
                 : (float) $item->clinical_score);
