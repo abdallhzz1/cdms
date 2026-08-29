@@ -9,18 +9,33 @@ export type SupervisorGroup = { key:string; assignmentId:number; rotationBlockId
 export const workspaceQueryKey = ['supervisor-workspace'] as const;
 export const dateValue = (date:Date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 export const today = () => dateValue(new Date());
-const addDays = (value:string,days:number) => { const date=new Date(`${value}T12:00:00`); date.setDate(date.getDate()+days); return dateValue(date); };
-export const clampDate = (group:SupervisorGroup,value:string) => group.startDate && value < group.startDate ? group.startDate : group.endDate && value > group.endDate ? group.endDate : value;
+export const isDateValue = (value:string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T12:00:00`).getTime());
+const normalizedDate = (value:string|null|undefined) => { const candidate=String(value??'').slice(0,10); return isDateValue(candidate)?candidate:''; };
+const addDays = (value:string,days:number) => { const base=normalizedDate(value); if(!base)return ''; const date=new Date(`${base}T12:00:00`); date.setDate(date.getDate()+days); return dateValue(date); };
+export const clampDate = (group:SupervisorGroup,value:string) => { const candidate=normalizedDate(value)||normalizedDate(group.startDate)||today(); return group.startDate && candidate < group.startDate ? group.startDate : group.endDate && candidate > group.endDate ? group.endDate : candidate; };
+export const defaultGroupDate = (group:SupervisorGroup) => clampDate(group,today());
 export const studentName = (student:Student,ar:boolean) => ar ? student.full_name_ar : student.full_name_en || student.full_name_ar;
 export const groupName = (group:SupervisorGroup,ar:boolean) => `${ar?group.courseAr:group.courseEn} — ${group.group} (${group.subgroup})`;
+export function supervisorErrorMessage(error:unknown,ar:boolean,fallback:string){
+  if(!(error instanceof ApiError))return fallback;
+  const first=Object.values(error.errors??{}).flatMap(value=>Array.isArray(value)?value:[value]).find(value=>typeof value==='string');
+  const message=String(first??error.message??'');
+  if(!ar)return message||fallback;
+  if(message.includes('session date field is required')||message.includes('session_date'))return 'يرجى تحديد تاريخ الجلسة أولاً.';
+  if(message.includes('valid date'))return 'تاريخ الجلسة غير صالح. اختر تاريخاً من الحقل المخصص.';
+  if(message.includes('Every student in the selected group'))return 'يجب إدخال علامة صحيحة لكل طالب في المجموعة قبل الإرسال.';
+  if(message.includes('already has an assessment awaiting review or approved'))return 'يوجد تقييم مرسل أو معتمد مسبقاً لهذا التاريخ ولا يمكن إرساله مرة أخرى.';
+  return message||fallback;
+}
 
 export function groupSupervisorAssignments(assignments:Assignment[]):SupervisorGroup[]{
   const map=new Map<string,SupervisorGroup>();
   for(const item of assignments){
     const key=[item.distribution_version_id,item.rotation_block_id??'x',item.training_site_id??'x',item.student_subgroup_id??'x'].join('-');
-    const block=item.rotation_block,rotation=block?.rotation,start=rotation?.start_date??'',from=Number(block?.from_week??1),to=Number(block?.to_week??from);
+    const block=item.rotation_block,rotation=block?.rotation,start=normalizedDate(rotation?.start_date),from=Number(block?.from_week??1),to=Number(block?.to_week??from);
     if(!map.has(key))map.set(key,{key,assignmentId:item.id,rotationBlockId:item.rotation_block_id,subgroup:item.student_subgroup?.name??'—',group:item.student_subgroup?.group?.name??item.student_subgroup?.name??'—',courseAr:rotation?.course?.name_ar??rotation?.name??'المساق السريري',courseEn:rotation?.course?.name_en??rotation?.name??'Clinical course',periodAr:block?.from_week&&block?.to_week?`الأسبوع ${block.from_week}–${block.to_week}`:block?.block_code??'الفترة الحالية',periodEn:block?.from_week&&block?.to_week?`Week ${block.from_week}–${block.to_week}`:block?.block_code??'Current period',siteAr:item.training_site?.name_ar??'غير محدد',siteEn:item.training_site?.name_en??item.training_site?.name_ar??'Not specified',departmentAr:item.department?.name_ar??'غير محدد',departmentEn:item.department?.name_en??item.department?.name_ar??'Not specified',academicYear:rotation?.academic_year?.code??'—',startDate:start?addDays(start,(from-1)*7):'',endDate:start?addDays(start,to*7-1):'',students:[]});
     const group=map.get(key)!;if(!group.students.some(student=>student.id===item.student.id))group.students.push(item.student);
   }
   return [...map.values()];
 }
+import { ApiError } from '@/api/client';
