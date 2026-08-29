@@ -105,7 +105,10 @@ class DistributionVersionController extends Controller
         $rotation = Rotation::findOrFail($data['rotation_id']);
         $levelScope = $this->getEffectiveAcademicLevelScope();
         abort_if($levelScope !== null && ! in_array($rotation->academic_level, $levelScope, true), 404);
-        $departmentId = $this->getClinicalOperationsDepartmentId();
+        // Distribution versions are department-owned records. An RTA may follow
+        // their assigned cohort across operational screens, but a department-
+        // scoped role must not create a version for another department.
+        $departmentId = $this->getUserDepartmentId();
         if ($departmentId && !$rotation->departments()->whereKey($departmentId)->exists()) {
             throw new \Illuminate\Auth\Access\AuthorizationException('This action is unauthorized.');
         }
@@ -254,7 +257,7 @@ class DistributionVersionController extends Controller
             $query->whereHas('rotation', fn ($rotation) => $rotation->whereIn('academic_level', $levelScope));
         }
 
-        $departmentId = $this->getClinicalOperationsDepartmentId();
+        $departmentId = $this->getUserDepartmentId();
         if ($departmentId) {
             $query->whereHas('rotation.departments', fn ($q) => $q->whereKey($departmentId));
         }
@@ -266,7 +269,7 @@ class DistributionVersionController extends Controller
         $levelScope = $this->getEffectiveAcademicLevelScope();
         abort_if($levelScope !== null && (! $version->rotation || ! in_array($version->rotation->academic_level, $levelScope, true)), 404);
 
-        $departmentId = $this->getClinicalOperationsDepartmentId();
+        $departmentId = $this->getUserDepartmentId();
         if ($departmentId && !$version->rotation()->whereHas(
             'departments',
             fn ($q) => $q->whereKey($departmentId)

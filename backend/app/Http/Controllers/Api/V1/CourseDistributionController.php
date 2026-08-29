@@ -100,7 +100,7 @@ class CourseDistributionController extends Controller
             ->latest('id')->first();
         $version = DistributionVersion::query()
             ->where('rotation_id', $rotation->id)
-            ->orderByRaw("CASE WHEN status = 'published' THEN 1 ELSE 0 END")
+            ->orderByRaw("CASE WHEN status IN ('draft', 'suggested', 'manual') THEN 0 WHEN status = 'published' AND is_current = 1 THEN 1 WHEN status = 'published' THEN 2 ELSE 3 END")
             ->latest('id')
             ->first();
 
@@ -155,8 +155,16 @@ class CourseDistributionController extends Controller
             throw ValidationException::withMessages(['course_id' => ['يوجد جدول منشأ مسبقًا لهذا المساق والعام.']]);
         }
 
-        [$rotation, $version] = DB::transaction(function () use ($data, $course) {
-            $year = AcademicYear::findOrFail($data['academic_year_id']);
+        $year = AcademicYear::findOrFail($data['academic_year_id']);
+        $scheduleStart = Carbon::parse($data['start_date'])->startOfDay();
+        $scheduleEnd = $scheduleStart->copy()->addWeeks($data['weeks_count'])->subDay();
+        if ($scheduleStart->lt(Carbon::parse($year->start_date)) || $scheduleEnd->gt(Carbon::parse($year->end_date)->endOfDay())) {
+            throw ValidationException::withMessages([
+                'start_date' => ['يجب أن يقع الجدول كاملًا ضمن بداية ونهاية العام الأكاديمي المحدد.'],
+            ]);
+        }
+
+        [$rotation, $version] = DB::transaction(function () use ($data, $course, $year) {
             $rotation = Rotation::create([
                 'academic_year_id' => $year->id,
                 'course_id' => $course->id,
@@ -311,7 +319,7 @@ class CourseDistributionController extends Controller
     {
         $this->ensureVersionInUserScope($version);
         $this->ensureEditableVersion($version);
-        abort_unless($row->distribution_version_id === $version->id, 404);
+        abort_unless((int) $row->distribution_version_id === (int) $version->id, 404);
         $data = $this->validateScheduleRow($request, $row);
 
         DB::transaction(function () use ($row, $data) {
@@ -331,7 +339,7 @@ class CourseDistributionController extends Controller
     {
         $this->ensureVersionInUserScope($version);
         $this->ensureEditableVersion($version);
-        abort_unless($row->distribution_version_id === $version->id, 404);
+        abort_unless((int) $row->distribution_version_id === (int) $version->id, 404);
 
         DB::transaction(function () use ($row) {
             StudentClinicalAssignment::where('course_schedule_row_id', $row->id)->delete();
@@ -572,7 +580,7 @@ class CourseDistributionController extends Controller
             'row_type' => ['required', 'in:doctor,vacancy'],
             'person_id' => ['nullable', 'integer', 'exists:people,id', 'required_if:row_type,doctor'],
             'training_site_id' => ['required', 'integer', 'exists:training_sites,id'],
-            'label' => ['nullable', 'string', 'max:100'],
+            'label' => ['nullable', 'string', 'max:100', 'required_if:row_type,vacancy'],
         ]);
 
         if (! TrainingSite::query()->active()->whereKey($data['training_site_id'])->exists()) {

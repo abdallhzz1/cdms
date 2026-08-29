@@ -15,6 +15,13 @@ class CourseScheduleRow extends Model
         'sort_order',
     ];
 
+    protected $casts = [
+        'distribution_version_id' => 'integer',
+        'person_id' => 'integer',
+        'training_site_id' => 'integer',
+        'sort_order' => 'integer',
+    ];
+
     public function version()
     {
         return $this->belongsTo(DistributionVersion::class, 'distribution_version_id');

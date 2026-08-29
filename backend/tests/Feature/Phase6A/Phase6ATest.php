@@ -62,7 +62,7 @@ class Phase6ATest extends TestCase
         $response->assertStatus(404)
             ->assertJson([
                 'success' => false,
-                'message' => 'The requested resource was not found.',
+                'message' => 'العنصر المطلوب غير موجود أو لم يعد متاحاً.',
             ]);
 
         $this->assertArrayNotHasKey('trace', $response->json());

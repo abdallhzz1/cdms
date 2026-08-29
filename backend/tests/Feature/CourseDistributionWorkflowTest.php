@@ -42,7 +42,12 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->user = User::factory()->create();
         $this->user->roles()->attach($role);
 
-        $this->year = AcademicYear::factory()->create(['is_current' => true, 'status' => 'active']);
+        $this->year = AcademicYear::factory()->create([
+            'is_current' => true,
+            'status' => 'active',
+            'start_date' => '2026-08-01',
+            'end_date' => '2027-07-31',
+        ]);
         $this->course = Course::create(['code' => 'MED401', 'name_ar' => 'باطني', 'credit_hours' => 4, 'academic_level' => 'fourth', 'semester' => 1, 'is_active' => true]);
         Course::create(['code' => 'MED501', 'name_ar' => 'جراحة', 'credit_hours' => 4, 'academic_level' => 'fifth', 'semester' => 1, 'is_active' => true]);
         $group = StudentGroup::factory()->create(['academic_year_id' => $this->year->id, 'academic_level' => 'fourth', 'name' => 'L']);
@@ -164,6 +169,45 @@ class CourseDistributionWorkflowTest extends TestCase
             'course_schedule_row_id' => $rowId,
         ])->assertOk();
         $this->assertDatabaseCount('student_clinical_assignments', 0);
+    }
+
+    public function test_schedule_must_fit_inside_the_selected_academic_year(): void
+    {
+        $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'course_id' => $this->course->id,
+            'start_date' => '2027-07-15',
+            'weeks_count' => 4,
+        ])->assertUnprocessable()->assertJsonValidationErrors('start_date');
+
+        $this->assertDatabaseCount('rotations', 0);
+    }
+
+    public function test_current_published_schedule_is_preferred_over_a_withdrawn_history_version(): void
+    {
+        $rotation = Rotation::factory()->create([
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'course_id' => $this->course->id,
+        ]);
+        $published = DistributionVersion::create([
+            'rotation_id' => $rotation->id,
+            'name' => 'النسخة الحالية',
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+        DistributionVersion::create([
+            'rotation_id' => $rotation->id,
+            'name' => 'نسخة ملغاة قديمة',
+            'status' => 'withdrawn',
+            'is_current' => false,
+        ]);
+
+        $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
+            ->assertOk()
+            ->assertJsonPath('data.version.id', $published->id)
+            ->assertJsonPath('data.version.status', 'published');
     }
 
     public function test_empty_subgroup_can_be_scheduled_and_later_members_inherit_the_placement(): void

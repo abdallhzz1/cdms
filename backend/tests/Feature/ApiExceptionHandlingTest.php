@@ -24,7 +24,7 @@ class ApiExceptionHandlingTest extends TestCase
         $response = $this->getJson('/api/__test/internal-error')
             ->assertStatus(500)
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'An unexpected error occurred. Please try again later.')
+            ->assertJsonPath('message', 'حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى لاحقاً.')
             ->assertJsonStructure(['meta' => ['reference_id']]);
 
         $body = $response->getContent();
