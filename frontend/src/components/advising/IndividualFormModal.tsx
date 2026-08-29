@@ -14,6 +14,8 @@ interface IndividualFormModalProps {
 
 export function IndividualFormModal({ isOpen, onClose, onSave, onPreviewPrint }: IndividualFormModalProps) {
   const { locale } = useI18n();
+  const ar = locale === 'ar';
+  const tr = (arabic: string, english: string) => ar ? arabic : english;
   const { user } = useAuth();
 
   const [studentId, setStudentId] = useState('');
@@ -43,7 +45,7 @@ export function IndividualFormModal({ isOpen, onClose, onSave, onPreviewPrint }:
     setStudentId(stId);
     const found = studentsList.find((s: any) => String(s.id) === stId || s.university_number === stId);
     if (found) {
-      setStudentName(found.full_name_ar || found.full_name_en);
+      setStudentName(ar ? found.full_name_ar || found.full_name_en : found.full_name_en || found.full_name_ar);
       setUniversityNumber(found.university_number);
     }
   };
@@ -102,7 +104,7 @@ export function IndividualFormModal({ isOpen, onClose, onSave, onPreviewPrint }:
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col" dir="rtl">
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col" dir={ar ? 'rtl' : 'ltr'}>
         
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
@@ -111,8 +113,8 @@ export function IndividualFormModal({ isOpen, onClose, onSave, onPreviewPrint }:
               <FileText className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-sm text-slate-800">تعبئة نموذج محضر اجتماع إرشادي (فردي)</h3>
-              <p className="text-xs text-slate-400">جامعة الخليل — كلية الطب البشري — دائرة ضمان الجودة والتطوير</p>
+              <h3 className="font-bold text-sm text-slate-800">{tr('تعبئة نموذج محضر اجتماع إرشادي (فردي)', 'Complete individual advising meeting form')}</h3>
+              <p className="text-xs text-slate-400">{tr('جامعة الخليل — كلية الطب البشري — دائرة ضمان الجودة والتطوير', 'Hebron University — Faculty of Medicine — Quality Assurance and Development Unit')}</p>
             </div>
           </div>
 
@@ -129,16 +131,16 @@ export function IndividualFormModal({ isOpen, onClose, onSave, onPreviewPrint }:
           
           {/* Select Student Quick Dropdown or Direct Write */}
           <div className="space-y-1.5 bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
-            <label className="block font-bold text-slate-700">اختر الطالب من القائمة الأكاديمية (أو أدخل يدوياً):</label>
+            <label className="block font-bold text-slate-700">{tr('اختر الطالب من القائمة الأكاديمية (أو أدخل يدوياً):', 'Select a student from the academic directory (or enter manually):')}</label>
             <select
               value={studentId}
               onChange={(e) => handleSelectStudent(e.target.value)}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold bg-white focus:border-teal-500"
             >
-              <option value="">-- اختر طالباً من دليل الكلية --</option>
+              <option value="">{tr('-- اختر طالباً من دليل الكلية --', '-- Select a student from the Faculty directory --')}</option>
               {studentsList.map((st: any) => (
                 <option key={st.id} value={st.id}>
-                  {st.full_name_ar} ({st.university_number}) — {st.academic_level || 'السنة السريرية'}
+                  {ar ? st.full_name_ar || st.full_name_en : st.full_name_en || st.full_name_ar} ({st.university_number}) — {st.academic_level || tr('السنة السريرية', 'Clinical year')}
                 </option>
               ))}
             </select>
@@ -147,44 +149,44 @@ export function IndividualFormModal({ isOpen, onClose, onSave, onPreviewPrint }:
           {/* Student Info Inputs */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="block font-bold text-slate-700">اسم الطالب الثلاثي / الرباعي *</label>
+              <label className="block font-bold text-slate-700">{tr('اسم الطالب الثلاثي / الرباعي *', 'Student full name *')}</label>
               <input
                 required
                 type="text"
                 value={studentName}
                 onChange={(e) => setStudentName(e.target.value)}
-                placeholder="مثال: احمد اسماعيل عيسى غانم"
+                placeholder={tr('مثال: أحمد إسماعيل عيسى غانم', 'e.g. Ahmad Ismail Issa Ghanem')}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold focus:border-teal-500"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="block font-bold text-slate-700">الرقم الجامعي *</label>
+              <label className="block font-bold text-slate-700">{tr('الرقم الجامعي *', 'University number *')}</label>
               <input
                 required
                 type="text"
                 value={universityNumber}
                 onChange={(e) => setUniversityNumber(e.target.value)}
-                placeholder="مثال: 21105432"
+                placeholder="e.g. 21105432"
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 font-mono text-xs font-bold focus:border-teal-500"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="block font-bold text-slate-700">الفصل الدراسي *</label>
+              <label className="block font-bold text-slate-700">{tr('الفصل الدراسي *', 'Semester *')}</label>
               <select
                 value={semester}
                 onChange={(e) => setSemester(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold bg-white focus:border-teal-500"
               >
-                <option value="الفصل الأول">الفصل الأول</option>
-                <option value="الفصل الثاني">الفصل الثاني</option>
-                <option value="الفصل الصيفي">الفصل الصيفي</option>
+                <option value="الفصل الأول">{tr('الفصل الأول', 'First semester')}</option>
+                <option value="الفصل الثاني">{tr('الفصل الثاني', 'Second semester')}</option>
+                <option value="الفصل الصيفي">{tr('الفصل الصيفي', 'Summer semester')}</option>
               </select>
             </div>
 
             <div className="space-y-1">
-              <label className="block font-bold text-slate-700">العام الدراسي *</label>
+              <label className="block font-bold text-slate-700">{tr('العام الدراسي *', 'Academic year *')}</label>
               <input
                 required
                 type="text"
@@ -197,33 +199,33 @@ export function IndividualFormModal({ isOpen, onClose, onSave, onPreviewPrint }:
 
           {/* Topics Discussed */}
           <div className="space-y-1">
-            <label className="block font-bold text-slate-700">المواضيع التي تم مناقشتها *</label>
+            <label className="block font-bold text-slate-700">{tr('المواضيع التي تم مناقشتها *', 'Topics discussed *')}</label>
             <textarea
               required
               rows={3}
               value={topicsDiscussed}
               onChange={(e) => setTopicsDiscussed(e.target.value)}
-              placeholder="اكتب النقاشات والمحاور الأكاديمية والمهنية التي تمت خلال الجلسة الإرشادية..."
+              placeholder={tr('اكتب النقاشات والمحاور الأكاديمية والمهنية التي تمت خلال الجلسة الإرشادية...', 'Describe the academic and professional topics discussed during the advising session...')}
               className="w-full rounded-xl border border-slate-200 p-3 text-xs leading-relaxed font-serif focus:border-teal-500"
             />
           </div>
 
           {/* Recommendations */}
           <div className="space-y-1">
-            <label className="block font-bold text-slate-700">التوصيات والخطط العلاجية *</label>
+            <label className="block font-bold text-slate-700">{tr('التوصيات وخطط المتابعة *', 'Recommendations and follow-up plan *')}</label>
             <textarea
               required
               rows={3}
               value={recommendations}
               onChange={(e) => setRecommendations(e.target.value)}
-              placeholder="اكتب التوصيات المقترحة، خطط تحسين الأداء الأكاديمي، أو المتابعات القادمة..."
+              placeholder={tr('اكتب التوصيات المقترحة، وخطط تحسين الأداء الأكاديمي، أو المتابعات القادمة...', 'Write recommendations, academic improvement plans, or next follow-up steps...')}
               className="w-full rounded-xl border border-slate-200 p-3 text-xs leading-relaxed font-serif focus:border-teal-500"
             />
           </div>
 
           {/* Advisor Name */}
           <div className="space-y-1">
-            <label className="block font-bold text-slate-700">اسم المرشد الأكاديمي</label>
+            <label className="block font-bold text-slate-700">{tr('اسم المرشد الأكاديمي', 'Academic adviser name')}</label>
             <input
               type="text"
               value={advisorName}
@@ -237,12 +239,12 @@ export function IndividualFormModal({ isOpen, onClose, onSave, onPreviewPrint }:
             <div className="flex items-center justify-between">
               <label className="font-bold text-slate-800 flex items-center gap-1.5">
                 <Paperclip className="w-4 h-4 text-teal-600" />
-                <span>إرفاق ملفات ومستندات مساندة (اختياري):</span>
+                <span>{tr('إرفاق ملفات ومستندات مساندة (اختياري):', 'Supporting files and documents (optional):')}</span>
               </label>
 
               <label className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shadow-2xs">
                 <Upload className="w-3.5 h-3.5" />
-                <span>رفع ملف</span>
+                <span>{tr('رفع ملف', 'Upload file')}</span>
                 <input type="file" multiple onChange={handleFileUpload} className="hidden" />
               </label>
             </div>
@@ -267,7 +269,7 @@ export function IndividualFormModal({ isOpen, onClose, onSave, onPreviewPrint }:
                 ))}
               </div>
             ) : (
-              <p className="text-[11px] text-slate-400">يمكنك إرفاق تقارير، وثائق إثبات، كشوف درجات أو عذريات رسمية.</p>
+              <p className="text-[11px] text-slate-400">{tr('يمكنك إرفاق تقارير، وثائق إثبات، كشوف درجات أو عذريات رسمية.', 'You can attach reports, supporting documents, grade reports, or official excuse letters.')}</p>
             )}
           </div>
 
@@ -279,7 +281,7 @@ export function IndividualFormModal({ isOpen, onClose, onSave, onPreviewPrint }:
               className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-1.5 border border-slate-200"
             >
               <Printer className="w-4 h-4 text-teal-600" />
-              <span>معاينة للطباعة والـ PDF</span>
+              <span>{tr('معاينة للطباعة والـ PDF', 'Preview for print and PDF')}</span>
             </button>
 
             <div className="flex items-center gap-2">
@@ -288,13 +290,13 @@ export function IndividualFormModal({ isOpen, onClose, onSave, onPreviewPrint }:
                 onClick={onClose}
                 className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
               >
-                إلغاء
+                {tr('إلغاء', 'Cancel')}
               </button>
               <button
                 type="submit"
                 className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md shadow-teal-600/20"
               >
-                حفظ النموذج السجل
+                {tr('حفظ النموذج في السجل', 'Save form to records')}
               </button>
             </div>
           </div>

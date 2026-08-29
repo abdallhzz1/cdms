@@ -5,6 +5,9 @@ interface FormPrintViewProps {
 }
 
 export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintViewProps) {
+  const { locale } = useI18n();
+  const ar = locale === 'ar';
+  const tr = (arabic: string, english: string) => ar ? arabic : english;
   const handlePrint = () => {
     window.print();
   };
@@ -61,7 +64,7 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
       <div className="mx-auto max-w-[850px] mb-4 flex items-center justify-between print-hidden-bar print:hidden">
         <div className="flex items-center gap-2">
           <span className="bg-teal-500 text-white text-xs font-black px-3 py-1 rounded-full">
-            معاينة المستند الرسمي للطباعة والتصدير
+            {tr('معاينة المستند الرسمي للطباعة والتصدير', 'Official document preview for print and export')}
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -71,20 +74,20 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
             className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer"
           >
             <span>🖨️</span>
-            <span>طباعة / حفظ كـ PDF</span>
+            <span>{tr('طباعة / حفظ كـ PDF', 'Print / Save as PDF')}</span>
           </button>
           <button
             type="button"
             onClick={onClose}
             className="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs transition-colors cursor-pointer"
           >
-            إغلاق
+            {tr('إغلاق', 'Close')}
           </button>
         </div>
       </div>
 
       {/* Official A4 Paper Container */}
-      <div id="printable-advising-document" className="mx-auto max-w-[850px] bg-white p-8 sm:p-12 shadow-2xl rounded-2xl print:shadow-none print:p-0 print:m-0 print:max-w-none text-slate-900 border border-slate-200 print:border-none font-sans" dir="rtl">
+      <div id="printable-advising-document" className="mx-auto max-w-[850px] bg-white p-8 sm:p-12 shadow-2xl rounded-2xl print:shadow-none print:p-0 print:m-0 print:max-w-none text-slate-900 border border-slate-200 print:border-none font-sans" dir={ar ? 'rtl' : 'ltr'}>
         
         {/* ========================================================================= */}
         {/* OFFICIAL FACULTY OF MEDICINE HEADER (EXACT REPLICA OF THE COLLEGE FORM) */}
@@ -92,13 +95,13 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
         <div className="border-2 border-slate-900 mb-6">
           <div className="grid grid-cols-3 divide-x divide-x-reverse divide-slate-900 text-center items-center">
             
-            {/* Right: Arabic Header */}
+            {/* Faculty Header */}
             <div className="p-3 space-y-1">
-              <h3 className="font-bold text-sm text-slate-900">جامعة الخليل</h3>
-              <h4 className="font-semibold text-xs text-slate-800">كلية الطب البشري</h4>
-              <p className="text-[11px] text-slate-700 font-medium">دائرة ضمان الجودة والتطوير</p>
+              <h3 className="font-bold text-sm text-slate-900">{tr('جامعة الخليل', 'Hebron University')}</h3>
+              <h4 className="font-semibold text-xs text-slate-800">{tr('كلية الطب البشري', 'Faculty of Medicine')}</h4>
+              <p className="text-[11px] text-slate-700 font-medium">{tr('دائرة ضمان الجودة والتطوير', 'Quality Assurance & Development Dept')}</p>
               <div className="pt-2 border-t border-slate-400">
-                <span className="font-bold text-xs text-slate-900">لجنة الإرشاد الأكاديمي</span>
+                <span className="font-bold text-xs text-slate-900">{tr('لجنة الإرشاد الأكاديمي', 'Academic Advising Committee')}</span>
               </div>
             </div>
 
@@ -120,8 +123,8 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
               <h3 className="font-bold text-xs text-slate-900">Hebron University</h3>
               <h4 className="font-semibold text-[11px] text-slate-800">Faculty of Medicine</h4>
               <p className="text-[10px] text-slate-700">Quality Assurance & Development Dept</p>
-              <div className="pt-2 border-t border-slate-400 dir-rtl">
-                <span className="font-bold text-xs text-slate-900 block">{title.ar}</span>
+              <div className="pt-2 border-t border-slate-400">
+                <span className="font-bold text-xs text-slate-900 block">{ar ? title.ar : title.en}</span>
               </div>
             </div>
 
@@ -137,41 +140,41 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
           <div className="space-y-6 text-sm">
             <div className="grid grid-cols-2 gap-4 border-b border-slate-300 pb-4">
               <div>
-                <span className="font-bold text-slate-700">اسم الطالب: </span>
+                <span className="font-bold text-slate-700">{tr('اسم الطالب:', 'Student name:')} </span>
                 <span className="border-b border-dotted border-slate-900 px-2 font-bold text-slate-900">{data.student_name || '—'}</span>
               </div>
               <div>
-                <span className="font-bold text-slate-700">الرقم الجامعي: </span>
+                <span className="font-bold text-slate-700">{tr('الرقم الجامعي:', 'University number:')} </span>
                 <span className="border-b border-dotted border-slate-900 px-2 font-mono font-bold text-slate-900">{data.university_number || '—'}</span>
               </div>
               <div>
-                <span className="font-bold text-slate-700">الفصل الدراسي: </span>
+                <span className="font-bold text-slate-700">{tr('الفصل الدراسي:', 'Semester:')} </span>
                 <span className="border-b border-dotted border-slate-900 px-2 font-bold text-slate-900">{data.semester || '—'}</span>
               </div>
               <div>
-                <span className="font-bold text-slate-700">العام الدراسي: </span>
+                <span className="font-bold text-slate-700">{tr('العام الدراسي:', 'Academic year:')} </span>
                 <span className="border-b border-dotted border-slate-900 px-2 font-bold text-slate-900">{data.academic_year || '—'}</span>
               </div>
             </div>
 
             <div className="space-y-2">
-              <h4 className="font-bold text-slate-900 underline decoration-slate-400 underline-offset-4">المواضيع التي تم مناقشتها:</h4>
+              <h4 className="font-bold text-slate-900 underline decoration-slate-400 underline-offset-4">{tr('المواضيع التي تم مناقشتها:', 'Topics discussed:')}</h4>
               <div className="p-4 bg-slate-50/50 rounded-xl border border-slate-200 min-h-[120px] whitespace-pre-wrap font-serif text-slate-800 leading-relaxed">
-                {data.topics_discussed || 'لم يتم تسجيل مواضيع.'}
+                {data.topics_discussed || tr('لم يتم تسجيل مواضيع.', 'No topics have been recorded.')}
               </div>
             </div>
 
             <div className="space-y-2">
-              <h4 className="font-bold text-slate-900 underline decoration-slate-400 underline-offset-4">التوصيات:</h4>
+              <h4 className="font-bold text-slate-900 underline decoration-slate-400 underline-offset-4">{tr('التوصيات:', 'Recommendations:')}</h4>
               <div className="p-4 bg-slate-50/50 rounded-xl border border-slate-200 min-h-[100px] whitespace-pre-wrap font-serif text-slate-800 leading-relaxed">
-                {data.recommendations || 'لم يتم تسجيل توصيات.'}
+                {data.recommendations || tr('لم يتم تسجيل توصيات.', 'No recommendations have been recorded.')}
               </div>
             </div>
 
             {/* Attachments List if Present */}
             {Array.isArray(data.attachments) && data.attachments.length > 0 && (
               <div className="space-y-2 pt-2 border-t border-slate-200">
-                <h4 className="font-bold text-slate-900 text-xs underline decoration-slate-400 underline-offset-4">المستندات والمرفقات المرفقة مع السجل:</h4>
+                <h4 className="font-bold text-slate-900 text-xs underline decoration-slate-400 underline-offset-4">{tr('المستندات والمرفقات المرفقة مع السجل:', 'Documents and attachments included with the record:')}</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {data.attachments.map((att: any, idx: number) => (
                     <div key={idx} className="p-2 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between text-xs">
@@ -183,7 +186,7 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
                           rel="noreferrer" 
                           className="text-teal-700 font-bold hover:underline shrink-0 text-[11px] print:hidden"
                         >
-                          معاينة / تحميل
+                          {tr('معاينة / تحميل', 'Preview / Download')}
                         </a>
                       )}
                     </div>
@@ -196,22 +199,22 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
             <div className="pt-8 space-y-4">
               <div className="grid grid-cols-2 gap-8">
                 <div>
-                  <span className="font-bold text-slate-800 block">توقيع الطالب: ___________________________</span>
+                  <span className="font-bold text-slate-800 block">{tr('توقيع الطالب:', 'Student signature:')} ___________________________</span>
                 </div>
                 <div className="space-y-2">
-                  <span className="font-bold text-slate-800 block">توقيع المرشد: {data.advisor_name || '___________________'}</span>
-                  <span className="font-bold text-slate-700 block text-xs">التاريخ: {data.date || new Date().toISOString().slice(0, 10)}</span>
+                  <span className="font-bold text-slate-800 block">{tr('توقيع المرشد:', 'Adviser signature:')} {data.advisor_name || '___________________'}</span>
+                  <span className="font-bold text-slate-700 block text-xs">{tr('التاريخ:', 'Date:')} {data.date || new Date().toISOString().slice(0, 10)}</span>
                 </div>
               </div>
 
               <div className="pt-4 border-t border-slate-200 space-y-2">
-                <span className="font-bold text-slate-800 block">توقيع رئيس لجنة الإرشاد: د. رامي القواسمة / ___________________</span>
-                <span className="font-bold text-slate-700 block text-xs">التاريخ: ___________________________</span>
+                <span className="font-bold text-slate-800 block">{tr('توقيع رئيس لجنة الإرشاد:', 'Academic Advising Committee Chair signature:')} ___________________</span>
+                <span className="font-bold text-slate-700 block text-xs">{tr('التاريخ:', 'Date:')} ___________________________</span>
               </div>
             </div>
 
             <p className="text-[11px] text-slate-500 font-bold pt-4 text-start">
-              • يحفظ النموذج في ملف الإرشاد الأكاديمي الكترونياً وورقياً.
+              {tr('• يحفظ النموذج في ملف الإرشاد الأكاديمي إلكترونياً وورقياً.', '• Keep this form in the academic advising record electronically and in hard copy.')}
             </p>
           </div>
         )}
@@ -221,34 +224,34 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
           <div className="space-y-6 text-sm">
             <div className="grid grid-cols-2 gap-4 border-b border-slate-300 pb-4">
               <div>
-                <span className="font-bold text-slate-700">رقم اللقاء: </span>
+                <span className="font-bold text-slate-700">{tr('رقم اللقاء:', 'Meeting number:')} </span>
                 <span className="border-b border-dotted border-slate-900 px-2 font-bold text-slate-900">{data.meeting_number || '1'}</span>
               </div>
               <div>
-                <span className="font-bold text-slate-700">التاريخ: </span>
+                <span className="font-bold text-slate-700">{tr('التاريخ:', 'Date:')} </span>
                 <span className="border-b border-dotted border-slate-900 px-2 font-bold text-slate-900">{data.date || new Date().toISOString().slice(0, 10)}</span>
               </div>
               <div>
-                <span className="font-bold text-slate-700">عدد الطلاب الحاضرين: </span>
+                <span className="font-bold text-slate-700">{tr('عدد الطلاب الحاضرين:', 'Number of students present:')} </span>
                 <span className="border-b border-dotted border-slate-900 px-2 font-bold text-slate-900">{data.attendees_count ?? '0'}</span>
               </div>
               <div>
-                <span className="font-bold text-slate-700">عدد الطلاب الغائبين: </span>
+                <span className="font-bold text-slate-700">{tr('عدد الطلاب الغائبين:', 'Number of students absent:')} </span>
                 <span className="border-b border-dotted border-slate-900 px-2 font-bold text-slate-900">{data.absent_count ?? '0'}</span>
               </div>
             </div>
 
             <div className="space-y-2">
-              <h4 className="font-bold text-slate-900 underline decoration-slate-400 underline-offset-4">محاور الاجتماع:</h4>
+              <h4 className="font-bold text-slate-900 underline decoration-slate-400 underline-offset-4">{tr('محاور الاجتماع:', 'Meeting topics:')}</h4>
               <div className="p-4 bg-slate-50/50 rounded-xl border border-slate-200 min-h-[120px] whitespace-pre-wrap font-serif text-slate-800 leading-relaxed">
-                {data.topics_discussed || 'لم يتم تسجيل محاور.'}
+                {data.topics_discussed || tr('لم يتم تسجيل محاور.', 'No topics have been recorded.')}
               </div>
             </div>
 
             <div className="space-y-2">
-              <h4 className="font-bold text-slate-900 underline decoration-slate-400 underline-offset-4">التوصيات:</h4>
+              <h4 className="font-bold text-slate-900 underline decoration-slate-400 underline-offset-4">{tr('التوصيات:', 'Recommendations:')}</h4>
               <div className="p-4 bg-slate-50/50 rounded-xl border border-slate-200 min-h-[100px] whitespace-pre-wrap font-serif text-slate-800 leading-relaxed">
-                {data.recommendations || 'لم يتم تسجيل توصيات.'}
+                {data.recommendations || tr('لم يتم تسجيل توصيات.', 'No recommendations have been recorded.')}
               </div>
             </div>
 
@@ -256,12 +259,12 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
             <div className="pt-8 space-y-4">
               <div className="grid grid-cols-2 gap-8">
                 <div>
-                  <span className="font-bold text-slate-800 block">توقيع المرشد: {data.advisor_name || '___________________'}</span>
-                  <span className="font-bold text-slate-700 block text-xs mt-1">التاريخ: {data.date || new Date().toISOString().slice(0, 10)}</span>
+                  <span className="font-bold text-slate-800 block">{tr('توقيع المرشد:', 'Adviser signature:')} {data.advisor_name || '___________________'}</span>
+                  <span className="font-bold text-slate-700 block text-xs mt-1">{tr('التاريخ:', 'Date:')} {data.date || new Date().toISOString().slice(0, 10)}</span>
                 </div>
                 <div>
-                  <span className="font-bold text-slate-800 block">توقيع رئيس لجنة الإرشاد: د. رامي القواسمة / ___________________</span>
-                  <span className="font-bold text-slate-700 block text-xs mt-1">التاريخ: ___________________________</span>
+                  <span className="font-bold text-slate-800 block">{tr('توقيع رئيس لجنة الإرشاد:', 'Academic Advising Committee Chair signature:')} ___________________</span>
+                  <span className="font-bold text-slate-700 block text-xs mt-1">{tr('التاريخ:', 'Date:')} ___________________________</span>
                 </div>
               </div>
             </div>
@@ -272,21 +275,21 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
         {formType === 'at_risk' && (
           <div className="space-y-6 text-sm">
             <h4 className="font-bold text-slate-900 text-center text-base">
-              استمارة الطلبة المتعثرين أكاديمياً، تعبأ من قبل المرشد الأكاديمي فصلياً:
+              {tr('استمارة الطلبة المتعثرين أكاديمياً، تعبأ من قبل المرشد الأكاديمي فصلياً:', 'Academic at-risk student form, completed by the academic adviser each semester:')}
             </h4>
 
             <div className="overflow-x-auto border-2 border-slate-900">
               <table className="w-full text-xs text-center border-collapse">
                 <thead>
                   <tr className="bg-slate-900 text-white font-bold border-b-2 border-slate-900">
-                    <th className="p-2 border-r border-slate-700 w-8">م</th>
-                    <th className="p-2 border-r border-slate-700">اسم الطالب</th>
-                    <th className="p-2 border-r border-slate-700">الرقم الجامعي</th>
-                    <th className="p-2 border-r border-slate-700">المستوى</th>
-                    <th className="p-2 border-r border-slate-700">المعدل التراكمي</th>
-                    <th className="p-2 border-r border-slate-700">المشكلة الأكاديمية</th>
-                    <th className="p-2 border-r border-slate-700 w-16">عدد الإنذارات</th>
-                    <th className="p-2">المساقات التي لم يجتازها الطالب</th>
+                    <th className="p-2 border-r border-slate-700 w-8">#</th>
+                    <th className="p-2 border-r border-slate-700">{tr('اسم الطالب', 'Student name')}</th>
+                    <th className="p-2 border-r border-slate-700">{tr('الرقم الجامعي', 'University number')}</th>
+                    <th className="p-2 border-r border-slate-700">{tr('المستوى', 'Level')}</th>
+                    <th className="p-2 border-r border-slate-700">{tr('المعدل التراكمي', 'Cumulative GPA')}</th>
+                    <th className="p-2 border-r border-slate-700">{tr('المشكلة الأكاديمية', 'Academic concern')}</th>
+                    <th className="p-2 border-r border-slate-700 w-16">{tr('عدد الإنذارات', 'Warnings')}</th>
+                    <th className="p-2">{tr('المساقات التي لم يجتازها الطالب', 'Courses not passed')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-400">
@@ -306,7 +309,7 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
                   ) : (
                     <tr>
                       <td colSpan={8} className="p-4 text-center text-slate-400 font-medium">
-                        لا يوجد طلبة مسجلين في هذه الاستمارة حالياً.
+                        {tr('لا يوجد طلبة مسجلين في هذه الاستمارة حالياً.', 'No students are listed in this form yet.')}
                       </td>
                     </tr>
                   )}
@@ -317,12 +320,12 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
             {/* Signatures Block */}
             <div className="pt-8 grid grid-cols-2 gap-8 border-t border-slate-300">
               <div>
-                <span className="font-bold text-slate-800 block">توقيع المرشد: {data.advisor_name || '___________________'}</span>
-                <span className="font-bold text-slate-700 block text-xs mt-1">التاريخ: {data.date || new Date().toISOString().slice(0, 10)}</span>
+                <span className="font-bold text-slate-800 block">{tr('توقيع المرشد:', 'Adviser signature:')} {data.advisor_name || '___________________'}</span>
+                <span className="font-bold text-slate-700 block text-xs mt-1">{tr('التاريخ:', 'Date:')} {data.date || new Date().toISOString().slice(0, 10)}</span>
               </div>
               <div>
-                <span className="font-bold text-slate-800 block">توقيع رئيس لجنة الإرشاد: د. رامي القواسمة / ___________________</span>
-                <span className="font-bold text-slate-700 block text-xs mt-1">التاريخ: ___________________________</span>
+                <span className="font-bold text-slate-800 block">{tr('توقيع رئيس لجنة الإرشاد:', 'Academic Advising Committee Chair signature:')} ___________________</span>
+                <span className="font-bold text-slate-700 block text-xs mt-1">{tr('التاريخ:', 'Date:')} ___________________________</span>
               </div>
             </div>
           </div>
@@ -332,3 +335,4 @@ export function AdvisingFormPrintView({ formType, data, onClose }: FormPrintView
     </div>
   );
 }
+import { useI18n } from '@/i18n/I18nContext';
