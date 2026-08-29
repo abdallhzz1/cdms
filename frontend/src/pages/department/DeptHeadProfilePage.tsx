@@ -968,7 +968,7 @@ export function DeptHeadProfilePage() {
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-medium text-slate-700 mb-1">اسم رئيس القسم</label>
+                    <label className="block font-medium text-slate-700 mb-1">{tr('اسم رئيس القسم', 'Department head name')}</label>
                     <input
                       type="text"
                       value={profileData.name}
@@ -977,7 +977,7 @@ export function DeptHeadProfilePage() {
                     />
                   </div>
                   <div>
-                    <label className="block font-medium text-slate-700 mb-1">الرتبة واللقب الأكاديمي</label>
+                    <label className="block font-medium text-slate-700 mb-1">{tr('الرتبة واللقب الأكاديمي', 'Academic rank and title')}</label>
                     <input
                       type="text"
                       value={profileData.title}
@@ -986,7 +986,7 @@ export function DeptHeadProfilePage() {
                     />
                   </div>
                   <div>
-                    <label className="block font-medium text-slate-700 mb-1">التخصص الدقيق</label>
+                    <label className="block font-medium text-slate-700 mb-1">{tr('التخصص الدقيق', 'Specialty')}</label>
                     <input
                       type="text"
                       value={profileData.specialty}
@@ -995,7 +995,7 @@ export function DeptHeadProfilePage() {
                     />
                   </div>
                   <div>
-                    <label className="block font-medium text-slate-700 mb-1">نوع العقد الأكاديمي</label>
+                    <label className="block font-medium text-slate-700 mb-1">{tr('نوع العقد الأكاديمي', 'Academic contract type')}</label>
                     <input
                       type="text"
                       value={profileData.contract_type}
@@ -1004,7 +1004,7 @@ export function DeptHeadProfilePage() {
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="block font-medium text-slate-700 mb-1">رقم الهاتف للتواصل</label>
+                    <label className="block font-medium text-slate-700 mb-1">{tr('رقم الهاتف للتواصل', 'Contact phone number')}</label>
                     <input
                       type="text"
                       value={profileData.phone || ''}
@@ -1015,10 +1015,10 @@ export function DeptHeadProfilePage() {
                 </div>
 
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">ملخص السيرة الذاتية والأكاديمية</label>
+                  <label className="block font-medium text-slate-700 mb-1">{tr('ملخص السيرة الذاتية والأكاديمية', 'Professional and academic profile')}</label>
                   <textarea
                     rows={4}
-                    placeholder="اكتب ملخص سيرتك الذاتية والأكاديمية هنا..."
+                    placeholder={tr('اكتب ملخص سيرتك الذاتية والأكاديمية هنا...', 'Write a summary of your professional and academic profile...')}
                     value={profileData.cv_summary}
                     onChange={(e) => setProfileData({ ...profileData, cv_summary: e.target.value })}
                     className="w-full p-3 border border-slate-200 rounded-lg bg-white leading-relaxed text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
@@ -1026,9 +1026,9 @@ export function DeptHeadProfilePage() {
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
-                  <Button variant="outline" onClick={() => setIsEditMode(false)}>إلغاء</Button>
+                  <Button variant="outline" onClick={() => setIsEditMode(false)}>{tr('إلغاء', 'Cancel')}</Button>
                   <Button onClick={handleSaveProfileData} className="bg-teal-700 hover:bg-teal-800 text-white font-medium">
-                    حفظ التغييرات
+                    {tr('حفظ التغييرات', 'Save changes')}
                   </Button>
                 </div>
               </div>
@@ -1036,23 +1036,23 @@ export function DeptHeadProfilePage() {
               <div className="space-y-5">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/80 space-y-1">
-                    <span className="text-[11px] font-medium text-slate-500 block">نوع العقد الأكاديمي</span>
-                    <span className="font-semibold text-slate-900 text-xs block">{profileData.contract_type || 'عقد دائم — متفرغ'}</span>
+                    <span className="text-[11px] font-medium text-slate-500 block">{tr('نوع العقد الأكاديمي', 'Academic contract type')}</span>
+                    <span className="font-semibold text-slate-900 text-xs block">{profileData.contract_type || tr('عقد دائم — متفرغ', 'Full-time permanent contract')}</span>
                   </div>
                   <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/80 space-y-1">
-                    <span className="text-[11px] font-medium text-slate-500 block">تاريخ التكليف برئاسة القسم</span>
+                    <span className="text-[11px] font-medium text-slate-500 block">{tr('تاريخ التكليف برئاسة القسم', 'Department-head appointment date')}</span>
                     <span className="font-semibold text-slate-900 text-xs block">{profileData.appointment_date || '2024-09-01'}</span>
                   </div>
                   <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/80 space-y-1">
-                    <span className="text-[11px] font-medium text-slate-500 block">التخصص الدقيق</span>
-                    <span className="font-semibold text-slate-900 text-xs block">{profileData.specialty || `استشاري ${profileData.department_name}`}</span>
+                    <span className="text-[11px] font-medium text-slate-500 block">{tr('التخصص الدقيق', 'Specialty')}</span>
+                    <span className="font-semibold text-slate-900 text-xs block">{profileData.specialty || (ar ? `استشاري ${profileData.department_name}` : `Consultant, ${profileData.department_name}`)}</span>
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <h3 className="font-semibold text-slate-900 text-xs flex items-center gap-2">
                     <FileText className="w-4 h-4 text-slate-500" />
-                    <span>ملخص السيرة الذاتية والأكاديمية</span>
+                    <span>{tr('ملخص السيرة الذاتية والأكاديمية', 'Professional and academic profile')}</span>
                   </h3>
 
                   {profileData.cv_summary ? (
@@ -1061,14 +1061,14 @@ export function DeptHeadProfilePage() {
                     </div>
                   ) : (
                     <div className="p-6 bg-slate-50/50 rounded-xl border border-dashed border-slate-200 text-center text-slate-500 space-y-2">
-                      <p>لم يتم إضافة ملخص السيرة الذاتية الأكاديمية بعد.</p>
+                      <p>{tr('لم يتم إضافة ملخص السيرة الذاتية الأكاديمية بعد.', 'No professional and academic profile has been added yet.')}</p>
                       {(isOwnProfile || canEvaluate) && (
                         <button
                           type="button"
                           onClick={() => setIsEditMode(true)}
                           className="px-3.5 py-1.5 bg-teal-700 hover:bg-teal-800 text-white font-medium text-xs rounded-lg transition-colors cursor-pointer"
                         >
-                          + إضافة السيرة الذاتية الان
+                          {tr('+ إضافة السيرة الذاتية الآن', '+ Add profile summary')}
                         </button>
                       )}
                     </div>
@@ -1086,33 +1086,33 @@ export function DeptHeadProfilePage() {
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                 <h3 className="font-semibold text-slate-900 text-xs flex items-center gap-1.5">
                   <Plus className="w-4 h-4 text-teal-600" />
-                  <span>إضافة بحث جديد إلى السجل</span>
+                  <span>{tr('إضافة بحث جديد إلى السجل', 'Add a new publication')}</span>
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <input
                     type="text"
-                    placeholder="عنوان البحث العلمي..."
+                    placeholder={tr('عنوان البحث العلمي...', 'Publication title...')}
                     value={newPubTitle}
                     onChange={(e) => setNewPubTitle(e.target.value)}
                     className="p-2.5 border border-slate-200 rounded-lg text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   <input
                     type="text"
-                    placeholder="اسم المجلة العلمية..."
+                    placeholder={tr('اسم المجلة العلمية...', 'Journal name...')}
                     value={newPubJournal}
                     onChange={(e) => setNewPubJournal(e.target.value)}
                     className="p-2.5 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   <input
                     type="text"
-                    placeholder="السنة (مثال: 2024)"
+                    placeholder={tr('السنة (مثال: 2024)', 'Year (e.g. 2024)')}
                     value={newPubYear}
                     onChange={(e) => setNewPubYear(e.target.value)}
                     className="p-2.5 border border-slate-200 rounded-lg text-xs font-mono bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   <input
                     type="text"
-                    placeholder="معرف DOI (اختياري)..."
+                    placeholder={tr('معرف DOI (اختياري)...', 'DOI (optional)...')}
                     value={newPubDoi}
                     onChange={(e) => setNewPubDoi(e.target.value)}
                     className="p-2.5 border border-slate-200 rounded-lg text-xs font-mono bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -1123,15 +1123,15 @@ export function DeptHeadProfilePage() {
                   onClick={handleAddPublication}
                   className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white font-medium text-xs rounded-lg cursor-pointer transition-colors"
                 >
-                  + إضافة البحث لسجل البروفايل
+                  {tr('+ إضافة البحث لسجل البروفايل', '+ Add publication to profile')}
                 </button>
               </div>
             )}
 
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900 text-xs">سجل الأبحاث والأوراق العلمية المنشورة:</h3>
+              <h3 className="font-semibold text-slate-900 text-xs">{tr('سجل الأبحاث والأوراق العلمية المنشورة:', 'Publications and research record:')}</h3>
               <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 px-3 py-1 rounded-lg border border-teal-200/80">
-                عدد الأبحاث: {profileData.publications?.length || 0}
+                {tr('Number of publications:', 'Publications:')} {profileData.publications?.length || 0}
               </span>
             </div>
 
@@ -1155,7 +1155,7 @@ export function DeptHeadProfilePage() {
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium pt-1 border-t border-slate-200/50">
-                      <span>المجلة العلمية: <strong className="text-slate-800">{pub.journal}</strong></span>
+                      <span>{tr('المجلة العلمية:', 'Journal:')} <strong className="text-slate-800">{pub.journal}</strong></span>
                       {pub.doi && (
                         <span className="font-mono text-teal-700 font-semibold">DOI: {pub.doi}</span>
                       )}
@@ -1165,14 +1165,14 @@ export function DeptHeadProfilePage() {
               </div>
             ) : (
               <div className="p-8 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200 space-y-2">
-                <p className="text-slate-500">لا توجد أبحاث علمية مسجلة حالياً.</p>
+                <p className="text-slate-500">{tr('لا توجد أبحاث علمية مسجلة حالياً.', 'No publications have been recorded yet.')}</p>
                 {(isOwnProfile || canEvaluate) && (
                   <button
                     type="button"
                     onClick={() => { setActiveTab('research'); setIsEditMode(true); }}
                     className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white font-medium text-xs rounded-lg transition-colors cursor-pointer"
                   >
-                    + إضافة أبحاث علمية
+                    {tr('+ إضافة أبحاث علمية', '+ Add publications')}
                   </button>
                 )}
               </div>
@@ -1187,33 +1187,33 @@ export function DeptHeadProfilePage() {
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                 <h3 className="font-semibold text-slate-900 text-xs flex items-center gap-1.5">
                   <Plus className="w-4 h-4 text-teal-600" />
-                  <span>إضافة مؤتمر أو ورشة عمل جديدة</span>
+                  <span>{tr('إضافة مؤتمر أو ورشة عمل جديدة', 'Add a conference or workshop')}</span>
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <input
                     type="text"
-                    placeholder="اسم المؤتمر أو الندوة..."
+                    placeholder={tr('اسم المؤتمر أو الندوة...', 'Conference or workshop name...')}
                     value={newConfName}
                     onChange={(e) => setNewConfName(e.target.value)}
                     className="p-2.5 border border-slate-200 rounded-lg text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   <input
                     type="text"
-                    placeholder="المكان / الجهة المنظمة..."
+                    placeholder={tr('المكان / الجهة المنظمة...', 'Location / organizer...')}
                     value={newConfLocation}
                     onChange={(e) => setNewConfLocation(e.target.value)}
                     className="p-2.5 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   <input
                     type="text"
-                    placeholder="التاريخ (مثال: مايو 2024)"
+                    placeholder={tr('التاريخ (مثال: مايو 2024)', 'Date (e.g. May 2024)')}
                     value={newConfDate}
                     onChange={(e) => setNewConfDate(e.target.value)}
                     className="p-2.5 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   <input
                     type="text"
-                    placeholder="الدور (مثال: متحدث رئيسي)"
+                    placeholder={tr('الدور (مثال: متحدث رئيسي)', 'Role (e.g. keynote speaker)')}
                     value={newConfRole}
                     onChange={(e) => setNewConfRole(e.target.value)}
                     className="p-2.5 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -1224,15 +1224,15 @@ export function DeptHeadProfilePage() {
                   onClick={handleAddConference}
                   className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white font-medium text-xs rounded-lg cursor-pointer transition-colors"
                 >
-                  + إضافة المؤتمر للسجل
+                  {tr('+ إضافة المؤتمر للسجل', '+ Add conference to profile')}
                 </button>
               </div>
             )}
 
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900 text-xs">سجل المؤتمرات والورش الطبية:</h3>
+              <h3 className="font-semibold text-slate-900 text-xs">{tr('سجل المؤتمرات والورش الطبية:', 'Conferences and workshops record:')}</h3>
               <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 px-3 py-1 rounded-lg border border-teal-200/80">
-                عدد المشاركات: {profileData.conferences?.length || 0}
+                {tr('Number of participations:', 'Participations:')} {profileData.conferences?.length || 0}
               </span>
             </div>
 
@@ -1242,7 +1242,7 @@ export function DeptHeadProfilePage() {
                   <div key={idx} className="p-4 bg-slate-50/60 rounded-xl border border-slate-200/80 flex items-center justify-between hover:border-slate-300 transition-colors">
                     <div>
                       <h4 className="font-semibold text-slate-900 text-xs">{conf.name}</h4>
-                      <span className="text-[11px] text-slate-500 font-medium">{conf.location} • الدور: <strong className="text-slate-800">{conf.role}</strong></span>
+                      <span className="text-[11px] text-slate-500 font-medium">{conf.location} • {tr('الدور:', 'Role:')} <strong className="text-slate-800">{conf.role}</strong></span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="font-mono font-semibold text-slate-600 text-[11px] bg-white px-2.5 py-1 rounded-lg border border-slate-200">
@@ -1263,14 +1263,14 @@ export function DeptHeadProfilePage() {
               </div>
             ) : (
               <div className="p-8 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200 space-y-2">
-                <p className="text-slate-500">لا توجد مؤتمرات أو ورشات عمل مسجلة.</p>
+                <p className="text-slate-500">{tr('لا توجد مؤتمرات أو ورشات عمل مسجلة.', 'No conferences or workshops have been recorded yet.')}</p>
                 {(isOwnProfile || canEvaluate) && (
                   <button
                     type="button"
                     onClick={() => { setActiveTab('conferences'); setIsEditMode(true); }}
                     className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white font-medium text-xs rounded-lg transition-colors cursor-pointer"
                   >
-                    + إضافة مؤتمرات وورشات عمل
+                    {tr('+ إضافة مؤتمرات وورشات عمل', '+ Add conferences and workshops')}
                   </button>
                 )}
               </div>
