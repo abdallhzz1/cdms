@@ -8,13 +8,18 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
+import { useI18n } from '@/i18n/I18nContext';
 import {
   Building2, Plus, Search, Edit2, Trash2, CheckCircle2, XCircle,
   AlertTriangle, Filter, UserCheck, GraduationCap, ClipboardCheck,
   Shield, Layers, Users
 } from 'lucide-react';
 
-const LEVEL_OPTIONS = ['الرابعة', 'الخامسة', 'السادسة'];
+const LEVEL_OPTIONS = [
+  { value: 'الرابعة', ar: 'الرابعة', en: 'Fourth' },
+  { value: 'الخامسة', ar: 'الخامسة', en: 'Fifth' },
+  { value: 'السادسة', ar: 'السادسة', en: 'Sixth' },
+];
 
 const OFFICIAL_ORDER = [
   'DEP-IM',
@@ -28,6 +33,9 @@ const OFFICIAL_ORDER = [
 
 export function DepartmentsManagementPage() {
   const qc = useQueryClient();
+  const { locale } = useI18n();
+  const ar = locale === 'ar';
+  const tr = (arabic: string, english: string) => ar ? arabic : english;
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('ALL');
@@ -137,7 +145,7 @@ export function DepartmentsManagementPage() {
       qc.invalidateQueries({ queryKey: ['admin-departments-manage-list'] });
       setIsAddModalOpen(false);
       resetDeptForm();
-      setSuccessMessage('تم إنشاء القسم الأكاديمي وتعيين قيادته بنجاح.');
+      setSuccessMessage(tr('تم إنشاء القسم الأكاديمي وتعيين قيادته بنجاح.', 'The academic department and its leadership were created successfully.'));
       setTimeout(() => setSuccessMessage(null), 3000);
     },
   });
@@ -147,7 +155,7 @@ export function DepartmentsManagementPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-departments-manage-list'] });
       setEditingDept(null);
-      setSuccessMessage('تم تحديث بيانات القسم بنجاح.');
+      setSuccessMessage(tr('تم تحديث بيانات القسم بنجاح.', 'Department details were updated successfully.'));
       setTimeout(() => setSuccessMessage(null), 3000);
     },
   });
@@ -157,7 +165,7 @@ export function DepartmentsManagementPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-departments-manage-list'] });
       setAssigningDept(null);
-      setSuccessMessage('تم تعيين قيادات القسم (رئيس القسم / TA) بنجاح.');
+      setSuccessMessage(tr('تم تعيين قيادات القسم (رئيس القسم / TA) بنجاح.', 'Department leadership was assigned successfully.'));
       setTimeout(() => setSuccessMessage(null), 3000);
     },
   });
@@ -166,7 +174,7 @@ export function DepartmentsManagementPage() {
     mutationFn: (id: number) => apiFetch(`/departments-manage/${id}/toggle`, { method: 'POST' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-departments-manage-list'] });
-      setSuccessMessage('تم تغيير حالة تفعيل القسم بنجاح.');
+      setSuccessMessage(tr('تم تغيير حالة تفعيل القسم بنجاح.', 'Department status was updated successfully.'));
       setTimeout(() => setSuccessMessage(null), 3000);
     },
   });
@@ -176,7 +184,7 @@ export function DepartmentsManagementPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-departments-manage-list'] });
       setDeleteConfirmDept(null);
-      setSuccessMessage('تم حذف القسم الأكاديمي بنجاح.');
+      setSuccessMessage(tr('تم حذف القسم الأكاديمي بنجاح.', 'The academic department was deleted successfully.'));
       setTimeout(() => setSuccessMessage(null), 3000);
     },
   });
@@ -238,8 +246,8 @@ export function DepartmentsManagementPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <PageHeader
-          title="شاشة إدارة أقسام الكلية والقيادات الأكاديمية"
-          description="إضافة وتعديل أقسام الكلية، تحديد وتغيير رؤساء الأقسام ومساعدي البحث والتدريس (TA)، ومتابعة كادر كل قسم."
+          title={tr('إدارة أقسام الكلية والقيادات الأكاديمية', 'Faculty Departments and Academic Leadership')}
+          description={tr('إضافة وتعديل أقسام الكلية، تحديد وتغيير رؤساء الأقسام ومساعدي البحث والتدريس، ومتابعة كادر كل قسم.', 'Create and update faculty departments, assign department heads and RTAs, and monitor department staff.')}
         />
         <Button
           onClick={() => {
@@ -249,7 +257,7 @@ export function DepartmentsManagementPage() {
           className="gap-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-xs"
         >
           <Plus className="w-4 h-4" />
-          إضافة قسم جديد
+          {tr('إضافة قسم جديد', 'Add department')}
         </Button>
       </div>
 
@@ -268,7 +276,7 @@ export function DepartmentsManagementPage() {
           </div>
           <div>
             <div className="text-2xl font-black text-slate-800">{stats.total}</div>
-            <div className="text-[11px] font-bold text-slate-500">إجمالي الأقسام الأكاديمية</div>
+            <div className="text-[11px] font-bold text-slate-500">{tr('إجمالي الأقسام الأكاديمية', 'Academic departments')}</div>
           </div>
         </Card>
 
@@ -278,7 +286,7 @@ export function DepartmentsManagementPage() {
           </div>
           <div>
             <div className="text-2xl font-black text-slate-800">{stats.withHead} / {stats.total}</div>
-            <div className="text-[11px] font-bold text-slate-500">أقسام برئيس قسم معين</div>
+            <div className="text-[11px] font-bold text-slate-500">{tr('أقسام برئيس قسم معين', 'Departments with a head')}</div>
           </div>
         </Card>
 
@@ -288,7 +296,7 @@ export function DepartmentsManagementPage() {
           </div>
           <div>
             <div className="text-2xl font-black text-slate-800">{stats.withRta} / {stats.total}</div>
-            <div className="text-[11px] font-bold text-slate-500">أقسام بمساعد بحث (TA)</div>
+            <div className="text-[11px] font-bold text-slate-500">{tr('أقسام بمساعد بحث (TA)', 'Departments with an RTA')}</div>
           </div>
         </Card>
 
@@ -297,8 +305,8 @@ export function DepartmentsManagementPage() {
             <Layers className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-2xl font-black text-slate-800">{stats.primary} رئيسي / {stats.sub} فرعي</div>
-            <div className="text-[11px] font-bold text-slate-500">توزيع هيكل الأقسام</div>
+            <div className="text-2xl font-black text-slate-800">{stats.primary} {tr('رئيسي', 'primary')} / {stats.sub} {tr('فرعي', 'sub')}</div>
+            <div className="text-[11px] font-bold text-slate-500">{tr('توزيع هيكل الأقسام', 'Department structure')}</div>
           </div>
         </Card>
       </div>
@@ -310,7 +318,7 @@ export function DepartmentsManagementPage() {
             <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
             <input
               type="text"
-              placeholder="ابحث باسم القسم، الرمز، رئيس القسم، أو الـ TA..."
+              placeholder={tr('ابحث باسم القسم، الرمز، رئيس القسم، أو مساعد البحث...', 'Search by department, code, head, or RTA...')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pr-10 pl-4 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-slate-50/50"
@@ -324,14 +332,14 @@ export function DepartmentsManagementPage() {
               onChange={(e) => setStatusFilter(e.target.value)}
               className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-teal-500 outline-hidden"
             >
-              <option value="ALL">جميع الحالات</option>
-              <option value="ACTIVE">الأقسام النشطة فقط</option>
-              <option value="INACTIVE">الأقسام المجمدة</option>
+              <option value="ALL">{tr('جميع الحالات', 'All statuses')}</option>
+              <option value="ACTIVE">{tr('الأقسام النشطة فقط', 'Active departments')}</option>
+              <option value="INACTIVE">{tr('الأقسام المجمدة', 'Inactive departments')}</option>
             </select>
 
             <div className="text-xs font-bold text-slate-500 flex items-center gap-1.5 mr-2">
               <Filter className="w-4 h-4 text-teal-600" />
-              <span>عرض {filteredDepartments.length} من {departments.length}</span>
+              <span>{tr('عرض', 'Showing')} {filteredDepartments.length} {tr('من', 'of')} {departments.length}</span>
             </div>
           </div>
         </div>
@@ -344,7 +352,7 @@ export function DepartmentsManagementPage() {
               typeFilter === 'ALL' ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            جميع الأقسام ({departments.length})
+            {tr('جميع الأقسام', 'All departments')} ({departments.length})
           </button>
           <button
             onClick={() => setTypeFilter('primary')}
@@ -352,7 +360,7 @@ export function DepartmentsManagementPage() {
               typeFilter === 'primary' ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            أقسام رئيسية ({stats.primary})
+            {tr('أقسام رئيسية', 'Primary departments')} ({stats.primary})
           </button>
           <button
             onClick={() => setTypeFilter('sub')}
@@ -360,7 +368,7 @@ export function DepartmentsManagementPage() {
               typeFilter === 'sub' ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            تخصصات وأقسام فرعية ({stats.sub})
+            {tr('تخصصات وأقسام فرعية', 'Subspecialties and subdepartments')} ({stats.sub})
           </button>
         </div>
       </Card>
@@ -370,19 +378,19 @@ export function DepartmentsManagementPage() {
         <Table>
           <TableHeader className="bg-slate-50/90">
             <TableRow>
-              <TableHead className="min-w-[280px]">القسم الأكاديمي والرمز</TableHead>
-              <TableHead className="min-w-[230px]">رئيس القسم المكلف</TableHead>
-              <TableHead className="min-w-[230px]">مساعد البحث والتدريس (TA)</TableHead>
-              <TableHead className="text-center w-24">الكادر</TableHead>
-              <TableHead className="text-center w-28">الحالة</TableHead>
-              <TableHead className="text-center w-36">إجراءات وإدارة</TableHead>
+              <TableHead className="min-w-[280px]">{tr('القسم الأكاديمي والرمز', 'Academic department and code')}</TableHead>
+              <TableHead className="min-w-[230px]">{tr('رئيس القسم المكلف', 'Assigned department head')}</TableHead>
+              <TableHead className="min-w-[230px]">{tr('مساعد البحث والتدريس', 'Research and Teaching Assistant')}</TableHead>
+              <TableHead className="text-center w-24">{tr('الكادر', 'Staff')}</TableHead>
+              <TableHead className="text-center w-28">{tr('الحالة', 'Status')}</TableHead>
+              <TableHead className="text-center w-36">{tr('إجراءات وإدارة', 'Actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredDepartments.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-12 text-slate-400 text-xs">
-                  لا يوجد أقسام مطابقة لخيارات البحث أو التصفية.
+                  {tr('لا توجد أقسام مطابقة لخيارات البحث أو التصفية.', 'No departments match the selected search or filters.')}
                 </TableCell>
               </TableRow>
             ) : (
@@ -406,7 +414,7 @@ export function DepartmentsManagementPage() {
                                 : 'bg-slate-100 text-slate-700 border border-slate-200'
                             }`}
                           >
-                            {d.dept_type === 'primary' ? 'قسم رئيسي' : 'قسم فرعي'}
+                            {d.dept_type === 'primary' ? tr('قسم رئيسي', 'Primary') : tr('قسم فرعي', 'Subdepartment')}
                           </span>
                         </div>
 
@@ -422,13 +430,13 @@ export function DepartmentsManagementPage() {
                         {/* 3. Academic Levels Served */}
                         {levels.length > 0 && (
                           <div className="flex items-center gap-1.5 text-[11px] pt-0.5">
-                            <span className="font-bold text-slate-400 text-[10px]">السنوات:</span>
+                            <span className="font-bold text-slate-400 text-[10px]">{tr('السنوات:', 'Years:')}</span>
                             {levels.map((lvl) => (
                               <span
                                 key={lvl}
                                 className="px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-700 font-bold text-[10px]"
                               >
-                                السنة {lvl}
+                                {ar ? `السنة ${lvl}` : `${LEVEL_OPTIONS.find(option => option.value === lvl)?.en ?? lvl} year`}
                               </span>
                             ))}
                           </div>
@@ -451,19 +459,19 @@ export function DepartmentsManagementPage() {
                             onClick={() => openAssignModal(d)}
                             className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold mr-5 block hover:underline cursor-pointer pt-0.5"
                           >
-                            تغيير رئيس القسم ↻
+                            {tr('تغيير رئيس القسم ↻', 'Change department head ↻')}
                           </button>
                         </div>
                       ) : (
                         <div className="p-2.5 rounded-xl bg-slate-50 border border-dashed border-slate-200 flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium text-slate-400">لم يُعيّن رئيس بعد</span>
+                          <span className="text-xs font-medium text-slate-400">{tr('لم يُعيّن رئيس بعد', 'No department head assigned')}</span>
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => openAssignModal(d)}
                             className="text-xs text-teal-700 bg-teal-50 hover:bg-teal-100 font-bold px-2.5 py-1 h-auto rounded-lg"
                           >
-                            + تعيين
+                            {tr('+ تعيين', '+ Assign')}
                           </Button>
                         </div>
                       )}
@@ -484,19 +492,19 @@ export function DepartmentsManagementPage() {
                             onClick={() => openAssignModal(d)}
                             className="text-[10px] text-amber-700 hover:text-amber-900 font-bold mr-5 block hover:underline cursor-pointer pt-0.5"
                           >
-                            تغيير الـ TA ↻
+                            {tr('تغيير مساعد البحث ↻', 'Change RTA ↻')}
                           </button>
                         </div>
                       ) : (
                         <div className="p-2.5 rounded-xl bg-slate-50 border border-dashed border-slate-200 flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium text-slate-400">لم يُعيّن TA بعد</span>
+                          <span className="text-xs font-medium text-slate-400">{tr('لم يُعيّن مساعد بحث بعد', 'No RTA assigned')}</span>
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => openAssignModal(d)}
                             className="text-xs text-teal-700 bg-teal-50 hover:bg-teal-100 font-bold px-2.5 py-1 h-auto rounded-lg"
                           >
-                            + تعيين
+                            {tr('+ تعيين', '+ Assign')}
                           </Button>
                         </div>
                       )}
@@ -522,7 +530,7 @@ export function DepartmentsManagementPage() {
                         }`}
                       >
                         {d.is_active ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
-                        {d.is_active ? 'نشط' : 'مجمد'}
+                        {d.is_active ? tr('نشط', 'Active') : tr('مجمد', 'Inactive')}
                       </button>
                     </TableCell>
 
@@ -533,7 +541,7 @@ export function DepartmentsManagementPage() {
                           size="sm"
                           variant="ghost"
                           onClick={() => openAssignModal(d)}
-                          title="تعيين وتغيير قيادات القسم"
+                          title={tr('تعيين وتغيير قيادات القسم', 'Assign department leadership')}
                           className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-50 rounded-lg"
                         >
                           <UserCheck className="w-4 h-4" />
@@ -543,7 +551,7 @@ export function DepartmentsManagementPage() {
                           size="sm"
                           variant="ghost"
                           onClick={() => openEditModal(d)}
-                          title="تعديل بيانات القسم"
+                          title={tr('تعديل بيانات القسم', 'Edit department')}
                           className="h-8 w-8 p-0 text-slate-600 hover:bg-slate-100 rounded-lg"
                         >
                           <Edit2 className="w-4 h-4" />
@@ -553,7 +561,7 @@ export function DepartmentsManagementPage() {
                           size="sm"
                           variant="ghost"
                           onClick={() => setDeleteConfirmDept(d)}
-                          title="حذف القسم نهائياً"
+                          title={tr('حذف القسم نهائياً', 'Delete department')}
                           className="h-8 w-8 p-0 text-red-600 hover:bg-red-50 rounded-lg"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -575,7 +583,7 @@ export function DepartmentsManagementPage() {
           setIsAddModalOpen(false);
           setEditingDept(null);
         }}
-        title={editingDept ? `تعديل بيانات القسم: ${editingDept.name_ar}` : 'إضافة قسم أكاديمي جديد'}
+        title={editingDept ? `${tr('تعديل بيانات القسم', 'Edit department')}: ${ar ? editingDept.name_ar : editingDept.name_en || editingDept.name_ar}` : tr('إضافة قسم أكاديمي جديد', 'Add academic department')}
       >
         <form
           onSubmit={(e) => {
@@ -595,18 +603,18 @@ export function DepartmentsManagementPage() {
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">اسم القسم بالعربية *</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">{tr('اسم القسم بالعربية *', 'Arabic department name *')}</label>
               <input
                 type="text"
                 required
-                placeholder="مثال: قسم الجراحة العامة"
+                placeholder={tr('مثال: قسم الجراحة العامة', 'Example: General Surgery Department')}
                 value={deptForm.name_ar}
                 onChange={(e) => setDeptForm({ ...deptForm, name_ar: e.target.value })}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">اسم القسم بالإنجليزية *</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">{tr('اسم القسم بالإنجليزية *', 'English department name *')}</label>
               <input
                 type="text"
                 required
@@ -620,47 +628,47 @@ export function DepartmentsManagementPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">رمز القسم (Code) *</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">{tr('رمز القسم *', 'Department code *')}</label>
               <input
                 type="text"
                 required
-                placeholder="مثال: DEP-GS أو SURG"
+                placeholder={tr('مثال: DEP-GS أو SURG', 'Example: DEP-GS or SURG')}
                 value={deptForm.code}
                 onChange={(e) => setDeptForm({ ...deptForm, code: e.target.value.toUpperCase() })}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-mono uppercase font-bold"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">نوع القسم الأكاديمي *</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">{tr('نوع القسم الأكاديمي *', 'Department type *')}</label>
               <select
                 value={deptForm.dept_type}
                 onChange={(e) => setDeptForm({ ...deptForm, dept_type: e.target.value })}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium bg-white"
               >
-                <option value="primary">قسم رئيسي (Primary Department)</option>
-                <option value="sub">قسم فرعي / تخصص دقيق (Subspecialty)</option>
+                <option value="primary">{tr('قسم رئيسي', 'Primary department')}</option>
+                <option value="sub">{tr('قسم فرعي / تخصص دقيق', 'Subdepartment / subspecialty')}</option>
               </select>
             </div>
           </div>
 
           {/* Academic Levels */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">السنوات الأكاديمية التي يخدمها القسم</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">{tr('السنوات الأكاديمية التي يخدمها القسم', 'Academic years served by the department')}</label>
             <div className="flex flex-wrap gap-2">
-              {LEVEL_OPTIONS.map((lvl) => {
-                const isSelected = deptForm.serves_academic_levels.includes(lvl);
+              {LEVEL_OPTIONS.map((option) => {
+                const isSelected = deptForm.serves_academic_levels.includes(option.value);
                 return (
                   <button
                     type="button"
-                    key={lvl}
-                    onClick={() => toggleLevel(lvl)}
+                    key={option.value}
+                    onClick={() => toggleLevel(option.value)}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                       isSelected
                         ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    السنة {lvl} {isSelected && '✓'}
+                    {ar ? `السنة ${option.ar}` : `${option.en} year`} {isSelected && '✓'}
                   </button>
                 );
               })}
@@ -671,17 +679,17 @@ export function DepartmentsManagementPage() {
           <div className="p-3.5 rounded-2xl bg-teal-50/70 border border-teal-200 space-y-3">
             <div className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
               <Shield className="w-4 h-4 text-teal-700" />
-              تعيين القيادات الأكاديمية للقسم
+              {tr('تعيين القيادات الأكاديمية للقسم', 'Assign department academic leadership')}
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">رئيس القسم المكلف</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">{tr('رئيس القسم المكلف', 'Assigned department head')}</label>
               <select
                 value={deptForm.head_person_id}
                 onChange={(e) => setDeptForm({ ...deptForm, head_person_id: e.target.value })}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden bg-white font-medium"
               >
-                <option value="">— لا يوجد رئيس قسم مكلف حالياً —</option>
+                <option value="">{tr('— لا يوجد رئيس قسم مكلف حالياً —', '— No department head currently assigned —')}</option>
                 {headCandidates.map((p: any) => (
                   <option key={p.id} value={p.id}>
                     {p.full_name_ar} {p.specialty ? `(${p.specialty})` : ''} - {p.email}
@@ -691,13 +699,13 @@ export function DepartmentsManagementPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">مساعد البحث والتدريس (TA)</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">{tr('مساعد البحث والتدريس', 'Research and Teaching Assistant')}</label>
               <select
                 value={deptForm.rta_person_id}
                 onChange={(e) => setDeptForm({ ...deptForm, rta_person_id: e.target.value })}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden bg-white font-medium"
               >
-                <option value="">— لا يوجد مساعد بحث وتدريس حالياً —</option>
+                <option value="">{tr('— لا يوجد مساعد بحث وتدريس حالياً —', '— No RTA currently assigned —')}</option>
                 {rtaCandidates.map((p: any) => (
                   <option key={p.id} value={p.id}>
                     {p.full_name_ar} - {p.email}
@@ -708,10 +716,10 @@ export function DepartmentsManagementPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات إضافية</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">{tr('ملاحظات إضافية', 'Additional notes')}</label>
             <textarea
               rows={2}
-              placeholder="أي ملاحظات تنظيمية أو إدارية تخص هذا القسم..."
+              placeholder={tr('أي ملاحظات تنظيمية أو إدارية تخص هذا القسم...', 'Any organizational or administrative notes about this department...')}
               value={deptForm.notes}
               onChange={(e) => setDeptForm({ ...deptForm, notes: e.target.value })}
               className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-teal-500 outline-hidden font-medium"
@@ -727,14 +735,14 @@ export function DepartmentsManagementPage() {
                 setEditingDept(null);
               }}
             >
-              إلغاء
+              {tr('إلغاء', 'Cancel')}
             </Button>
             <Button
               type="submit"
               disabled={createMutation.isPending || updateMutation.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs"
             >
-              {editingDept ? 'حفظ التعديلات' : 'إنشاء القسم فوراً'}
+              {editingDept ? tr('حفظ التعديلات', 'Save changes') : tr('إنشاء القسم', 'Create department')}
             </Button>
           </div>
         </form>
@@ -744,7 +752,7 @@ export function DepartmentsManagementPage() {
       <Modal
         isOpen={!!assigningDept}
         onClose={() => setAssigningDept(null)}
-        title={`تعيين قيادات قسم: ${assigningDept?.name_ar || ''}`}
+        title={`${tr('تعيين قيادات قسم', 'Assign department leadership')}: ${ar ? assigningDept?.name_ar || '' : assigningDept?.name_en || assigningDept?.name_ar || ''}`}
       >
         <form
           onSubmit={(e) => {
@@ -762,20 +770,20 @@ export function DepartmentsManagementPage() {
           className="space-y-4"
         >
           <div className="p-3.5 rounded-2xl bg-teal-50 border border-teal-200 text-xs font-medium text-teal-800 leading-relaxed">
-            يتم هنا تحديد وتغيير رئيس القسم ومساعد البحث والتدريس (TA) لهذا القسم. تقتصر الخيارات على الكادر الحاملين لدور <b>رئيس القسم</b> و<b>مساعد بحث وتدريس</b> في النظام.
+            {tr('يتم هنا تحديد وتغيير رئيس القسم ومساعد البحث والتدريس لهذا القسم. تقتصر الخيارات على الكادر المؤهل في النظام.', 'Assign or change the department head and RTA here. Options are limited to eligible staff accounts.')}
           </div>
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
               <GraduationCap className="w-4 h-4 text-indigo-600" />
-              رئيس القسم الأكاديمي الحالي
+              {tr('رئيس القسم الأكاديمي الحالي', 'Current academic department head')}
             </label>
             <select
               value={assignForm.head_person_id}
               onChange={(e) => setAssignForm({ ...assignForm, head_person_id: e.target.value })}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-indigo-500 outline-hidden bg-white font-medium"
             >
-              <option value="">— لا يوجد رئيس قسم (إخلاء المنصب) —</option>
+              <option value="">{tr('— لا يوجد رئيس قسم (إخلاء المنصب) —', '— No department head (vacate position) —')}</option>
               {headCandidates.map((p: any) => (
                 <option key={p.id} value={p.id}>
                   {p.full_name_ar} {p.specialty ? `(${p.specialty})` : ''} - {p.email}
@@ -787,14 +795,14 @@ export function DepartmentsManagementPage() {
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
               <ClipboardCheck className="w-4 h-4 text-amber-600" />
-              مساعد البحث والتدريس (TA) الحالي
+              {tr('مساعد البحث والتدريس الحالي', 'Current Research and Teaching Assistant')}
             </label>
             <select
               value={assignForm.rta_person_id}
               onChange={(e) => setAssignForm({ ...assignForm, rta_person_id: e.target.value })}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500 outline-hidden bg-white font-medium"
             >
-              <option value="">— لا يوجد مساعد بحث وتدريس —</option>
+              <option value="">{tr('— لا يوجد مساعد بحث وتدريس —', '— No RTA assigned —')}</option>
               {rtaCandidates.map((p: any) => (
                 <option key={p.id} value={p.id}>
                   {p.full_name_ar} - {p.email}
@@ -805,14 +813,14 @@ export function DepartmentsManagementPage() {
 
           <div className="flex justify-end gap-2 pt-3">
             <Button type="button" variant="ghost" onClick={() => setAssigningDept(null)}>
-              إلغاء
+              {tr('إلغاء', 'Cancel')}
             </Button>
             <Button
               type="submit"
               disabled={assignLeadersMutation.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs"
             >
-              اعتماد القيادات وحفظ التغيير
+              {tr('اعتماد القيادات وحفظ التغيير', 'Confirm leadership assignments')}
             </Button>
           </div>
         </form>
@@ -822,29 +830,29 @@ export function DepartmentsManagementPage() {
       <Modal
         isOpen={!!deleteConfirmDept}
         onClose={() => setDeleteConfirmDept(null)}
-        title="تأكيد حذف القسم الأكاديمي"
+        title={tr('تأكيد حذف القسم الأكاديمي', 'Confirm department deletion')}
       >
         <div className="space-y-4">
           <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-xs font-semibold flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold text-sm">هل أنت متأكد من حذف هذا القسم نهائياً؟</p>
+              <p className="font-bold text-sm">{tr('هل أنت متأكد من حذف هذا القسم نهائياً؟', 'Are you sure you want to permanently delete this department?')}</p>
               <p className="mt-1 text-red-700 leading-relaxed">
-                سيتم حذف القسم (<b>{deleteConfirmDept?.name_ar}</b> - {deleteConfirmDept?.code})، وإلغاء تكليفات رئيس القسم والـ TA المرتبطة به.
+                {tr('سيتم حذف القسم وإلغاء تكليفات القيادة المرتبطة به.', 'The department and its related leadership assignments will be removed.')} (<b>{ar ? deleteConfirmDept?.name_ar : deleteConfirmDept?.name_en || deleteConfirmDept?.name_ar}</b> - {deleteConfirmDept?.code})
               </p>
             </div>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setDeleteConfirmDept(null)}>
-              إلغاء الأمر
+              {tr('إلغاء الأمر', 'Cancel')}
             </Button>
             <Button
               onClick={() => deleteMutation.mutate(deleteConfirmDept?.id)}
               disabled={deleteMutation.isPending}
               className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs"
             >
-              تأكيد الحذف النهائي
+              {tr('تأكيد الحذف النهائي', 'Delete permanently')}
             </Button>
           </div>
         </div>

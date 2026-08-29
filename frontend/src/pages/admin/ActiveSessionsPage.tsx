@@ -8,9 +8,11 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
 import { ShieldCheck, Monitor, Smartphone, Globe, LogOut, CheckCircle2 } from 'lucide-react';
+import { useI18n } from '@/i18n/I18nContext';
 
 export function ActiveSessionsPage() {
   const qc = useQueryClient();
+  const { locale } = useI18n(); const tr = (ar:string,en:string)=>locale==='ar'?ar:en;
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -22,7 +24,7 @@ export function ActiveSessionsPage() {
     mutationFn: (userId: number) => apiFetch(`/admin/sessions/${userId}/revoke`, { method: 'POST' }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ['admin-sessions'] });
-      setSuccessMessage(res?.message || 'تم طرد وإنهاء الجلسة بنجاح.');
+      setSuccessMessage(res?.message || tr('تم طرد وإنهاء الجلسة بنجاح.', 'The session was revoked successfully.'));
       setTimeout(() => setSuccessMessage(null), 4000);
     },
   });
@@ -36,8 +38,8 @@ export function ActiveSessionsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="شاشة إدارة الجلسات والأمان الحية"
-        description="مراقبة الأجهزة والدخول المباشر للنظام وإمكانية طرد أو إنهاء جلسة أي حساب فوراً (Active Session Guard)."
+        title={tr('إدارة الجلسات والأمان', 'Active Sessions and Security')}
+        description={tr('مراقبة الأجهزة المتصلة وإمكانية إنهاء جلسة أي حساب فوراً.', 'Monitor connected devices and immediately revoke any account session.')}
       />
 
       {successMessage && (
@@ -51,7 +53,7 @@ export function ActiveSessionsPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="p-5 flex items-center justify-between border-slate-100 shadow-xs">
           <div>
-            <p className="text-xs font-semibold text-slate-500">الجلسات النشطة حالياً</p>
+            <p className="text-xs font-semibold text-slate-500">{tr('الجلسات النشطة حالياً', 'Currently active sessions')}</p>
             <p className="text-2xl font-black text-slate-900 mt-1">{totalActive}</p>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center border border-teal-100">
@@ -61,8 +63,8 @@ export function ActiveSessionsPage() {
 
         <Card className="p-5 flex items-center justify-between border-slate-100 shadow-xs">
           <div>
-            <p className="text-xs font-semibold text-slate-500">حالة التشفير والحماية</p>
-            <p className="text-sm font-bold text-emerald-600 mt-1">مشفرة برمز TLS/Sanctum</p>
+            <p className="text-xs font-semibold text-slate-500">{tr('حالة التشفير والحماية', 'Encryption and protection')}</p>
+            <p className="text-sm font-bold text-emerald-600 mt-1">{tr('مشفرة عبر TLS وSanctum', 'Protected by TLS and Sanctum')}</p>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
             <ShieldCheck className="w-6 h-6" />
@@ -71,8 +73,8 @@ export function ActiveSessionsPage() {
 
         <Card className="p-5 flex items-center justify-between border-slate-100 shadow-xs">
           <div>
-            <p className="text-xs font-semibold text-slate-500">معدل الأمان التقني</p>
-            <p className="text-sm font-bold text-indigo-600 mt-1">100% - محصنة</p>
+            <p className="text-xs font-semibold text-slate-500">{tr('معدل الأمان التقني', 'Technical security status')}</p>
+            <p className="text-sm font-bold text-indigo-600 mt-1">{tr('100% - محصنة', '100% — Protected')}</p>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
             <Globe className="w-6 h-6" />
@@ -85,21 +87,21 @@ export function ActiveSessionsPage() {
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
             <Monitor className="w-4 h-4 text-teal-600" />
-            جدول الجلسات والأجهزة المتصلة بالنظام
+            {tr('الجلسات والأجهزة المتصلة بالنظام', 'Connected sessions and devices')}
           </h3>
           <span className="text-xs px-3 py-1 rounded-full bg-teal-100 text-teal-800 font-medium">
-            تحديث تلقائي لحالة الدخول
+            {tr('تحديث تلقائي لحالة الدخول', 'Automatically refreshed')}
           </span>
         </div>
 
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>المستخدم والحساب</TableHead>
-              <TableHead>عنوان IP</TableHead>
-              <TableHead>المتصفح والنظام</TableHead>
-              <TableHead>آخر نشاط</TableHead>
-              <TableHead className="text-left">الإجراء الأمني</TableHead>
+              <TableHead>{tr('المستخدم والحساب', 'User and account')}</TableHead>
+              <TableHead>{tr('عنوان IP', 'IP address')}</TableHead>
+              <TableHead>{tr('المتصفح والنظام', 'Browser and system')}</TableHead>
+              <TableHead>{tr('آخر نشاط', 'Last activity')}</TableHead>
+              <TableHead>{tr('الإجراء الأمني', 'Security action')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -110,7 +112,7 @@ export function ActiveSessionsPage() {
                     {sess.name}
                     {sess.is_current && (
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600 text-white font-bold">
-                        جلساتك الحالية
+                        {tr('جلستك الحالية', 'Your current session')}
                       </span>
                     )}
                   </div>
@@ -124,9 +126,9 @@ export function ActiveSessionsPage() {
                 <TableCell>
                   <div className="text-xs text-slate-600 max-w-xs truncate" title={sess.user_agent}>
                     {sess.user_agent.includes('Mobile') ? (
-                      <span className="inline-flex items-center gap-1"><Smartphone className="w-3.5 h-3.5 text-slate-400" /> هاتف محمول</span>
+                      <span className="inline-flex items-center gap-1"><Smartphone className="w-3.5 h-3.5 text-slate-400" />{tr('هاتف محمول', 'Mobile device')}</span>
                     ) : (
-                      <span className="inline-flex items-center gap-1"><Monitor className="w-3.5 h-3.5 text-slate-400" /> متصفح مكتب</span>
+                      <span className="inline-flex items-center gap-1"><Monitor className="w-3.5 h-3.5 text-slate-400" />{tr('متصفح مكتب', 'Desktop browser')}</span>
                     )}
                   </div>
                 </TableCell>
@@ -135,7 +137,7 @@ export function ActiveSessionsPage() {
                 </TableCell>
                 <TableCell className="text-left">
                   {sess.is_current ? (
-                    <span className="text-xs text-slate-400 font-medium">نشط (حسابك)</span>
+                    <span className="text-xs text-slate-400 font-medium">{tr('نشط (حسابك)', 'Active (your account)')}</span>
                   ) : (
                     <Button
                       size="sm"
@@ -145,7 +147,7 @@ export function ActiveSessionsPage() {
                       className="text-red-600 hover:bg-red-50 hover:text-red-700 gap-1.5 rounded-xl font-bold text-xs"
                     >
                       <LogOut className="w-3.5 h-3.5" />
-                      طرد الجلسة
+                      {tr('طرد الجلسة', 'Revoke session')}
                     </Button>
                   )}
                 </TableCell>

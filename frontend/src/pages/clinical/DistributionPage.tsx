@@ -29,7 +29,6 @@ type Schedule = { rotation: Rotation | null; version: Version | null; current_pu
 type OverridePayload = { force?: boolean; override_reason?: string };
 
 const levels: Record<Level, string> = { fourth: 'السنة الرابعة', fifth: 'السنة الخامسة', sixth: 'السنة السادسة' };
-const statusLabels: Record<string, string> = { draft: 'مسودة', suggested: 'مقترح', manual: 'قيد الإعداد', published: 'منشور', withdrawn: 'ملغى النشر' };
 const inputClass = 'w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100';
 
 function normalizeAssignedLevel(value: string): Level | null {
@@ -75,6 +74,10 @@ function weekDate(startDate: string | null | undefined, week: number): string {
 export function DistributionPage() {
   const { can, user } = useAuth();
   const { locale } = useI18n();
+  const ar = locale === 'ar';
+  const tr = (arabic: string, english: string) => ar ? arabic : english;
+  const levelText: Record<Level,string> = { fourth: tr('السنة الرابعة','Fourth year'), fifth: tr('السنة الخامسة','Fifth year'), sixth: tr('السنة السادسة','Sixth year') };
+  const statusLabels: Record<string,string> = { draft: tr('مسودة','Draft'), suggested: tr('مقترح','Suggested'), manual: tr('قيد الإعداد','In preparation'), published: tr('منشور','Published'), withdrawn: tr('ملغى النشر','Unpublished') };
   const userRoles = (user?.roles ?? []).map((role) => role.toUpperCase());
   const hasGlobalCohortRole = userRoles.some((role) => ['SYS_ADMIN', 'DEAN', 'VICE_DEAN', 'CLINICAL_DIRECTOR'].includes(role));
   const isCohortScopedRta = userRoles.includes('RTA') && !hasGlobalCohortRole;
@@ -224,18 +227,18 @@ export function DistributionPage() {
   if (optionsQuery.isLoading) return <LoadingState />;
   if (optionsQuery.isError) return <ErrorState onRetry={() => optionsQuery.refetch()} />;
 
-  return <div className="mx-auto max-w-[1700px] space-y-5 pb-14" dir="rtl">
-    <PageHeader title="التوزيع الأسبوعي للمساقات السريرية" description="اختر الدفعة والمساق، ثم وزّع مجموعات الطلبة أسبوعيًا على أطباء المستشفيات.">
-      <Link to="/distribution/groups" className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800"><Users className="h-4 w-4" />مجموعات الطلبة</Link>
-      <Link to="/clinical-supervisors" className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-white px-3 py-2 text-xs font-bold text-teal-800"><Building2 className="h-4 w-4" />المستشفيات والمشرفون</Link>
-      <Link to="/courses" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700"><ExternalLink className="h-4 w-4" />مساقات السريري</Link>
+  return <div className="mx-auto max-w-[1700px] space-y-5 pb-14">
+    <PageHeader title={tr('التوزيع الأسبوعي للمساقات السريرية','Weekly Clinical Course Distribution')} description={tr('اختر الدفعة والمساق، ثم وزّع مجموعات الطلبة أسبوعيًا على أطباء المستشفيات.','Select the cohort and course, then assign student groups to hospital physicians by week.')}>
+      <Link to="/distribution/groups" className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800"><Users className="h-4 w-4" />{tr('مجموعات الطلبة','Student groups')}</Link>
+      <Link to="/clinical-supervisors" className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-white px-3 py-2 text-xs font-bold text-teal-800"><Building2 className="h-4 w-4" />{tr('المستشفيات والمشرفون','Hospitals and supervisors')}</Link>
+      <Link to="/courses" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700"><ExternalLink className="h-4 w-4" />{tr('المساقات السريرية','Clinical courses')}</Link>
     </PageHeader>
     {notice && <div className={`flex justify-between rounded-xl border px-4 py-3 text-xs font-bold ${notice.type === 'success' ? 'border-teal-200 bg-teal-50 text-teal-800' : 'border-red-200 bg-red-50 text-red-800'}`}><span>{notice.text}</span><button onClick={() => setNotice(null)}>×</button></div>}
 
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 md:grid-cols-3">
-      <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">العام الأكاديمي</span><select className={inputClass} value={yearId} onChange={(event) => { setYearId(event.target.value); setStartDate(''); }}><option value="">اختر العام</option>{years.map((year) => <option key={year.id} value={year.id}>{year.code}{year.is_current ? ' — الحالي' : ''}</option>)}</select></label>
-      <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">الدفعة / المستوى</span><select className={inputClass} value={level} onChange={(event) => setLevel(event.target.value as Level)} disabled={isCohortScopedRta && visibleLevels.length <= 1}>{visibleLevels.map((value) => <option key={value} value={value}>{levels[value]}</option>)}</select>{isCohortScopedRta && visibleLevels.length === 0 && <span className="mt-1 block text-[10px] font-bold text-amber-700">لم يتم تكليف حسابك بأي دفعة.</span>}</label>
-      <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">المساق السريري</span><select className={inputClass} value={courseId} onChange={(event) => setCourseId(event.target.value)} disabled={!availableCourses.length}><option value="">{availableCourses.length ? 'اختر المساق' : 'لا توجد مساقات لهذه الدفعة'}</option>{availableCourses.map((course) => <option key={course.id} value={course.id}>{course.code} — {course.name_ar}</option>)}</select></label>
+      <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">{tr('العام الأكاديمي','Academic year')}</span><select className={inputClass} value={yearId} onChange={(event) => { setYearId(event.target.value); setStartDate(''); }}><option value="">{tr('اختر العام','Select year')}</option>{years.map((year) => <option key={year.id} value={year.id}>{year.code}{year.is_current ? tr(' — الحالي',' — Current') : ''}</option>)}</select></label>
+      <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">{tr('الدفعة / المستوى','Cohort / level')}</span><select className={inputClass} value={level} onChange={(event) => setLevel(event.target.value as Level)} disabled={isCohortScopedRta && visibleLevels.length <= 1}>{visibleLevels.map((value) => <option key={value} value={value}>{levelText[value]}</option>)}</select>{isCohortScopedRta && visibleLevels.length === 0 && <span className="mt-1 block text-[10px] font-bold text-amber-700">{tr('لم يتم تكليف حسابك بأي دفعة.','Your account has not been assigned to a cohort.')}</span>}</label>
+      <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">{tr('المساق السريري','Clinical course')}</span><select className={inputClass} value={courseId} onChange={(event) => setCourseId(event.target.value)} disabled={!availableCourses.length}><option value="">{availableCourses.length ? tr('اختر المساق','Select course') : tr('لا توجد مساقات لهذه الدفعة','No courses for this cohort')}</option>{availableCourses.map((course) => <option key={course.id} value={course.id}>{course.code} — {ar ? course.name_ar : course.name_en || course.name_ar}</option>)}</select></label>
     </div></section>
 
     {scheduleQuery.isLoading && <LoadingState />}

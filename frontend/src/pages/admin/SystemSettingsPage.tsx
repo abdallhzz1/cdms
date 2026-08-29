@@ -7,9 +7,11 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Settings, Save, CheckCircle2, Database } from 'lucide-react';
+import { useI18n } from '@/i18n/I18nContext';
 
 export function SystemSettingsPage() {
   const qc = useQueryClient();
+  const { locale } = useI18n(); const tr=(ar:string,en:string)=>locale==='ar'?ar:en;
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [form, setForm] = useState({
@@ -38,7 +40,7 @@ export function SystemSettingsPage() {
     mutationFn: (body: any) => apiFetch('/admin/settings', { method: 'POST', body }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-settings'] });
-      setSuccessMessage('تم حفظ إعدادات النظام بنجاح وتحديث التخزين السريع السيرفر.');
+      setSuccessMessage(tr('تم حفظ إعدادات النظام وتحديث التخزين السريع بنجاح.', 'System settings and cache were updated successfully.'));
       setTimeout(() => setSuccessMessage(null), 4000);
     },
   });
@@ -54,8 +56,8 @@ export function SystemSettingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="شاشة إعدادات النظام والنسخ الاحتياطي"
-        description="التحكم بالإعدادات العامة للكلية، وضع الصيانة، ومواعيد النسخ الاحتياطي لقواعد البيانات."
+        title={tr('إعدادات النظام والنسخ الاحتياطي', 'System Settings and Backups')}
+        description={tr('التحكم بإعدادات الكلية ووضع الصيانة وجدولة النسخ الاحتياطي.', 'Manage faculty settings, maintenance mode, and database backup scheduling.')}
       />
 
       {successMessage && (
@@ -70,12 +72,12 @@ export function SystemSettingsPage() {
         <Card className="p-6 border-slate-100 shadow-xs space-y-4">
           <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2 border-b border-slate-100 pb-3">
             <Settings className="w-4 h-4 text-teal-600" />
-            الهوية والإعدادات العامة للمؤسسة والجامعة
+            {tr('الهوية والإعدادات العامة للمؤسسة والجامعة', 'Institution Identity and General Settings')}
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">اسم المؤسسة والجامعة</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">{tr('اسم المؤسسة والجامعة', 'Institution and university name')}</label>
               <input
                 type="text"
                 value={form.institution_name}
@@ -85,7 +87,7 @@ export function SystemSettingsPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">عنوان الموديل المنظومي</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">{tr('عنوان النظام', 'System title')}</label>
               <input
                 type="text"
                 value={form.system_title}
@@ -95,7 +97,7 @@ export function SystemSettingsPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">البريد الإلكتروني للجهات التقنية والتنبيهات</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">{tr('البريد الإلكتروني للدعم والتنبيهات', 'Technical support and alerts email')}</label>
               <input
                 type="email"
                 value={form.contact_email}
@@ -105,7 +107,7 @@ export function SystemSettingsPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">مهلة انتهاء الجلسات (بالدقائق)</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">{tr('مهلة انتهاء الجلسات (بالدقائق)', 'Session timeout (minutes)')}</label>
               <input
                 type="number"
                 value={form.session_timeout_minutes}
@@ -120,14 +122,14 @@ export function SystemSettingsPage() {
         <Card className="p-6 border-slate-100 shadow-xs space-y-4">
           <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2 border-b border-slate-100 pb-3">
             <Database className="w-4 h-4 text-indigo-600" />
-            إعدادات النسخ الاحتياطي ووضع الصيانة (Maintenance & Backups)
+            {tr('إعدادات النسخ الاحتياطي ووضع الصيانة', 'Maintenance and Backup Settings')}
           </h3>
 
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-200">
               <div>
-                <p className="text-xs font-bold text-slate-900">وضع الصيانة العامة (Maintenance Mode)</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">عند تفعيله، سيتم منع أي مستخدم عادٍ من الدخول باستثناء مدراء النظام.</p>
+                <p className="text-xs font-bold text-slate-900">{tr('وضع الصيانة العامة', 'Maintenance mode')}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{tr('عند تفعيله، يمنع المستخدمون العاديون من الدخول باستثناء مديري النظام.', 'When enabled, regular users cannot sign in; system administrators retain access.')}</p>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -142,8 +144,8 @@ export function SystemSettingsPage() {
 
             <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-200">
               <div>
-                <p className="text-xs font-bold text-slate-900">جدولة النسخ الاحتياطي الآلي لقواعد البيانات</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">حفظ النسخ الاحتياطية تلقائياً في السيرفر مع التشفير الكامل.</p>
+                <p className="text-xs font-bold text-slate-900">{tr('جدولة النسخ الاحتياطي الآلي لقواعد البيانات', 'Automated database backups')}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{tr('حفظ النسخ الاحتياطية تلقائياً على الخادم مع التشفير.', 'Automatically save encrypted backups on the server.')}</p>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -165,7 +167,7 @@ export function SystemSettingsPage() {
             className="gap-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs px-6 py-3 shadow-xs"
           >
             <Save className="w-4 h-4" />
-            حفظ إعدادات النظام وتثبيتها
+            {tr('حفظ إعدادات النظام', 'Save system settings')}
           </Button>
         </div>
       </form>
