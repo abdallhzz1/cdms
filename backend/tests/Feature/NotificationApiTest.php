@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Notifications\LocalSystemNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Notifications\DatabaseNotification;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class NotificationApiTest extends TestCase
@@ -49,6 +51,26 @@ class NotificationApiTest extends TestCase
             ->assertJsonPath('data.marked_count', 2);
 
         $this->assertSame(0, $user->fresh()->unreadNotifications()->count());
+    }
+
+    public function test_legacy_english_distribution_notification_is_returned_bilingually(): void
+    {
+        $user = User::factory()->create();
+        DatabaseNotification::query()->create([
+            'id' => (string) Str::uuid(),
+            'type' => 'App\\Notifications\\DistributionPublishedNotification',
+            'notifiable_type' => User::class,
+            'notifiable_id' => $user->id,
+            'data' => [
+                'title' => 'Clinical Distribution Published',
+                'distribution_version_id' => 9,
+            ],
+        ]);
+
+        $this->actingAs($user, 'web')->getJson('/api/v1/notifications')->assertOk()
+            ->assertJsonPath('data.0.title_ar', 'نشر جدول التوزيع السريري')
+            ->assertJsonPath('data.0.title_en', 'Clinical distribution published')
+            ->assertJsonPath('data.0.action_url', '/distribution');
     }
 
     private function notification(string $title): LocalSystemNotification
