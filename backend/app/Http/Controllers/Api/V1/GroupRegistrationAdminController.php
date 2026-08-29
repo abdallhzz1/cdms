@@ -12,6 +12,7 @@ use App\Models\StudentGroup;
 use App\Models\StudentGroupRoster;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentSubgroup;
+use App\Services\Distribution\CourseScheduleMembershipSyncService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +23,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class GroupRegistrationAdminController extends Controller
 {
     use ScopesByDepartmentAndLevel;
+
+    public function __construct(private readonly CourseScheduleMembershipSyncService $scheduleSync) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -398,6 +401,8 @@ class GroupRegistrationAdminController extends Controller
                 'data_source' => 'administrative_override',
             ]);
         });
+
+        $this->scheduleSync->syncStudent($student->id, $cycle->academic_year_id);
 
         AuditLog::create([
             'user_id' => $request->user()->id,

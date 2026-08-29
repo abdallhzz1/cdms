@@ -7,6 +7,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\AcademicYear;
 use App\Models\AuditLog;
 use App\Models\Course;
+use App\Models\CourseScheduleCell;
 use App\Models\CourseScheduleRow;
 use App\Models\DistributionVersion;
 use App\Models\Person;
@@ -110,22 +111,16 @@ class CourseDistributionController extends Controller
                 ->where('distribution_version_id', $version->id)
                 ->with(['person:id,full_name_ar,full_name_en,email,specialty', 'trainingSite:id,name_ar,name_en,site_code'])
                 ->orderBy('sort_order')->orderBy('id')->get();
-            $cells = StudentClinicalAssignment::query()
+            $cells = CourseScheduleCell::query()
                 ->where('distribution_version_id', $version->id)
-                ->whereNotNull('course_schedule_row_id')
-                ->whereNotNull('student_subgroup_id')
                 ->with(['studentSubgroup:id,name,student_group_id', 'studentSubgroup.group:id,name'])
-                ->select(['course_schedule_row_id', 'student_subgroup_id', 'rotation_block_id', 'supervisor_id', 'training_site_id'])
-                ->distinct()
                 ->get()
-                ->map(fn ($assignment) => [
-                    'course_schedule_row_id' => $assignment->course_schedule_row_id,
-                    'rotation_block_id' => $assignment->rotation_block_id,
-                    'supervisor_id' => $assignment->supervisor_id,
-                    'training_site_id' => $assignment->training_site_id,
-                    'subgroup_id' => $assignment->student_subgroup_id,
-                    'subgroup_name' => $assignment->studentSubgroup?->name,
-                    'main_group_name' => $assignment->studentSubgroup?->group?->name,
+                ->map(fn ($cell) => [
+                    'course_schedule_row_id' => $cell->course_schedule_row_id,
+                    'rotation_block_id' => $cell->rotation_block_id,
+                    'subgroup_id' => $cell->student_subgroup_id,
+                    'subgroup_name' => $cell->studentSubgroup?->name,
+                    'main_group_name' => $cell->studentSubgroup?->group?->name,
                 ])->values();
         }
 
@@ -211,11 +206,10 @@ class CourseDistributionController extends Controller
             throw ValidationException::withMessages(['subgroup_id' => ['المجموعة لا تتبع الدفعة والعام المحددين.']]);
         }
 
-        $conflict = StudentClinicalAssignment::query()
+        $conflict = CourseScheduleCell::query()
             ->where('distribution_version_id', $version->id)
             ->where('rotation_block_id', $block->id)
             ->where('student_subgroup_id', $subgroup->id)
-            ->whereNotNull('course_schedule_row_id')
             ->where('course_schedule_row_id', '!=', $row->id)
             ->exists();
         if ($conflict) {
@@ -223,6 +217,14 @@ class CourseDistributionController extends Controller
         }
 
         DB::transaction(function () use ($version, $block, $row, $doctor, $subgroup) {
+            CourseScheduleCell::updateOrCreate([
+                'distribution_version_id' => $version->id,
+                'rotation_block_id' => $block->id,
+                'course_schedule_row_id' => $row->id,
+            ], [
+                'student_subgroup_id' => $subgroup->id,
+            ]);
+
             StudentClinicalAssignment::where([
                 'distribution_version_id' => $version->id,
                 'rotation_block_id' => $block->id,
@@ -235,9 +237,6 @@ class CourseDistributionController extends Controller
                 ->current()
                 ->whereHas('student', fn ($query) => $query->where('registration_status', 'active'))
                 ->get();
-            if ($memberships->isEmpty()) {
-                throw ValidationException::withMessages(['subgroup_id' => ['لا يوجد طلبة مسجلون حاليًا في هذه المجموعة.']]);
-            }
             StudentClinicalAssignment::query()
                 ->where('distribution_version_id', $version->id)
                 ->where('rotation_block_id', $block->id)
@@ -245,18 +244,20 @@ class CourseDistributionController extends Controller
                 ->whereIn('student_id', $memberships->pluck('student_id'))
                 ->delete();
             $now = now();
-            StudentClinicalAssignment::insert($memberships->map(fn ($membership) => [
-                'distribution_version_id' => $version->id,
-                'course_schedule_row_id' => $row->id,
-                'student_id' => $membership->student_id,
-                'student_subgroup_id' => $subgroup->id,
-                'rotation_block_id' => $block->id,
-                'training_site_id' => $row->training_site_id,
-                'department_id' => $doctor?->department_id,
-                'supervisor_id' => $doctor?->id,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ])->all());
+            if ($memberships->isNotEmpty()) {
+                StudentClinicalAssignment::insert($memberships->map(fn ($membership) => [
+                    'distribution_version_id' => $version->id,
+                    'course_schedule_row_id' => $row->id,
+                    'student_id' => $membership->student_id,
+                    'student_subgroup_id' => $subgroup->id,
+                    'rotation_block_id' => $block->id,
+                    'training_site_id' => $row->training_site_id,
+                    'department_id' => $doctor?->department_id,
+                    'supervisor_id' => $doctor?->id,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ])->all());
+            }
         });
 
         $this->recordCellChange($request, $version, 'course_schedule.cell_saved', $data);
@@ -277,11 +278,18 @@ class CourseDistributionController extends Controller
         $version->loadMissing('rotation');
         RotationBlock::where('rotation_id', $version->rotation_id)->findOrFail($data['rotation_block_id']);
         CourseScheduleRow::where('distribution_version_id', $version->id)->findOrFail($data['course_schedule_row_id']);
-        StudentClinicalAssignment::where([
-            'distribution_version_id' => $version->id,
-            'rotation_block_id' => $data['rotation_block_id'],
-            'course_schedule_row_id' => $data['course_schedule_row_id'],
-        ])->delete();
+        DB::transaction(function () use ($version, $data) {
+            CourseScheduleCell::where([
+                'distribution_version_id' => $version->id,
+                'rotation_block_id' => $data['rotation_block_id'],
+                'course_schedule_row_id' => $data['course_schedule_row_id'],
+            ])->delete();
+            StudentClinicalAssignment::where([
+                'distribution_version_id' => $version->id,
+                'rotation_block_id' => $data['rotation_block_id'],
+                'course_schedule_row_id' => $data['course_schedule_row_id'],
+            ])->delete();
+        });
         $this->recordCellChange($request, $version, 'course_schedule.cell_cleared', $data);
         return ApiResponse::success(null, 'تم تفريغ خلية الجدول.');
     }
@@ -372,6 +380,13 @@ class CourseDistributionController extends Controller
                 $copy->course_schedule_row_id = $assignment->course_schedule_row_id
                     ? ($rowMap[$assignment->course_schedule_row_id] ?? null)
                     : null;
+                $copy->save();
+            }
+
+            foreach (CourseScheduleCell::where('distribution_version_id', $version->id)->orderBy('id')->get() as $cell) {
+                $copy = $cell->replicate();
+                $copy->distribution_version_id = $revision->id;
+                $copy->course_schedule_row_id = $rowMap[$cell->course_schedule_row_id];
                 $copy->save();
             }
 

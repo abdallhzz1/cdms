@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AcademicYear;
 use App\Models\Course;
+use App\Models\CourseScheduleCell;
 use App\Models\CourseScheduleRow;
 use App\Models\DistributionVersion;
 use App\Models\Permission;
@@ -17,6 +18,7 @@ use App\Models\StudentGroupAssignment;
 use App\Models\StudentSubgroup;
 use App\Models\TrainingSite;
 use App\Models\User;
+use App\Services\Distribution\CourseScheduleMembershipSyncService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -164,6 +166,66 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->assertDatabaseCount('student_clinical_assignments', 0);
     }
 
+    public function test_empty_subgroup_can_be_scheduled_and_later_members_inherit_the_placement(): void
+    {
+        $emptySubgroup = StudentSubgroup::factory()->create([
+            'student_group_id' => $this->subgroup->student_group_id,
+            'name' => 'L2',
+            'is_active' => true,
+        ]);
+        $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'course_id' => $this->course->id,
+            'start_date' => '2026-09-01',
+            'weeks_count' => 1,
+        ])->assertCreated();
+        $versionId = $created->json('data.version.id');
+        $rowId = $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$versionId}/rows", [
+            'row_type' => 'doctor',
+            'person_id' => $this->doctor->id,
+            'training_site_id' => $this->doctor->primary_site_id,
+        ])->assertCreated()->json('data.id');
+        $blockId = DistributionVersion::findOrFail($versionId)->rotation->blocks()->firstOrFail()->id;
+
+        $this->actingAs($this->user)->putJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
+            'rotation_block_id' => $blockId,
+            'course_schedule_row_id' => $rowId,
+            'subgroup_id' => $emptySubgroup->id,
+        ])->assertOk();
+
+        $this->assertDatabaseHas('course_schedule_cells', [
+            'distribution_version_id' => $versionId,
+            'course_schedule_row_id' => $rowId,
+            'student_subgroup_id' => $emptySubgroup->id,
+        ]);
+        $this->assertSame(0, StudentClinicalAssignment::where('student_subgroup_id', $emptySubgroup->id)->count());
+        $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
+            ->assertOk()
+            ->assertJsonPath('data.cells.0.subgroup_id', $emptySubgroup->id);
+
+        $student = Student::factory()->create([
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'registration_status' => 'active',
+        ]);
+        StudentGroupAssignment::factory()->create([
+            'student_id' => $student->id,
+            'academic_year_id' => $this->year->id,
+            'student_group_id' => $emptySubgroup->student_group_id,
+            'student_subgroup_id' => $emptySubgroup->id,
+            'valid_until' => null,
+        ]);
+        app(CourseScheduleMembershipSyncService::class)->syncStudent($student->id, $this->year->id);
+
+        $this->assertDatabaseHas('student_clinical_assignments', [
+            'student_id' => $student->id,
+            'distribution_version_id' => $versionId,
+            'course_schedule_row_id' => $rowId,
+            'student_subgroup_id' => $emptySubgroup->id,
+        ]);
+    }
+
     public function test_adding_doctor_creates_linked_clinical_supervisor_account(): void
     {
         $site = TrainingSite::factory()->create(['is_active' => true]);
@@ -283,6 +345,7 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->assertDatabaseHas('distribution_versions', ['id' => $revisionId, 'status' => 'manual']);
         $this->assertSame(1, CourseScheduleRow::where('distribution_version_id', $revisionId)->count());
         $this->assertSame(2, StudentClinicalAssignment::where('distribution_version_id', $revisionId)->count());
+        $this->assertSame(1, CourseScheduleCell::where('distribution_version_id', $revisionId)->count());
 
         $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$version->id}/unpublish", [
             'reason' => 'جدول تجريبي للفحص',

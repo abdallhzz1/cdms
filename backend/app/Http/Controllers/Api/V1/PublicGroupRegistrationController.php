@@ -11,6 +11,7 @@ use App\Models\Student;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentGroupRoster;
 use App\Models\StudentSubgroup;
+use App\Services\Distribution\CourseScheduleMembershipSyncService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +23,8 @@ use Illuminate\Validation\ValidationException;
 
 class PublicGroupRegistrationController extends Controller
 {
+    public function __construct(private readonly CourseScheduleMembershipSyncService $scheduleSync) {}
+
     public function cycle(GroupRegistrationCycle $cycle): JsonResponse
     {
         return ApiResponse::success([
@@ -137,6 +140,7 @@ class PublicGroupRegistrationController extends Controller
             if($occupied >= $capacity) throw ValidationException::withMessages(['subgroup_id'=>['اكتملت سعة المجموعة. يرجى اختيار مجموعة أخرى.']]);
             return StudentGroupAssignment::create(['student_id'=>$challenge->student_id,'academic_year_id'=>$cycle->academic_year_id,'student_group_id'=>$roster->student_group_id,'student_subgroup_id'=>$subgroup->id,'valid_from'=>now()->toDateString(),'change_reason'=>'student_self_registration','data_source'=>'public_otp_portal']);
         });
+        $this->scheduleSync->syncStudent($challenge->student_id, $cycle->academic_year_id);
         $this->audit('group_registration.student_selected',$assignment->id,$challenge->student_id,['subgroup_id'=>$assignment->student_subgroup_id]);
         return ApiResponse::success(['subgroup_id'=>$assignment->student_subgroup_id],'تم حجز مقعدك بنجاح.');
     }
@@ -151,6 +155,7 @@ class PublicGroupRegistrationController extends Controller
                 ->whereNull('valid_until')->lockForUpdate()
                 ->update(['valid_until'=>now()->toDateString(),'change_reason'=>'student_self_withdrawal']);
         });
+        $this->scheduleSync->syncStudent($challenge->student_id, $cycle->academic_year_id);
         $this->audit('group_registration.student_withdrew',$cycle->id,$challenge->student_id);
         return ApiResponse::success(null,'تم الانسحاب من المجموعة وأصبح المقعد متاحاً.');
     }
