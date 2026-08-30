@@ -178,6 +178,11 @@ class UserController extends Controller
                 'email' => $validated['email'],
                 'is_active' => $validated['is_active'] ?? $user->is_active,
             ]);
+            Person::query()->where('user_id', $user->id)->update([
+                'full_name_ar' => $validated['name'],
+                'email' => $validated['email'],
+                'is_active' => $validated['is_active'] ?? $user->is_active,
+            ]);
             $this->syncRolesWithScope($user, $validated['roles'], $validated['department_id'] ?? null);
         });
 
@@ -258,6 +263,7 @@ class UserController extends Controller
         if ($person) {
             $person->update([
                 'user_id' => $user->id,
+                'full_name_ar' => $user->name,
                 'email' => $user->email,
                 'department_id' => $departmentId ?: $person->department_id,
                 'is_active' => true,
