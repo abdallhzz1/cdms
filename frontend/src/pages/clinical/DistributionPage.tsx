@@ -28,6 +28,7 @@ type Rotation = { id: number; name: string; start_date?: string | null; duration
 type Options = { academic_years: Year[]; courses: Course[]; hospitals: Hospital[]; unassigned_doctors: Doctor[] };
 type Schedule = { rotation: Rotation | null; version: Version | null; current_published_version?: Version | null; approval_state?: ApprovalState | null; blocks: Block[]; subgroups: Subgroup[]; hospitals: Hospital[]; unassigned_doctors: Doctor[]; rows: ScheduleRow[]; cells: Cell[] };
 type OverridePayload = { force?: boolean; override_reason?: string };
+type UnassignedStudent = { id: number; university_number: string; full_name_ar: string };
 
 const levelCodes: Level[] = ['fourth', 'fifth', 'sixth'];
 const inputClass = 'w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100';
@@ -123,6 +124,23 @@ export function DistributionPage() {
   const mainGroupCodes = useMemo(() => Array.from(new Set((schedule?.subgroups ?? []).map((subgroup) => subgroup.group?.name).filter((name): name is string => Boolean(name)))).sort(), [schedule?.subgroups]);
   const blockExcludesGroup = (block: Block, groupName?: string) => (block.activity_type ?? 'clinical') !== 'clinical' && ((block.activity_scope ?? 'all') === 'all' || Boolean(groupName && block.main_group_codes?.includes(groupName)));
   const refresh = async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['course-distribution-schedule'] }), queryClient.invalidateQueries({ queryKey: ['course-distribution-options'] })]); };
+  const showUnassignedStudents = async (action: 'approve' | 'publish') => {
+    try {
+      const students = await apiFetch<UnassignedStudent[]>(`/distribution-versions/${schedule!.version!.id}/unassigned`);
+      const sample = students.slice(0, 4).map((student) => `${student.full_name_ar} (${student.university_number})`).join('، ');
+      const actionText = action === 'approve' ? 'اعتماد' : 'نشر';
+      const actionTextEn = action === 'approve' ? 'approved' : 'published';
+      setNotice({
+        type: 'error',
+        text: tr(
+          `لا يمكن ${actionText} الجدول: يوجد ${students.length} طالب غير موزع${sample ? `، منهم: ${sample}` : ''}. وزّعهم أولاً أو اطلب من مدير النظام منح صلاحية «تجاوز قيود التوزيع».`,
+          `The schedule cannot be ${actionTextEn}: ${students.length} students are unassigned${sample ? `, including: ${sample}` : ''}. Assign them first or ask the system administrator for “Override distribution constraints”.`,
+        ),
+      });
+    } catch {
+      setNotice({ type: 'error', text: tr('لا يمكن إكمال العملية لوجود طلبة غير موزعين، وحسابك لا يملك صلاحية التجاوز الاستثنائي.', 'The action cannot continue because students are unassigned and your account cannot override this constraint.') });
+    }
+  };
 
   const createSchedule = useMutation({
     mutationFn: () => apiFetch('/course-distribution/schedules', { method: 'POST', body: { academic_year_id: Number(yearId), academic_level: level, course_id: Number(courseId), start_date: startDate, weeks_count: weeksCount } }),
@@ -168,13 +186,17 @@ export function DistributionPage() {
       await refresh();
       setNotice({ type: 'success', text: locale === 'ar' ? (payload?.force ? 'تم اعتماد الجدول استثنائيًا مع توثيق السبب.' : 'تم اعتماد الجدول وأصبح جاهزاً للنشر.') : (payload?.force ? 'The schedule was approved by exception and the reason was recorded.' : 'The schedule is approved and ready to publish.') });
     },
-    onError: (error, payload) => {
-      if (!payload?.force && hasValidationError(error, 'unassigned')) {
+    onError: async (error, payload) => {
+      if (!payload?.force && hasValidationError(error, 'unassigned') && can('distribution.override')) {
         const reason = window.prompt(tr('يوجد طلبة غير موزعين. لاعتماد الجدول استثنائيًا، اكتب سبب الاعتماد:', 'Some students are unassigned. Enter a reason to approve the schedule by exception:'));
         if (reason?.trim()) {
           approve.mutate({ force: true, override_reason: reason.trim() });
           return;
         }
+      }
+      if (hasValidationError(error, 'unassigned') && !can('distribution.override')) {
+        await showUnassignedStudents('approve');
+        return;
       }
       setNotice({ type: 'error', text: message(error, { ar: 'تعذر اعتماد الجدول.', en: 'Could not approve the distribution schedule.' }, locale) });
     },
@@ -186,13 +208,17 @@ export function DistributionPage() {
       await refresh();
       setNotice({ type: 'success', text: locale === 'ar' ? 'تم نشر الجدول للطلبة والمشرفين.' : 'The schedule was published for students and supervisors.' });
     },
-    onError: (error, payload) => {
-      if (!payload?.force && hasValidationError(error, 'unassigned')) {
+    onError: async (error, payload) => {
+      if (!payload?.force && hasValidationError(error, 'unassigned') && can('distribution.override')) {
         const reason = approvalOverrideReason ?? window.prompt(tr('يوجد طلبة غير موزعين. لنشر الجدول استثنائيًا، اكتب سبب النشر:', 'Some students are unassigned. Enter a reason to publish the schedule by exception:'));
         if (reason?.trim()) {
           publish.mutate({ force: true, override_reason: reason.trim() });
           return;
         }
+      }
+      if (hasValidationError(error, 'unassigned') && !can('distribution.override')) {
+        await showUnassignedStudents('publish');
+        return;
       }
       setNotice({ type: 'error', text: message(error, { ar: 'تعذر نشر الجدول.', en: 'Could not publish the distribution schedule.' }, locale) });
     },
