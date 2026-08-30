@@ -470,11 +470,11 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('/', [TrainingSiteController::class, 'index'])
                 ->middleware('permission:training_sites.view')->name('index');
             Route::post('/', [TrainingSiteController::class, 'store'])
-                ->middleware('permission:training_sites.manage')->name('store');
+                ->middleware('permission.any:training_sites.manage,people.manage')->name('store');
             Route::get('/{training_site}', [TrainingSiteController::class, 'show'])
                 ->middleware('permission:training_sites.view')->name('show');
             Route::put('/{training_site}', [TrainingSiteController::class, 'update'])
-                ->middleware('permission:training_sites.manage')->name('update');
+                ->middleware('permission.any:training_sites.manage,people.manage')->name('update');
         });
 
         // Partnerships
