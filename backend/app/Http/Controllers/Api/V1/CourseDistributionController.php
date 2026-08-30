@@ -415,6 +415,10 @@ class CourseDistributionController extends Controller
 
         DB::transaction(function () use ($row, $data) {
             $row->update($data);
+            // Route-bound rows may already have cached relations. Reload them
+            // after changing person/site so propagated assignments always use
+            // the supervisor that was selected in this request.
+            $row->unsetRelation('person')->unsetRelation('trainingSite')->refresh();
             StudentClinicalAssignment::where('course_schedule_row_id', $row->id)->update([
                 'supervisor_id' => $row->person_id,
                 'training_site_id' => $row->training_site_id,
@@ -697,7 +701,10 @@ class CourseDistributionController extends Controller
                 ->when($row, fn ($query) => $query->whereKeyNot($row->id))
                 ->exists();
             if ($duplicate) {
-                throw ValidationException::withMessages(['person_id' => ['الطبيب مضاف مسبقاً لهذا المستشفى في الجدول.']]);
+                $siteName = TrainingSite::whereKey($data['training_site_id'])->value('name_ar');
+                throw ValidationException::withMessages([
+                    'person_id' => ["المشرف {$doctor->full_name_ar} مضاف مسبقاً في صف تابع لمستشفى {$siteName}. عدّل الصف الموجود بدل إضافته مرة أخرى."],
+                ]);
             }
             $data['label'] = null;
         } else {
