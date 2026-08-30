@@ -10,6 +10,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\TrainingSite;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class TrainingSiteController extends Controller
 {
@@ -47,11 +48,18 @@ class TrainingSiteController extends Controller
      */
     public function store(StoreTrainingSiteRequest $request): JsonResponse
     {
-        $site = TrainingSite::create($request->validated());
+        $data = $request->validated();
+        unset($data['site_code']);
+
+        $site = DB::transaction(function () use ($data) {
+            $data['site_code'] = $this->nextSiteCode($data['site_type'] ?? 'hospital_public');
+
+            return TrainingSite::create($data);
+        });
 
         return ApiResponse::success(
             new TrainingSiteResource($site->load('department')),
-            'Training site created.',
+            "تم إنشاء الموقع التدريبي بالرمز {$site->site_code}.",
             [],
             201
         );
@@ -77,5 +85,20 @@ class TrainingSiteController extends Controller
         $training_site->update($request->validated());
 
         return ApiResponse::success(new TrainingSiteResource($training_site->fresh()->load('department')));
+    }
+
+    private function nextSiteCode(string $siteType): string
+    {
+        $prefix = $siteType === 'online' ? 'ONLINE' : 'SITE';
+        $highestNumber = TrainingSite::query()
+            ->where('site_code', 'like', "{$prefix}-%")
+            ->lockForUpdate()
+            ->pluck('site_code')
+            ->map(function (string $code) use ($prefix): int {
+                return (int) substr($code, strlen($prefix) + 1);
+            })
+            ->max() ?? 0;
+
+        return sprintf('%s-%03d', $prefix, $highestNumber + 1);
     }
 }

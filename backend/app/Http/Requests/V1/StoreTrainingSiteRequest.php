@@ -14,7 +14,7 @@ class StoreTrainingSiteRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'site_code'                   => ['required', 'string', 'max:20', 'unique:training_sites,site_code'],
+            'site_code'                   => ['nullable', 'string', 'max:20', 'unique:training_sites,site_code'],
             'name_ar'                     => ['required', 'string', 'max:255'],
             'name_en'                     => ['nullable', 'string', 'max:255'],
             'site_type'                   => ['required', 'in:hospital_public,hospital_private,medical_center,clinic,lab,online,other'],
