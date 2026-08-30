@@ -20,7 +20,7 @@ class UpdateTrainingSiteRequest extends FormRequest
             'site_code'                   => ['sometimes', 'string', 'max:20', Rule::unique('training_sites', 'site_code')->ignore($id)],
             'name_ar'                     => ['sometimes', 'string', 'max:255'],
             'name_en'                     => ['nullable', 'string', 'max:255'],
-            'site_type'                   => ['sometimes', 'in:hospital_public,hospital_private,medical_center,clinic,lab,other'],
+            'site_type'                   => ['sometimes', 'in:hospital_public,hospital_private,medical_center,clinic,lab,online,other'],
             'city'                        => ['nullable', 'string', 'max:100'],
             'address'                     => ['nullable', 'string', 'max:500'],
             'latitude'                    => ['nullable', 'numeric', 'between:-90,90'],

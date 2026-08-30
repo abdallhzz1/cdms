@@ -45,6 +45,7 @@ return new class extends Migration
                 'medical_center',
                 'clinic',
                 'lab',
+                'online',
                 'other',
             ])->default('hospital_public')->index();
 

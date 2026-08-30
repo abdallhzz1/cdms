@@ -17,7 +17,7 @@ class StoreTrainingSiteRequest extends FormRequest
             'site_code'                   => ['required', 'string', 'max:20', 'unique:training_sites,site_code'],
             'name_ar'                     => ['required', 'string', 'max:255'],
             'name_en'                     => ['nullable', 'string', 'max:255'],
-            'site_type'                   => ['required', 'in:hospital_public,hospital_private,medical_center,clinic,lab,other'],
+            'site_type'                   => ['required', 'in:hospital_public,hospital_private,medical_center,clinic,lab,online,other'],
             'city'                        => ['nullable', 'string', 'max:100'],
             'address'                     => ['nullable', 'string', 'max:500'],
             'latitude'                    => ['nullable', 'numeric', 'between:-90,90'],
