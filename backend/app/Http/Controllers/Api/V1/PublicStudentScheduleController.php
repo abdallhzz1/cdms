@@ -6,6 +6,7 @@ use App\DTOs\ClinicalScheduleItemDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AuditLog;
+use App\Models\CourseScheduleBlockActivity;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroupAssignment;
@@ -202,6 +203,8 @@ class PublicStudentScheduleController extends Controller
             $course = $assignment->rotationBlock?->rotation?->course;
 
             return [
+                'item_type' => 'clinical',
+                'activity' => null,
                 'course' => $course ? [
                     'code' => $course->code,
                     'name_ar' => $course->name_ar,
@@ -222,6 +225,60 @@ class PublicStudentScheduleController extends Controller
                 ] : null,
             ];
         });
+
+        if ($group) {
+            $activities = CourseScheduleBlockActivity::query()
+                ->where('activity_type', '!=', 'clinical')
+                ->whereHas('distributionVersion', fn ($query) => $query
+                    ->where('status', 'published')->where('is_current', true))
+                ->whereHas('distributionVersion.rotation', fn ($query) => $query
+                    ->where('academic_year_id', $group->academic_year_id)
+                    ->where('academic_level', $student->academic_level))
+                ->with(['distributionVersion.rotation.course', 'distributionVersion.rotation.academicYear', 'rotationBlock'])
+                ->get()
+                ->filter(fn (CourseScheduleBlockActivity $activity) => $activity->activity_scope === 'all'
+                    || in_array($group->name, $activity->main_group_codes ?? [], true))
+                ->map(function (CourseScheduleBlockActivity $activity): array {
+                    $block = $activity->rotationBlock;
+                    $rotation = $activity->distributionVersion?->rotation;
+                    $course = $rotation?->course;
+                    $startDate = $rotation?->start_date && $block
+                        ? $this->dateCalculator->calculateBlockStartDate($rotation->start_date, $block->from_week)
+                        : null;
+                    $endDate = $rotation?->start_date && $block
+                        ? $this->dateCalculator->calculateBlockEndDate($rotation->start_date, $block->to_week)
+                        : null;
+
+                    return [
+                        'item_type' => 'activity',
+                        'activity' => [
+                            'type' => $activity->activity_type,
+                            'label' => $activity->activity_label,
+                        ],
+                        'course' => $course ? [
+                            'code' => $course->code,
+                            'name_ar' => $course->name_ar,
+                            'name_en' => $course->name_en,
+                        ] : null,
+                        'academic_year' => $rotation?->academicYear?->code,
+                        'block' => $block ? [
+                            'block_code' => $block->block_code,
+                            'from_week' => $block->from_week,
+                            'to_week' => $block->to_week,
+                            'start_date' => $startDate,
+                            'end_date' => $endDate,
+                        ] : null,
+                        'training_site' => null,
+                        'department' => null,
+                        'supervisor' => null,
+                    ];
+                });
+
+            $schedule = $schedule->concat($activities)->sortBy([
+                fn ($left, $right) => strcmp((string) ($left['block']['start_date'] ?? ''), (string) ($right['block']['start_date'] ?? '')),
+                fn ($left, $right) => ($left['block']['from_week'] ?? 0) <=> ($right['block']['from_week'] ?? 0),
+            ])->values();
+        }
 
         AuditLog::create([
             'action' => 'student_schedule.viewed',

@@ -18,4 +18,14 @@ class CourseScheduleBlockActivity extends Model
     protected $casts = [
         'main_group_codes' => 'array',
     ];
+
+    public function distributionVersion()
+    {
+        return $this->belongsTo(DistributionVersion::class);
+    }
+
+    public function rotationBlock()
+    {
+        return $this->belongsTo(RotationBlock::class);
+    }
 }
