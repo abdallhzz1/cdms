@@ -40,18 +40,6 @@ class CourseDistributionController extends Controller
         $directory = $this->doctorDirectory();
         $levelScope = $this->getEffectiveAcademicLevelScope();
 
-        $blocks = $rotation->blocks->sortBy('from_week')->values();
-        if ($version) {
-            $activities = CourseScheduleBlockActivity::where('distribution_version_id', $version->id)->get()->keyBy('rotation_block_id');
-            $blocks->each(function (RotationBlock $block) use ($activities) {
-                $activity = $activities->get($block->id);
-                $block->setAttribute('activity_type', $activity?->activity_type ?? 'clinical');
-                $block->setAttribute('activity_label', $activity?->activity_label);
-                $block->setAttribute('activity_scope', $activity?->activity_scope ?? 'all');
-                $block->setAttribute('main_group_codes', $activity?->main_group_codes);
-            });
-        }
-
         return ApiResponse::success([
             'academic_years' => AcademicYear::query()->active()
                 ->orderByDesc('is_current')->orderByDesc('start_date')
@@ -137,6 +125,18 @@ class CourseDistributionController extends Controller
                     'main_group_name' => $cell->studentSubgroup?->group?->name,
                 ])->values();
             $approvalState = $this->approvalService->getApprovalState($version);
+        }
+
+        $blocks = $rotation->blocks->sortBy('from_week')->values();
+        if ($version) {
+            $activities = CourseScheduleBlockActivity::where('distribution_version_id', $version->id)->get()->keyBy('rotation_block_id');
+            $blocks->each(function (RotationBlock $block) use ($activities) {
+                $activity = $activities->get($block->id);
+                $block->setAttribute('activity_type', $activity?->activity_type ?? 'clinical');
+                $block->setAttribute('activity_label', $activity?->activity_label);
+                $block->setAttribute('activity_scope', $activity?->activity_scope ?? 'all');
+                $block->setAttribute('main_group_codes', $activity?->main_group_codes);
+            });
         }
 
         return ApiResponse::success([
