@@ -33,7 +33,22 @@ class StoreAcademicYearRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'code.regex' => 'Academic year code must follow the format YYYY/YYYY (e.g. 2026/2027).',
+            'code.regex' => 'يجب كتابة العام الأكاديمي بصيغة 2026/2027.',
+            'end_date.after' => 'يجب أن تكون نهاية العام بعد بدايته.',
         ];
+    }
+
+    public function after(): array
+    {
+        return [function ($validator): void {
+            $start = $this->input('start_date');
+            $end = $this->input('end_date');
+            foreach (['semester1_start', 'semester1_end', 'semester2_start', 'semester2_end', 'summer_start', 'summer_end'] as $field) {
+                $value = $this->input($field);
+                if ($value && $start && $end && ($value < $start || $value > $end)) {
+                    $validator->errors()->add($field, 'يجب أن يقع هذا التاريخ ضمن بداية ونهاية العام الأكاديمي.');
+                }
+            }
+        }];
     }
 }

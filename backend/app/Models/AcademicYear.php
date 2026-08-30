@@ -78,6 +78,11 @@ class AcademicYear extends Model
         return $this->hasMany(Rotation::class);
     }
 
+    public function calendarEvents(): HasMany
+    {
+        return $this->hasMany(AcademicCalendarEvent::class);
+    }
+
     /** @return HasMany<StudentGroupAssignment, $this> */
     public function studentGroupAssignments(): HasMany
     {

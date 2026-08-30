@@ -383,8 +383,11 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}/submit', [ClinicalSupervisorEvaluationController::class, 'submit'])->middleware('permission:clinical_supervisor_evaluations.create');
         Route::post('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}/approve', [ClinicalSupervisorEvaluationController::class, 'approve'])->middleware('permission:clinical_supervisor_evaluations.approve');
         Route::post('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}/reopen', [ClinicalSupervisorEvaluationController::class, 'reopen'])->middleware('permission:clinical_supervisor_evaluations.approve');
+        Route::get('academic-calendar-overview/{academicYear}', [AcademicCalendarEventController::class, 'overview'])->middleware('permission:academic_years.view');
         Route::get('academic-calendar-events', [AcademicCalendarEventController::class, 'index'])->middleware('permission:academic_years.view');
         Route::post('academic-calendar-events', [AcademicCalendarEventController::class, 'store'])->middleware('permission:academic_years.manage');
+        Route::put('academic-calendar-events/{event}', [AcademicCalendarEventController::class, 'update'])->middleware('permission:academic_years.manage');
+        Route::delete('academic-calendar-events/{event}', [AcademicCalendarEventController::class, 'destroy'])->middleware('permission:academic_years.manage');
         // Supervisor Annual Workloads
         Route::get('supervisor-annual-workloads', [SupervisorAnnualWorkloadController::class, 'index'])
             ->middleware('permission:people.view');
