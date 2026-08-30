@@ -10,7 +10,7 @@ class Course extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['code', 'name_ar', 'name_en', 'credit_hours', 'academic_level', 'semester', 'is_active', 'description'];
+    protected $fillable = ['code', 'name_ar', 'name_en', 'credit_hours', 'academic_level', 'course_type', 'semester', 'is_active', 'description'];
     protected function casts(): array { return ['is_active' => 'boolean', 'credit_hours' => 'integer', 'semester' => 'integer']; }
     public function assessmentComponents(): HasMany { return $this->hasMany(CourseAssessmentComponent::class); }
     public function learningOutcomes(): HasMany { return $this->hasMany(CourseLearningOutcome::class); }

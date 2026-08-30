@@ -52,6 +52,7 @@ class ClinicalCurriculumCoursesSeeder extends Seeder
                     'name_en' => $nameEn,
                     'credit_hours' => $creditHours,
                     'academic_level' => $level,
+                    'course_type' => 'major',
                     'semester' => null,
                     'is_active' => true,
                     'description' => 'Annual clinical curriculum course.',

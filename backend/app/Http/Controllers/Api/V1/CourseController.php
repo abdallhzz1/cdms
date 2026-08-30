@@ -92,6 +92,7 @@ class CourseController extends Controller
             'name_en' => 'nullable|string|max:255',
             'credit_hours' => 'required|integer|min:1',
             'academic_level' => 'required|string|in:fourth,fifth,sixth',
+            'course_type' => 'sometimes|string|in:major,minor',
             'is_active' => 'boolean',
             'description' => 'nullable|string',
         ];
@@ -100,8 +101,9 @@ class CourseController extends Controller
         }
 
         $validated = $request->validate($rules);
+        $validated['course_type'] = $validated['course_type'] ?? 'major';
         if ($hasSemester) {
-            $validated['semester'] = 1;
+            $validated['semester'] = null;
         }
         $course = Course::create($validated);
         return ApiResponse::success($course, 'Course created.', [], 201);
@@ -121,6 +123,7 @@ class CourseController extends Controller
             'name_en' => 'nullable|string|max:255',
             'credit_hours' => 'sometimes|required|integer|min:1',
             'academic_level' => 'sometimes|required|string|in:fourth,fifth,sixth',
+            'course_type' => 'sometimes|string|in:major,minor',
             'is_active' => 'boolean',
             'description' => 'nullable|string',
         ];
@@ -303,17 +306,13 @@ class CourseController extends Controller
                     'name_en'        => !empty($nameEn) ? $nameEn : null,
                     'credit_hours'   => $credits,
                     'academic_level' => $level,
+                    'course_type'    => in_array(strtolower(trim((string) ($row['course_type'] ?? $row['نوع_المساق'] ?? $row['نوع المساق'] ?? 'major'))), ['minor', 'ماينر'], true) ? 'minor' : 'major',
                     'is_active'      => $isActive,
                     'description'    => $description,
                 ];
 
                 if ($hasSemester) {
-                    $rawSem = trim((string)($row['semester'] ?? $row['الفصل'] ?? $row['الفصل_الدراسي'] ?? '1'));
-                    $semester = 1;
-                    if (str_contains($rawSem, '2') || str_contains($rawSem, 'ثاني') || str_contains($rawSem, 'second')) {
-                        $semester = 2;
-                    }
-                    $data['semester'] = $semester;
+                    $data['semester'] = null;
                 }
 
                 $course = Course::where('code', $code)->first();
