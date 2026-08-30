@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import ExcelJS from 'exceljs';
 import { ApiError, apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { Button } from '@/components/ui/Button';
@@ -11,7 +12,7 @@ import { Modal } from '@/components/ui/Modal';
 import { PageHeader } from '@/components/ui/PageHeader';
 import {
   AlertTriangle, CalendarDays, CheckCircle2, Clock3, Edit3, ExternalLink,
-  GraduationCap, Layers3, Plus, Settings2, Trash2,
+  FileSpreadsheet, GraduationCap, Layers3, Plus, Settings2, Trash2,
 } from 'lucide-react';
 
 type Level = 'fourth' | 'fifth' | 'sixth';
@@ -61,6 +62,7 @@ export function AcademicCalendarPage(){
   const [error,setError]=useState('');
   const [yearModal,setYearModal]=useState(false);
   const [eventModal,setEventModal]=useState(false);
+  const [exporting,setExporting]=useState(false);
   const [editingYear,setEditingYear]=useState<AcademicYear|null>(null);
   const [editingEvent,setEditingEvent]=useState<CalendarEvent|null>(null);
   const [yearForm,setYearForm]=useState({...emptyYear});
@@ -102,6 +104,44 @@ export function AcademicCalendarPage(){
   const openNewEvent=()=>{setEditingEvent(null);setEventForm({...emptyEvent,start_date:selectedYear?.start_date??'',end_date:selectedYear?.start_date??''});setError('');setEventModal(true);};
   const openEditEvent=(item:CalendarEvent)=>{setEditingEvent(item);setEventForm({name:item.name,event_type:item.event_type,start_date:item.start_date,end_date:item.end_date,affected_levels:item.affected_levels,suspends_clinical_training:item.suspends_clinical_training,notes:item.notes??''});setError('');setEventModal(true);};
   const toggleLevel=(item:Level)=>setEventForm(current=>({...current,affected_levels:current.affected_levels.includes(item)?current.affected_levels.filter(value=>value!==item):[...current.affected_levels,item]}));
+  const exportExcel=async()=>{
+    if(!selectedYear||!overview)return;
+    setExporting(true);setError('');
+    try{
+      const workbook=new ExcelJS.Workbook();
+      workbook.creator='Hebron University - Faculty of Medicine - Clinical Department';
+      workbook.created=new Date();
+      const sheet=workbook.addWorksheet('التقويم السنوي',{views:[{rightToLeft:true}]});
+      sheet.columns=[{width:7},{width:18},{width:34},{width:18},{width:17},{width:17},{width:15},{width:18},{width:38}];
+      sheet.mergeCells('A1:I1');sheet.getCell('A1').value='جامعة الخليل — كلية الطب والعلوم الصحية';
+      sheet.mergeCells('A2:I2');sheet.getCell('A2').value='الدائرة السريرية — التقويم الأكاديمي والسريري السنوي';
+      sheet.mergeCells('A3:I3');sheet.getCell('A3').value=`العام الأكاديمي ${selectedYear.code} | من ${formatDate(selectedYear.start_date)} إلى ${formatDate(selectedYear.end_date)}`;
+      sheet.mergeCells('A4:I4');sheet.getCell('A4').value=`النطاق: ${level==='all'?'جميع السنوات':levels[level]} | تاريخ التصدير: ${formatDate(new Date().toISOString().slice(0,10))}`;
+      ['A1','A2','A3','A4'].forEach((cell,index)=>{sheet.getCell(cell).alignment={horizontal:'center',vertical:'middle'};sheet.getCell(cell).font={bold:index<3,size:index===0?16:index===1?13:11,color:{argb:index<2?'FF0F766E':'FF334155'}};});
+      sheet.getRow(1).height=28;sheet.getRow(2).height=24;
+      const header=sheet.addRow(['#','المصدر/النوع','الحدث أو الدورة','السنة','تاريخ البداية','تاريخ النهاية','المدة','الحالة','التفاصيل والملاحظات']);
+      header.height=25;header.eachCell(cell=>{cell.font={bold:true,color:{argb:'FFFFFFFF'}};cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF0F766E'}};cell.alignment={horizontal:'center',vertical:'middle'};cell.border={top:{style:'thin',color:{argb:'FFCBD5E1'}},bottom:{style:'thin',color:{argb:'FFCBD5E1'}},left:{style:'thin',color:{argb:'FFCBD5E1'}},right:{style:'thin',color:{argb:'FFCBD5E1'}}};});
+      const rows=[
+        ...visibleEvents.map(item=>({date:item.start_date,values:[eventTypes[item.event_type]?.label??'حدث عام',item.name,item.affected_levels.length?item.affected_levels.map(value=>levels[value]).join('، '):'جميع السنوات',item.start_date,item.end_date,item.start_date===item.end_date?'يوم واحد':'فترة',item.suspends_clinical_training?'يوقف التدريب':'لا يوقف التدريب',item.notes??'']})),
+        ...visibleRotations.map(item=>({date:item.start_date??'9999-12-31',values:['دورة من التوزيع السريري',`${item.name} (${item.code})`,levels[item.academic_level],item.start_date??'غير محدد',item.end_date??'غير محدد',item.duration_weeks?`${item.duration_weeks} أسبوع`:'—',item.distribution_status==='published'?'منشور':item.distribution_status?'قيد الإعداد':'دون جدول',item.blocks.map(block=>`${block.block_code}: أسبوع ${block.from_week}-${block.to_week}`).join('، ')]})),
+      ].sort((a,b)=>a.date.localeCompare(b.date));
+      rows.forEach((item,index)=>{const row=sheet.addRow([index+1,...item.values]);row.height=24;row.eachCell(cell=>{cell.alignment={horizontal:'right',vertical:'middle',wrapText:true};cell.border={bottom:{style:'hair',color:{argb:'FFE2E8F0'}}};});if(index%2===1)row.eachCell(cell=>{cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF8FAFC'}};});});
+      sheet.autoFilter={from:'A5',to:`I${Math.max(5,sheet.rowCount)}`};sheet.views=[{rightToLeft:true,state:'frozen',ySplit:5}];
+      sheet.pageSetup={orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9,margins:{left:0.25,right:0.25,top:0.5,bottom:0.5,header:0.2,footer:0.2}};
+      sheet.headerFooter.oddFooter='الصفحة &P من &N — نظام إدارة الدائرة السريرية';
+
+      const rotationsSheet=workbook.addWorksheet('تفاصيل الدورات',{views:[{rightToLeft:true}]});
+      rotationsSheet.columns=[{width:8},{width:16},{width:32},{width:18},{width:16},{width:16},{width:14},{width:48}];
+      const rotationsHeader=rotationsSheet.addRow(['#','رمز الدورة','اسم الدورة','السنة','البداية','النهاية','المدة','الفترات السريرية']);
+      rotationsHeader.eachCell(cell=>{cell.font={bold:true,color:{argb:'FFFFFFFF'}};cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF2563EB'}};cell.alignment={horizontal:'center'};});
+      visibleRotations.forEach((item,index)=>rotationsSheet.addRow([index+1,item.code,item.name,levels[item.academic_level],item.start_date??'غير محدد',item.end_date??'غير محدد',item.duration_weeks?`${item.duration_weeks} أسبوع`:'—',item.blocks.map(block=>`${block.block_code} (أسبوع ${block.from_week}-${block.to_week})`).join('، ')]));
+      rotationsSheet.eachRow((row,rowNumber)=>{if(rowNumber>1)row.alignment={horizontal:'right',vertical:'middle',wrapText:true};row.height=Math.max(row.height??15,23);});
+      const buffer=await workbook.xlsx.writeBuffer();
+      const url=URL.createObjectURL(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+      const anchor=document.createElement('a');anchor.href=url;anchor.download=`التقويم_السنوي_${selectedYear.code.replace('/','-')}_${level==='all'?'كل_السنوات':levels[level].replaceAll(' ','_')}.xlsx`;document.body.appendChild(anchor);anchor.click();anchor.remove();URL.revokeObjectURL(url);
+      setNotice('تم تصدير التقويم إلى ملف Excel منسق.');
+    }catch(exception){setError(errorText(exception));}finally{setExporting(false);}
+  };
 
   if(yearsQuery.isLoading)return <LoadingState/>;
   if(yearsQuery.isError)return <ErrorState onRetry={()=>yearsQuery.refetch()}/>;
@@ -109,7 +149,7 @@ export function AcademicCalendarPage(){
   return <div className="space-y-5">
     <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
       <PageHeader title="التقويم الأكاديمي والسريري" description="مرجع موحّد للأعوام والفصول والدورات السريرية والامتحانات والإجازات."/>
-      {canManage&&<div className="flex flex-wrap gap-2"><Button variant="outline" onClick={openNewYear}><Plus className="ml-1.5 h-4 w-4"/>عام جديد</Button><Button variant="outline" onClick={openEditYear} disabled={!selectedYear}><Settings2 className="ml-1.5 h-4 w-4"/>إعدادات العام</Button><Button onClick={openNewEvent} disabled={!selectedYear}><Plus className="ml-1.5 h-4 w-4"/>إضافة حدث</Button></div>}
+      <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={exportExcel} isLoading={exporting} disabled={!overview}><FileSpreadsheet className="ml-1.5 h-4 w-4"/>تصدير Excel</Button>{canManage&&<><Button variant="outline" onClick={openNewYear}><Plus className="ml-1.5 h-4 w-4"/>عام جديد</Button><Button variant="outline" onClick={openEditYear} disabled={!selectedYear}><Settings2 className="ml-1.5 h-4 w-4"/>إعدادات العام</Button><Button onClick={openNewEvent} disabled={!selectedYear}><Plus className="ml-1.5 h-4 w-4"/>إضافة حدث</Button></>}</div>
     </div>
 
     {notice&&<div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800"><CheckCircle2 className="h-5 w-5"/>{notice}</div>}
