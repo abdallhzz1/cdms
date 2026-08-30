@@ -756,6 +756,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 ->middleware('permission:distribution.update')->name('cells.update');
             Route::delete('versions/{version}/cell', [CourseDistributionController::class, 'clearCell'])
                 ->middleware('permission:distribution.update')->name('cells.destroy');
+            Route::put('versions/{version}/blocks/{block}/activity', [CourseDistributionController::class, 'updateBlockActivity'])
+                ->middleware('permission:distribution.update')->name('blocks.activity.update');
             Route::post('versions/{version}/rows', [CourseDistributionController::class, 'storeScheduleRow'])
                 ->middleware('permission:distribution.schedule_rows.manage')->name('rows.store');
             Route::put('versions/{version}/rows/{row}', [CourseDistributionController::class, 'updateScheduleRow'])

@@ -8,6 +8,7 @@ use App\Models\AcademicYear;
 use App\Models\AuditLog;
 use App\Models\Course;
 use App\Models\CourseScheduleCell;
+use App\Models\CourseScheduleBlockActivity;
 use App\Models\CourseScheduleRow;
 use App\Models\DistributionVersion;
 use App\Models\Person;
@@ -38,6 +39,18 @@ class CourseDistributionController extends Controller
     {
         $directory = $this->doctorDirectory();
         $levelScope = $this->getEffectiveAcademicLevelScope();
+
+        $blocks = $rotation->blocks->sortBy('from_week')->values();
+        if ($version) {
+            $activities = CourseScheduleBlockActivity::where('distribution_version_id', $version->id)->get()->keyBy('rotation_block_id');
+            $blocks->each(function (RotationBlock $block) use ($activities) {
+                $activity = $activities->get($block->id);
+                $block->setAttribute('activity_type', $activity?->activity_type ?? 'clinical');
+                $block->setAttribute('activity_label', $activity?->activity_label);
+                $block->setAttribute('activity_scope', $activity?->activity_scope ?? 'all');
+                $block->setAttribute('main_group_codes', $activity?->main_group_codes);
+            });
+        }
 
         return ApiResponse::success([
             'academic_years' => AcademicYear::query()->active()
@@ -131,7 +144,7 @@ class CourseDistributionController extends Controller
             'version' => $version,
             'current_published_version' => $currentPublishedVersion,
             'approval_state' => $approvalState,
-            'blocks' => $rotation->blocks->sortBy('from_week')->values(),
+            'blocks' => $blocks,
             'subgroups' => $this->subgroups($rotation->academic_year_id, $rotation->academic_level),
             'hospitals' => $this->hospitals($directory),
             'unassigned_doctors' => $directory->filter(fn ($doctor) => count($doctor['training_site_ids']) === 0)->values(),
@@ -215,6 +228,9 @@ class CourseDistributionController extends Controller
             || $subgroup->group->academic_year_id !== $version->rotation->academic_year_id
             || $subgroup->group->academic_level !== $version->rotation->academic_level) {
             throw ValidationException::withMessages(['subgroup_id' => ['المجموعة لا تتبع الدفعة والعام المحددين.']]);
+        }
+        if ($this->blockExcludesGroup($version, $block, $subgroup->group->name)) {
+            throw ValidationException::withMessages(['subgroup_id' => ['هذه المجموعة مشمولة بنشاط غير سريري في هذا الأسبوع ولا يمكن توزيعها على طبيب.']]);
         }
 
         $conflict = CourseScheduleCell::query()
@@ -303,6 +319,78 @@ class CourseDistributionController extends Controller
         });
         $this->recordCellChange($request, $version, 'course_schedule.cell_cleared', $data);
         return ApiResponse::success(null, 'تم تفريغ خلية الجدول.');
+    }
+
+    public function updateBlockActivity(Request $request, DistributionVersion $version, RotationBlock $block): JsonResponse
+    {
+        $this->ensureVersionInUserScope($version);
+        $this->ensureEditableVersion($version);
+        abort_unless((int) $block->rotation_id === (int) $version->rotation_id, 404);
+
+        $data = $request->validate([
+            'activity_type' => ['required', 'in:clinical,lectures,break,exam'],
+            'activity_label' => ['nullable', 'string', 'max:255'],
+            'activity_scope' => ['required', 'in:all,main_groups'],
+            'main_group_codes' => ['nullable', 'array'],
+            'main_group_codes.*' => ['string', 'max:50'],
+        ]);
+
+        if ($data['activity_type'] === 'clinical') {
+            $data['activity_label'] = null;
+            $data['activity_scope'] = 'all';
+            $data['main_group_codes'] = null;
+        } else {
+            $data['activity_label'] = trim($data['activity_label'] ?? '') ?: match ($data['activity_type']) {
+                'lectures' => 'محاضرات',
+                'break' => 'إجازة',
+                'exam' => 'امتحانات',
+            };
+            $codes = collect($data['main_group_codes'] ?? [])->map(fn ($code) => trim($code))->filter()->unique()->values();
+            if ($data['activity_scope'] === 'main_groups' && $codes->isEmpty()) {
+                throw ValidationException::withMessages(['main_group_codes' => ['اختر مجموعة رئيسية واحدة على الأقل.']]);
+            }
+            $validCodes = \App\Models\StudentGroup::query()
+                ->where('academic_year_id', $version->rotation->academic_year_id)
+                ->where('academic_level', $version->rotation->academic_level)
+                ->whereIn('name', $codes)->pluck('name');
+            if ($data['activity_scope'] === 'main_groups' && $validCodes->count() !== $codes->count()) {
+                throw ValidationException::withMessages(['main_group_codes' => ['إحدى المجموعات الرئيسية المحددة لا تتبع الدفعة الحالية.']]);
+            }
+            $data['main_group_codes'] = $data['activity_scope'] === 'all' ? null : $validCodes->values()->all();
+        }
+
+        DB::transaction(function () use ($block, $version, $data) {
+            CourseScheduleBlockActivity::updateOrCreate([
+                'distribution_version_id' => $version->id,
+                'rotation_block_id' => $block->id,
+            ], $data);
+            if ($data['activity_type'] === 'clinical') {
+                return;
+            }
+
+            $cells = CourseScheduleCell::query()
+                ->where('distribution_version_id', $version->id)
+                ->where('rotation_block_id', $block->id)
+                ->when($data['activity_scope'] === 'main_groups', fn ($query) => $query->whereHas(
+                    'studentSubgroup.group',
+                    fn ($group) => $group->whereIn('name', $data['main_group_codes'])
+                ));
+            $cellIds = (clone $cells)->pluck('id');
+            StudentClinicalAssignment::query()
+                ->where('distribution_version_id', $version->id)
+                ->where('rotation_block_id', $block->id)
+                ->when($data['activity_scope'] === 'main_groups', fn ($query) => $query->whereHas(
+                    'studentSubgroup.group',
+                    fn ($group) => $group->whereIn('name', $data['main_group_codes'])
+                ))->delete();
+            CourseScheduleCell::whereIn('id', $cellIds)->delete();
+        });
+
+        $this->recordCellChange($request, $version, 'course_schedule.block_activity_updated', [
+            'rotation_block_id' => $block->id,
+        ] + $data);
+
+        return ApiResponse::success(null, 'تم تحديث نوع الأسبوع ونطاقه.');
     }
 
     public function storeScheduleRow(Request $request, DistributionVersion $version): JsonResponse
@@ -398,6 +486,12 @@ class CourseDistributionController extends Controller
                 $copy = $cell->replicate();
                 $copy->distribution_version_id = $revision->id;
                 $copy->course_schedule_row_id = $rowMap[$cell->course_schedule_row_id];
+                $copy->save();
+            }
+
+            foreach (CourseScheduleBlockActivity::where('distribution_version_id', $version->id)->get() as $activity) {
+                $copy = $activity->replicate();
+                $copy->distribution_version_id = $revision->id;
                 $copy->save();
             }
 
@@ -619,6 +713,20 @@ class CourseDistributionController extends Controller
         if (in_array($version->status, ['published', 'withdrawn'], true)) {
             throw ValidationException::withMessages(['version' => ['أنشئ نسخة تعديل قبل تغيير جدول منشور أو ملغى النشر.']]);
         }
+    }
+
+    private function blockExcludesGroup(DistributionVersion $version, RotationBlock $block, string $mainGroupCode): bool
+    {
+        $activity = CourseScheduleBlockActivity::query()
+            ->where('distribution_version_id', $version->id)
+            ->where('rotation_block_id', $block->id)
+            ->first();
+        if (! $activity || $activity->activity_type === 'clinical') {
+            return false;
+        }
+
+        return $activity->activity_scope === 'all'
+            || in_array($mainGroupCode, $activity->main_group_codes ?? [], true);
     }
 
     private function ensureVersionInUserScope(DistributionVersion $version): void

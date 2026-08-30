@@ -5,6 +5,7 @@ namespace App\Services\Distribution;
 use App\Models\AuditLog;
 use App\Models\DistributionVersion;
 use App\Models\StudentClinicalAssignment;
+use App\Models\CourseScheduleBlockActivity;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -250,16 +251,38 @@ class DistributionApprovalService
     public function getUnassignedStudentIds(DistributionVersion $version, array $assignedStudentIds): array
     {
         $rotation = $version->rotation;
-        
-        $eligibleStudents = \App\Models\Student::whereHas('groupAssignments', function ($q) use ($rotation) {
+
+        $eligibleStudents = \App\Models\Student::with(['groupAssignments' => function ($q) use ($rotation) {
+            $q->where('academic_year_id', $rotation->academic_year_id)
+                ->current()
+                ->whereHas('subgroup.group', fn ($group) => $group->where('academic_level', $rotation->academic_level))
+                ->with('subgroup.group');
+        }])->whereHas('groupAssignments', function ($q) use ($rotation) {
             $q->where('academic_year_id', $rotation->academic_year_id)
               ->current()
               ->whereHas('subgroup.group', fn ($group) => $group->where('academic_level', $rotation->academic_level));
         })
         ->where('registration_status', 'active')
-        ->pluck('id')
-        ->toArray();
+        ->get();
 
-        return array_diff($eligibleStudents, $assignedStudentIds);
+        $blockCount = $rotation->blocks()->count();
+        $activities = CourseScheduleBlockActivity::query()
+            ->where('distribution_version_id', $version->id)
+            ->where('activity_type', '!=', 'clinical')
+            ->get();
+
+        $eligibleIds = $eligibleStudents->filter(function ($student) use ($activities, $blockCount) {
+            $mainGroupCode = $student->groupAssignments->first()?->subgroup?->group?->name;
+            if (! $mainGroupCode || $blockCount === 0) {
+                return true;
+            }
+            $coveredBlocks = $activities->filter(fn ($activity) => $activity->activity_scope === 'all'
+                || in_array($mainGroupCode, $activity->main_group_codes ?? [], true))
+                ->pluck('rotation_block_id')->unique()->count();
+
+            return $coveredBlocks < $blockCount;
+        })->pluck('id')->all();
+
+        return array_diff($eligibleIds, $assignedStudentIds);
     }
 }
