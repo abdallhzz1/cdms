@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\DistributionVersion;
 use App\Models\StudentClinicalAssignment;
 use App\Models\CourseScheduleBlockActivity;
+use App\Models\CourseScheduleCell;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -246,20 +247,39 @@ class DistributionApprovalService
     }
 
     /**
-     * Gets IDs of students who belong to the rotation's academic year but have no assignment.
+     * Gets IDs of active students who belong to a subgroup explicitly targeted
+     * by this schedule but have no generated clinical assignment.
+     *
+     * A course schedule may intentionally cover only part of a cohort (for
+     * example, group L while M and N have separate schedules). Therefore the
+     * approval gate must never compare one schedule with the whole cohort.
      */
     public function getUnassignedStudentIds(DistributionVersion $version, array $assignedStudentIds): array
     {
         $rotation = $version->rotation;
 
-        $eligibleStudents = \App\Models\Student::with(['groupAssignments' => function ($q) use ($rotation) {
+        $targetedSubgroupIds = CourseScheduleCell::query()
+            ->where('distribution_version_id', $version->id)
+            ->pluck('student_subgroup_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($targetedSubgroupIds)) {
+            return [];
+        }
+
+        $eligibleStudents = \App\Models\Student::with(['groupAssignments' => function ($q) use ($rotation, $targetedSubgroupIds) {
             $q->where('academic_year_id', $rotation->academic_year_id)
                 ->current()
+                ->whereIn('student_subgroup_id', $targetedSubgroupIds)
                 ->whereHas('subgroup.group', fn ($group) => $group->where('academic_level', $rotation->academic_level))
                 ->with('subgroup.group');
-        }])->whereHas('groupAssignments', function ($q) use ($rotation) {
+        }])->whereHas('groupAssignments', function ($q) use ($rotation, $targetedSubgroupIds) {
             $q->where('academic_year_id', $rotation->academic_year_id)
               ->current()
+              ->whereIn('student_subgroup_id', $targetedSubgroupIds)
               ->whereHas('subgroup.group', fn ($group) => $group->where('academic_level', $rotation->academic_level));
         })
         ->where('registration_status', 'active')

@@ -179,6 +179,59 @@ class CourseDistributionWorkflowTest extends TestCase
             ->assertJsonPath('data.approval_state.status', 'revoked');
     }
 
+    public function test_approval_only_requires_students_from_groups_targeted_by_this_schedule(): void
+    {
+        $otherGroup = StudentGroup::factory()->create([
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'name' => 'M',
+        ]);
+        $otherSubgroup = StudentSubgroup::factory()->create([
+            'student_group_id' => $otherGroup->id,
+            'name' => 'M1',
+            'is_active' => true,
+        ]);
+        $otherStudent = Student::factory()->create([
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'registration_status' => 'active',
+        ]);
+        StudentGroupAssignment::factory()->create([
+            'student_id' => $otherStudent->id,
+            'academic_year_id' => $this->year->id,
+            'student_group_id' => $otherGroup->id,
+            'student_subgroup_id' => $otherSubgroup->id,
+            'valid_until' => null,
+        ]);
+
+        $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'course_id' => $this->course->id,
+            'start_date' => '2026-09-01',
+            'weeks_count' => 2,
+        ])->assertCreated();
+        $versionId = $created->json('data.version.id');
+        $rowId = $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$versionId}/rows", [
+            'row_type' => 'doctor',
+            'person_id' => $this->doctor->id,
+            'training_site_id' => $this->doctor->primary_site_id,
+        ])->assertCreated()->json('data.id');
+        $blockId = Rotation::where('course_id', $this->course->id)->firstOrFail()->blocks()->orderBy('from_week')->value('id');
+
+        $this->actingAs($this->user)->putJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
+            'rotation_block_id' => $blockId,
+            'course_schedule_row_id' => $rowId,
+            'subgroup_id' => $this->subgroup->id,
+        ])->assertOk();
+
+        $this->actingAs($this->user)->getJson("/api/v1/distribution-versions/{$versionId}/unassigned")
+            ->assertOk()
+            ->assertJsonMissing(['id' => $otherStudent->id]);
+        $this->actingAs($this->user)->postJson("/api/v1/distribution-versions/{$versionId}/approve")
+            ->assertOk();
+    }
+
     public function test_publication_approval_error_follows_the_requested_system_language(): void
     {
         $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
