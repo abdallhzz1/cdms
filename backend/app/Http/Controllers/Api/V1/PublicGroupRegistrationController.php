@@ -32,6 +32,7 @@ class PublicGroupRegistrationController extends Controller
             'academic_level'=>$cycle->academic_level,
             'academic_year'=>$cycle->academicYear?->code,
             'status'=>$cycle->isOpen() ? 'open' : 'closed',
+            'otp_required'=>(bool) config('group_registration.otp_enabled'),
         ]);
     }
 
@@ -49,6 +50,33 @@ class PublicGroupRegistrationController extends Controller
         }
         if ($student->academic_registration_status !== 'registered') {
             return ApiResponse::error('يجب أن تقوم بالتسجيل الأكاديمي أولاً قبل اختيار المجموعة.', ['code'=>['registration_required']], [], 403);
+        }
+
+        if (! config('group_registration.otp_enabled')) {
+            $accessToken = Str::random(80);
+            GroupRegistrationOtpChallenge::create([
+                'group_registration_cycle_id'=>$cycle->id,
+                'student_id'=>$student->id,
+                'challenge_token_hash'=>hash('sha256', Str::random(64)),
+                'otp_hash'=>Hash::make(Str::random(32)),
+                'expires_at'=>now()->addMinutes(config('group_registration.session_ttl_minutes')),
+                'verified_at'=>now(),
+                'consumed_at'=>now(),
+                'access_token_hash'=>hash('sha256',$accessToken),
+                'access_expires_at'=>now()->addMinutes(config('group_registration.session_ttl_minutes')),
+                'request_ip_hash'=>hash_hmac('sha256',(string)$request->ip(),(string)config('app.key')),
+            ]);
+
+            Log::warning('Group registration OTP bypass used', [
+                'student_id'=>$student->id,
+                'cycle_id'=>$cycle->id,
+            ]);
+
+            return ApiResponse::success([
+                'otp_required'=>false,
+                'access_token'=>$accessToken,
+                'expires_in_seconds'=>config('group_registration.session_ttl_minutes')*60,
+            ], 'تم فتح جلسة فحص مؤقتة دون إرسال رمز تحقق.');
         }
 
         $otp = (string) random_int(100000, 999999);
@@ -74,6 +102,7 @@ class PublicGroupRegistrationController extends Controller
         }
 
         return ApiResponse::success([
+            'otp_required'=>true,
             'challenge_token'=>$challengeToken,
             'email_hint'=>substr($student->university_number,0,3).str_repeat('*',max(0,strlen($student->university_number)-3)).'@'.config('group_registration.student_email_domain'),
             'expires_in_seconds'=>config('group_registration.otp_ttl_minutes')*60,
