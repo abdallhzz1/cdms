@@ -217,40 +217,52 @@ class CourseDistributionController extends Controller
         $data = $request->validate([
             'rotation_block_id' => ['required', 'integer', 'exists:rotation_blocks,id'],
             'course_schedule_row_id' => ['required', 'integer', 'exists:course_schedule_rows,id'],
-            'subgroup_id' => ['required', 'integer', 'exists:student_subgroups,id'],
+            'subgroup_ids' => ['required_without:subgroup_id', 'array', 'min:1'],
+            'subgroup_ids.*' => ['integer', 'distinct', 'exists:student_subgroups,id'],
+            'subgroup_id' => ['required_without:subgroup_ids', 'integer', 'exists:student_subgroups,id'],
         ]);
+        $subgroupIds = collect($data['subgroup_ids'] ?? [$data['subgroup_id']])->map(fn ($id) => (int) $id)->unique()->values();
         $version->loadMissing('rotation');
         $block = RotationBlock::where('rotation_id', $version->rotation_id)->findOrFail($data['rotation_block_id']);
         $row = CourseScheduleRow::where('distribution_version_id', $version->id)->findOrFail($data['course_schedule_row_id']);
         $doctor = $row->person;
-        $subgroup = StudentSubgroup::with('group')->findOrFail($data['subgroup_id']);
-        if (! $subgroup->is_active || ! $subgroup->group
-            || $subgroup->group->academic_year_id !== $version->rotation->academic_year_id
-            || $subgroup->group->academic_level !== $version->rotation->academic_level) {
-            throw ValidationException::withMessages(['subgroup_id' => ['المجموعة لا تتبع الدفعة والعام المحددين.']]);
-        }
-        if ($this->blockExcludesGroup($version, $block, $subgroup->group->name)) {
-            throw ValidationException::withMessages(['subgroup_id' => ['هذه المجموعة مشمولة بنشاط غير سريري في هذا الأسبوع ولا يمكن توزيعها على طبيب.']]);
+        $subgroups = StudentSubgroup::with('group')->whereIn('id', $subgroupIds)->get();
+        foreach ($subgroups as $subgroup) {
+            if (! $subgroup->is_active || ! $subgroup->group
+                || $subgroup->group->academic_year_id !== $version->rotation->academic_year_id
+                || $subgroup->group->academic_level !== $version->rotation->academic_level) {
+                throw ValidationException::withMessages(['subgroup_ids' => ['إحدى المجموعات لا تتبع الدفعة والعام المحددين.']]);
+            }
+            if ($this->blockExcludesGroup($version, $block, $subgroup->group->name)) {
+                throw ValidationException::withMessages(['subgroup_ids' => ["المجموعة {$subgroup->name} مشمولة بنشاط غير سريري في هذا الأسبوع ولا يمكن توزيعها على طبيب."]]);
+            }
         }
 
         $conflict = CourseScheduleCell::query()
             ->where('distribution_version_id', $version->id)
             ->where('rotation_block_id', $block->id)
-            ->where('student_subgroup_id', $subgroup->id)
+            ->whereIn('student_subgroup_id', $subgroupIds)
             ->where('course_schedule_row_id', '!=', $row->id)
-            ->exists();
+            ->with('studentSubgroup:id,name')
+            ->first();
         if ($conflict) {
-            throw ValidationException::withMessages(['subgroup_id' => ['هذه المجموعة موزعة على طبيب آخر في الأسبوع نفسه.']]);
+            throw ValidationException::withMessages(['subgroup_ids' => ["المجموعة {$conflict->studentSubgroup?->name} موزعة على طبيب آخر في الأسبوع نفسه."]]);
         }
 
-        DB::transaction(function () use ($version, $block, $row, $doctor, $subgroup) {
-            CourseScheduleCell::updateOrCreate([
+        DB::transaction(function () use ($version, $block, $row, $doctor, $subgroupIds) {
+            CourseScheduleCell::where([
                 'distribution_version_id' => $version->id,
                 'rotation_block_id' => $block->id,
                 'course_schedule_row_id' => $row->id,
-            ], [
-                'student_subgroup_id' => $subgroup->id,
-            ]);
+            ])->whereNotIn('student_subgroup_id', $subgroupIds)->delete();
+            foreach ($subgroupIds as $subgroupId) {
+                CourseScheduleCell::firstOrCreate([
+                    'distribution_version_id' => $version->id,
+                    'rotation_block_id' => $block->id,
+                    'course_schedule_row_id' => $row->id,
+                    'student_subgroup_id' => $subgroupId,
+                ]);
+            }
 
             StudentClinicalAssignment::where([
                 'distribution_version_id' => $version->id,
@@ -259,7 +271,7 @@ class CourseDistributionController extends Controller
             ])->delete();
 
             $memberships = StudentGroupAssignment::query()
-                ->where('student_subgroup_id', $subgroup->id)
+                ->whereIn('student_subgroup_id', $subgroupIds)
                 ->where('academic_year_id', $version->rotation->academic_year_id)
                 ->current()
                 ->whereHas('student', fn ($query) => $query->where('registration_status', 'active'))
@@ -276,7 +288,7 @@ class CourseDistributionController extends Controller
                     'distribution_version_id' => $version->id,
                     'course_schedule_row_id' => $row->id,
                     'student_id' => $membership->student_id,
-                    'student_subgroup_id' => $subgroup->id,
+                    'student_subgroup_id' => $membership->student_subgroup_id,
                     'rotation_block_id' => $block->id,
                     'training_site_id' => $row->training_site_id,
                     'department_id' => $doctor?->department_id,
@@ -287,7 +299,10 @@ class CourseDistributionController extends Controller
             }
         });
 
-        $this->recordCellChange($request, $version, 'course_schedule.cell_saved', $data);
+        $this->recordCellChange($request, $version, 'course_schedule.cell_saved', [
+            ...$data,
+            'subgroup_ids' => $subgroupIds->all(),
+        ]);
 
         return ApiResponse::success(null, 'تم حفظ خلية الجدول.');
     }

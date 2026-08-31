@@ -164,6 +164,38 @@ class CourseDistributionWorkflowTest extends TestCase
         ])->assertOk();
 
         $this->assertSame(2, StudentClinicalAssignment::where('distribution_version_id', $versionId)->count());
+
+        $secondSubgroup = StudentSubgroup::factory()->create([
+            'student_group_id' => $this->subgroup->student_group_id,
+            'name' => 'L2',
+            'is_active' => true,
+        ]);
+        $secondStudent = Student::factory()->create([
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'registration_status' => 'active',
+        ]);
+        StudentGroupAssignment::factory()->create([
+            'student_id' => $secondStudent->id,
+            'academic_year_id' => $this->year->id,
+            'student_group_id' => $this->subgroup->student_group_id,
+            'student_subgroup_id' => $secondSubgroup->id,
+            'valid_until' => null,
+        ]);
+        $this->actingAs($this->user)->putJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
+            'rotation_block_id' => $blockId,
+            'course_schedule_row_id' => $rowId,
+            'subgroup_ids' => [$this->subgroup->id, $secondSubgroup->id],
+        ])->assertOk();
+
+        $this->assertSame(2, CourseScheduleCell::where('distribution_version_id', $versionId)->count());
+        $this->assertSame(3, StudentClinicalAssignment::where('distribution_version_id', $versionId)->count());
+        $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
+            ->assertOk()
+            ->assertJsonCount(2, 'data.cells')
+            ->assertJsonFragment(['subgroup_name' => 'L1'])
+            ->assertJsonFragment(['subgroup_name' => 'L2']);
+
         $this->actingAs($this->user)->postJson("/api/v1/distribution-versions/{$versionId}/approve")
             ->assertOk();
         $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
