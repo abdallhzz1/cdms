@@ -48,6 +48,28 @@ class PublicStudentScheduleController extends Controller
             );
         }
 
+        if (! config('group_registration.otp_enabled')) {
+            $accessToken = Str::random(80);
+            StudentScheduleOtpChallenge::create([
+                'student_id' => $student->id,
+                'challenge_token_hash' => hash('sha256', Str::random(64)),
+                'otp_hash' => Hash::make(Str::random(32)),
+                'expires_at' => now()->addMinutes(config('group_registration.session_ttl_minutes')),
+                'verified_at' => now(),
+                'consumed_at' => now(),
+                'access_token_hash' => hash('sha256', $accessToken),
+                'access_expires_at' => now()->addMinutes(config('group_registration.session_ttl_minutes')),
+                'request_ip_hash' => hash_hmac('sha256', (string) $request->ip(), (string) config('app.key')),
+            ]);
+            Log::warning('Student schedule OTP bypass used', ['student_id' => $student->id]);
+
+            return ApiResponse::success([
+                'otp_required' => false,
+                'access_token' => $accessToken,
+                'expires_in_seconds' => config('group_registration.session_ttl_minutes') * 60,
+            ], 'تم فتح جلسة فحص مؤقتة دون إرسال رمز تحقق.');
+        }
+
         $otp = (string) random_int(100000, 999999);
         $challengeToken = Str::random(64);
         $challenge = StudentScheduleOtpChallenge::create([
@@ -79,6 +101,7 @@ class PublicStudentScheduleController extends Controller
         }
 
         return ApiResponse::success([
+            'otp_required' => true,
             'challenge_token' => $challengeToken,
             'email_hint' => substr($student->university_number, 0, 3)
                 .str_repeat('*', max(0, strlen($student->university_number) - 3))

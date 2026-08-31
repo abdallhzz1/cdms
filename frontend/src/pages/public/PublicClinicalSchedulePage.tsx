@@ -58,8 +58,9 @@ export function PublicClinicalSchedulePage() {
     if(busy)return;
     setBusy(true);setError('');setMessage('');
     try{
-      const response=await apiFetch<{challenge_token:string;email_hint:string;expires_in_seconds:number}>('/public/student-schedule/request-otp',{method:'POST',body:{university_number:number.trim()}});
-      setChallenge(response.challenge_token);setEmailHint(response.email_hint);setOtp('');setOtpSeconds(response.expires_in_seconds);
+      const response=await apiFetch<{otp_required:boolean;challenge_token?:string;email_hint?:string;expires_in_seconds:number;access_token?:string}>('/public/student-schedule/request-otp',{method:'POST',body:{university_number:number.trim()}});
+      if(response.otp_required===false&&response.access_token){setAccessToken(response.access_token);const schedule=await apiFetch<StudentSchedule>('/public/student-schedule',{method:'POST',body:{access_token:response.access_token}});setData(schedule);setMessage('وضع الفحص المؤقت فعال: تم تحميل الجدول دون إرسال رمز بريدي.');return;}
+      setChallenge(response.challenge_token??'');setEmailHint(response.email_hint??'');setOtp('');setOtpSeconds(response.expires_in_seconds);
       setMessage('تم إرسال رمز التحقق إلى بريدك الجامعي.');
     }catch(exception){fail(exception)}finally{setBusy(false)}
   };

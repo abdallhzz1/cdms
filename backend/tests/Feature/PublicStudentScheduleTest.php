@@ -119,6 +119,23 @@ class PublicStudentScheduleTest extends TestCase
         $this->assertDatabaseCount('student_schedule_otp_challenges', 1);
     }
 
+    public function test_temporary_test_mode_loads_the_published_schedule_without_email_otp(): void
+    {
+        config(['group_registration.otp_enabled' => false]);
+        Mail::fake();
+
+        $response = $this->postJson('/api/v1/public/student-schedule/request-otp', [
+            'university_number' => '22210466',
+        ])->assertOk()
+            ->assertJsonPath('data.otp_required', false)
+            ->assertJsonStructure(['data' => ['access_token', 'expires_in_seconds']]);
+
+        $this->postJson('/api/v1/public/student-schedule', [
+            'access_token' => $response->json('data.access_token'),
+        ])->assertOk()->assertJsonPath('data.student.university_number', '22210466');
+        Mail::assertNothingOutgoing();
+    }
+
     public function test_mail_failure_fails_closed_without_leaving_a_valid_challenge(): void
     {
         Mail::shouldReceive('raw')->once()->andThrow(new \RuntimeException('smtp unavailable'));
