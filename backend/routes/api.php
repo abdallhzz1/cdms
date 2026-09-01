@@ -388,6 +388,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('academic-calendar-events', [AcademicCalendarEventController::class, 'store'])->middleware('permission:academic_years.manage');
         Route::put('academic-calendar-events/{event}', [AcademicCalendarEventController::class, 'update'])->middleware('permission:academic_years.manage');
         Route::delete('academic-calendar-events/{event}', [AcademicCalendarEventController::class, 'destroy'])->middleware('permission:academic_years.manage');
+        Route::post('clinical-periods', [AcademicCalendarEventController::class, 'storePeriod'])->middleware('permission:academic_years.manage');
+        Route::put('clinical-periods/{period}', [AcademicCalendarEventController::class, 'updatePeriod'])->middleware('permission:academic_years.manage');
+        Route::delete('clinical-periods/{period}', [AcademicCalendarEventController::class, 'destroyPeriod'])->middleware('permission:academic_years.manage');
         // Supervisor Annual Workloads
         Route::get('supervisor-annual-workloads', [SupervisorAnnualWorkloadController::class, 'index'])
             ->middleware('permission:people.view');

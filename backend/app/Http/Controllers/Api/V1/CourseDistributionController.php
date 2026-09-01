@@ -7,6 +7,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\AcademicYear;
 use App\Models\AuditLog;
 use App\Models\Course;
+use App\Models\ClinicalPeriod;
 use App\Models\CourseScheduleCell;
 use App\Models\CourseScheduleBlockActivity;
 use App\Models\CourseScheduleRow;
@@ -44,6 +45,9 @@ class CourseDistributionController extends Controller
             'academic_years' => AcademicYear::query()->active()
                 ->orderByDesc('is_current')->orderByDesc('start_date')
                 ->get(['id', 'code', 'start_date', 'end_date', 'is_current']),
+            'clinical_periods' => ClinicalPeriod::query()
+                ->orderBy('academic_year_id')->orderBy('sequence')
+                ->get(['id', 'academic_year_id', 'code', 'name_ar', 'name_en', 'sequence', 'start_date', 'end_date', 'weeks_count', 'status']),
             'courses' => Course::query()->where('is_active', true)
                 ->whereIn('academic_level', ['fourth', 'fifth', 'sixth'])
                 ->when($levelScope !== null, fn ($query) => $query->whereIn('academic_level', $levelScope))
@@ -70,15 +74,19 @@ class CourseDistributionController extends Controller
             'academic_year_id' => ['required', 'integer', 'exists:academic_years,id'],
             'academic_level' => ['required', 'in:fourth,fifth,sixth'],
             'course_id' => ['required', 'integer', 'exists:courses,id'],
+            'clinical_period_id' => ['nullable', 'integer', 'exists:clinical_periods,id'],
+            'schedule_scope' => ['nullable', 'in:period,annual'],
         ]);
         $this->ensureAcademicLevelInUserScope($data['academic_level']);
 
         $directory = $this->doctorDirectory();
         $rotation = Rotation::query()
-            ->with(['academicYear', 'course', 'blocks'])
+            ->with(['academicYear', 'course', 'clinicalPeriod', 'blocks'])
             ->where('academic_year_id', $data['academic_year_id'])
             ->where('academic_level', $data['academic_level'])
             ->where('course_id', $data['course_id'])
+            ->when(($data['schedule_scope'] ?? null) === 'annual', fn ($query) => $query->where('schedule_scope', 'annual')->whereNull('clinical_period_id'))
+            ->when(!empty($data['clinical_period_id']), fn ($query) => $query->where('clinical_period_id', $data['clinical_period_id']))
             ->first();
 
         if (! $rotation) {
@@ -159,16 +167,27 @@ class CourseDistributionController extends Controller
             'academic_year_id' => ['required', 'integer', 'exists:academic_years,id'],
             'academic_level' => ['required', 'in:fourth,fifth,sixth'],
             'course_id' => ['required', 'integer', 'exists:courses,id'],
+            'clinical_period_id' => ['nullable', 'integer', 'exists:clinical_periods,id', 'required_if:schedule_scope,period'],
+            'schedule_scope' => ['nullable', 'in:period,annual'],
             'start_date' => ['required', 'date'],
             'weeks_count' => ['required', 'integer', 'min:1', 'max:52'],
         ]);
+        $data['schedule_scope'] = $data['schedule_scope'] ?? 'annual';
         $this->ensureAcademicLevelInUserScope($data['academic_level']);
         $course = Course::findOrFail($data['course_id']);
         if ($course->academic_level !== $data['academic_level']) {
             throw ValidationException::withMessages(['course_id' => ['المساق لا يتبع الدفعة المحددة.']]);
         }
-        if (Rotation::where('academic_year_id', $data['academic_year_id'])->where('course_id', $course->id)->exists()) {
-            throw ValidationException::withMessages(['course_id' => ['يوجد جدول منشأ مسبقًا لهذا المساق والعام.']]);
+        $period = null;
+        if ($data['schedule_scope'] === 'period') {
+            $period = ClinicalPeriod::where('academic_year_id', $data['academic_year_id'])->findOrFail($data['clinical_period_id']);
+        }
+        $duplicate = Rotation::where('academic_year_id', $data['academic_year_id'])
+            ->where('course_id', $course->id)
+            ->when($period, fn ($query) => $query->where('clinical_period_id', $period->id), fn ($query) => $query->where('schedule_scope', 'annual')->whereNull('clinical_period_id'))
+            ->exists();
+        if ($duplicate) {
+            throw ValidationException::withMessages(['course_id' => ['يوجد جدول منشأ مسبقًا لهذا المساق ضمن الفترة المحددة.']]);
         }
 
         $year = AcademicYear::findOrFail($data['academic_year_id']);
@@ -179,13 +198,18 @@ class CourseDistributionController extends Controller
                 'start_date' => ['يجب أن يقع الجدول كاملًا ضمن بداية ونهاية العام الأكاديمي المحدد.'],
             ]);
         }
+        if ($period && ($scheduleStart->lt($period->start_date) || $scheduleEnd->gt($period->end_date->endOfDay()))) {
+            throw ValidationException::withMessages(['start_date' => ['يجب أن يقع الجدول كاملًا ضمن بداية ونهاية الفترة السريرية المحددة.']]);
+        }
 
-        [$rotation, $version] = DB::transaction(function () use ($data, $course, $year) {
+        [$rotation, $version] = DB::transaction(function () use ($data, $course, $year, $period) {
             $rotation = Rotation::create([
                 'academic_year_id' => $year->id,
                 'course_id' => $course->id,
-                'code' => 'COURSE-'.$course->id.'-YEAR-'.$year->id,
-                'name' => $course->name_ar,
+                'clinical_period_id' => $period?->id,
+                'schedule_scope' => $data['schedule_scope'],
+                'code' => 'COURSE-'.$course->id.'-YEAR-'.$year->id.'-'.($period?->code ?? 'ANNUAL'),
+                'name' => $course->name_ar.' - '.($period?->name_ar ?? 'الجدول السنوي'),
                 'academic_level' => $data['academic_level'],
                 'duration_weeks' => $data['weeks_count'],
                 'start_date' => $data['start_date'],
@@ -199,7 +223,7 @@ class CourseDistributionController extends Controller
             ])->all());
             $version = DistributionVersion::create([
                 'rotation_id' => $rotation->id,
-                'name' => 'جدول '.$course->name_ar.' - '.$year->code,
+                'name' => 'جدول '.$course->name_ar.' - '.($period?->name_ar ?? 'السنة كاملة').' - '.$year->code,
                 'status' => 'manual',
             ]);
             return [$rotation, $version];

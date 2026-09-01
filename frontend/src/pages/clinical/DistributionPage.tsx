@@ -14,6 +14,7 @@ import { useI18n } from '@/i18n/I18nContext';
 
 type Level = 'fourth' | 'fifth' | 'sixth';
 type Year = { id: number; code: string; start_date: string; end_date: string; is_current: boolean };
+type ClinicalPeriod = { id:number; academic_year_id:number; code:string; name_ar:string; name_en?:string|null; sequence:number; start_date:string; end_date:string; weeks_count:number; status:string };
 type Course = { id: number; code: string; name_ar: string; name_en?: string | null; academic_level: Level; semester?: number };
 type Doctor = { id: number | null; user_id: number; full_name_ar: string; full_name_en?: string | null; email?: string; specialty?: string; primary_site_id?: number | null; training_site_ids?: number[] };
 type Hospital = { id: number; site_code: string; name_ar: string; name_en?: string | null; site_type?: string; city?: string | null; supervisors: Doctor[] };
@@ -24,8 +25,8 @@ type Cell = { course_schedule_row_id: number; rotation_block_id: number; supervi
 type ScheduleRow = { id: number; row_type: 'doctor' | 'vacancy'; person_id?: number | null; training_site_id: number; label?: string | null; person?: { id: number; full_name_ar: string; full_name_en?: string | null; specialty?: string | null }; training_site?: { id: number; name_ar: string; name_en?: string | null } };
 type Version = { id: number; status: string; updated_at: string };
 type ApprovalState = { status: 'required' | 'approved' | 'revoked'; approved_at?: string | null; approved_by?: number | null };
-type Rotation = { id: number; name: string; start_date?: string | null; duration_weeks: number };
-type Options = { academic_years: Year[]; courses: Course[]; hospitals: Hospital[]; unassigned_doctors: Doctor[] };
+type Rotation = { id: number; name: string; start_date?: string | null; duration_weeks: number; schedule_scope?:'period'|'annual'; clinical_period?:ClinicalPeriod|null };
+type Options = { academic_years: Year[]; clinical_periods:ClinicalPeriod[]; courses: Course[]; hospitals: Hospital[]; unassigned_doctors: Doctor[] };
 type Schedule = { rotation: Rotation | null; version: Version | null; current_published_version?: Version | null; approval_state?: ApprovalState | null; blocks: Block[]; subgroups: Subgroup[]; hospitals: Hospital[]; unassigned_doctors: Doctor[]; rows: ScheduleRow[]; cells: Cell[] };
 type OverridePayload = { force?: boolean; override_reason?: string };
 type UnassignedStudent = { id: number; university_number: string; full_name_ar: string };
@@ -79,6 +80,7 @@ export function DistributionPage() {
   const [yearId, setYearId] = useState('');
   const [level, setLevel] = useState<Level>(isCohortScopedRta ? (assignedRtaLevels[0] ?? 'fourth') : 'fourth');
   const [courseId, setCourseId] = useState('');
+  const [periodId, setPeriodId] = useState('');
   const [startDate, setStartDate] = useState('');
   const [weeksCount, setWeeksCount] = useState(12);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -93,6 +95,8 @@ export function DistributionPage() {
   const optionsQuery = useQuery({ queryKey: ['course-distribution-options'], queryFn: () => apiFetch<Options>('/course-distribution/options'), enabled: can('distribution.view') });
   const years = optionsQuery.data?.academic_years ?? [];
   const courses = optionsQuery.data?.courses ?? [];
+  const periods = useMemo(() => (optionsQuery.data?.clinical_periods ?? []).filter((period) => String(period.academic_year_id) === yearId), [optionsQuery.data?.clinical_periods, yearId]);
+  const selectedPeriod = periods.find((period) => String(period.id) === periodId);
   const availableCourses = useMemo(() => courses.filter((course) => course.academic_level === level), [courses, level]);
 
   useEffect(() => {
@@ -101,13 +105,15 @@ export function DistributionPage() {
     }
   }, [assignedRtaLevels.join('|'), isCohortScopedRta, level]);
   useEffect(() => { if (!yearId && years.length) setYearId(String(years.find((year) => year.is_current)?.id ?? years[0].id)); }, [yearId, years]);
+  useEffect(() => { if (periodId !== 'annual' && !periods.some((period) => String(period.id) === periodId)) setPeriodId(periods[0] ? String(periods[0].id) : 'annual'); }, [periodId, periods]);
+  useEffect(() => { if (periodId === 'annual') { const year=years.find((item)=>String(item.id)===yearId); if(year){setStartDate(year.start_date);setWeeksCount(36);} } else if(selectedPeriod){setStartDate(selectedPeriod.start_date);setWeeksCount(selectedPeriod.weeks_count);} }, [periodId, selectedPeriod?.id, yearId]);
   useEffect(() => { if (!availableCourses.some((course) => String(course.id) === courseId)) setCourseId(availableCourses[0] ? String(availableCourses[0].id) : ''); }, [availableCourses, courseId]);
   useEffect(() => { const year = years.find((item) => String(item.id) === yearId); if (year && !startDate) setStartDate(year.start_date); }, [startDate, yearId, years]);
 
   const scheduleQuery = useQuery({
-    queryKey: ['course-distribution-schedule', yearId, level, courseId],
-    queryFn: () => apiFetch<Schedule>(`/course-distribution/schedule?academic_year_id=${yearId}&academic_level=${level}&course_id=${courseId}`),
-    enabled: Boolean(yearId && courseId),
+    queryKey: ['course-distribution-schedule', yearId, level, courseId, periodId],
+    queryFn: () => apiFetch<Schedule>(`/course-distribution/schedule?academic_year_id=${yearId}&academic_level=${level}&course_id=${courseId}&schedule_scope=${periodId==='annual'?'annual':'period'}${periodId!=='annual'?`&clinical_period_id=${periodId}`:''}`),
+    enabled: Boolean(yearId && courseId && periodId),
   });
   const schedule = scheduleQuery.data;
   const isEditable = ['draft', 'suggested', 'manual'].includes(schedule?.version?.status ?? '');
@@ -150,7 +156,7 @@ export function DistributionPage() {
   };
 
   const createSchedule = useMutation({
-    mutationFn: () => apiFetch('/course-distribution/schedules', { method: 'POST', body: { academic_year_id: Number(yearId), academic_level: level, course_id: Number(courseId), start_date: startDate, weeks_count: weeksCount } }),
+    mutationFn: () => apiFetch('/course-distribution/schedules', { method: 'POST', body: { academic_year_id: Number(yearId), academic_level: level, course_id: Number(courseId), clinical_period_id: periodId === 'annual' ? null : Number(periodId), schedule_scope: periodId === 'annual' ? 'annual' : 'period', start_date: startDate, weeks_count: weeksCount } }),
     onSuccess: async () => { await refresh(); setNotice({ type: 'success', text: tr('تم إنشاء شبكة أسابيع المساق. ابدأ بتوزيع المجموعات على الأطباء.', 'The course week grid was created. You can now assign groups to physicians.') }); },
     onError: (error) => setNotice({ type: 'error', text: message(error, { ar: 'تعذر إنشاء جدول المساق.', en: 'Could not create the course schedule.' }, locale) }),
   });
@@ -281,15 +287,16 @@ export function DistributionPage() {
     </PageHeader>
     {notice && <div className={`flex justify-between rounded-xl border px-4 py-3 text-xs font-bold ${notice.type === 'success' ? 'border-teal-200 bg-teal-50 text-teal-800' : 'border-red-200 bg-red-50 text-red-800'}`}><span>{notice.text}</span><button onClick={() => setNotice(null)}>×</button></div>}
 
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 md:grid-cols-3">
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">{tr('العام الأكاديمي','Academic year')}</span><select className={inputClass} value={yearId} onChange={(event) => { setYearId(event.target.value); setStartDate(''); }}><option value="">{tr('اختر العام','Select year')}</option>{years.map((year) => <option key={year.id} value={year.id}>{year.code}{year.is_current ? tr(' — الحالي',' — Current') : ''}</option>)}</select></label>
+      <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">{tr('الفترة السريرية','Clinical period')}</span><select className={inputClass} value={periodId} onChange={(event)=>setPeriodId(event.target.value)}><option value="annual">{tr('السنة كاملة — 36 أسبوع','Full year — 36 weeks')}</option>{periods.map((period)=><option key={period.id} value={period.id}>{period.name_ar} — {period.weeks_count} {tr('أسبوع','weeks')}</option>)}</select></label>
       <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">{tr('الدفعة / المستوى','Cohort / level')}</span><select className={inputClass} value={level} onChange={(event) => setLevel(event.target.value as Level)} disabled={isCohortScopedRta && visibleLevels.length <= 1}>{visibleLevels.map((value) => <option key={value} value={value}>{levelText[value]}</option>)}</select>{isCohortScopedRta && visibleLevels.length === 0 && <span className="mt-1 block text-[10px] font-bold text-amber-700">{tr('لم يتم تكليف حسابك بأي دفعة.','Your account has not been assigned to a cohort.')}</span>}</label>
       <label><span className="mb-1.5 block text-[11px] font-black text-slate-500">{tr('المساق السريري','Clinical course')}</span><select className={inputClass} value={courseId} onChange={(event) => setCourseId(event.target.value)} disabled={!availableCourses.length}><option value="">{availableCourses.length ? tr('اختر المساق','Select course') : tr('لا توجد مساقات لهذه الدفعة','No courses for this cohort')}</option>{availableCourses.map((course) => <option key={course.id} value={course.id}>{course.code} — {ar ? course.name_ar : course.name_en || course.name_ar}</option>)}</select></label>
     </div></section>
 
     {scheduleQuery.isLoading && <LoadingState />}
     {scheduleQuery.isError && <ErrorState onRetry={() => scheduleQuery.refetch()} />}
-    {schedule && !schedule.rotation && <section className="rounded-2xl border-2 border-dashed border-slate-200 bg-white p-7 text-center"><CalendarDays className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-3 font-black text-slate-800">{tr('لا يوجد جدول لهذا المساق بعد', 'No schedule exists for this course yet')}</h2><p className="mt-1 text-xs text-slate-500">{tr('حدد تاريخ أول أسبوع وعدد أسابيع المساق؛ سيُنشئ النظام أعمدة الأسابيع تلقائيًا.', 'Set the first week date and course duration; the system will create the week columns automatically.')}</p>{can('rotations.create') ? <div className="mx-auto mt-5 grid max-w-xl gap-3 sm:grid-cols-3"><input type="date" className={inputClass} value={startDate} onChange={(event) => setStartDate(event.target.value)} /><select className={inputClass} value={weeksCount} onChange={(event) => setWeeksCount(Number(event.target.value))}>{[8,10,12,14,16].map((count) => <option key={count} value={count}>{count} {tr('أسبوع', 'weeks')}</option>)}</select><Button onClick={() => createSchedule.mutate()} isLoading={createSchedule.isPending} disabled={!startDate}>{tr('إنشاء جدول المساق', 'Create course schedule')}</Button></div> : <p className="mt-4 text-xs font-bold text-slate-700">{tr('تحتاج صلاحية «إعداد وإضافة دورة سريرية».', 'You need the “Create clinical rotation” permission.')}</p>}</section>}
+    {schedule && !schedule.rotation && <section className="rounded-2xl border-2 border-dashed border-slate-200 bg-white p-7 text-center"><CalendarDays className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-3 font-black text-slate-800">{tr('لا يوجد جدول لهذا المساق في الفترة المحددة', 'No schedule exists for this course in the selected period')}</h2><p className="mt-1 text-xs text-slate-500">{periodId==='annual'?tr('سيتم إنشاء جدول سنوي كامل من 36 أسبوعًا.','A full 36-week annual schedule will be created.'):tr(`سيتم إنشاء جدول ${selectedPeriod?.name_ar??''} حسب تواريخ التقويم.`,`The ${selectedPeriod?.name_en??'clinical period'} schedule will follow the calendar dates.`)}</p>{can('rotations.create') ? <div className="mx-auto mt-5 grid max-w-xl gap-3 sm:grid-cols-3"><input type="date" className={inputClass} value={startDate} readOnly /><input type="text" className={inputClass} value={`${weeksCount} ${tr('أسبوع','weeks')}`} readOnly /><Button onClick={() => createSchedule.mutate()} isLoading={createSchedule.isPending} disabled={!startDate}>{tr('إنشاء جدول المساق', 'Create course schedule')}</Button></div> : <p className="mt-4 text-xs font-bold text-slate-700">{tr('تحتاج صلاحية «إعداد وإضافة دورة سريرية».', 'You need the “Create clinical rotation” permission.')}</p>}</section>}
 
     {schedule?.rotation && schedule.version && <>
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div><div className="flex items-center gap-2"><Grid3X3 className="h-5 w-5 text-teal-700" /><h2 className="font-black text-slate-800">{schedule.rotation.name}</h2><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">{statusLabels[schedule.version.status] ?? schedule.version.status}</span>{isEditable && publishedVersion && <span className="rounded-full bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-700">{tr('يوجد جدول منشور حاليًا', 'A published schedule is currently active')}</span>}</div><p className="mt-1 text-xs text-slate-500">{tr(`${schedule.blocks.length} أسبوع · ${doctorsCount} طبيب · ${schedule.rows.filter((row) => row.row_type === 'vacancy').length} شاغر · ${schedule.subgroups.length} مجموعة فرعية`, `${schedule.blocks.length} weeks · ${doctorsCount} physicians · ${schedule.rows.filter((row) => row.row_type === 'vacancy').length} vacancies · ${schedule.subgroups.length} subgroups`)}</p></div><div className="flex flex-wrap gap-2">{can('distribution.schedule_rows.manage') && isEditable && <Button variant="outline" onClick={() => openRow()}><Plus className="me-1 h-4 w-4" />{tr('إضافة صف', 'Add row')}</Button>}{can('distribution.approve') && isEditable && approvalState !== 'approved' && <Button variant="outline" onClick={() => approve.mutate({})} isLoading={approve.isPending}><CheckCircle2 className="me-1 h-4 w-4" />{approvalState === 'revoked' ? tr('إعادة الاعتماد', 'Approve again') : tr('اعتماد', 'Approve')}</Button>}{can('distribution.publish') && isEditable && <Button disabled={approvalState !== 'approved'} title={approvalState !== 'approved' ? tr('اعتمد الجدول أولاً', 'Approve the schedule first') : undefined} onClick={() => publish.mutate({})} isLoading={publish.isPending}><Send className="me-1 h-4 w-4" />{tr('نشر', 'Publish')}</Button>}{can('distribution.revise') && ['published', 'withdrawn'].includes(schedule.version.status) && <Button variant="outline" onClick={() => { if (window.confirm(tr('سيتم إنشاء نسخة مستقلة قابلة للتعديل. هل تريد المتابعة؟', 'An independent editable revision will be created. Continue?'))) revise.mutate(); }} isLoading={revise.isPending}><Copy className="me-1 h-4 w-4" />{tr('إنشاء نسخة للتعديل', 'Create revision')}</Button>}{can('distribution.unpublish') && Boolean(publishedVersion) && <Button variant="outline" onClick={() => { const reason = window.prompt(tr('اكتب سبب إلغاء نشر الجدول:', 'Enter the reason for unpublishing:')); if (reason && reason.trim().length >= 5) unpublish.mutate(reason.trim()); }} isLoading={unpublish.isPending}><Undo2 className="me-1 h-4 w-4" />{tr('إلغاء النشر', 'Unpublish')}</Button>}{can('distribution.delete') && !publishedVersion && <Button variant="danger" onClick={() => { if (!window.confirm(tr('سيتم حذف الجدول وكل مسوداته وتوزيعاته نهائياً. هل أنت متأكد؟', 'The schedule, all its drafts, and assignments will be permanently deleted. Are you sure?'))) return; const reason = window.prompt(tr('سبب الحذف (اختياري):', 'Deletion reason (optional):')) ?? ''; deleteSchedule.mutate(reason); }} isLoading={deleteSchedule.isPending}><Trash2 className="me-1 h-4 w-4" />{tr('حذف الجدول', 'Delete schedule')}</Button>}</div></section>

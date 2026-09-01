@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AcademicCalendarEvent;
 use App\Models\AcademicYear;
+use App\Models\ClinicalPeriod;
 use App\Models\Rotation;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -37,6 +39,7 @@ class AcademicCalendarEventController extends Controller
         $rotations = Rotation::query()
             ->where('academic_year_id', $academicYear->id)
             ->with([
+                'clinicalPeriod',
                 'blocks' => fn ($query) => $query->orderBy('from_week'),
                 'distributionVersions' => fn ($query) => $query->latest('id'),
             ])
@@ -52,6 +55,8 @@ class AcademicCalendarEventController extends Controller
                 'end_date' => $rotation->end_date?->toDateString(),
                 'duration_weeks' => $rotation->duration_weeks,
                 'status' => $rotation->status,
+                'schedule_scope' => $rotation->schedule_scope,
+                'clinical_period' => $rotation->clinicalPeriod ? $this->periodPayload($rotation->clinicalPeriod) : null,
                 'blocks' => $rotation->blocks->map(fn ($block) => [
                     'id' => $block->id,
                     'block_code' => $block->block_code,
@@ -63,6 +68,7 @@ class AcademicCalendarEventController extends Controller
 
         return ApiResponse::success([
             'academic_year' => $academicYear,
+            'periods' => $academicYear->clinicalPeriods()->get()->map(fn (ClinicalPeriod $period) => $this->periodPayload($period)),
             'events' => $events,
             'rotations' => $rotations,
         ]);
@@ -87,6 +93,29 @@ class AcademicCalendarEventController extends Controller
         $event->delete();
 
         return ApiResponse::success(null, 'تم حذف الحدث من التقويم.');
+    }
+
+    public function storePeriod(Request $request): JsonResponse
+    {
+        $period = ClinicalPeriod::create($this->validatedPeriodData($request));
+        return ApiResponse::success($this->periodPayload($period), 'تمت إضافة الفترة السريرية.', [], 201);
+    }
+
+    public function updatePeriod(Request $request, ClinicalPeriod $period): JsonResponse
+    {
+        $period->update($this->validatedPeriodData($request, $period));
+        return ApiResponse::success($this->periodPayload($period->fresh()), 'تم تحديث الفترة السريرية.');
+    }
+
+    public function destroyPeriod(ClinicalPeriod $period): JsonResponse
+    {
+        if ($period->rotations()->exists()) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'period' => ['لا يمكن حذف الفترة لوجود جداول توزيع مرتبطة بها.'],
+            ]);
+        }
+        $period->delete();
+        return ApiResponse::success(null, 'تم حذف الفترة السريرية.');
     }
 
     private function validatedData(Request $request, ?AcademicCalendarEvent $event = null): array
@@ -129,6 +158,56 @@ class AcademicCalendarEventController extends Controller
             'affected_levels' => $event->affected_levels ? explode(',', $event->affected_levels) : [],
             'suspends_clinical_training' => $event->suspends_clinical_training,
             'notes' => $event->notes,
+        ];
+    }
+
+    private function validatedPeriodData(Request $request, ?ClinicalPeriod $period = null): array
+    {
+        $required = $period ? 'sometimes' : 'required';
+        $data = $request->validate([
+            'academic_year_id' => [$required, 'integer', 'exists:academic_years,id'],
+            'code' => [$required, 'string', 'max:20'],
+            'name_ar' => [$required, 'string', 'max:255'],
+            'name_en' => ['nullable', 'string', 'max:255'],
+            'sequence' => [$required, 'integer', 'min:1', 'max:10'],
+            'start_date' => [$required, 'date'],
+            'end_date' => [$required, 'date', 'after_or_equal:start_date'],
+            'weeks_count' => [$required, 'integer', 'min:1', 'max:52'],
+            'status' => [$required, Rule::in(['planned', 'active', 'closed'])],
+            'notes' => ['nullable', 'string', 'max:3000'],
+        ]);
+        $yearId = (int) ($data['academic_year_id'] ?? $period?->academic_year_id);
+        $year = AcademicYear::findOrFail($yearId);
+        $start = Carbon::parse($data['start_date'] ?? $period?->start_date);
+        $end = Carbon::parse($data['end_date'] ?? $period?->end_date);
+        if ($start->lt($year->start_date) || $end->gt($year->end_date)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['start_date' => ['يجب أن تقع الفترة كاملة ضمن العام الأكاديمي.']]);
+        }
+        $overlap = ClinicalPeriod::where('academic_year_id', $yearId)
+            ->when($period, fn ($query) => $query->whereKeyNot($period->id))
+            ->whereDate('start_date', '<=', $end->toDateString())
+            ->whereDate('end_date', '>=', $start->toDateString())
+            ->exists();
+        if ($overlap) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['start_date' => ['تتداخل هذه الفترة مع فترة سريرية أخرى.']]);
+        }
+        return $data;
+    }
+
+    private function periodPayload(ClinicalPeriod $period): array
+    {
+        return [
+            'id' => $period->id,
+            'academic_year_id' => $period->academic_year_id,
+            'code' => $period->code,
+            'name_ar' => $period->name_ar,
+            'name_en' => $period->name_en,
+            'sequence' => $period->sequence,
+            'start_date' => $period->start_date?->toDateString(),
+            'end_date' => $period->end_date?->toDateString(),
+            'weeks_count' => $period->weeks_count,
+            'status' => $period->status,
+            'notes' => $period->notes,
         ];
     }
 }

@@ -12,6 +12,8 @@ class Rotation extends Model
     protected $fillable = [
         'academic_year_id',
         'course_id',
+        'clinical_period_id',
+        'schedule_scope',
         'code',
         'name',
         'academic_level',
@@ -35,6 +37,11 @@ class Rotation extends Model
     public function course()
     {
         return $this->belongsTo(Course::class);
+    }
+
+    public function clinicalPeriod()
+    {
+        return $this->belongsTo(ClinicalPeriod::class);
     }
 
     public function blocks()

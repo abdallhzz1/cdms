@@ -83,6 +83,11 @@ class AcademicYear extends Model
         return $this->hasMany(AcademicCalendarEvent::class);
     }
 
+    public function clinicalPeriods(): HasMany
+    {
+        return $this->hasMany(ClinicalPeriod::class)->orderBy('sequence');
+    }
+
     /** @return HasMany<StudentGroupAssignment, $this> */
     public function studentGroupAssignments(): HasMany
     {
