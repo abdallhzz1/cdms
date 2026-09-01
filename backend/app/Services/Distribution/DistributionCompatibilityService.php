@@ -3,7 +3,7 @@
 namespace App\Services\Distribution;
 
 use App\DTOs\CandidateAssignmentDTO;
-use App\Models\Rotation;
+use App\Models\Person;
 
 class DistributionCompatibilityService
 {
@@ -13,6 +13,9 @@ class DistributionCompatibilityService
     public function validate(DistributionValidationContext $context, array $assignments): array
     {
         $violations = [];
+        $supervisors = Person::query()->with('trainingSites:id')
+            ->whereIn('id', collect($assignments)->pluck('supervisor_id')->filter()->unique())
+            ->get()->keyBy('id');
 
         foreach ($assignments as $assignment) {
             // Rule: RotationBlock must belong to the Rotation
@@ -34,18 +37,21 @@ class DistributionCompatibilityService
                 ];
             }
 
-            // Rule: Supervisor compatibility (future-proofing based on Phase 3A people.primary_site_id)
+            // A supervisor may work at several sites. The primary site remains
+            // a legacy fallback, while person_training_site is authoritative.
             if ($assignment->supervisor_id) {
-                // To keep it simple without executing N+1 queries, we can query in bulk later if needed.
-                // For now, assume we check if the supervisor belongs to the site.
-                $isSupervisorAtSite = \App\Models\Person::where('id', $assignment->supervisor_id)
-                    ->where('primary_site_id', $assignment->site_id)
-                    ->exists();
+                $supervisor = $supervisors->get($assignment->supervisor_id);
+                $isSupervisorAtSite = $supervisor && (
+                    (int) $supervisor->primary_site_id === (int) $assignment->site_id
+                    || $supervisor->trainingSites->contains('id', $assignment->site_id)
+                );
 
                 if (!$isSupervisorAtSite) {
                     $violations[] = [
                         'code' => 'INVALID_SUPERVISOR',
-                        'message' => "Supervisor {$assignment->supervisor_id} is not associated with site {$assignment->site_id}.",
+                        'message' => $supervisor
+                            ? "المشرف {$supervisor->full_name_ar} غير مرتبط بالمستشفى المحدد. حدّث أماكن وأيام عمله أولاً."
+                            : 'المشرف المحدد غير موجود أو غير فعال.',
                         'subgroup_id' => $assignment->subgroup_id,
                     ];
                 }

@@ -46,7 +46,7 @@ function normalizeAssignedLevel(value: string): Level | null {
 function message(error: unknown, fallback: { ar: string; en: string }, locale: 'ar' | 'en'): string {
   const localizedFallback = fallback[locale];
   if (!(error instanceof ApiError)) return localizedFallback;
-  const validation = Object.values(error.errors).flat().find((item) => typeof item === 'string');
+  const validation = Object.values(error.errors).flat(Infinity).map((item:any) => typeof item === 'string' ? item : item?.message).find((item) => typeof item === 'string');
   if (typeof validation === 'string') return validation;
   if (error.status === 0) return locale === 'ar' ? 'تعذر الاتصال بالخادم. تحقق من اتصال الإنترنت ثم حاول مجدداً.' : 'Unable to reach the server. Check your connection and try again.';
   return error.message || localizedFallback;
