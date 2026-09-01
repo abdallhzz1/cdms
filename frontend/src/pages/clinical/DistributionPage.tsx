@@ -16,7 +16,8 @@ type Level = 'fourth' | 'fifth' | 'sixth';
 type Year = { id: number; code: string; start_date: string; end_date: string; is_current: boolean };
 type ClinicalPeriod = { id:number; academic_year_id:number; code:string; name_ar:string; name_en?:string|null; sequence:number; start_date:string; end_date:string; weeks_count:number; status:string };
 type Course = { id: number; code: string; name_ar: string; name_en?: string | null; academic_level: Level; semester?: number };
-type Doctor = { id: number | null; user_id: number; full_name_ar: string; full_name_en?: string | null; email?: string; specialty?: string; primary_site_id?: number | null; training_site_ids?: number[] };
+type DoctorWorkSchedule={training_site_id:number;valid_from:string;valid_until:string;days:Array<{day:string;status:'work'|'leave'|'unavailable';note?:string|null}>};
+type Doctor = { id: number | null; user_id: number; full_name_ar: string; full_name_en?: string | null; email?: string; specialty?: string; primary_site_id?: number | null; training_site_ids?: number[];work_schedules?:DoctorWorkSchedule[] };
 type Hospital = { id: number; site_code: string; name_ar: string; name_en?: string | null; site_type?: string; city?: string | null; supervisors: Doctor[] };
 type ActivityType = 'clinical' | 'lectures' | 'break' | 'exam';
 type Block = { id: number; block_code: string; from_week: number; to_week: number; activity_type?: ActivityType; activity_label?: string | null; activity_scope?: 'all' | 'main_groups'; main_group_codes?: string[] | null };
@@ -123,7 +124,13 @@ export function DistributionPage() {
   const selectedRowHospital = hospitals.find((hospital) => String(hospital.id) === rowForm.hospitalId);
   const availableRowDoctors = (selectedRowHospital?.supervisors ?? []).filter((doctor) => {
     const query = rowForm.search.trim().toLowerCase();
-    return !query || doctor.full_name_ar.toLowerCase().includes(query) || doctor.full_name_en?.toLowerCase().includes(query) || doctor.email?.toLowerCase().includes(query);
+    const matchesSearch=!query || doctor.full_name_ar.toLowerCase().includes(query) || doctor.full_name_en?.toLowerCase().includes(query) || doctor.email?.toLowerCase().includes(query);
+    if(!matchesSearch)return false;
+    if(!doctor.work_schedules?.length)return true;
+    const rotationStart=schedule?.rotation?.start_date?.slice(0,10)??startDate;
+    const rotationEnd=new Date(`${rotationStart}T12:00:00`);rotationEnd.setDate(rotationEnd.getDate()+Math.max(1,schedule?.rotation?.duration_weeks??weeksCount)*7-1);
+    const end=rotationEnd.toISOString().slice(0,10);
+    return doctor.work_schedules.some(item=>String(item.training_site_id)===rowForm.hospitalId&&item.valid_from<=end&&item.valid_until>=rotationStart&&item.days.some(day=>day.status==='work'));
   });
   const doctorsCount = (schedule?.rows ?? []).filter((row) => row.row_type === 'doctor').length;
   const cellMap = useMemo(() => {

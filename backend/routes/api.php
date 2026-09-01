@@ -59,6 +59,7 @@ use App\Http\Controllers\Api\V1\StudentSchedulePortalController;
 use App\Http\Controllers\Api\V1\StudyPlanController;
 use App\Http\Controllers\Api\V1\SupervisorAnnualWorkloadController;
 use App\Http\Controllers\Api\V1\SupervisorController;
+use App\Http\Controllers\Api\V1\SupervisorWorkScheduleController;
 use App\Http\Controllers\Api\V1\SystemAdminController;
 use App\Http\Controllers\Api\V1\TrainingSiteController;
 use App\Http\Controllers\Api\V1\TrainingSiteRosterController;
@@ -367,6 +368,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('clinical-workforce/doctors', [CourseDistributionController::class, 'storeDoctor'])
             ->middleware('permission:people.manage');
         Route::put('clinical-workforce/doctors/{user}/hospital', [CourseDistributionController::class, 'assignDoctorHospital'])
+            ->middleware('permission:people.manage');
+        Route::get('clinical-workforce/doctors/{user}/work-schedules', [SupervisorWorkScheduleController::class, 'show'])
+            ->middleware('permission.any:people.view,distribution.view');
+        Route::put('clinical-workforce/doctors/{user}/work-schedules', [SupervisorWorkScheduleController::class, 'update'])
             ->middleware('permission:people.manage');
         Route::get('clinical-supervisors/{id}', [ClinicalSupervisorController::class, 'show']);
         Route::put('clinical-supervisors/{id}', [ClinicalSupervisorController::class, 'update']);
