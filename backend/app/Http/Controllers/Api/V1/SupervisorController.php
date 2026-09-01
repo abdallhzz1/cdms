@@ -419,6 +419,7 @@ class SupervisorController extends Controller
                 'studentSubgroup.group',
                 'rotationBlock.rotation.academicYear',
                 'rotationBlock.rotation.course',
+                'rotationBlock.rotation.clinicalPeriod',
                 'trainingSite:id,name_ar,name_en',
                 'department:id,name_ar,name_en',
                 'distributionVersion:id,rotation_id,status,is_current',

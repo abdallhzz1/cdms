@@ -45,6 +45,7 @@ export function StudentProfilePage() {
   const [newDocTitle, setNewDocTitle] = useState('');
   const [newDocCategory, setNewDocCategory] = useState('clinical_pledge');
   const [selectedDocFile, setSelectedDocFile] = useState<File | null>(null);
+  const [clinicalPeriodFilter,setClinicalPeriodFilter]=useState('');
 
   // Edit Student Modal State for Admin Assistant / Admins
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -232,6 +233,8 @@ export function StudentProfilePage() {
   const advisor = student.academic_advisor ? (locale === 'ar' ? student.academic_advisor.full_name_ar : (student.academic_advisor.full_name_en || student.academic_advisor.full_name_ar)) : null;
 
   const clinicalItems = Array.isArray(clinicalSchedule) ? clinicalSchedule : (clinicalSchedule as any)?.items || [];
+  const clinicalPeriods=Array.from(new Map(clinicalItems.map((item:any)=>item.clinical_period).filter(Boolean).map((period:any)=>[period.id,period])).values()).sort((a:any,b:any)=>a.sequence-b.sequence) as any[];
+  const visibleClinicalItems=clinicalPeriodFilter?clinicalItems.filter((item:any)=>String(item.clinical_period?.id)===clinicalPeriodFilter):clinicalItems;
   const advisingItems = Array.isArray(advisingRecords) ? advisingRecords : (advisingRecords as any)?.items || [];
   const attendanceItems = Array.isArray(attendanceRecords) ? attendanceRecords : (attendanceRecords as any)?.items || [];
 
@@ -571,17 +574,15 @@ export function StudentProfilePage() {
       {/* TAB 3: Clinical Training & Schedule */}
       {activeTab === 'clinical' && (
         <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 space-y-4">
-          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-            {locale === 'ar' ? 'جدول المجموعات ومواقع التدريب السريري' : 'Clinical Rotations'}
-          </h3>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">{locale === 'ar' ? 'جدول المجموعات ومواقع التدريب السريري' : 'Clinical Rotations'}</h3>{clinicalPeriods.length>0&&<select value={clinicalPeriodFilter} onChange={event=>setClinicalPeriodFilter(event.target.value)} className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold"><option value="">{locale==='ar'?'جميع الفترات':'All periods'}</option>{clinicalPeriods.map((period:any)=><option key={period.id} value={period.id}>{period.code} — {locale==='ar'?period.name_ar:period.name_en||period.name_ar}</option>)}</select>}</div>
 
-          {clinicalItems.length === 0 ? (
+          {visibleClinicalItems.length === 0 ? (
             <EmptyState title={locale === 'ar' ? 'لا يوجد توزيع سريري موثق حالياً' : 'No Clinical Rotations'} />
           ) : (
             <div className="space-y-3">
-              {clinicalItems.map((item: any) => {const block=item.block||item.rotation_block;const rotation=item.rotation||block?.rotation||item.distribution_version?.rotation;const course=item.course||rotation?.course;const supervisor=locale==='ar'?item.supervisor?.full_name_ar:item.supervisor?.full_name_en||item.supervisor?.full_name_ar;const site=locale==='ar'?item.training_site?.name_ar:item.training_site?.name_en||item.training_site?.name_ar;const department=locale==='ar'?item.department?.name_ar:item.department?.name_en||item.department?.name_ar;const group=item.group?.name||item.subgroup?.group?.name||item.student_subgroup?.group?.name;const subgroup=item.subgroup?.name||item.student_subgroup?.name;return (
+              {visibleClinicalItems.map((item: any) => {const block=item.block||item.rotation_block;const rotation=item.rotation||block?.rotation||item.distribution_version?.rotation;const course=item.course||rotation?.course;const supervisor=locale==='ar'?item.supervisor?.full_name_ar:item.supervisor?.full_name_en||item.supervisor?.full_name_ar;const site=locale==='ar'?item.training_site?.name_ar:item.training_site?.name_en||item.training_site?.name_ar;const department=locale==='ar'?item.department?.name_ar:item.department?.name_en||item.department?.name_ar;const group=item.group?.name||item.subgroup?.group?.name||item.student_subgroup?.group?.name;const subgroup=item.subgroup?.name||item.student_subgroup?.name;return (
                 <article key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-xs shadow-sm">
-                  <header className="flex flex-col gap-2 border-b border-teal-100 bg-teal-50/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h4 className="font-black text-slate-900">{locale==='ar'?course?.name_ar:course?.name_en||course?.name_ar||rotation?.name||'—'}</h4><p className="mt-1 text-[11px] font-bold text-teal-700">{course?.code||rotation?.code||'—'} · {item.academic_year?.code||rotation?.academic_year?.code||'—'}</p></div><span className="w-fit rounded-xl bg-white px-3 py-1 font-black text-teal-700">{[group,subgroup].filter(Boolean).join(' / ')||(locale==='ar'?'دون مجموعة':'No group')}</span></header>
+                  <header className="flex flex-col gap-2 border-b border-teal-100 bg-teal-50/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h4 className="font-black text-slate-900">{locale==='ar'?course?.name_ar:course?.name_en||course?.name_ar||rotation?.name||'—'}</h4><p className="mt-1 text-[11px] font-bold text-teal-700">{course?.code||rotation?.code||'—'} · {item.academic_year?.code||rotation?.academic_year?.code||'—'} · {item.clinical_period?(locale==='ar'?item.clinical_period.name_ar:item.clinical_period.name_en||item.clinical_period.name_ar):(locale==='ar'?'جدول سنوي':'Annual schedule')}</p></div><span className="w-fit rounded-xl bg-white px-3 py-1 font-black text-teal-700">{[group,subgroup].filter(Boolean).join(' / ')||(locale==='ar'?'دون مجموعة':'No group')}</span></header>
                   <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4"><ProfileClinicalField label={locale==='ar'?'المستشفى':'Hospital'} value={site||'—'}/><ProfileClinicalField label={locale==='ar'?'المشرف السريري':'Clinical supervisor'} value={supervisor||'—'}/><ProfileClinicalField label={locale==='ar'?'الفترة':'Period'} value={block?.from_week&&block?.to_week?(locale==='ar'?`الأسبوع ${block.from_week}–${block.to_week}`:`Weeks ${block.from_week}–${block.to_week}`):block?.block_code||'—'}/><ProfileClinicalField label={locale==='ar'?'القسم':'Department'} value={department||'—'}/></div>
                 </article>
               )})}

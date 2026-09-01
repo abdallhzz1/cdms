@@ -12,7 +12,7 @@ import { CheckCircle2, Clock3, RotateCcw, Search, Users, X } from 'lucide-react'
 
 type Assessment = any;
 type Payload = { items: Assessment[]; pagination: { current_page: number; last_page: number; total: number } };
-type Summary = { total: number; submitted: number; returned: number; approved: number; draft: number; batches: number; approved_average_percentage: number | null };
+type Summary = { total: number; submitted: number; returned: number; approved: number; draft: number; batches: number; approved_average_percentage: number | null; clinical_periods:Array<{id:number;code:string;name_ar:string;name_en?:string|null;sequence:number}> };
 const input = 'h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
 
 export function AssessmentsMasterPage() {
@@ -23,6 +23,7 @@ export function AssessmentsMasterPage() {
   const client = useQueryClient();
   const [status, setStatus] = useState('submitted');
   const [level, setLevel] = useState('');
+  const [periodId,setPeriodId]=useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [returning, setReturning] = useState<Assessment | null>(null);
@@ -33,11 +34,12 @@ export function AssessmentsMasterPage() {
     const value = new URLSearchParams({ page_payload: '1', per_page: '25', page: String(page) });
     if (status) value.set('status', status);
     if (level) value.set('academic_level', level);
+    if(periodId)value.set('clinical_period_id',periodId);
     if (deferredSearch) value.set('search', deferredSearch);
     return value.toString();
-  }, [status, level, deferredSearch, page]);
+  }, [status, level, periodId, deferredSearch, page]);
   const list = useQuery({ queryKey: ['clinical-assessments', params], queryFn: () => apiFetch<Payload>(`/clinical-assessments?${params}`), enabled: can('assessment.view') });
-  const summary = useQuery({ queryKey: ['clinical-assessments-summary'], queryFn: () => apiFetch<Summary>('/clinical-assessments-summary'), enabled: can('assessment.view') });
+  const summary = useQuery({ queryKey: ['clinical-assessments-summary',params], queryFn: () => apiFetch<Summary>(`/clinical-assessments-summary?${params}`), enabled: can('assessment.view') });
   const refresh = async (text: string) => { setNotice(text); setReturning(null); setReason(''); await Promise.all([client.invalidateQueries({ queryKey: ['clinical-assessments'] }), client.invalidateQueries({ queryKey: ['clinical-assessments-summary'] }), client.invalidateQueries({ queryKey: ['grade-entries'] })]); };
   const fail = (error: any) => setNotice(error?.message || tr('تعذر تنفيذ العملية.', 'The operation could not be completed.'));
   const approve = useMutation({ mutationFn: (a: Assessment) => apiFetch(a.assessment_batch_uuid ? `/clinical-assessment-batches/${a.assessment_batch_uuid}/approve` : `/clinical-assessments/${a.id}/approve`, { method: 'POST' }), onSuccess: () => refresh(tr('تم الاعتماد بنجاح.', 'Approved successfully.')), onError: fail });
@@ -46,12 +48,13 @@ export function AssessmentsMasterPage() {
   if (list.isLoading || summary.isLoading) return <LoadingState />;
   if (list.isError || summary.isError) return <ErrorState onRetry={() => { list.refetch(); summary.refetch(); }} />;
   const data = list.data ?? { items: [], pagination: { current_page: 1, last_page: 1, total: 0 } };
-  const stats = summary.data ?? { total: 0, submitted: 0, returned: 0, approved: 0, draft: 0, batches: 0, approved_average_percentage: null };
+  const stats = summary.data ?? { total: 0, submitted: 0, returned: 0, approved: 0, draft: 0, batches: 0, approved_average_percentage: null,clinical_periods:[] };
   const grouped = groupItems(data.items);
   const busy = approve.isPending || returnItem.isPending;
 
   return <div className="mx-auto max-w-[1280px] space-y-5 pb-12">
     <PageHeader title={tr('مراجعة التقييمات السريرية', 'Clinical Assessment Review')} description={tr('اعتماد تقييمات المشرفين وإرجاعها للتعديل؛ العلامة المعتمدة فقط تدخل كشف العلامات.', 'Review supervisor assessments. Only approved results enter the official grade sheet.')} />
+    <section className="rounded-2xl border border-slate-200 bg-white p-3"><select className={input} value={periodId} onChange={event=>{setPeriodId(event.target.value);setPage(1)}}><option value="">{tr('جميع الفترات السريرية','All clinical periods')}</option>{(stats.clinical_periods??[]).map(period=><option key={period.id} value={period.id}>{period.code} — {ar?period.name_ar:period.name_en||period.name_ar}</option>)}</select></section>
     <section className="grid grid-cols-2 gap-3 lg:grid-cols-4"><Metric icon={Clock3} label={tr('بانتظار الاعتماد', 'Awaiting review')} value={stats.submitted} hint={tr('تحتاج إجراء', 'Action required')} /><Metric icon={CheckCircle2} label={tr('معتمدة', 'Approved')} value={stats.approved} hint={stats.approved_average_percentage === null ? '—' : `${stats.approved_average_percentage}% ${tr('متوسط', 'average')}`} /><Metric icon={RotateCcw} label={tr('معادة', 'Returned')} value={stats.returned} hint={tr('عند المشرف', 'With supervisor')} /><Metric icon={Users} label={tr('حزم مجموعات', 'Group batches')} value={stats.batches} hint={`${stats.total} ${tr('تقييم', 'assessments')}`} /></section>
     <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 lg:grid-cols-[1fr_13rem_13rem_auto]"><label className="relative"><Search className={`absolute top-3.5 h-4 w-4 text-slate-400 ${ar ? 'right-3' : 'left-3'}`} /><input className={`${input} ${ar ? 'pr-10' : 'pl-10'}`} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder={tr('بحث بالطالب أو الرقم أو الطبيب أو المساق…', 'Search student, ID, evaluator, or course…')} /></label><select className={input} value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option value="">{tr('كل الحالات', 'All statuses')}</option><option value="submitted">{tr('بانتظار المراجعة', 'Awaiting review')}</option><option value="returned">{tr('معاد', 'Returned')}</option><option value="approved">{tr('معتمد', 'Approved')}</option><option value="draft">{tr('مسودة', 'Draft')}</option></select><select className={input} value={level} onChange={e => { setLevel(e.target.value); setPage(1); }}><option value="">{tr('كل الدفعات المخولة', 'All authorized cohorts')}</option><option value="fourth">{tr('السنة الرابعة', 'Fourth year')}</option><option value="fifth">{tr('السنة الخامسة', 'Fifth year')}</option><option value="sixth">{tr('السنة السادسة', 'Sixth year')}</option></select><button className="h-11 rounded-xl border border-slate-200 px-4 text-xs font-bold text-slate-600" onClick={() => { setSearch(''); setStatus('submitted'); setLevel(''); setPage(1); }}>{tr('مسح', 'Clear')}</button></div><p className="mt-3 border-t border-slate-100 pt-3 text-[11px] text-slate-500">{tr(`النتائج: ${data.pagination.total}`, `${data.pagination.total} results`)}</p></section>
     {notice && <div className="flex items-center justify-between rounded-2xl border border-teal-100 bg-teal-50 px-4 py-3 text-xs font-bold text-teal-800"><span>{notice}</span><button onClick={() => setNotice(null)}><X className="h-4 w-4" /></button></div>}

@@ -43,6 +43,7 @@ type AttendanceWarning = {
     credit_hours: number;
   };
   academic_year?: { id: number; name: string } | null;
+  clinical_period?: { id:number;code:string;name_ar:string;name_en?:string|null;sequence:number } | null;
   total_required_days: number;
   recorded_days: number;
   present_days: number;
@@ -70,6 +71,7 @@ type AttendanceRecord = {
     rotation_block?: {
       rotation?: {
         course?: { name_ar?: string; name_en?: string | null; code?: string } | null;
+        clinical_period?: { id:number;code:string;name_ar:string;name_en?:string|null;sequence:number } | null;
       } | null;
     } | null;
   };
@@ -124,15 +126,17 @@ export function AttendanceMasterPage() {
   const tr = (arabic: string, english: string) => (ar ? arabic : english);
 
   const [sessionFilter, setSessionFilter] = useState('');
+  const [periodFilter, setPeriodFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const recordQuery = useQuery({
-    queryKey: ['attendance-records', sessionFilter, statusFilter, dateFilter],
+    queryKey: ['attendance-records', periodFilter, sessionFilter, statusFilter, dateFilter],
     queryFn: () => {
       const params = new URLSearchParams({ per_page: '100' });
       if (sessionFilter) params.set('clinical_session_id', sessionFilter);
+      if (periodFilter) params.set('clinical_period_id', periodFilter);
       if (statusFilter) params.set('status', statusFilter);
       if (dateFilter) params.set('date', dateFilter);
       return apiFetch<AttendanceRecord[]>(`/attendance-records?${params.toString()}`);
@@ -147,8 +151,8 @@ export function AttendanceMasterPage() {
   });
 
   const warningQuery = useQuery({
-    queryKey: ['attendance-warnings'],
-    queryFn: () => apiFetch<AttendanceWarning[]>('/attendance-warnings'),
+    queryKey: ['attendance-warnings',periodFilter],
+    queryFn: () => apiFetch<AttendanceWarning[]>(`/attendance-warnings${periodFilter?`?clinical_period_id=${periodFilter}`:''}`),
     enabled: can('attendance.view'),
   });
 
@@ -175,6 +179,8 @@ export function AttendanceMasterPage() {
   const records = Array.isArray(recordQuery.data) ? recordQuery.data : [];
   const sessions = Array.isArray(sessionQuery.data) ? sessionQuery.data : [];
   const warnings = Array.isArray(warningQuery.data) ? warningQuery.data : [];
+  const periods = useMemo(()=>Array.from(new Map(sessions.map((session:any)=>session.rotation_block?.rotation?.clinical_period).filter(Boolean).map((period:any)=>[period.id,period])).values()).sort((a:any,b:any)=>a.sequence-b.sequence),[sessions]);
+  const visibleSessions = useMemo(()=>sessions.filter((session:any)=>!periodFilter||String(session.rotation_block?.rotation?.clinical_period?.id)===periodFilter),[sessions,periodFilter]);
 
   const stats = useMemo(
     () => Object.keys(STATUS_CONFIG).reduce<Record<string, number>>((result, status) => {
@@ -184,12 +190,13 @@ export function AttendanceMasterPage() {
     [records],
   );
 
-  const hasFilters = Boolean(sessionFilter || statusFilter || dateFilter);
+  const hasFilters = Boolean(periodFilter || sessionFilter || statusFilter || dateFilter);
   const initialWarnings = warnings.filter((warning) => warning.current_threshold === 10).length;
   const urgentWarnings = warnings.filter((warning) => warning.current_threshold === 20).length;
 
   const clearFilters = () => {
     setSessionFilter('');
+    setPeriodFilter('');
     setStatusFilter('');
     setDateFilter('');
   };
@@ -386,6 +393,7 @@ export function AttendanceMasterPage() {
                               {warning.academic_year.name}
                             </span>
                           )}
+                          {warning.clinical_period&&<span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-1.5 font-bold text-indigo-700">{ar?warning.clinical_period.name_ar:warning.clinical_period.name_en||warning.clinical_period.name_ar}</span>}
                         </div>
                       </div>
                     </div>
@@ -469,12 +477,13 @@ export function AttendanceMasterPage() {
           )}
         </div>
 
-        <div className="grid gap-3 md:grid-cols-[1.2fr_.8fr_.8fr]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('الفترة السريرية','Clinical period')}</span><select value={periodFilter} onChange={event=>{setPeriodFilter(event.target.value);setSessionFilter('')}} className={inputClass}><option value="">{tr('جميع الفترات','All periods')}</option>{periods.map((period:any)=><option key={period.id} value={period.id}>{period.code} — {ar?period.name_ar:period.name_en||period.name_ar}</option>)}</select></label>
           <label>
             <span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('الجلسة السريرية', 'Clinical session')}</span>
             <select value={sessionFilter} onChange={(event) => setSessionFilter(event.target.value)} className={inputClass}>
               <option value="">{tr('جميع الجلسات', 'All sessions')}</option>
-              {sessions.map((session: any) => (
+              {visibleSessions.map((session: any) => (
                 <option key={session.id} value={session.id}>
                   {readableDate(session.session_date, locale)} — {session.title}
                 </option>

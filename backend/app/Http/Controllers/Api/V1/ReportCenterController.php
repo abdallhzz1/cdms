@@ -6,6 +6,7 @@ use App\Exports\BrandedReportExport;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AcademicYear;
+use App\Models\ClinicalPeriod;
 use App\Services\Reports\ReportCenterService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +24,7 @@ class ReportCenterController extends Controller
 
         return ApiResponse::success([
             'academic_years' => AcademicYear::query()->orderByDesc('start_date')->get(['id', 'code', 'is_current', 'status']),
+            'clinical_periods' => ClinicalPeriod::query()->orderBy('academic_year_id')->orderBy('sequence')->get(['id', 'academic_year_id', 'code', 'name_ar', 'name_en', 'sequence']),
             'metrics' => $this->reports->summary($filters),
             'reports' => $this->reports->catalog(),
             'generated_at' => now()->toIso8601String(),
@@ -74,6 +76,7 @@ class ReportCenterController extends Controller
         $rules = [
             'academic_year_id' => ['nullable', 'integer', 'exists:academic_years,id'],
             'academic_level' => ['nullable', 'in:fourth,fifth,sixth'],
+            'clinical_period_id' => ['nullable', 'integer', 'exists:clinical_periods,id'],
         ];
         if ($withSearch) {
             $rules['search'] = ['nullable', 'string', 'max:100'];

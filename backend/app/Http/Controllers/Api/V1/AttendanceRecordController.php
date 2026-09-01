@@ -18,7 +18,7 @@ class AttendanceRecordController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $query = AttendanceRecord::with(['student', 'session.trainingSite', 'session.rotationBlock.rotation.course', 'recorder:id,name,email']);
+        $query = AttendanceRecord::with(['student', 'session.trainingSite', 'session.rotationBlock.rotation.course', 'session.rotationBlock.rotation.clinicalPeriod', 'recorder:id,name,email']);
 
         $user = $request->user();
         $roles = $user?->roles()->pluck('code') ?? collect();
@@ -48,6 +48,7 @@ class AttendanceRecordController extends Controller
             ->when($request->filled('student_id'), fn ($q) => $q->where('student_id', $request->integer('student_id')))
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->when($request->filled('date'), fn ($q) => $q->whereHas('session', fn ($session) => $session->whereDate('session_date', $request->string('date'))))
+            ->when($request->filled('clinical_period_id'), fn ($q) => $q->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('clinical_period_id', $request->integer('clinical_period_id'))))
             ->latest()
             ->paginate($request->integer('per_page', 25));
 

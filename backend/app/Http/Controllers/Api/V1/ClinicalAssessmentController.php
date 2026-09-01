@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\ClinicalAssessment;
+use App\Models\ClinicalPeriod;
 use App\Models\Student;
 use App\Services\WorkflowTransitionService;
 use App\Traits\ScopesByDepartmentAndLevel;
@@ -25,6 +26,7 @@ class ClinicalAssessmentController extends Controller
                 'student:id,university_number,full_name_ar,full_name_en,photo_url,academic_level',
                 'session.trainingSite:id,name_ar,name_en',
                 'session.rotationBlock.rotation.course:id,code,name_ar,name_en',
+                'session.rotationBlock.rotation.clinicalPeriod:id,academic_year_id,code,name_ar,name_en,sequence',
                 'evaluator:id,user_id,full_name_ar,full_name_en,email',
                 'workflowTransitions.user:id,name',
             ])
@@ -55,7 +57,7 @@ class ClinicalAssessmentController extends Controller
 
     public function summary(Request $request): JsonResponse
     {
-        $query = $this->scopedQuery($request, false);
+        $query = $this->scopedQuery($request, true);
         $statusCounts = (clone $query)
             ->selectRaw('status, COUNT(*) as total')
             ->groupBy('status')
@@ -75,6 +77,7 @@ class ClinicalAssessmentController extends Controller
             'draft' => (int) ($statusCounts['draft'] ?? 0),
             'batches' => (clone $query)->whereNotNull('assessment_batch_uuid')->distinct()->count('assessment_batch_uuid'),
             'approved_average_percentage' => $average !== null ? (float) $average : null,
+            'clinical_periods' => ClinicalPeriod::query()->orderBy('academic_year_id')->orderBy('sequence')->get(['id','academic_year_id','code','name_ar','name_en','sequence']),
         ]);
     }
 
@@ -214,6 +217,7 @@ class ClinicalAssessmentController extends Controller
             ->when($request->filled('student_id'), fn ($builder) => $builder->where('student_id', $request->integer('student_id')))
             ->when($request->filled('status'), fn ($builder) => $builder->where('status', (string) $request->query('status')))
             ->when($request->filled('academic_level'), fn ($builder) => $builder->whereHas('student', fn ($student) => $student->where('academic_level', (string) $request->query('academic_level'))))
+            ->when($request->filled('clinical_period_id'), fn ($builder) => $builder->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('clinical_period_id', $request->integer('clinical_period_id'))))
             ->when($request->filled('search'), function ($builder) use ($request) {
                 $search = trim((string) $request->query('search'));
                 $builder->where(function ($nested) use ($search) {

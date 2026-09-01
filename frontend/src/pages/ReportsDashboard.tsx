@@ -13,6 +13,7 @@ type Category = 'all' | 'academic' | 'clinical' | 'quality' | 'monitoring';
 type ReportDefinition = { key:string; category:Exclude<Category,'all'>; title:string; description:string };
 type SummaryPayload = {
   academic_years:Array<{id:number;code:string;is_current:boolean;status:string}>;
+  clinical_periods:Array<{id:number;academic_year_id:number;code:string;name_ar:string;name_en:string|null;sequence:number}>;
   metrics:{students:number;academically_registered:number;students_in_groups:number;students_in_published_schedule:number;active_supervisors:number;vacant_schedule_rows:number;course_reports_pending_approval:number};
   reports:ReportDefinition[];
   generated_at:string;
@@ -50,6 +51,7 @@ export function ReportsDashboard() {
   const [category,setCategory] = useState<Category>('all');
   const [yearId,setYearId] = useState('');
   const [level,setLevel] = useState('');
+  const [periodId,setPeriodId] = useState('');
   const [selectedKey,setSelectedKey] = useState('data_gaps');
   const [searchInput,setSearchInput] = useState('');
   const [search,setSearch] = useState('');
@@ -58,10 +60,10 @@ export function ReportsDashboard() {
   const initializedCurrentYear=useRef(false);
 
   useEffect(()=>{const timer=window.setTimeout(()=>setSearch(searchInput.trim()),300);return()=>window.clearTimeout(timer)},[searchInput]);
-  const baseParams=useMemo(()=>{const p=new URLSearchParams();if(yearId)p.set('academic_year_id',yearId);if(level)p.set('academic_level',level);return p},[level,yearId]);
-  const summaryQuery=useQuery({queryKey:['report-center-summary',yearId,level],queryFn:()=>apiFetch<SummaryPayload>(`/report-center/summary?${baseParams}`),enabled:can('reports.view')});
+  const baseParams=useMemo(()=>{const p=new URLSearchParams();if(yearId)p.set('academic_year_id',yearId);if(periodId)p.set('clinical_period_id',periodId);if(level)p.set('academic_level',level);return p},[level,periodId,yearId]);
+  const summaryQuery=useQuery({queryKey:['report-center-summary',yearId,periodId,level],queryFn:()=>apiFetch<SummaryPayload>(`/report-center/summary?${baseParams}`),enabled:can('reports.view')});
   const previewParams=useMemo(()=>{const p=new URLSearchParams(baseParams);if(search)p.set('search',search);return p},[baseParams,search]);
-  const previewQuery=useQuery({queryKey:['report-center-preview',selectedKey,yearId,level,search],queryFn:()=>apiFetch<PreviewPayload>(`/report-center/${selectedKey}/preview?${previewParams}`),enabled:can('reports.view')&&Boolean(selectedKey)});
+  const previewQuery=useQuery({queryKey:['report-center-preview',selectedKey,yearId,periodId,level,search],queryFn:()=>apiFetch<PreviewPayload>(`/report-center/${selectedKey}/preview?${previewParams}`),enabled:can('reports.view')&&Boolean(selectedKey)});
 
   useEffect(()=>{if(!initializedCurrentYear.current&&summaryQuery.data?.academic_years.length){initializedCurrentYear.current=true;const current=summaryQuery.data.academic_years.find(y=>y.is_current);if(current)setYearId(String(current.id))}},[summaryQuery.data]);
 
@@ -70,6 +72,7 @@ export function ReportsDashboard() {
   if(summaryQuery.isError||!summaryQuery.data)return <ErrorState title={tr('تعذر تحميل مركز التقارير', 'Could not load the report center')} onRetry={()=>summaryQuery.refetch()}/>;
 
   const summary=summaryQuery.data;
+  const visiblePeriods=(summary.clinical_periods??[]).filter(period=>!yearId||String(period.academic_year_id)===yearId);
   const reportLabel = (report: ReportDefinition) => {
     const copy = reportCopy[report.key];
     return { title: copy ? (ar ? copy.ar : copy.en) : report.title, description: copy ? (ar ? copy.descriptionAr : copy.descriptionEn) : report.description };
@@ -95,9 +98,10 @@ export function ReportsDashboard() {
   return <div className="space-y-5 pb-20">
     <PageHeader title={tr('مركز التقارير التشغيلية', 'Operational report center')} description={tr('تقارير موحدة قابلة للمعاينة والتصفية والتصدير بهوية جامعة الخليل والدائرة السريرية.', 'Unified reports with preview, filtering, and export in the identity of Hebron University and the Clinical Department.')}/>
 
-    <section className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm lg:grid-cols-[1fr_13rem_13rem]">
+    <section className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm lg:grid-cols-[1fr_13rem_13rem_13rem]">
       <div className="flex items-center gap-2 text-xs font-bold text-slate-600"><Filter className="h-4 w-4 text-teal-600"/>{tr('تُطبّق الفلاتر على المؤشرات والمعاينة والملف المصدر.', 'Filters apply to metrics, preview, and the exported file.')}</div>
-      <select value={yearId} onChange={e=>setYearId(e.target.value)} className="input"><option value="">{tr('جميع الأعوام', 'All years')}</option>{summary.academic_years.map(y=><option key={y.id} value={y.id}>{y.code}{y.is_current?tr(' - الحالي',' - Current'):''}</option>)}</select>
+      <select value={yearId} onChange={e=>{setYearId(e.target.value);setPeriodId('')}} className="input"><option value="">{tr('جميع الأعوام', 'All years')}</option>{summary.academic_years.map(y=><option key={y.id} value={y.id}>{y.code}{y.is_current?tr(' - الحالي',' - Current'):''}</option>)}</select>
+      <select value={periodId} onChange={e=>setPeriodId(e.target.value)} className="input"><option value="">{tr('جميع الفترات السريرية','All clinical periods')}</option>{visiblePeriods.map(period=><option key={period.id} value={period.id}>{period.code} — {ar?period.name_ar:period.name_en||period.name_ar}</option>)}</select>
       <select value={level} onChange={e=>setLevel(e.target.value)} className="input"><option value="">{tr('جميع السنوات السريرية', 'All clinical years')}</option><option value="fourth">{tr('السنة الرابعة','Fourth year')}</option><option value="fifth">{tr('السنة الخامسة','Fifth year')}</option><option value="sixth">{tr('السنة السادسة','Sixth year')}</option></select>
     </section>
 

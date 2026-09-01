@@ -28,6 +28,7 @@ class AttendanceWarningController extends Controller
             'academic_year_id' => ['nullable', 'integer', 'exists:academic_years,id'],
             'course_id' => ['nullable', 'integer', 'exists:courses,id'],
             'student_id' => ['nullable', 'integer', 'exists:students,id'],
+            'clinical_period_id' => ['nullable', 'integer', 'exists:clinical_periods,id'],
         ]);
 
         $warnings = $this->summaries($request)
@@ -152,6 +153,7 @@ class AttendanceWarningController extends Controller
                 'session.rotationBlock.rotation:id,academic_year_id,course_id,academic_level,name,code',
                 'session.rotationBlock.rotation.course:id,code,name_ar,name_en,credit_hours',
                 'session.rotationBlock.rotation.academicYear:id,code,start_date,end_date',
+                'session.rotationBlock.rotation.clinicalPeriod:id,academic_year_id,code,name_ar,name_en,sequence',
             ])
             ->whereHas('session.rotationBlock.rotation.course');
 
@@ -177,6 +179,7 @@ class AttendanceWarningController extends Controller
             ->when($request->filled('student_id'), fn ($q) => $q->where('student_id', $request->integer('student_id')))
             ->when($request->filled('course_id'), fn ($q) => $q->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $request->integer('course_id'))))
             ->when($request->filled('academic_year_id'), fn ($q) => $q->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $request->integer('academic_year_id'))));
+        $query->when($request->filled('clinical_period_id'), fn ($q) => $q->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('clinical_period_id', $request->integer('clinical_period_id'))));
 
         $records = $query->get()->filter(fn (AttendanceRecord $record) => $record->student
             && $record->session?->session_date
@@ -249,6 +252,13 @@ class AttendanceWarningController extends Controller
                     'academic_year' => $rotation->academicYear ? [
                         'id' => $rotation->academicYear->id,
                         'name' => $rotation->academicYear->code,
+                    ] : null,
+                    'clinical_period' => $rotation->clinicalPeriod ? [
+                        'id' => $rotation->clinicalPeriod->id,
+                        'code' => $rotation->clinicalPeriod->code,
+                        'name_ar' => $rotation->clinicalPeriod->name_ar,
+                        'name_en' => $rotation->clinicalPeriod->name_en,
+                        'sequence' => $rotation->clinicalPeriod->sequence,
                     ] : null,
                     'total_required_days' => $requiredDays,
                     'recorded_days' => $group->map(fn (AttendanceRecord $record) => $record->session->session_date->toDateString())->unique()->count(),

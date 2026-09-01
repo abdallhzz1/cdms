@@ -16,7 +16,7 @@ class ClinicalSessionController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $query = ClinicalSession::with(['trainingSite', 'rotationBlock.rotation.course']);
+        $query = ClinicalSession::with(['trainingSite', 'rotationBlock.rotation.course', 'rotationBlock.rotation.clinicalPeriod']);
         $departmentId = $this->getClinicalOperationsDepartmentId();
         if ($departmentId) {
             $query->whereHas('rotationBlock', fn ($block) => $block->where('department_id', $departmentId));
@@ -32,6 +32,7 @@ class ClinicalSessionController extends Controller
 
         $sessions = $query
             ->when($request->filled('date'), fn ($query) => $query->whereDate('session_date', $request->string('date')))
+            ->when($request->filled('clinical_period_id'), fn ($query) => $query->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->where('clinical_period_id', $request->integer('clinical_period_id'))))
             ->orderByDesc('session_date')
             ->paginate($request->integer('per_page', 25));
 
