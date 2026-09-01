@@ -24,6 +24,11 @@ class CourseScheduleCell extends Model
         return $this->belongsTo(RotationBlock::class);
     }
 
+    public function trainingSite(): BelongsTo
+    {
+        return $this->belongsTo(TrainingSite::class);
+    }
+
     public function studentSubgroup(): BelongsTo
     {
         return $this->belongsTo(StudentSubgroup::class);

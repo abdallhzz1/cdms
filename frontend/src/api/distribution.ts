@@ -517,6 +517,7 @@ export interface ClinicalScheduleItem {
     full_name_en?: string;
     name: string;
     email?: string;
+    work_schedule?: {day:string;status:'work'|'leave'|'unavailable';note?:string|null}[];
   } | null;
 }
 

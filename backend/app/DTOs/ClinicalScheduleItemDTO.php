@@ -39,6 +39,12 @@ class ClinicalScheduleItemDTO
             $blockStartDate = $dateCalculator->calculateBlockStartDate($rotationStartDate, $block->from_week);
             $blockEndDate = $dateCalculator->calculateBlockEndDate($rotationStartDate, $block->to_week);
         }
+        $workSchedule = $supervisor ? $supervisor->availabilities
+            ->filter(fn ($entry) => (int) $entry->training_site_id === (int) $assignment->training_site_id
+                && (!$blockStartDate || !$entry->available_until || $entry->available_until->toDateString() >= $blockStartDate)
+                && (!$blockEndDate || !$entry->available_from || $entry->available_from->toDateString() <= $blockEndDate))
+            ->map(fn ($entry) => ['day' => $entry->day, 'status' => $entry->status ?: 'work', 'note' => $entry->notes ?: $entry->reason])
+            ->values()->all() : [];
 
         return [
             'assignment_id' => $assignment->id,
@@ -117,6 +123,7 @@ class ClinicalScheduleItemDTO
                 'full_name_en' => $supervisor->full_name_en,
                 'name' => $supervisor->full_name_en ?? $supervisor->full_name_ar,
                 'email' => $supervisor->email,
+                'work_schedule' => $workSchedule,
             ] : null,
         ];
     }

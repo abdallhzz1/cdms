@@ -183,7 +183,7 @@ class PublicStudentScheduleController extends Controller
                 'studentSubgroup.group',
                 'trainingSite',
                 'department',
-                'supervisor',
+                'supervisor.availabilities',
             ])
             ->get()
             ->sortBy([
@@ -253,6 +253,7 @@ class PublicStudentScheduleController extends Controller
                     'full_name_ar' => $item['supervisor']['full_name_ar'],
                     'full_name_en' => $item['supervisor']['full_name_en'],
                     'name' => $item['supervisor']['name'],
+                    'work_schedule' => $item['supervisor']['work_schedule'] ?? [],
                 ] : null,
             ];
         });

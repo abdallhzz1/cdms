@@ -134,11 +134,13 @@ class CourseDistributionController extends Controller
                 ->orderBy('sort_order')->orderBy('id')->get();
             $cells = CourseScheduleCell::query()
                 ->where('distribution_version_id', $version->id)
-                ->with(['studentSubgroup:id,name,student_group_id', 'studentSubgroup.group:id,name'])
+                ->with(['studentSubgroup:id,name,student_group_id', 'studentSubgroup.group:id,name', 'trainingSite:id,name_ar,name_en', 'courseScheduleRow:id,training_site_id'])
                 ->get()
                 ->map(fn ($cell) => [
                     'course_schedule_row_id' => $cell->course_schedule_row_id,
                     'rotation_block_id' => $cell->rotation_block_id,
+                    'training_site_id' => $cell->training_site_id ?: $cell->courseScheduleRow?->training_site_id,
+                    'training_site' => $cell->trainingSite,
                     'subgroup_id' => $cell->student_subgroup_id,
                     'subgroup_name' => $cell->studentSubgroup?->name,
                     'main_group_name' => $cell->studentSubgroup?->group?->name,
@@ -255,13 +257,18 @@ class CourseDistributionController extends Controller
             'subgroup_ids' => ['required_without:subgroup_id', 'array', 'min:1'],
             'subgroup_ids.*' => ['integer', 'distinct', 'exists:student_subgroups,id'],
             'subgroup_id' => ['required_without:subgroup_ids', 'integer', 'exists:student_subgroups,id'],
+            'training_site_id' => ['nullable', 'integer', 'exists:training_sites,id'],
         ]);
         $subgroupIds = collect($data['subgroup_ids'] ?? [$data['subgroup_id']])->map(fn ($id) => (int) $id)->unique()->values();
         $version->loadMissing('rotation');
         $block = RotationBlock::where('rotation_id', $version->rotation_id)->findOrFail($data['rotation_block_id']);
         $row = CourseScheduleRow::where('distribution_version_id', $version->id)->findOrFail($data['course_schedule_row_id']);
         $doctor = $row->person;
-        if ($doctor && ! $this->workSchedules->isAvailable($doctor, (int) $row->training_site_id, $this->blockStartDate($version, $block), $this->blockEndDate($version, $block))) {
+        $siteId = (int) ($data['training_site_id'] ?? $row->training_site_id);
+        if ($doctor && ! $doctor->trainingSites()->whereKey($siteId)->exists() && (int) $doctor->primary_site_id !== $siteId) {
+            throw ValidationException::withMessages(['training_site_id' => ['الطبيب غير مرتبط بالمستشفى المحدد.']]);
+        }
+        if ($doctor && ! $this->workSchedules->isAvailable($doctor, $siteId, $this->blockStartDate($version, $block), $this->blockEndDate($version, $block))) {
             throw ValidationException::withMessages(['course_schedule_row_id' => ['المشرف غير متاح للعمل في هذا المستشفى خلال الأسبوع المحدد. راجع جدول دوامه أولاً.']]);
         }
         $subgroups = StudentSubgroup::with('group')->whereIn('id', $subgroupIds)->get();
@@ -287,21 +294,21 @@ class CourseDistributionController extends Controller
             throw ValidationException::withMessages(['subgroup_ids' => ["المجموعة {$conflict->studentSubgroup?->name} موزعة على طبيب آخر في الأسبوع نفسه."]]);
         }
 
-        if ($doctor) $this->ensureNoCrossSiteScheduleConflict($doctor, $row, $version, $block);
+        if ($doctor) $this->ensureNoCrossSiteScheduleConflict($doctor, $row, $version, $block, $siteId);
 
-        DB::transaction(function () use ($version, $block, $row, $doctor, $subgroupIds) {
+        DB::transaction(function () use ($version, $block, $row, $doctor, $subgroupIds, $siteId) {
             CourseScheduleCell::where([
                 'distribution_version_id' => $version->id,
                 'rotation_block_id' => $block->id,
                 'course_schedule_row_id' => $row->id,
             ])->whereNotIn('student_subgroup_id', $subgroupIds)->delete();
             foreach ($subgroupIds as $subgroupId) {
-                CourseScheduleCell::firstOrCreate([
+                CourseScheduleCell::updateOrCreate([
                     'distribution_version_id' => $version->id,
                     'rotation_block_id' => $block->id,
                     'course_schedule_row_id' => $row->id,
                     'student_subgroup_id' => $subgroupId,
-                ]);
+                ], ['training_site_id' => $siteId]);
             }
 
             StudentClinicalAssignment::where([
@@ -330,7 +337,7 @@ class CourseDistributionController extends Controller
                     'student_id' => $membership->student_id,
                     'student_subgroup_id' => $membership->student_subgroup_id,
                     'rotation_block_id' => $block->id,
-                    'training_site_id' => $row->training_site_id,
+                    'training_site_id' => $siteId,
                     'department_id' => $doctor?->department_id,
                     'supervisor_id' => $doctor?->id,
                     'created_at' => $now,
@@ -474,11 +481,15 @@ class CourseDistributionController extends Controller
             // after changing person/site so propagated assignments always use
             // the supervisor that was selected in this request.
             $row->unsetRelation('person')->unsetRelation('trainingSite')->refresh();
-            StudentClinicalAssignment::where('course_schedule_row_id', $row->id)->update([
-                'supervisor_id' => $row->person_id,
-                'training_site_id' => $row->training_site_id,
-                'department_id' => $row->person?->department_id,
-            ]);
+            $sitesByBlock = CourseScheduleCell::where('course_schedule_row_id', $row->id)
+                ->get()->groupBy('rotation_block_id')->map(fn ($cells) => $cells->first()->training_site_id ?: $row->training_site_id);
+            StudentClinicalAssignment::where('course_schedule_row_id', $row->id)->get()->each(function ($assignment) use ($row, $sitesByBlock) {
+                $assignment->update([
+                    'supervisor_id' => $row->person_id,
+                    'training_site_id' => $sitesByBlock[$assignment->rotation_block_id] ?? $row->training_site_id,
+                    'department_id' => $row->person?->department_id,
+                ]);
+            });
         });
         $this->recordCellChange($request, $version, 'course_schedule.row_updated', ['row_id' => $row->id] + $data);
 
@@ -881,17 +892,17 @@ class CourseDistributionController extends Controller
         return Carbon::parse($version->rotation->start_date)->addWeeks(max(1, (int) $block->to_week))->subDay();
     }
 
-    private function ensureNoCrossSiteScheduleConflict(Person $doctor, CourseScheduleRow $row, DistributionVersion $version, RotationBlock $block): void
+    private function ensureNoCrossSiteScheduleConflict(Person $doctor, CourseScheduleRow $row, DistributionVersion $version, RotationBlock $block, int $siteId): void
     {
         $currentStart = $this->blockStartDate($version, $block);
         $currentEnd = $this->blockEndDate($version, $block);
-        $currentDays = $this->workSchedules->workingDays($doctor, (int) $row->training_site_id, $currentStart, $currentEnd);
+        $currentDays = $this->workSchedules->workingDays($doctor, $siteId, $currentStart, $currentEnd);
 
         $cells = CourseScheduleCell::query()
-            ->where('course_schedule_row_id', '!=', $row->id)
-            ->whereHas('courseScheduleRow', fn ($query) => $query->where('person_id', $doctor->id)->where('training_site_id', '!=', $row->training_site_id))
+            ->where(fn ($query) => $query->where('course_schedule_row_id', '!=', $row->id)->orWhere('rotation_block_id', '!=', $block->id))
+            ->whereHas('courseScheduleRow', fn ($query) => $query->where('person_id', $doctor->id))
             ->whereHas('distributionVersion', fn ($query) => $query->whereNot('status', 'withdrawn'))
-            ->with(['courseScheduleRow:id,training_site_id', 'rotationBlock:id,rotation_id,from_week,to_week', 'distributionVersion.rotation:id,start_date'])
+            ->with(['courseScheduleRow:id,training_site_id', 'trainingSite:id', 'rotationBlock:id,rotation_id,from_week,to_week', 'distributionVersion.rotation:id,start_date'])
             ->get();
 
         foreach ($cells as $cell) {
@@ -901,7 +912,8 @@ class CourseDistributionController extends Controller
             $otherStart = $this->blockStartDate($otherVersion, $otherBlock);
             $otherEnd = $this->blockEndDate($otherVersion, $otherBlock);
             if ($currentStart->gt($otherEnd) || $currentEnd->lt($otherStart)) continue;
-            $otherSiteId = (int) $cell->courseScheduleRow->training_site_id;
+            $otherSiteId = (int) ($cell->training_site_id ?: $cell->courseScheduleRow->training_site_id);
+            if ($otherSiteId === $siteId) continue;
             $overlapStart = $currentStart->greaterThan($otherStart) ? $currentStart : $otherStart;
             $overlapEnd = $currentEnd->lessThan($otherEnd) ? $currentEnd : $otherEnd;
             $otherDays = $this->workSchedules->workingDays($doctor, $otherSiteId, $overlapStart, $overlapEnd);
