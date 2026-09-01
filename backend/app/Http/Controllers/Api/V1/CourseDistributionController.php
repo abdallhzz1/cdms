@@ -130,8 +130,13 @@ class CourseDistributionController extends Controller
         if ($version) {
             $rows = CourseScheduleRow::query()
                 ->where('distribution_version_id', $version->id)
-                ->with(['person:id,full_name_ar,full_name_en,email,specialty', 'trainingSite:id,name_ar,name_en,site_code'])
+                ->with(['person:id,full_name_ar,full_name_en,email,specialty,primary_site_id', 'person.availabilities.trainingSite:id,name_ar,name_en', 'trainingSite:id,name_ar,name_en,site_code'])
                 ->orderBy('sort_order')->orderBy('id')->get();
+            $rows->each(function (CourseScheduleRow $row) {
+                if ($row->person) {
+                    $row->person->setAttribute('work_schedules', $this->workSchedules->schedules($row->person));
+                }
+            });
             $cells = CourseScheduleCell::query()
                 ->where('distribution_version_id', $version->id)
                 ->with(['studentSubgroup:id,name,student_group_id', 'studentSubgroup.group:id,name', 'trainingSite:id,name_ar,name_en', 'courseScheduleRow:id,training_site_id'])

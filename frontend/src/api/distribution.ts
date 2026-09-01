@@ -518,6 +518,10 @@ export interface ClinicalScheduleItem {
     name: string;
     email?: string;
     work_schedule?: {day:string;status:'work'|'leave'|'unavailable';note?:string|null}[];
+    work_locations?: Array<{
+      training_site: { id: number; name_ar: string; name_en?: string | null } | null;
+      days: { day: string; status: 'work' | 'leave' | 'unavailable'; note?: string | null }[];
+    }>;
   } | null;
 }
 

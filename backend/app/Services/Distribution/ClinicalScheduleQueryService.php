@@ -41,7 +41,7 @@ class ClinicalScheduleQueryService
                 'rotationBlock.rotation.clinicalPeriod',
                 'trainingSite',
                 'department',
-                'supervisor.availabilities',
+                'supervisor.availabilities.trainingSite',
             ]);
 
         // Auto-scope by department if user is a Department Head or RTA
@@ -167,7 +167,7 @@ class ClinicalScheduleQueryService
                 'rotationBlock.rotation.clinicalPeriod',
                 'trainingSite',
                 'department',
-                'supervisor.availabilities',
+                'supervisor.availabilities.trainingSite',
             ])
             ->join('rotation_blocks', 'student_clinical_assignments.rotation_block_id', '=', 'rotation_blocks.id')
             ->join('rotations', 'rotation_blocks.rotation_id', '=', 'rotations.id')

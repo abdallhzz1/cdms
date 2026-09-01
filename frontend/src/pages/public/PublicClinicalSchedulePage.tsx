@@ -63,6 +63,18 @@ type ScheduleItem = {
       status: "work" | "leave" | "unavailable";
       note?: string | null;
     }[];
+    work_locations?: Array<{
+      training_site: {
+        id: number;
+        name_ar: string;
+        name_en?: string | null;
+      } | null;
+      days: Array<{
+        day: string;
+        status: "work" | "leave" | "unavailable";
+        note?: string | null;
+      }>;
+    }>;
   } | null;
 };
 type StudentSchedule = {
@@ -517,6 +529,22 @@ export function PublicClinicalSchedulePage() {
                               <span className="text-amber-700">
                                 لا يوجد دوام سريري
                               </span>
+                            ) : item.supervisor?.work_locations?.length ? (
+                              <div className="space-y-1">
+                                {item.supervisor.work_locations.map((location) => (
+                                  <div key={location.training_site?.id ?? "site"}>
+                                    <span className="block font-black">
+                                      {location.training_site?.name_ar || "—"}
+                                    </span>
+                                    <span className="block text-[9px] font-normal text-teal-700">
+                                      {location.days
+                                        .filter((day) => day.status === "work")
+                                        .map((day) => dayName(day.day))
+                                        .join("، ") || "لا يوجد دوام"}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
                             ) : (
                               item.training_site?.name_ar ||
                               item.training_site?.name ||
@@ -527,7 +555,7 @@ export function PublicClinicalSchedulePage() {
                             {item.item_type === "activity" ? (
                               <span className="text-amber-700">—</span>
                             ) : (
-                              <><span className="block">{item.supervisor?.full_name_ar || item.supervisor?.name || "شاغر"}</span>{item.supervisor?.work_schedule?.some(day=>day.status==="work")&&<span className="mt-1 block text-[9px] font-normal text-teal-700">أيام الدوام: {item.supervisor.work_schedule.filter(day=>day.status==="work").map(day=>dayName(day.day)).join("، ")}</span>}</>
+                              <span className="block">{item.supervisor?.full_name_ar || item.supervisor?.name || "شاغر"}</span>
                             )}
                           </td>
                         </tr>

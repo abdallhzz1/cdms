@@ -45,6 +45,25 @@ class ClinicalScheduleItemDTO
                 && (!$blockEndDate || !$entry->available_from || $entry->available_from->toDateString() <= $blockEndDate))
             ->map(fn ($entry) => ['day' => $entry->day, 'status' => $entry->status ?: 'work', 'note' => $entry->notes ?: $entry->reason])
             ->values()->all() : [];
+        $workLocations = $supervisor ? $supervisor->availabilities
+            ->filter(fn ($entry) => (!$blockStartDate || !$entry->available_until || $entry->available_until->toDateString() >= $blockStartDate)
+                && (!$blockEndDate || !$entry->available_from || $entry->available_from->toDateString() <= $blockEndDate))
+            ->groupBy('training_site_id')
+            ->map(function ($entries) {
+                $first = $entries->first();
+                return [
+                    'training_site' => $first->trainingSite ? [
+                        'id' => $first->trainingSite->id,
+                        'name_ar' => $first->trainingSite->name_ar,
+                        'name_en' => $first->trainingSite->name_en,
+                    ] : null,
+                    'days' => $entries->map(fn ($entry) => [
+                        'day' => $entry->day,
+                        'status' => $entry->status ?: 'work',
+                        'note' => $entry->notes ?: $entry->reason,
+                    ])->values()->all(),
+                ];
+            })->values()->all() : [];
 
         return [
             'assignment_id' => $assignment->id,
@@ -124,6 +143,7 @@ class ClinicalScheduleItemDTO
                 'name' => $supervisor->full_name_en ?? $supervisor->full_name_ar,
                 'email' => $supervisor->email,
                 'work_schedule' => $workSchedule,
+                'work_locations' => $workLocations,
             ] : null,
         ];
     }

@@ -57,8 +57,9 @@ type Course = {
 };
 type DoctorWorkSchedule = {
   training_site_id: number;
-  valid_from: string;
-  valid_until: string;
+  training_site?: { id: number; name_ar: string; name_en?: string | null };
+  valid_from: string | null;
+  valid_until: string | null;
   days: Array<{
     day: string;
     status: "work" | "leave" | "unavailable";
@@ -128,6 +129,7 @@ type ScheduleRow = {
     full_name_ar: string;
     full_name_en?: string | null;
     specialty?: string | null;
+    work_schedules?: DoctorWorkSchedule[];
   };
   training_site?: { id: number; name_ar: string; name_en?: string | null };
 };
@@ -391,14 +393,6 @@ export function DistributionPage() {
   const selectedRowHospital = hospitals.find(
     (hospital) => String(hospital.id) === rowForm.hospitalId,
   );
-  const cellHospitals =
-    editingCell?.row.row_type === "doctor"
-      ? hospitals.filter((hospital) =>
-          hospital.supervisors.some(
-            (doctor) => doctor.id === editingCell.row.person_id,
-          ),
-        )
-      : hospitals;
   const availableRowDoctors = (selectedRowHospital?.supervisors ?? []).filter(
     (doctor) => {
       const query = rowForm.search.trim().toLowerCase();
@@ -421,8 +415,8 @@ export function DistributionPage() {
       return doctor.work_schedules.some(
         (item) =>
           String(item.training_site_id) === rowForm.hospitalId &&
-          item.valid_from <= end &&
-          item.valid_until >= rotationStart &&
+          (!item.valid_from || item.valid_from <= end) &&
+          (!item.valid_until || item.valid_until >= rotationStart) &&
           item.days.some((day) => day.status === "work"),
       );
     },
@@ -438,6 +432,32 @@ export function DistributionPage() {
     }
     return grouped;
   }, [schedule?.cells]);
+  const rowWorkLocations = (row: ScheduleRow, block: Block) => {
+    const rotationStart = schedule?.rotation?.start_date?.slice(0, 10);
+    if (!rotationStart) return row.person?.work_schedules ?? [];
+    const start = new Date(`${rotationStart}T12:00:00`);
+    start.setDate(start.getDate() + (block.from_week - 1) * 7);
+    const end = new Date(`${rotationStart}T12:00:00`);
+    end.setDate(end.getDate() + block.to_week * 7 - 1);
+    const from = start.toISOString().slice(0, 10);
+    const until = end.toISOString().slice(0, 10);
+    return (row.person?.work_schedules ?? []).filter(
+      (item) =>
+        (!item.valid_from || item.valid_from <= until) &&
+        (!item.valid_until || item.valid_until >= from) &&
+        item.days.some((day) => day.status === "work"),
+    );
+  };
+  const dayLabel = (day: string) =>
+    ({
+      saturday: tr("السبت", "Sat"),
+      sunday: tr("الأحد", "Sun"),
+      monday: tr("الاثنين", "Mon"),
+      tuesday: tr("الثلاثاء", "Tue"),
+      wednesday: tr("الأربعاء", "Wed"),
+      thursday: tr("الخميس", "Thu"),
+      friday: tr("الجمعة", "Fri"),
+    })[day] ?? day;
   const mainGroupCodes = useMemo(
     () =>
       Array.from(
@@ -1372,10 +1392,10 @@ export function DistributionPage() {
                         </h3>
                         <p className="mt-1 flex items-center gap-1 text-[11px] font-bold text-slate-500">
                           <Building2 className="h-3.5 w-3.5 text-teal-600" />
-                          {ar
-                            ? row.training_site?.name_ar
-                            : row.training_site?.name_en ||
-                              row.training_site?.name_ar}
+                          {(row.person?.work_schedules ?? [])
+                            .filter((item, index, list) => list.findIndex((other) => other.training_site_id === item.training_site_id) === index)
+                            .map((item) => ar ? item.training_site?.name_ar : item.training_site?.name_en || item.training_site?.name_ar)
+                            .join("، ") || (ar ? row.training_site?.name_ar : row.training_site?.name_en || row.training_site?.name_ar)}
                         </p>
                       </div>
                       {can("distribution.schedule_rows.manage") &&
@@ -1453,11 +1473,12 @@ export function DistributionPage() {
                                   : tr("فارغ", "Empty")}
                             </span>
                             {!wholeCohortActivity && cells.length > 0 && (
-                              <span className="mt-1 block text-[9px] font-bold text-teal-700">
-                                {ar
-                                  ? cells[0].training_site?.name_ar
-                                  : cells[0].training_site?.name_en ||
-                                    cells[0].training_site?.name_ar}
+                              <span className="mt-1 block space-y-1 text-[9px] font-bold text-teal-700">
+                                {rowWorkLocations(row, block).map((location) => (
+                                  <span key={`${location.training_site_id}-${location.valid_from}`} className="block">
+                                    {ar ? location.training_site?.name_ar : location.training_site?.name_en || location.training_site?.name_ar}: {location.days.filter((day) => day.status === "work").map((day) => dayLabel(day.day)).join("، ")}
+                                  </span>
+                                ))}
                               </span>
                             )}
                           </button>
@@ -1543,10 +1564,10 @@ export function DistributionPage() {
                                         row.person?.full_name_ar}
                                 </div>
                                 <div className="mt-0.5 text-[10px] font-normal text-slate-500">
-                                  {ar
-                                    ? row.training_site?.name_ar
-                                    : row.training_site?.name_en ||
-                                      row.training_site?.name_ar}
+                                  {(row.person?.work_schedules ?? [])
+                                    .filter((item, index, list) => list.findIndex((other) => other.training_site_id === item.training_site_id) === index)
+                                    .map((item) => ar ? item.training_site?.name_ar : item.training_site?.name_en || item.training_site?.name_ar)
+                                    .join("، ") || (ar ? row.training_site?.name_ar : row.training_site?.name_en || row.training_site?.name_ar)}
                                 </div>
                               </div>
                               {can("distribution.schedule_rows.manage") &&
@@ -1612,7 +1633,7 @@ export function DistributionPage() {
                                       {block.activity_label}
                                     </span>
                                   ) : cells.length ? (
-                                    <><span className="block">{cells.map((cell) => cell.subgroup_name).join(" + ")}</span><span className="mt-1 block text-[8px] font-bold text-teal-700">{ar ? cells[0].training_site?.name_ar : cells[0].training_site?.name_en || cells[0].training_site?.name_ar}</span></>
+                                    <><span className="block">{cells.map((cell) => cell.subgroup_name).join(" + ")}</span><span className="mt-1 block space-y-0.5 text-[8px] font-bold text-teal-700">{rowWorkLocations(row, block).map((location)=><span key={`${location.training_site_id}-${location.valid_from}`} className="block">{ar ? location.training_site?.name_ar : location.training_site?.name_en || location.training_site?.name_ar}: {location.days.filter((day)=>day.status==="work").map((day)=>dayLabel(day.day)).join("، ")}</span>)}</span></>
                                   ) : (
                                     <span className="text-slate-300">—</span>
                                   )}
@@ -1800,9 +1821,7 @@ export function DistributionPage() {
               <Button
                 onClick={() => saveCell.mutate()}
                 isLoading={saveCell.isPending}
-                disabled={
-                  editingCell.subgroupIds.length === 0 || !editingCell.siteId
-                }
+                disabled={editingCell.subgroupIds.length === 0}
               >
                 {tr("حفظ المجموعات", "Save groups")}
               </Button>
@@ -1810,32 +1829,20 @@ export function DistributionPage() {
           )
         }
       >
-        <label className="mb-3 block">
-          <span className="mb-1 block text-xs font-black text-slate-600">
-            {tr("مستشفى هذا الأسبوع", "Hospital for this week")}
-          </span>
-          <select
-            className={inputClass}
-            value={editingCell?.siteId ?? ""}
-            onChange={(event) =>
-              setEditingCell((current) =>
-                current ? { ...current, siteId: event.target.value } : null,
-              )
-            }
-          >
-            {cellHospitals.map((hospital) => (
-              <option key={hospital.id} value={hospital.id}>
-                {ar ? hospital.name_ar : hospital.name_en || hospital.name_ar}
-              </option>
-            ))}
-          </select>
-          <span className="mt-1 block text-[10px] text-slate-500">
-            {tr(
-              "يمكن اختيار مستشفى مختلف لنفس الطبيب في أسبوع آخر حسب جدول دوامه.",
-              "The same physician may use another hospital in a different week according to the work schedule.",
-            )}
-          </span>
-        </label>
+        {editingCell?.row.row_type === "doctor" && (
+          <div className="mb-3 rounded-xl border border-teal-100 bg-teal-50 p-3">
+            <span className="block text-xs font-black text-teal-900">
+              {tr("أماكن وأيام دوام المشرف", "Supervisor work locations")}
+            </span>
+            <div className="mt-2 space-y-1 text-[11px] font-bold text-teal-800">
+              {rowWorkLocations(editingCell.row, editingCell.block).map((location) => (
+                <div key={`${location.training_site_id}-${location.valid_from}`}>
+                  {ar ? location.training_site?.name_ar : location.training_site?.name_en || location.training_site?.name_ar}: {location.days.filter((day) => day.status === "work").map((day) => dayLabel(day.day)).join("، ")}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div>
           <span className="mb-2 block text-xs font-black text-slate-600">
             {tr("مجموعات الطلبة", "Student groups")}
