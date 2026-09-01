@@ -67,6 +67,13 @@ class CourseDistributionController extends Controller
         $directory = $this->doctorDirectory();
 
         return ApiResponse::success([
+            'academic_years' => AcademicYear::query()->active()
+                ->orderByDesc('is_current')->orderByDesc('start_date')
+                ->get(['id', 'code', 'start_date', 'end_date', 'is_current']),
+            'clinical_periods' => ClinicalPeriod::query()
+                ->with('academicYear:id,code')
+                ->orderBy('academic_year_id')->orderBy('sequence')
+                ->get(['id', 'academic_year_id', 'code', 'name_ar', 'name_en', 'sequence', 'start_date', 'end_date', 'status']),
             'hospitals' => $this->hospitals($directory),
             'unassigned_doctors' => $directory->filter(fn ($doctor) => count($doctor['training_site_ids']) === 0)->values(),
         ]);

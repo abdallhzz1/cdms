@@ -29,6 +29,7 @@ type WorkDay = {
 };
 type WorkSchedule = {
   training_site_id: string;
+  period_id: string;
   is_primary: boolean;
   valid_from: string;
   valid_until: string;
@@ -54,7 +55,8 @@ type Hospital = {
   city?: string | null;
   supervisors: Doctor[];
 };
-type Workforce = { hospitals: Hospital[]; unassigned_doctors: Doctor[] };
+type ClinicalPeriod = { id:number;academic_year_id:number;code:string;name_ar:string;name_en?:string|null;start_date:string;end_date:string;academic_year?:{id:number;code:string} };
+type Workforce = { hospitals: Hospital[]; unassigned_doctors: Doctor[]; clinical_periods:ClinicalPeriod[] };
 type Profile = {
   id: string;
   user_id: number;
@@ -80,6 +82,7 @@ const weekDays = [
 ];
 const emptySchedule = (): WorkSchedule => ({
   training_site_id: "",
+  period_id: "",
   is_primary: false,
   valid_from: "",
   valid_until: "",
@@ -168,6 +171,7 @@ export function ClinicalSupervisorsDirectoryPage() {
   });
   const workforce = workforceQuery.data;
   const hospitals = workforce?.hospitals ?? [];
+  const clinicalPeriods = workforce?.clinical_periods ?? [];
   const doctors = useMemo(() => {
     const map = new Map<number, Doctor>();
     hospitals.forEach((hospital) =>
@@ -270,6 +274,7 @@ export function ClinicalSupervisorsDirectoryPage() {
       setScheduleForm(
         (data.schedules ?? []).map((item) => ({
           training_site_id: String(item.training_site_id),
+          period_id: String(clinicalPeriods.find((period)=>period.start_date===item.valid_from&&period.end_date===item.valid_until)?.id??"custom"),
           is_primary: Boolean(item.is_primary),
           valid_from: item.valid_from ?? "",
           valid_until: item.valid_until ?? "",
@@ -1054,22 +1059,22 @@ export function ClinicalSupervisorsDirectoryPage() {
           </div>
         </form>
       </Modal>
-      <WorkScheduleModal doctor={scheduling} schedules={scheduleForm} hospitals={hospitals} loading={scheduleLoading} saving={saveWorkSchedules.isPending} tr={tr} dayLabel={dayLabel} hospitalName={hospitalName} onChange={setScheduleForm} onClose={()=>{setScheduling(null);setScheduleForm([])}} onSave={()=>saveWorkSchedules.mutate()}/>
+      <WorkScheduleModal doctor={scheduling} schedules={scheduleForm} hospitals={hospitals} clinicalPeriods={clinicalPeriods} loading={scheduleLoading} saving={saveWorkSchedules.isPending} tr={tr} dayLabel={dayLabel} hospitalName={hospitalName} onChange={setScheduleForm} onClose={()=>{setScheduling(null);setScheduleForm([])}} onSave={()=>saveWorkSchedules.mutate()}/>
     </div>
   );
 }
 
-function WorkScheduleModal({doctor,schedules,hospitals,loading,saving,tr,dayLabel,hospitalName,onChange,onClose,onSave}:{doctor:Doctor|null;schedules:WorkSchedule[];hospitals:Hospital[];loading:boolean;saving:boolean;tr:(a:string,e:string)=>string;dayLabel:(day:string)=>string;hospitalName:(site:Hospital)=>string;onChange:(value:WorkSchedule[])=>void;onClose:()=>void;onSave:()=>void}) {
+function WorkScheduleModal({doctor,schedules,hospitals,clinicalPeriods,loading,saving,tr,dayLabel,hospitalName,onChange,onClose,onSave}:{doctor:Doctor|null;schedules:WorkSchedule[];hospitals:Hospital[];clinicalPeriods:ClinicalPeriod[];loading:boolean;saving:boolean;tr:(a:string,e:string)=>string;dayLabel:(day:string)=>string;hospitalName:(site:Hospital)=>string;onChange:(value:WorkSchedule[])=>void;onClose:()=>void;onSave:()=>void}) {
   const update=(index:number,patch:Partial<WorkSchedule>)=>onChange(schedules.map((item,i)=>i===index?{...item,...patch}:item));
   const updateDay=(index:number,dayIndex:number,patch:Partial<WorkDay>)=>update(index,{days:schedules[index].days.map((item,i)=>i===dayIndex?{...item,...patch}:item)});
   return <Modal isOpen={Boolean(doctor)} onClose={onClose} title={doctor?`${tr('أماكن وأيام عمل المشرف','Supervisor workplaces and working days')} — ${doctor.full_name_ar}`:''} maxWidth="2xl">
     {loading?<LoadingState/>:<div className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-teal-50 p-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs font-bold leading-6 text-teal-900">{tr('يمكن ربط المشرف بأكثر من مستشفى، وتحديد فترة صلاحية وحالة مستقلة لكل يوم.','A supervisor may work at multiple hospitals with a validity range and an independent status for every day.')}</p><Button type="button" variant="outline" onClick={()=>onChange([...schedules,emptySchedule()])}><Plus className="me-1 h-4 w-4"/>{tr('إضافة ارتباط','Add workplace')}</Button></div>
+      <div className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-teal-50 p-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs font-bold leading-6 text-teal-900">{tr('اختر الفترة السريرية وسيملأ النظام تاريخها تلقائيًا. استخدم فترة مخصصة فقط عند وجود دوام استثنائي.','Select a clinical period and its dates will be filled automatically. Use a custom range only for exceptional schedules.')}</p><Button type="button" variant="outline" onClick={()=>onChange([...schedules,emptySchedule()])}><Plus className="me-1 h-4 w-4"/>{tr('إضافة ارتباط','Add workplace')}</Button></div>
       {!schedules.length&&<div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs font-bold text-slate-500">{tr('لا توجد أماكن عمل محددة.','No workplaces configured.')}</div>}
-      {schedules.map((schedule,index)=><section key={index} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 sm:grid-cols-[1fr_10rem_10rem_auto]"><label><span className="mb-1 block text-[11px] font-black text-slate-600">{tr('المستشفى','Hospital')}</span><select className={inputClass} value={schedule.training_site_id} onChange={event=>update(index,{training_site_id:event.target.value})}><option value="">{tr('اختر المستشفى','Select hospital')}</option>{hospitals.map(site=><option key={site.id} value={site.id}>{hospitalName(site)}</option>)}</select></label><label><span className="mb-1 block text-[11px] font-black text-slate-600">{tr('من تاريخ','Valid from')}</span><input type="date" className={inputClass} value={schedule.valid_from} onChange={event=>update(index,{valid_from:event.target.value})}/></label><label><span className="mb-1 block text-[11px] font-black text-slate-600">{tr('إلى تاريخ','Valid until')}</span><input type="date" className={inputClass} value={schedule.valid_until} onChange={event=>update(index,{valid_until:event.target.value})}/></label><div className="flex items-end gap-2"><label className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 px-3 text-[11px] font-bold"><input type="radio" name="primary-work-site" checked={schedule.is_primary} onChange={()=>onChange(schedules.map((item,i)=>({...item,is_primary:i===index})))}/>{tr('رئيسي','Primary')}</label><button type="button" onClick={()=>onChange(schedules.filter((_,i)=>i!==index))} className="flex h-11 w-11 items-center justify-center rounded-xl border border-red-100 text-red-500"><Trash2 className="h-4 w-4"/></button></div></div>
+      {schedules.map((schedule,index)=><section key={index} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]"><label><span className="mb-1 block text-[11px] font-black text-slate-600">{tr('المستشفى','Hospital')}</span><select className={inputClass} value={schedule.training_site_id} onChange={event=>update(index,{training_site_id:event.target.value})}><option value="">{tr('اختر المستشفى','Select hospital')}</option>{hospitals.map(site=><option key={site.id} value={site.id}>{hospitalName(site)}</option>)}</select></label><label><span className="mb-1 block text-[11px] font-black text-slate-600">{tr('الفترة السريرية','Clinical period')}</span><select className={inputClass} value={schedule.period_id} onChange={event=>{const value=event.target.value;const period=clinicalPeriods.find(item=>String(item.id)===value);update(index,{period_id:value,valid_from:period?.start_date??'',valid_until:period?.end_date??''})}}><option value="">{tr('اختر الفترة','Select period')}</option>{clinicalPeriods.map(period=><option key={period.id} value={period.id}>{period.academic_year?.code?`${period.academic_year.code} — `:''}{tr(period.name_ar,period.name_en||period.name_ar)}</option>)}<option value="custom">{tr('فترة مخصصة (استثنائية)','Custom range (exception)')}</option></select></label><div className="flex items-end gap-2"><label className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 px-3 text-[11px] font-bold"><input type="radio" name="primary-work-site" checked={schedule.is_primary} onChange={()=>onChange(schedules.map((item,i)=>({...item,is_primary:i===index})))}/>{tr('رئيسي','Primary')}</label><button type="button" onClick={()=>onChange(schedules.filter((_,i)=>i!==index))} className="flex h-11 w-11 items-center justify-center rounded-xl border border-red-100 text-red-500"><Trash2 className="h-4 w-4"/></button></div></div>{schedule.period_id&&schedule.period_id!=='custom'&&<p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">{tr('صلاحية الدوام:','Schedule validity:')} {schedule.valid_from} — {schedule.valid_until}</p>}{schedule.period_id==='custom'&&<div className="mt-3 grid gap-3 sm:grid-cols-2"><label><span className="mb-1 block text-[11px] font-black text-slate-600">{tr('من تاريخ','Valid from')}</span><input type="date" className={inputClass} value={schedule.valid_from} onChange={event=>update(index,{valid_from:event.target.value})}/></label><label><span className="mb-1 block text-[11px] font-black text-slate-600">{tr('إلى تاريخ','Valid until')}</span><input type="date" className={inputClass} value={schedule.valid_until} onChange={event=>update(index,{valid_until:event.target.value})}/></label></div>}
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{schedule.days.map((entry,dayIndex)=><div key={entry.day} className={`rounded-xl border p-3 ${entry.status==='work'?'border-teal-200 bg-teal-50':entry.status==='leave'?'border-amber-200 bg-amber-50':'border-slate-200 bg-slate-50'}`}><p className="mb-2 text-xs font-black">{dayLabel(entry.day)}</p><select className={inputClass} value={entry.status} onChange={event=>updateDay(index,dayIndex,{status:event.target.value as WorkDay['status']})}><option value="work">{tr('دوام','Working')}</option><option value="leave">{tr('إجازة','Leave')}</option><option value="unavailable">{tr('غير متاح','Unavailable')}</option></select><input className={`${inputClass} mt-2`} value={entry.note} onChange={event=>updateDay(index,dayIndex,{note:event.target.value})} placeholder={tr('مثال: مؤتمر، OFF','Example: conference, OFF')}/></div>)}</div>
       </section>)}
-      <div className="flex justify-end gap-2 border-t pt-4"><Button variant="outline" onClick={onClose}>{tr('إلغاء','Cancel')}</Button><Button onClick={onSave} isLoading={saving} disabled={schedules.some(item=>!item.training_site_id||!item.valid_from||!item.valid_until)}>{tr('حفظ جدول الدوام','Save work schedule')}</Button></div>
+      <div className="flex justify-end gap-2 border-t pt-4"><Button variant="outline" onClick={onClose}>{tr('إلغاء','Cancel')}</Button><Button onClick={onSave} isLoading={saving} disabled={schedules.some(item=>!item.training_site_id||!item.period_id||!item.valid_from||!item.valid_until)}>{tr('حفظ جدول الدوام','Save work schedule')}</Button></div>
     </div>}
   </Modal>;
 }
