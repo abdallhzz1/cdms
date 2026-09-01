@@ -179,6 +179,7 @@ class PublicStudentScheduleController extends Controller
                 'distributionVersion',
                 'rotationBlock.rotation.course',
                 'rotationBlock.rotation.academicYear',
+                'rotationBlock.rotation.clinicalPeriod',
                 'studentSubgroup.group',
                 'trainingSite',
                 'department',
@@ -238,6 +239,13 @@ class PublicStudentScheduleController extends Controller
                     'name_en' => $item['rotation']['name'] ?? null,
                 ],
                 'academic_year' => $assignment->rotationBlock?->rotation?->academicYear?->code,
+                'clinical_period' => $assignment->rotationBlock?->rotation?->clinicalPeriod ? [
+                    'id' => $assignment->rotationBlock->rotation->clinicalPeriod->id,
+                    'code' => $assignment->rotationBlock->rotation->clinicalPeriod->code,
+                    'name_ar' => $assignment->rotationBlock->rotation->clinicalPeriod->name_ar,
+                    'name_en' => $assignment->rotationBlock->rotation->clinicalPeriod->name_en,
+                    'sequence' => $assignment->rotationBlock->rotation->clinicalPeriod->sequence,
+                ] : null,
                 'block' => $item['block'],
                 'training_site' => $item['training_site'],
                 'department' => $item['department'],
@@ -257,7 +265,7 @@ class PublicStudentScheduleController extends Controller
                 ->whereHas('distributionVersion.rotation', fn ($query) => $query
                     ->where('academic_year_id', $group->academic_year_id)
                     ->where('academic_level', $student->academic_level))
-                ->with(['distributionVersion.rotation.course', 'distributionVersion.rotation.academicYear', 'rotationBlock'])
+                ->with(['distributionVersion.rotation.course', 'distributionVersion.rotation.academicYear', 'distributionVersion.rotation.clinicalPeriod', 'rotationBlock'])
                 ->get()
                 ->filter(fn (CourseScheduleBlockActivity $activity) => $activity->activity_scope === 'all'
                     || in_array($group->name, $activity->main_group_codes ?? [], true))
@@ -284,6 +292,13 @@ class PublicStudentScheduleController extends Controller
                             'name_en' => $course->name_en,
                         ] : null,
                         'academic_year' => $rotation?->academicYear?->code,
+                        'clinical_period' => $rotation?->clinicalPeriod ? [
+                            'id' => $rotation->clinicalPeriod->id,
+                            'code' => $rotation->clinicalPeriod->code,
+                            'name_ar' => $rotation->clinicalPeriod->name_ar,
+                            'name_en' => $rotation->clinicalPeriod->name_en,
+                            'sequence' => $rotation->clinicalPeriod->sequence,
+                        ] : null,
                         'block' => $block ? [
                             'block_code' => $block->block_code,
                             'from_week' => $block->from_week,

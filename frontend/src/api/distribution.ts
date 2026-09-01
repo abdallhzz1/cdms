@@ -476,6 +476,14 @@ export interface ClinicalScheduleItem {
     academic_level: string;
     start_date: string | null;
     end_date: string | null;
+    schedule_scope?: 'period' | 'annual';
+  } | null;
+  clinical_period: {
+    id: number;
+    code: string;
+    name_ar: string;
+    name_en?: string | null;
+    sequence: number;
   } | null;
   course: {
     id: number;

@@ -74,7 +74,7 @@ class OperationalDistributionController extends Controller
                     ? $query->whereRaw('1 = 0')
                     : $query->whereIn('academic_level', $levelScope);
             })
-            ->with(['academicYear:id,code', 'course:id,code,name_ar,name_en'])
+            ->with(['academicYear:id,code', 'course:id,code,name_ar,name_en', 'clinicalPeriod:id,academic_year_id,code,name_ar,name_en,sequence'])
             ->orderBy('academic_year_id')->orderBy('academic_level')->orderBy('name')
             ->get()
             ->map(fn (Rotation $rotation) => [
@@ -85,7 +85,22 @@ class OperationalDistributionController extends Controller
                 'academic_level' => $rotation->academic_level,
                 'academic_year_id' => $rotation->academic_year_id,
                 'academic_year' => $rotation->academicYear?->code,
+                'clinical_period_id' => $rotation->clinical_period_id,
+                'clinical_period' => $rotation->clinicalPeriod ? [
+                    'id' => $rotation->clinicalPeriod->id,
+                    'academic_year_id' => $rotation->clinicalPeriod->academic_year_id,
+                    'code' => $rotation->clinicalPeriod->code,
+                    'name_ar' => $rotation->clinicalPeriod->name_ar,
+                    'name_en' => $rotation->clinicalPeriod->name_en,
+                    'sequence' => $rotation->clinicalPeriod->sequence,
+                ] : null,
             ]);
+
+        $periods = $rotations->pluck('clinical_period')->filter()->unique('id')->sortBy('sequence')->values();
+        $academicYears = $rotations->map(fn ($rotation) => [
+            'id' => $rotation['academic_year_id'],
+            'code' => $rotation['academic_year'],
+        ])->unique('id')->values();
 
         $sites = TrainingSite::whereIn('id', $siteIds)
             ->orderBy('name_ar')->get(['id', 'name_ar', 'name_en']);
@@ -95,6 +110,8 @@ class OperationalDistributionController extends Controller
             'message' => 'Clinical schedule options retrieved successfully.',
             'data' => [
                 'rotations' => $rotations,
+                'periods' => $periods,
+                'academic_years' => $academicYears,
                 'sites' => $sites,
             ],
         ]);

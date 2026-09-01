@@ -71,6 +71,14 @@ class ClinicalScheduleItemDTO
                 'academic_level' => $rotation->academic_level,
                 'start_date' => $rotationStartDate,
                 'end_date' => $rotationEndDate,
+                'schedule_scope' => $rotation->schedule_scope,
+            ] : null,
+            'clinical_period' => $rotation?->clinicalPeriod ? [
+                'id' => $rotation->clinicalPeriod->id,
+                'code' => $rotation->clinicalPeriod->code,
+                'name_ar' => $rotation->clinicalPeriod->name_ar,
+                'name_en' => $rotation->clinicalPeriod->name_en,
+                'sequence' => $rotation->clinicalPeriod->sequence,
             ] : null,
             'course' => $course ? [
                 'id' => $course->id,
