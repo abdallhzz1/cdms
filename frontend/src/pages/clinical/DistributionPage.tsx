@@ -393,34 +393,34 @@ export function DistributionPage() {
   const selectedRowHospital = hospitals.find(
     (hospital) => String(hospital.id) === rowForm.hospitalId,
   );
-  const availableRowDoctors = (selectedRowHospital?.supervisors ?? []).filter(
-    (doctor) => {
+  const rowDoctors = (selectedRowHospital?.supervisors ?? []).filter((doctor) => {
       const query = rowForm.search.trim().toLowerCase();
-      const matchesSearch =
+      return (
         !query ||
         doctor.full_name_ar.toLowerCase().includes(query) ||
         doctor.full_name_en?.toLowerCase().includes(query) ||
-        doctor.email?.toLowerCase().includes(query);
-      if (!matchesSearch) return false;
-      if (!doctor.work_schedules?.length) return true;
-      const rotationStart =
-        schedule?.rotation?.start_date?.slice(0, 10) ?? startDate;
-      const rotationEnd = new Date(`${rotationStart}T12:00:00`);
-      rotationEnd.setDate(
-        rotationEnd.getDate() +
-          Math.max(1, schedule?.rotation?.duration_weeks ?? weeksCount) * 7 -
-          1,
+        doctor.email?.toLowerCase().includes(query)
       );
-      const end = rotationEnd.toISOString().slice(0, 10);
-      return doctor.work_schedules.some(
-        (item) =>
-          String(item.training_site_id) === rowForm.hospitalId &&
-          (!item.valid_from || item.valid_from <= end) &&
-          (!item.valid_until || item.valid_until >= rotationStart) &&
-          item.days.some((day) => day.status === "work"),
-      );
-    },
-  );
+    });
+  const doctorIsAvailable = (doctor: Doctor) => {
+    if (!doctor.work_schedules?.length) return true;
+    const rotationStart =
+      schedule?.rotation?.start_date?.slice(0, 10) ?? startDate;
+    const rotationEnd = new Date(`${rotationStart}T12:00:00`);
+    rotationEnd.setDate(
+      rotationEnd.getDate() +
+        Math.max(1, schedule?.rotation?.duration_weeks ?? weeksCount) * 7 -
+        1,
+    );
+    const end = rotationEnd.toISOString().slice(0, 10);
+    return doctor.work_schedules.some(
+      (item) =>
+        String(item.training_site_id) === rowForm.hospitalId &&
+        (!item.valid_from || item.valid_from <= end) &&
+        (!item.valid_until || item.valid_until >= rotationStart) &&
+        item.days.some((day) => day.status === "work"),
+    );
+  };
   const doctorsCount = (schedule?.rows ?? []).filter(
     (row) => row.row_type === "doctor",
   ).length;
@@ -2021,24 +2021,35 @@ export function DistributionPage() {
                       ? tr("اختر المشرف", "Select supervisor")
                       : tr("اختر المستشفى أولاً", "Select a hospital first")}
                   </option>
-                  {availableRowDoctors.map(
+                  {rowDoctors.map(
                     (doctor) =>
                       doctor.id !== null && (
-                        <option key={doctor.id} value={doctor.id}>
+                        <option key={doctor.id} value={doctor.id} disabled={!doctorIsAvailable(doctor)}>
                           {ar
                             ? doctor.full_name_ar
                             : doctor.full_name_en || doctor.full_name_ar}
                           {doctor.specialty ? ` — ${doctor.specialty}` : ""}
+                          {!doctorIsAvailable(doctor)
+                            ? tr(" — لا يوجد يوم دوام فعال ضمن مدة الجدول", " — no active work day in this schedule")
+                            : ""}
                         </option>
                       ),
                   )}
                 </select>
               </label>
-              {rowForm.hospitalId && availableRowDoctors.length === 0 && (
+              {rowForm.hospitalId && rowDoctors.length === 0 && (
                 <p className="rounded-lg bg-amber-50 p-3 text-xs font-bold text-amber-800">
                   {tr(
                     "لا يوجد أطباء مطابقون في هذا المستشفى.",
                     "No matching physicians are available at this hospital.",
+                  )}
+                </p>
+              )}
+              {rowForm.hospitalId && rowDoctors.length > 0 && rowDoctors.every((doctor) => !doctorIsAvailable(doctor)) && (
+                <p className="rounded-lg bg-amber-50 p-3 text-xs font-bold leading-6 text-amber-800">
+                  {tr(
+                    "المشرفون المرتبطون ظاهرون أعلاه، لكن لا يمكن اختيارهم لأن جدول أيام عملهم لا يحتوي يوم دوام فعلي ضمن مدة هذا الجدول. عدّل أماكن وأيام العمل ثم أعد المحاولة.",
+                    "Linked supervisors are shown above, but none can be selected because their work schedules contain no active working day during this schedule. Update workplaces and working days, then try again.",
                   )}
                 </p>
               )}
@@ -2051,13 +2062,13 @@ export function DistributionPage() {
                       selectedRowHospital?.name_ar}{" "}
                   —{" "}
                   {ar
-                    ? availableRowDoctors.find(
+                    ? rowDoctors.find(
                         (doctor) => String(doctor.id) === rowForm.personId,
                       )?.full_name_ar
-                    : availableRowDoctors.find(
+                    : rowDoctors.find(
                         (doctor) => String(doctor.id) === rowForm.personId,
                       )?.full_name_en ||
-                      availableRowDoctors.find(
+                      rowDoctors.find(
                         (doctor) => String(doctor.id) === rowForm.personId,
                       )?.full_name_ar}
                 </div>

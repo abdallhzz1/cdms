@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
+use App\Models\AuditLog;
 use App\Models\Person;
 use App\Models\SupervisorAvailability;
 use App\Models\TrainingSite;
@@ -40,6 +41,7 @@ class SupervisorWorkScheduleController extends Controller
             'schedules.*.days.*.note' => ['nullable', 'string', 'max:500'],
         ]);
         $person = $this->person($user);
+        $before = $this->schedules->schedules($person);
         $schedules = collect($data['schedules'] ?? []);
         foreach ($schedules as $index => $schedule) {
             if (Carbon::parse($schedule['valid_until'])->lt(Carbon::parse($schedule['valid_from']))) {
@@ -47,6 +49,9 @@ class SupervisorWorkScheduleController extends Controller
             }
             if (collect($schedule['days'])->pluck('day')->duplicates()->isNotEmpty()) {
                 throw ValidationException::withMessages(["schedules.$index.days" => ['لا يجوز تكرار اليوم داخل ارتباط العمل نفسه.']]);
+            }
+            if (! collect($schedule['days'])->contains(fn ($day) => $day['status'] === 'work')) {
+                throw ValidationException::withMessages(["schedules.$index.days" => ['يجب تحديد يوم دوام فعلي واحد على الأقل لهذا الارتباط. استخدم الحذف إذا لم يعد المشرف يعمل في هذا المستشفى.']]);
             }
         }
         if ($schedules->where('is_primary', true)->count() > 1) {
@@ -73,16 +78,36 @@ class SupervisorWorkScheduleController extends Controller
                     ]);
                 }
             }
-            $primary = $schedules->firstWhere('is_primary', true)['training_site_id'] ?? $siteIds->first();
+            $primarySchedule = $schedules->firstWhere('is_primary', true);
+            $primary = $primarySchedule['training_site_id'] ?? $siteIds->first();
             $person->update(['primary_site_id' => $primary]);
             $person->trainingSites()->sync($siteIds->mapWithKeys(fn ($id) => [$id => ['is_primary' => (int) $id === (int) $primary]])->all());
         });
 
-        return ApiResponse::success(['person_id' => $person->id, 'schedules' => $this->schedules->schedules($person->fresh())], 'تم حفظ أماكن وأيام عمل المشرف.');
+        $after = $this->schedules->schedules($person->fresh());
+        AuditLog::create([
+            'user_id' => $request->user()->id,
+            'action' => 'clinical_supervisor.work_schedule_updated',
+            'entity_type' => Person::class,
+            'entity_id' => $person->id,
+            'changes' => ['before' => $before, 'after' => $after],
+            'is_override' => false,
+        ]);
+
+        return ApiResponse::success(['person_id' => $person->id, 'schedules' => $after], 'تم حفظ أماكن وأيام عمل المشرف.');
     }
 
     private function validateWorkConflicts($schedules): void
     {
+        foreach ($schedules->values() as $index => $schedule) {
+            foreach ($schedules->values()->slice($index + 1) as $otherIndex => $other) {
+                $overlaps = Carbon::parse($schedule['valid_from'])->lte(Carbon::parse($other['valid_until']))
+                    && Carbon::parse($schedule['valid_until'])->gte(Carbon::parse($other['valid_from']));
+                if ($overlaps && (int) $schedule['training_site_id'] === (int) $other['training_site_id']) {
+                    throw ValidationException::withMessages(["schedules.$otherIndex" => ['يوجد ارتباط آخر للمستشفى نفسه ضمن فترة زمنية متداخلة. ادمج الفترتين أو عدّل التواريخ.']]);
+                }
+            }
+        }
         $work = [];
         foreach ($schedules as $index => $schedule) {
             foreach ($schedule['days'] as $day) {
