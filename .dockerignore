@@ -1,0 +1,36 @@
+.git
+.github
+.agents
+.codex
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+**/node_modules
+**/vendor
+**/.phpunit.cache
+**/.phpunit.result.cache
+**/coverage
+**/dist
+**/*.log
+**/*.tmp
+**/*.temp
+
+# Runtime state is kept in Docker volumes and must never be baked into images.
+backend/storage/app/private/*
+backend/storage/app/public/*
+backend/storage/framework/cache/*
+backend/storage/framework/sessions/*
+backend/storage/framework/testing/*
+backend/storage/framework/views/*
+backend/storage/logs/*
+backend/bootstrap/cache/*.php
+
+# Project reference material is not needed to build the runtime images.
+docs
+tmp_courses_render
+Clinical_Department_*
+PLO.xlsx
+*.pdf
+

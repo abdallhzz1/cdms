@@ -1,0 +1,108 @@
+name: cdms
+
+x-laravel-service: &laravel-service
+  image: cdms-app:latest
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  env_file:
+    - .env.docker
+  restart: unless-stopped
+  depends_on:
+    storage-init:
+      condition: service_completed_successfully
+    db:
+      condition: service_healthy
+  volumes:
+    - laravel_storage:/var/www/html/storage/app
+  networks:
+    - cdms
+
+services:
+  storage-init:
+    image: cdms-app:latest
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    user: root
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - mkdir -p /var/www/html/storage/app/private /var/www/html/storage/app/public && chown -R www-data:www-data /var/www/html/storage/app
+    volumes:
+      - laravel_storage:/var/www/html/storage/app
+    networks:
+      - cdms
+
+  app:
+    <<: *laravel-service
+
+  worker:
+    <<: *laravel-service
+    user: www-data
+    stop_grace_period: 1m
+    command:
+      - php
+      - artisan
+      - queue:work
+      - database
+      - --sleep=3
+      - --tries=3
+      - --timeout=120
+      - --max-time=3600
+
+  scheduler:
+    <<: *laravel-service
+    user: www-data
+    stop_grace_period: 30s
+    command: ["php", "artisan", "schedule:work"]
+
+  nginx:
+    image: cdms-nginx:latest
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - laravel_storage:/var/www/html/storage/app:ro
+    networks:
+      - cdms
+
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:?Set DB_DATABASE in .env.docker}
+      MYSQL_USER: ${DB_USERNAME:?Set DB_USERNAME in .env.docker}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env.docker}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env.docker}
+      TZ: Asia/Hebron
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - cdms
+
+networks:
+  cdms:
+    name: cdms_network
+
+volumes:
+  mysql_data:
+    name: cdms_mysql_data
+  laravel_storage:
+    name: cdms_laravel_storage
+
