@@ -6,6 +6,7 @@ import {
   Building2,
   CalendarDays,
   CheckCircle2,
+  CircleAlert,
   Copy,
   ExternalLink,
   Grid3X3,
@@ -292,6 +293,7 @@ export function DistributionPage() {
     main_group_codes: [],
   });
   const [rowModal, setRowModal] = useState(false);
+  const [workDetailsRow, setWorkDetailsRow] = useState<ScheduleRow | null>(null);
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
   const [rowForm, setRowForm] = useState({
     row_type: "doctor" as "doctor" | "vacancy",
@@ -476,50 +478,20 @@ export function DistributionPage() {
       leave: tr("إجازة", "Leave"),
       unavailable: tr("غير متاح", "Unavailable"),
     })[status];
-  const workLocationDetails = (row: ScheduleRow) => {
+  const workLocationInfoButton = (row: ScheduleRow) => {
     const locations = rowDisplayedWorkLocations(row);
-
-    if (!locations.length) {
-      const fallbackName = ar
-        ? row.training_site?.name_ar
-        : row.training_site?.name_en || row.training_site?.name_ar;
-      return fallbackName ? (
-        <div className="mt-1 flex items-center gap-1 text-[10px] font-normal text-slate-500">
-          <Building2 className="h-3 w-3 shrink-0 text-teal-600" />
-          <span>{fallbackName}</span>
-        </div>
-      ) : null;
-    }
-
+    const hasFallback = Boolean(row.training_site);
+    if (!locations.length && !hasFallback) return null;
     return (
-      <div className="mt-1.5 space-y-1.5">
-        {locations.map((location) => (
-          <div
-            key={`${location.training_site_id}-${location.valid_from}-${location.valid_until}`}
-            className="rounded-lg border border-teal-100 bg-teal-50/60 px-2 py-1.5"
-          >
-            <div className="flex items-center gap-1 text-[10px] font-bold text-slate-700">
-              <Building2 className="h-3 w-3 shrink-0 text-teal-600" />
-              <span>
-                {ar
-                  ? location.training_site?.name_ar
-                  : location.training_site?.name_en || location.training_site?.name_ar}
-              </span>
-            </div>
-            <div className="mt-1 text-[9px] font-normal leading-4 text-slate-500">
-              {location.days
-                .filter((day) => day.status === "work" || Boolean(day.note?.trim()))
-                .map(
-                  (day) =>
-                    `${dayLabel(day.day)}: ${workStatusLabel(day.status)}${
-                      day.note?.trim() ? ` — ${day.note.trim()}` : ""
-                    }`,
-                )
-                .join(" • ")}
-            </div>
-          </div>
-        ))}
-      </div>
+      <button
+        type="button"
+        onClick={() => setWorkDetailsRow(row)}
+        className="inline-flex shrink-0 items-center justify-center rounded-full text-amber-500 transition hover:bg-amber-50 hover:text-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-200"
+        title={tr("عرض أماكن وأيام الدوام", "View workplaces and working days")}
+        aria-label={tr("عرض أماكن وأيام دوام المشرف", "View supervisor work details")}
+      >
+        <CircleAlert className="h-4 w-4" />
+      </button>
     );
   };
   const mainGroupCodes = useMemo(
@@ -1446,15 +1418,15 @@ export function DistributionPage() {
                       className={`flex items-start justify-between gap-3 border-b border-slate-100 p-4 ${row.row_type === "vacancy" ? "bg-slate-50" : "bg-teal-50/60"}`}
                     >
                       <div>
-                        <h3 className="text-sm font-black text-slate-800">
-                          {row.row_type === "vacancy"
+                        <h3 className="flex items-center gap-1.5 text-sm font-black text-slate-800">
+                          <span>{row.row_type === "vacancy"
                             ? row.label || tr("شاغر", "Vacancy")
                             : ar
                               ? row.person?.full_name_ar
                               : row.person?.full_name_en ||
-                                row.person?.full_name_ar}
+                                row.person?.full_name_ar}</span>
+                          {row.row_type === "doctor" && workLocationInfoButton(row)}
                         </h3>
-                        {workLocationDetails(row)}
                       </div>
                       {can("distribution.schedule_rows.manage") &&
                         isEditable && (
@@ -1603,16 +1575,16 @@ export function DistributionPage() {
                             <div className="flex items-start justify-between gap-2">
                               <div>
                                 <div
-                                  className={`font-black ${row.row_type === "vacancy" ? "text-slate-700" : "text-slate-800"}`}
+                                  className={`flex items-center gap-1.5 font-black ${row.row_type === "vacancy" ? "text-slate-700" : "text-slate-800"}`}
                                 >
-                                  {row.row_type === "vacancy"
+                                  <span>{row.row_type === "vacancy"
                                     ? row.label || tr("شاغر", "Vacancy")
                                     : ar
                                       ? row.person?.full_name_ar
                                       : row.person?.full_name_en ||
-                                        row.person?.full_name_ar}
+                                        row.person?.full_name_ar}</span>
+                                  {row.row_type === "doctor" && workLocationInfoButton(row)}
                                 </div>
-                                {workLocationDetails(row)}
                               </div>
                               {can("distribution.schedule_rows.manage") &&
                                 isEditable && (
@@ -1695,6 +1667,55 @@ export function DistributionPage() {
           )}
         </>
       )}
+
+      <Modal
+        isOpen={Boolean(workDetailsRow)}
+        onClose={() => setWorkDetailsRow(null)}
+        title={tr("أماكن وأيام دوام المشرف", "Supervisor workplaces and working days")}
+        maxWidth="md"
+      >
+        {workDetailsRow && (
+          <div className="space-y-3">
+            <div className="font-black text-slate-800">
+              {ar
+                ? workDetailsRow.person?.full_name_ar
+                : workDetailsRow.person?.full_name_en || workDetailsRow.person?.full_name_ar}
+            </div>
+            {rowDisplayedWorkLocations(workDetailsRow).length ? (
+              rowDisplayedWorkLocations(workDetailsRow).map((location) => (
+                <section
+                  key={`${location.training_site_id}-${location.valid_from}-${location.valid_until}`}
+                  className="rounded-xl border border-slate-200 p-3"
+                >
+                  <h4 className="flex items-center gap-2 font-black text-teal-800">
+                    <Building2 className="h-4 w-4" />
+                    {ar
+                      ? location.training_site?.name_ar
+                      : location.training_site?.name_en || location.training_site?.name_ar}
+                  </h4>
+                  <div className="mt-2 divide-y divide-slate-100 text-xs">
+                    {location.days.map((day) => (
+                      <div key={day.day} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                        <span className="font-bold text-slate-700">{dayLabel(day.day)}</span>
+                        <span className={day.status === "work" ? "text-teal-700" : "text-slate-500"}>
+                          {workStatusLabel(day.status)}
+                          {day.note?.trim() ? ` — ${day.note.trim()}` : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))
+            ) : (
+              <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600">
+                {ar
+                  ? workDetailsRow.training_site?.name_ar
+                  : workDetailsRow.training_site?.name_en || workDetailsRow.training_site?.name_ar}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
 
       <Modal
         isOpen={Boolean(editingBlock)}
