@@ -506,15 +506,16 @@ export function DistributionPage() {
                   : location.training_site?.name_en || location.training_site?.name_ar}
               </span>
             </div>
-            <div className="mt-1 space-y-0.5 text-[9px] font-normal leading-4 text-slate-500">
+            <div className="mt-1 text-[9px] font-normal leading-4 text-slate-500">
               {location.days
                 .filter((day) => day.status === "work" || Boolean(day.note?.trim()))
-                .map((day) => (
-                  <div key={day.day}>
-                    {dayLabel(day.day)}: {workStatusLabel(day.status)}
-                    {day.note?.trim() ? ` — ${day.note.trim()}` : ""}
-                  </div>
-                ))}
+                .map(
+                  (day) =>
+                    `${dayLabel(day.day)}: ${workStatusLabel(day.status)}${
+                      day.note?.trim() ? ` — ${day.note.trim()}` : ""
+                    }`,
+                )
+                .join(" • ")}
             </div>
           </div>
         ))}
