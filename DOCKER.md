@@ -1,7 +1,8 @@
 # CDMS Docker deployment
 
-The production stack serves the React SPA and Laravel API from the same origin,
-`https://cdms.hebron.edu`. The long-lived state is held in the explicitly named
+The production stack serves the React SPA and Laravel API from the same origin.
+Set that origin in `.env.docker`; the examples use `https://cdms.hebron.edu`.
+The long-lived state is held in the explicitly named
 Docker volumes `cdms_mysql_data` and `cdms_laravel_storage`. Rebuilding or
 recreating containers does not remove either volume.
 

@@ -37,6 +37,7 @@ RUN composer install \
     --optimize-autoloader
 
 COPY backend/ ./
+COPY frontend/src/assets/hebron.png /var/www/frontend/src/assets/hebron.png
 COPY docker/php/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
 COPY docker/php/uploads.ini /usr/local/etc/php/conf.d/uploads.ini
 

@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "build:legacy-root": "npm run build && node -e \"const fs=require('fs'); for (const p of ['../assets','../index.html','../favicon.svg','../templates']) fs.rmSync(p,{recursive:true,force:true}); fs.cpSync('dist','..',{recursive:true});\"",
+    "build": "npm run build:container && node -e \"const fs=require('fs'); for (const p of ['../assets','../index.html','../favicon.svg','../templates']) fs.rmSync(p,{recursive:true,force:true}); fs.cpSync('dist','..',{recursive:true});\"",
+    "build:container": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
