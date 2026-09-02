@@ -542,6 +542,16 @@ export function PublicClinicalSchedulePage() {
                                         .map((day) => dayName(day.day))
                                         .join("، ") || "لا يوجد دوام"}
                                     </span>
+                                    {location.days
+                                      .filter((day) => Boolean(day.note?.trim()))
+                                      .map((day) => (
+                                        <span
+                                          key={day.day}
+                                          className="block text-[9px] font-normal leading-4 text-amber-700"
+                                        >
+                                          {dayName(day.day)}: {day.note?.trim()}
+                                        </span>
+                                      ))}
                                   </div>
                                 ))}
                               </div>
