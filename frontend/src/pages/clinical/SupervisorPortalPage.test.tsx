@@ -25,19 +25,22 @@ describe('clinical supervisor workspace',()=>{
     document.cookie='XSRF-TOKEN=test; path=/';
     const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(workspace);if(url.includes('/my-supervisor-attendance'))return envelope({session_id:12});throw new Error(`Unmocked ${url} ${init?.method}`)});
     renderWithProviders(<SupervisorAttendancePage/>,{route:'/supervisor/attendance'});
-    expect(await screen.findByDisplayValue('2026-08-29')).toBeVisible();
+    await screen.findByText('General Surgery — Annual schedule — L (L1)');
+    const sessionDate=document.querySelector('input[type="date"]') as HTMLInputElement;
+    expect(sessionDate).toBeVisible();
+    expect(sessionDate.value>='2026-08-24'&&sessionDate.value<='2026-09-06').toBe(true);
     await userEvent.click(screen.getByRole('button',{name:'Absent'}));
     await userEvent.click(screen.getByRole('button',{name:'Save group'}));
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-attendance')&&String(init?.body).includes('"status":"absent"'))).toBe(true));
   });
 
-  it('submits the grouped assessment roster from its separate screen',async()=>{
+  it('submits one student assessment independently from its separate screen',async()=>{
     document.cookie='XSRF-TOKEN=test; path=/';
-    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(workspace);if(url.includes('/my-supervisor-assessment-batches'))return envelope({batch_uuid:'batch-1'});throw new Error(`Unmocked ${url} ${init?.method}`)});
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(workspace);if(url.includes('/my-supervisor-assessments'))return envelope({id:1,status:'submitted'});throw new Error(`Unmocked ${url} ${init?.method}`)});
     renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments'});
     const score=await screen.findByRole('spinbutton');await userEvent.type(score,'18');
-    await userEvent.click(screen.getByRole('button',{name:'Submit group'}));
-    await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessment-batches')&&String(init?.body).includes('"student_id":7')&&String(init?.body).includes('"score":18'))).toBe(true));
+    await userEvent.click(screen.getByRole('button',{name:'Save & submit'}));
+    await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessments')&&String(init?.body).includes('"student_id":7')&&String(init?.body).includes('"score":18'))).toBe(true));
   });
 
   it('does not treat a director role alone as a clinical supervisor',async()=>{

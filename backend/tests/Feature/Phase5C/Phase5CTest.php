@@ -443,7 +443,7 @@ class Phase5CTest extends TestCase
         $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
             'assignment_id' => $this->assignment1->id,
             'session_date' => '2026-09-10',
-            'records' => [['student_id' => $this->student1->id, 'status' => 'present']],
+            'records' => [['student_id' => $this->student1->id, 'status' => 'present', 'excuse_note' => 'شارك بفاعلية في الجولة السريرية.']],
         ])->assertOk();
 
         $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
@@ -456,11 +456,13 @@ class Phase5CTest extends TestCase
 
         $this->assertDatabaseHas('attendance_records', ['student_id' => $this->student1->id, 'status' => 'present']);
         $this->assertDatabaseHas('attendance_records', ['student_id' => $this->student1->id, 'recorded_by_user_id' => $this->admin->id]);
+        $this->assertDatabaseHas('attendance_records', ['student_id' => $this->student1->id, 'excuse_note' => 'شارك بفاعلية في الجولة السريرية.']);
         $this->assertDatabaseHas('clinical_assessments', [
             'student_id' => $this->student1->id,
             'evaluator_person_id' => $this->supervisor1->id,
             'score' => 18.5,
             'max_score' => 20,
+            'notes' => 'Good clinical progress.',
             'status' => 'submitted',
         ]);
 
