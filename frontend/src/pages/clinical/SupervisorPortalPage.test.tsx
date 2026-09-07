@@ -39,7 +39,7 @@ describe('clinical supervisor workspace',()=>{
     const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(workspace);if(url.includes('/my-supervisor-assessments'))return envelope({id:1,status:'submitted'});throw new Error(`Unmocked ${url} ${init?.method}`)});
     renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments'});
     const score=await screen.findByRole('spinbutton');await userEvent.type(score,'18');
-    await userEvent.click(screen.getByRole('button',{name:'Save & submit'}));
+    await userEvent.click(screen.getByRole('button',{name:'Save student'}));
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessments')&&String(init?.body).includes('"student_id":7')&&String(init?.body).includes('"score":18'))).toBe(true));
   });
 
