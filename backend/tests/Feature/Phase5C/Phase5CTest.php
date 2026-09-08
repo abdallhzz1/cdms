@@ -517,6 +517,43 @@ class Phase5CTest extends TestCase
         ])->assertUnprocessable();
     }
 
+    public function test_supervisor_private_student_notes_are_saved_and_hidden_from_other_supervisors(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::where('code', 'supervisor.workspace.view')->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+
+        $response = $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-student-notes.store'), [
+            'assignment_id' => $this->assignment1->id,
+            'student_id' => $this->student1->id,
+            'note_date' => '2026-09-10',
+            'note' => 'يحتاج إلى تحسين أخذ التاريخ المرضي.',
+        ])->assertCreated()->assertJsonPath('data.student_id', $this->student1->id);
+
+        $noteId = $response->json('data.id');
+        $this->assertDatabaseHas('supervisor_student_notes', [
+            'id' => $noteId,
+            'supervisor_person_id' => $this->supervisor1->id,
+            'student_id' => $this->student1->id,
+            'note' => 'يحتاج إلى تحسين أخذ التاريخ المرضي.',
+        ]);
+        $this->actingAs($this->admin)->getJson(route('api.v1.operational.my-supervisor-workspace'))
+            ->assertOk()->assertJsonPath('data.student_notes.0.id', $noteId);
+
+        $otherUser = User::factory()->create();
+        $otherUser->roles()->attach($supervisorRole);
+        $this->supervisor2->update(['user_id' => $otherUser->id]);
+        $this->actingAs($otherUser)->putJson(route('api.v1.operational.my-supervisor-student-notes.update', $noteId), [
+            'note_date' => '2026-09-11',
+            'note' => 'محاولة تعديل غير مصرح بها.',
+        ])->assertNotFound();
+        $this->actingAs($otherUser)->deleteJson(route('api.v1.operational.my-supervisor-student-notes.destroy', $noteId))
+            ->assertNotFound();
+    }
+
     public function test_supervisor_cannot_record_outside_the_assigned_rotation_block(): void
     {
         $this->supervisor1->update(['user_id' => $this->admin->id]);

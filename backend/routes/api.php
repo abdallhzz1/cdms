@@ -743,6 +743,15 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('operational/my-supervisor-assessment-batches', [SupervisorController::class, 'storeAssessmentBatch'])
             ->middleware('permission:assessment.create')
             ->name('operational.my-supervisor-assessment-batches');
+        Route::post('operational/my-supervisor-student-notes', [SupervisorController::class, 'storeStudentNote'])
+            ->middleware('permission:supervisor.workspace.view')
+            ->name('operational.my-supervisor-student-notes.store');
+        Route::put('operational/my-supervisor-student-notes/{note}', [SupervisorController::class, 'updateStudentNote'])
+            ->middleware('permission:supervisor.workspace.view')
+            ->name('operational.my-supervisor-student-notes.update');
+        Route::delete('operational/my-supervisor-student-notes/{note}', [SupervisorController::class, 'destroyStudentNote'])
+            ->middleware('permission:supervisor.workspace.view')
+            ->name('operational.my-supervisor-student-notes.destroy');
 
         // GET: admin view of any supervisor's current assignments
         Route::get('operational/supervisors/{person}/assignments', [SupervisorController::class, 'supervisorAssignments'])

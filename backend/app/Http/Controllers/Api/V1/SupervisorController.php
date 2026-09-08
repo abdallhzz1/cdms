@@ -10,6 +10,7 @@ use App\Models\ClinicalSession;
 use App\Models\DistributionVersion;
 use App\Models\Person;
 use App\Models\StudentClinicalAssignment;
+use App\Models\SupervisorStudentNote;
 use App\Models\WorkflowTransitionLog;
 use App\Services\Distribution\SupervisorReassignmentService;
 use App\Services\WorkflowTransitionService;
@@ -213,6 +214,10 @@ class SupervisorController extends Controller
             'return_reason',
             $assessment->workflowTransitions->firstWhere('to_state', 'returned')?->reason,
         ));
+        $studentNotes = SupervisorStudentNote::query()
+            ->where('supervisor_person_id', $person->id)
+            ->whereIn('student_id', $studentIds)
+            ->latest('note_date')->latest('id')->get();
 
         return ApiResponse::success([
             'supervisor' => [
@@ -224,7 +229,56 @@ class SupervisorController extends Controller
             'assignments' => $assignments,
             'attendance_records' => $attendance,
             'assessments' => $assessments,
+            'student_notes' => $studentNotes,
         ]);
+    }
+
+    public function storeStudentNote(Request $request): JsonResponse
+    {
+        [, $person] = $this->supervisorIdentity($request);
+        $data = $request->validate([
+            'assignment_id' => ['required', 'integer'],
+            'student_id' => ['required', 'integer', 'exists:students,id'],
+            'note_date' => ['required', 'date'],
+            'note' => ['required', 'string', 'max:5000'],
+        ]);
+        $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
+        $this->ensureSessionDateWithinAssignment($assignment, $data['note_date']);
+        $studentAssignment = $this->assignmentGroupQuery($assignment)->where('student_id', $data['student_id'])->first();
+        abort_unless($studentAssignment, 403, 'You may only add private notes for students assigned to you.');
+
+        $note = SupervisorStudentNote::create([
+            'supervisor_person_id' => $person->id,
+            'student_id' => $data['student_id'],
+            'student_clinical_assignment_id' => $studentAssignment->id,
+            'rotation_block_id' => $assignment->rotation_block_id,
+            'training_site_id' => $assignment->training_site_id,
+            'note_date' => $data['note_date'],
+            'note' => trim($data['note']),
+        ]);
+
+        return ApiResponse::success($note, 'Private supervisor note saved.', [], 201);
+    }
+
+    public function updateStudentNote(Request $request, SupervisorStudentNote $note): JsonResponse
+    {
+        [, $person] = $this->supervisorIdentity($request);
+        abort_unless((int) $note->supervisor_person_id === (int) $person->id, 404);
+        $data = $request->validate(['note_date' => ['required', 'date'], 'note' => ['required', 'string', 'max:5000']]);
+        if ($note->student_clinical_assignment_id) {
+            $assignment = $this->ownedCurrentAssignment($person, (int) $note->student_clinical_assignment_id);
+            $this->ensureSessionDateWithinAssignment($assignment, $data['note_date']);
+        }
+        $note->update(['note_date' => $data['note_date'], 'note' => trim($data['note'])]);
+        return ApiResponse::success($note->fresh(), 'Private supervisor note updated.');
+    }
+
+    public function destroyStudentNote(Request $request, SupervisorStudentNote $note): JsonResponse
+    {
+        [, $person] = $this->supervisorIdentity($request);
+        abort_unless((int) $note->supervisor_person_id === (int) $person->id, 404);
+        $note->delete();
+        return ApiResponse::success(null, 'Private supervisor note deleted.');
     }
 
     public function recordAttendance(Request $request): JsonResponse
