@@ -30,10 +30,12 @@ describe('clinical supervisor workspace',()=>{
     expect(screen.queryByText('My Student Assessments')).not.toBeInTheDocument();
   });
 
-  it('keeps summaries and shortcuts on the supervisor dashboard',async()=>{
+  it('keeps concise statistics and prominent work buttons on the supervisor dashboard',async()=>{
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope(workspace));
     renderWithProviders(<SupervisorPortalPage/>);
-    expect(await screen.findByText('Current group summaries')).toBeVisible();
+    expect(await screen.findByText('Current groups')).toBeVisible();
+    expect(screen.getByText('Attendance')).toBeVisible();
+    expect(screen.getByText('Assessments and marks')).toBeVisible();
     expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')==='/supervisor/attendance')).toBe(true);
     expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')==='/supervisor/assessments')).toBe(true);
   });
