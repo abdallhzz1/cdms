@@ -31,14 +31,12 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
   const { locale } = useI18n();
   const { can, user } = useAuth();
   const userRoles = (user?.roles ?? []).map(r => String(r).toUpperCase());
-  const isSuperAdmin = userRoles.includes('SYS_ADMIN');
   const isClinicalSupervisor = userRoles.includes('CLINICAL_SUPERVISOR');
   const isDeptHead = userRoles.includes('DEPARTMENT_HEAD');
-  const isClinicalDirector = userRoles.includes('CLINICAL_DIRECTOR');
 
   const getNavigation = (): NavSection[] => {
     // If user is purely a Supervisor and has no administrative roles
-    const isOnlySupervisor = isClinicalSupervisor && !isSuperAdmin && !isClinicalDirector && !isDeptHead && !userRoles.some(r => ['DEAN', 'VICE_DEAN', 'ADMIN_ASSISTANT'].includes(r));
+    const isOnlySupervisor = isClinicalSupervisor && userRoles.length === 1;
     if (isOnlySupervisor) {
       return [
         {
@@ -72,9 +70,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           { path: '/distribution', label: locale === 'ar' ? 'التوزيع السريري' : 'Distribution', icon: Map, permission: 'distribution.view' },
           { path: '/distribution/groups', label: locale === 'ar' ? 'تسجيل مجموعات الطلبة' : 'Student Group Registration', icon: GraduationCap, permission: 'group_registration.view' },
           { path: '/clinical/schedule', label: locale === 'ar' ? 'الجدول السريري' : 'Clinical Schedule', icon: Calendar, permission: 'clinical_schedule.view' },
-          { path: '/supervisor/portal', label: locale === 'ar' ? 'لوحة المشرف' : 'Supervisor Dashboard', icon: LayoutDashboard, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') },
-          { path: '/supervisor/attendance', label: locale === 'ar' ? 'حضور طلبتي' : 'My Students Attendance', icon: Clock, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') && can('attendance.record') },
-          { path: '/supervisor/assessments', label: locale === 'ar' ? 'تقييمات طلبتي' : 'My Student Assessments', icon: ClipboardCheck, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') && can('assessment.create') },
+          { path: '/supervisor/portal', label: locale === 'ar' ? 'لوحة المشرف السريري' : 'Clinical Supervisor Workspace', icon: LayoutDashboard, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') },
           { path: '/attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance Log', icon: Clock, permission: 'attendance.view' },
           { path: '/assessments', label: locale === 'ar' ? 'مراجعة التقييمات السريرية' : 'Clinical Assessment Review', icon: ClipboardCheck, permission: 'assessment.view' },
         ]

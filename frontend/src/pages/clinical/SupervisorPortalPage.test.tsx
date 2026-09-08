@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/renderWithProviders';
 import { SupervisorPortalPage } from './SupervisorPortalPage';
 import { SupervisorAttendancePage } from './SupervisorAttendancePage';
 import { SupervisorAssessmentsPage } from './SupervisorAssessmentsPage';
+import { Sidebar } from '@/components/layout/Sidebar';
 
 const envelope=(data:unknown,status=200)=>new Response(JSON.stringify({success:status<400,data:status<400?data:null,message:status<400?null:'Forbidden',errors:{},meta:{}}),{status,headers:{'Content-Type':'application/json'}});
 const permissions=['supervisor.workspace.view','attendance.view','attendance.record','assessment.view','assessment.create'].map(code=>({code,scope:'global'}));
@@ -13,6 +14,22 @@ const user={id:1,name:'Supervisor',email:'doctor@hebron.edu',roles:['CLINICAL_SU
 afterEach(()=>{vi.restoreAllMocks();document.cookie='XSRF-TOKEN=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'});
 
 describe('clinical supervisor workspace',()=>{
+  it('keeps direct supervisor links for supervisor-only users',async()=>{
+    vi.spyOn(window,'fetch').mockImplementation(async()=>envelope(user));
+    renderWithProviders(<Sidebar/>);
+    expect(await screen.findByText('Supervisor Dashboard')).toBeVisible();
+    expect(screen.getByText('Attendance')).toBeVisible();
+    expect(screen.getByText('Student Assessments')).toBeVisible();
+  });
+
+  it('groups supervisor tools under one workspace link for multi-role users',async()=>{
+    vi.spyOn(window,'fetch').mockImplementation(async()=>envelope({...user,roles:['CLINICAL_SUPERVISOR','DEPARTMENT_HEAD']}));
+    renderWithProviders(<Sidebar/>);
+    expect(await screen.findByText('Clinical Supervisor Workspace')).toBeVisible();
+    expect(screen.queryByText('My Students Attendance')).not.toBeInTheDocument();
+    expect(screen.queryByText('My Student Assessments')).not.toBeInTheDocument();
+  });
+
   it('keeps summaries and shortcuts on the supervisor dashboard',async()=>{
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope(workspace));
     renderWithProviders(<SupervisorPortalPage/>);
