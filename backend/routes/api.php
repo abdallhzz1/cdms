@@ -103,6 +103,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // -------------------------------------------------------------------------
     Route::prefix('public')->name('public.')->group(function () {
         Route::get('quality-surveys/{qualitySurvey:public_id}', [QualitySurveyController::class, 'publicShow'])->middleware('throttle:operational-read');
+        Route::post('quality-surveys/{qualitySurvey:public_id}/eligibility', [QualitySurveyController::class, 'publicEligibility'])->middleware('throttle:operational-read');
         Route::post('quality-surveys/{qualitySurvey:public_id}/submit', [QualitySurveyController::class, 'publicSubmit'])->middleware('throttle:operational-read');
         Route::post('student-schedule/request-otp', [PublicStudentScheduleController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
         Route::post('student-schedule/verify-otp', [PublicStudentScheduleController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
