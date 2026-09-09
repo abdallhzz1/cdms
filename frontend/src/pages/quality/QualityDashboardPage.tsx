@@ -24,7 +24,7 @@ export function QualityDashboardPage() {
   const { can } = useAuth();
   const { locale } = useI18n();
   const [year, setYear] = useState('');
-  const options = useQuery({ queryKey: ['quality-options'], queryFn: () => apiFetch<{academic_years:string[]}>('/quality-options') });
+  const options = useQuery({ queryKey: ['quality-options'], queryFn: () => apiFetch<{academic_years:Array<{id:number;code:string;is_current:boolean;status:string}>}>('/quality-options') });
   const query = useQuery({ queryKey: ['quality-overview', year], queryFn: () => apiFetch<Overview>(`/quality-overview${year ? `?academic_year=${encodeURIComponent(year)}` : ''}`) });
 
   if (!can('quality.view')) return <ErrorState title={locale === 'ar' ? 'غير مصرح' : 'Access denied'} />;
@@ -39,7 +39,7 @@ export function QualityDashboardPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 pb-14">
-      <PageHeader title={isAr ? 'مركز ضمان الجودة والتطوير' : 'Quality Assurance & Development Center'} description={isAr ? 'مساحة عمل موحدة للقياس، رصد فرص التحسين، متابعة التنفيذ، وتوثيق الإغلاق.' : 'One workspace for measurement, improvement opportunities, implementation, and verified closure.'}><select value={year} onChange={e=>setYear(e.target.value)} className="h-11 min-w-48 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700"><option value="">{isAr?'كل الأعوام الأكاديمية':'All academic years'}</option>{options.data?.academic_years.map(item=><option key={item}>{item}</option>)}</select></PageHeader>
+      <PageHeader title={isAr ? 'مركز ضمان الجودة والتطوير' : 'Quality Assurance & Development Center'} description={isAr ? 'مساحة عمل موحدة للقياس، رصد فرص التحسين، متابعة التنفيذ، وتوثيق الإغلاق.' : 'One workspace for measurement, improvement opportunities, implementation, and verified closure.'}><select value={year} onChange={e=>setYear(e.target.value)} className="h-11 min-w-48 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700"><option value="">{isAr?'كل الأعوام الأكاديمية':'All academic years'}</option>{options.data?.academic_years.map(item=><option key={item.id} value={item.code}>{item.code}{item.is_current?(isAr?' — الحالي':' — Current'):''}</option>)}</select></PageHeader>
 
       <section className="overflow-hidden rounded-3xl border border-teal-100 bg-white shadow-sm">
         <div className="grid lg:grid-cols-[1.2fr_1fr]">

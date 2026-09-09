@@ -10,6 +10,7 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { QualitySectionGuide } from '@/components/quality/QualitySectionGuide';
 
 type Plan = { id: number; academic_year?: string; source: string; reference?: string; observation: string; root_cause?: string; improvement_action: string; desired_outcome?: string; responsible: string; owner?: { name:string }; start_date?: string; due_date: string; priority: string; progress_percent:number; status: string; closure_evidence?: string; verification_result?: string };
 const initialForm = { observation: '', root_cause:'', improvement_action: '', desired_outcome:'', priority: 'normal', progress_percent:0, due_date: '', start_date: '', responsible: '', owner_user_id:'', quality_kpi_id:'', quality_survey_id:'', academic_year: '', source: 'ملاحظة داخلية', reference: '', data_source: '' };
@@ -38,6 +39,7 @@ export function ImprovementPlansPage() {
     <PageHeader title={isAr ? 'خطط التحسين والمتابعة' : 'Improvement Plans'} description={isAr ? 'حوّل الملاحظات والنتائج إلى إجراءات محددة بمسؤول وموعد، ثم تحقق من أثرها قبل الإغلاق.' : 'Turn findings into owned, dated actions and verify their impact before closure.'}>
       {can('quality.manage') && <Button onClick={() => setCreateOpen(true)}><Plus className="ml-2 h-4 w-4" />{isAr ? 'خطة تحسين جديدة' : 'New plan'}</Button>}
     </PageHeader>
+    <QualitySectionGuide titleAr="كيف تعمل خطط التحسين؟" titleEn="How improvement plans work" stepsAr={['ابدأ من ملاحظة أو نتيجة استبيان أو مؤشر غير متحقق.','وثّق السبب الجذري والنتيجة المطلوبة وحدد المسؤول والموعد.','تابع التنفيذ ونسبة الإنجاز، ثم أرسل الخطة للتحقق المستقل.','لا تغلق الخطة إلا بدليل تنفيذ ونتيجة واضحة لقياس الأثر.']} stepsEn={['Start from a finding, survey result, or unmet indicator.','Document root cause, desired outcome, owner, and deadline.','Track execution then submit for independent verification.','Close only with implementation evidence and an impact result.']}/>
 
     <section className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_14rem]">
       <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3"><Search className="h-4 w-4 text-slate-400" /><input value={search} onChange={e => setSearch(e.target.value)} className="h-11 w-full bg-transparent text-sm outline-none" placeholder={isAr ? 'بحث بالملاحظة أو الإجراء أو المسؤول...' : 'Search observation, action, or owner...'} /></label>

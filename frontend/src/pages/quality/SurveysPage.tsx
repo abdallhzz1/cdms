@@ -9,9 +9,10 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
+import { QualitySectionGuide } from '@/components/quality/QualitySectionGuide';
 import { Plus, ExternalLink, MessageSquare, Users, CalendarDays } from 'lucide-react';
 
-const emptyForm={code:'',title:'',target_group:'',academic_year:'',purpose:'',frequency:'',opens_at:'',closes_at:'',expected_responses:'',responsible:'',is_mandatory:false,is_anonymous:true,form_url:'',status:'draft'};
+const emptyForm={title:'',target_group:'',academic_year:'',purpose:'',frequency:'',opens_at:'',closes_at:'',expected_responses:'',responsible:'',is_mandatory:false,is_anonymous:true,form_url:'',status:'draft'};
 
 export function SurveysPage() {
   const { can } = useAuth();
@@ -25,6 +26,7 @@ export function SurveysPage() {
     queryKey: ['quality-surveys'],
     queryFn: () => apiFetch<any>('/quality-surveys?per_page=50'),
   });
+  const options = useQuery({ queryKey:['quality-options'], queryFn:()=>apiFetch<{academic_years:Array<{id:number;code:string;is_current:boolean}>}>('/quality-options') });
 
   const createMutation = useMutation({
     mutationFn: (payload: any) => apiFetch('/quality-surveys', { method: 'POST', body: payload }),
@@ -53,6 +55,8 @@ export function SurveysPage() {
           </Button>
         )}
       </div>
+
+      <QualitySectionGuide titleAr="دورة حياة الاستبيان" titleEn="Survey lifecycle" stepsAr={['أنشئ حملة وحدد الفئة والعام؛ يولد النظام الرمز تلقائيًا.','أضف الأسئلة من صفحة التفاصيل، ويرقمها النظام بالترتيب.','راجع الحملة ثم افتحها لجمع الإجابات خلال المدة المحددة.','راقب نسبة الاستجابة، أغلق الحملة، وحوّل النتائج إلى مؤشر أو خطة تحسين.']} stepsEn={['Create a campaign; its code is generated automatically.','Add questions; numbering is automatic.','Review then open it for responses.','Monitor response rate, close it, and turn results into improvement actions.']}/>
 
       {!items.length ? (
         <EmptyState message={locale === 'ar' ? 'لا توجد استبيانات بعد' : 'No surveys yet'} />
@@ -103,17 +107,14 @@ export function SurveysPage() {
               <h3 className="font-bold text-lg text-slate-800">{locale === 'ar' ? 'إضافة استبيان جديد' : 'New Survey'}</h3>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
+              <div className="rounded-xl bg-teal-50 p-3 text-xs font-bold text-teal-800">{locale==='ar'?'سيُنشئ النظام رمز الاستبيان تلقائيًا بعد الحفظ.':'The survey code will be generated automatically.'}</div>
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الكود' : 'Code'}</label>
-                  <input required value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" placeholder="QS-001" />
-                </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الفئة المستهدفة' : 'Target Group'}</label>
                   <input required value={form.target_group} onChange={e => setForm({ ...form, target_group: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" placeholder={locale === 'ar' ? 'الطلاب' : 'Students'} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-semibold text-slate-600 mb-1">{locale==='ar'?'العام الأكاديمي':'Academic year'}</label><input required value={form.academic_year} onChange={e=>setForm({...form,academic_year:e.target.value})} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="2026/2027"/></div><div><label className="block text-xs font-semibold text-slate-600 mb-1">{locale==='ar'?'العدد المتوقع':'Expected responses'}</label><input required type="number" min="1" value={form.expected_responses} onChange={e=>setForm({...form,expected_responses:e.target.value})} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"/></div></div>
+              <div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-semibold text-slate-600 mb-1">{locale==='ar'?'العام الأكاديمي':'Academic year'}</label><select required value={form.academic_year} onChange={e=>setForm({...form,academic_year:e.target.value})} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"><option value="">{locale==='ar'?'اختر العام':'Select year'}</option>{options.data?.academic_years.map(y=><option key={y.id} value={y.code}>{y.code}{y.is_current?(locale==='ar'?' — الحالي':' — Current'):''}</option>)}</select></div><div><label className="block text-xs font-semibold text-slate-600 mb-1">{locale==='ar'?'العدد المتوقع':'Expected responses'}</label><input required type="number" min="1" value={form.expected_responses} onChange={e=>setForm({...form,expected_responses:e.target.value})} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"/></div></div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'عنوان الاستبيان' : 'Survey Title'}</label>
                 <input required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" />

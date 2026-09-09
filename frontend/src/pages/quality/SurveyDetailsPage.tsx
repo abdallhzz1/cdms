@@ -11,6 +11,7 @@ import { ExternalLink, BarChart3, MessageSquare, TrendingUp } from 'lucide-react
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { QualitySectionGuide } from '@/components/quality/QualitySectionGuide';
 
 const inputClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
 
@@ -55,6 +56,7 @@ export function SurveyDetailsPage() {
         )}
         {can('quality.manage') && <Button variant="outline" onClick={() => { setQuestion(current => ({ ...current, question_number: String(questions.length + 1) })); setAdding(true); }}><Plus className="ml-1 h-4 w-4" />{locale === 'ar' ? 'إضافة سؤال' : 'Add question'}</Button>}
       </PageHeader>
+      <QualitySectionGuide titleAr="إعداد الاستبيان ومتابعته" titleEn="Prepare and monitor this survey" stepsAr={['أضف الأسئلة؛ يرتبها ويرقمها النظام تلقائيًا.','راجع نوع الإجابة والمحور وإلزامية كل سؤال قبل النشر.','افتح رابط الاستبيان خلال فترة الحملة وتابع عدد الإجابات.','بعد الإغلاق راجع المتوسطات وحوّل النتائج المهمة إلى خطة تحسين.']} stepsEn={['Add questions; ordering and numbering are automatic.','Review answer type, axis, and required fields.','Open the form during the campaign and monitor responses.','After closing, analyze results and create improvement actions.']}/>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-teal-50 rounded-3xl p-5 flex items-center gap-4">

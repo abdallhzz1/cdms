@@ -12,6 +12,7 @@ use App\Models\QualitySurveyResponse;
 use App\Models\QualityFinding;
 use App\Models\QualityEvidence;
 use App\Models\User;
+use App\Models\AcademicYear;
 use App\Services\WorkflowTransitionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -54,7 +55,7 @@ class QualityImprovementController extends Controller
     public function options(): JsonResponse
     {
         return ApiResponse::success([
-            'academic_years' => collect(QualityImprovementPlan::pluck('academic_year'))->merge(QualitySurvey::pluck('academic_year'))->merge(QualityKpiMeasurement::pluck('academic_year'))->filter()->unique()->sortDesc()->values(),
+            'academic_years' => AcademicYear::query()->orderByDesc('start_date')->get(['id', 'code', 'is_current', 'status']),
             'owners' => User::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'email']),
             'kpis' => QualityKpi::where('is_active', true)->orderBy('code')->get(['id', 'code', 'name']),
             'surveys' => QualitySurvey::orderBy('code')->get(['id', 'code', 'title']),
@@ -100,7 +101,7 @@ class QualityImprovementController extends Controller
     public function storeKpi(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'code' => ['required', 'string', 'max:100', 'unique:quality_kpis,code'], 'name' => ['required', 'string', 'max:500'],
+            'code' => ['nullable', 'string', 'max:100', 'unique:quality_kpis,code'], 'name' => ['required', 'string', 'max:500'],
             'category' => ['nullable', 'string', 'max:255'], 'measurement_method' => ['nullable', 'string', 'max:3000'],
             'data_source' => ['nullable', 'string', 'max:255'], 'weight' => ['nullable', 'numeric', 'min:0'],
             'target_value' => ['nullable', 'string', 'max:255'], 'measurement_frequency' => ['nullable', 'string', 'max:100'],
@@ -110,6 +111,7 @@ class QualityImprovementController extends Controller
         ]);
         $data['value_type'] ??= 'percentage';
         $data['comparison_operator'] ??= 'gte';
+        $data['code'] = filled($data['code'] ?? null) ? $data['code'] : 'KPI-'.str_pad((string) ((QualityKpi::max('id') ?? 0) + 1), 4, '0', STR_PAD_LEFT);
         return ApiResponse::success(QualityKpi::create($data), 'تم إنشاء مؤشر الجودة.', [], 201);
     }
 
