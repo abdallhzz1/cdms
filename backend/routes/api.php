@@ -315,6 +315,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('quality-surveys/{qualitySurvey}', [QualitySurveyController::class, 'show'])->middleware('permission:quality.view');
         Route::get('quality-surveys/{qualitySurvey}/responses', [QualitySurveyController::class, 'responses'])->middleware('permission:quality.view');
         Route::post('quality-surveys/{qualitySurvey}/questions', [QualitySurveyController::class, 'storeQuestion'])->middleware('permission:quality.manage');
+        Route::put('quality-surveys/{qualitySurvey}/questions/{question}', [QualitySurveyController::class, 'updateQuestion'])->middleware('permission:quality.manage');
+        Route::delete('quality-surveys/{qualitySurvey}/questions/{question}', [QualitySurveyController::class, 'destroyQuestion'])->middleware('permission:quality.manage');
+        Route::get('quality-surveys/{qualitySurvey}/response-matrix', [QualitySurveyController::class, 'responseMatrix'])->middleware('permission:quality.view');
         Route::post('quality-surveys/{qualitySurvey}/responses', [QualitySurveyController::class, 'storeResponse'])->middleware('permission:quality.manage');
         Route::get('quality-improvement-plans', [QualityImprovementController::class, 'plans'])->middleware('permission:quality.view');
         Route::post('quality-improvement-plans', [QualityImprovementController::class, 'storePlan'])->middleware('permission:quality.manage');

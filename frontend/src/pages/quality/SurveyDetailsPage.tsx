@@ -1,146 +1,30 @@
 import { useState, type FormEvent } from 'react';
-import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiFetch } from '@/api/client';
-import { useI18n } from '@/i18n/I18nContext';
+import { Link, useParams } from 'react-router-dom';
+import { Copy, Eye, GripVertical, Lock, MessageSquarePlus, Pencil, Plus, Send, Settings2, Trash2 } from 'lucide-react';
+import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
-import { PageHeader } from '@/components/ui/PageHeader';
+import { useI18n } from '@/i18n/I18nContext';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
-import { ExternalLink, BarChart3, MessageSquare, TrendingUp, Copy, Send, Lock } from 'lucide-react';
-import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { QualitySectionGuide } from '@/components/quality/QualitySectionGuide';
 
-const inputClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
+type Question={id:number;question_number:number;question_text:string;question_type:string;options?:string|null;is_required:boolean;axis?:string|null};
+type Survey={id:number;public_id:string;code:string;title:string;target_group:string;purpose?:string;status:string;questions:Question[]};
+const blank={question_text:'',question_type:'rating',options:'',is_required:true,axis:''};
+const field='w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
+const types:Record<string,[string,string]>={rating:['مقياس خطي 1–5','Linear scale 1–5'],single_choice:['اختيار من متعدد','Multiple choice'],multiple_choice:['مربعات اختيار','Checkboxes'],short_text:['إجابة قصيرة','Short answer'],long_text:['فقرة','Paragraph'],number:['رقم','Number']};
 
-export function SurveyDetailsPage() {
-  const { id } = useParams<{ id: string }>();
-  const { locale } = useI18n();
-  const { can } = useAuth();
-  const client = useQueryClient();
-  const [adding, setAdding] = useState(false);
-  const [question, setQuestion] = useState({ version: '1', question_number: '', question_text: '', question_type: 'rating', options: '', is_required: true, weight: '', axis: '', active_from: '', active_until: '' });
-
-  const { data: survey, isLoading, isError } = useQuery({
-    queryKey: ['quality-survey', id],
-    queryFn: () => apiFetch<any>(`/quality-surveys/${id}`),
-  });
-
-  const { data: responses } = useQuery({
-    queryKey: ['quality-survey-responses', id],
-    queryFn: () => apiFetch<any>(`/quality-surveys/${id}/responses`),
-  });
-  const addQuestion = useMutation({ mutationFn: () => apiFetch(`/quality-surveys/${id}/questions`, { method: 'POST', body: { ...question, question_number: Number(question.question_number), weight: question.weight ? Number(question.weight) : null, options: question.options || null, axis: question.axis || null, active_from: question.active_from || null, active_until: question.active_until || null } }), onSuccess: async () => { await client.invalidateQueries({ queryKey: ['quality-survey', id] }); setAdding(false); setQuestion({ version: '1', question_number: '', question_text: '', question_type: 'rating', options: '', is_required: true, weight: '', axis: '', active_from: '', active_until: '' }); } });
-  const transition = useMutation({ mutationFn: (status:string) => apiFetch(`/quality-surveys/${id}/transition`, { method:'POST', body:{status} }), onSuccess:()=>client.invalidateQueries({queryKey:['quality-survey',id]}) });
-
-  if (isLoading) return <LoadingState />;
-  if (isError || !survey) return <ErrorState />;
-
-  const s = Array.isArray(survey) ? survey[0] : survey?.data ?? survey;
-  const questions: any[] = s?.questions ?? [];
-  const summary: any[] = responses?.summary ?? responses?.data?.summary ?? [];
-
-  return (
-    <div className="mx-auto max-w-[1100px] space-y-6 pb-12">
-      <PageHeader
-        title={s.title}
-        description={`${s.code} · ${s.target_group}${s.frequency ? ` · ${s.frequency}` : ''}`}
-      >
-        {s.status === 'open' && (
-          <a href={`/survey/${s.public_id}`} target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-bold rounded-xl hover:bg-teal-700 transition-colors">
-            <ExternalLink className="w-4 h-4" />
-            {locale === 'ar' ? 'فتح الرابط العام' : 'Open public form'}
-          </a>
-        )}
-        {s.status === 'open' && <Button variant="outline" onClick={()=>navigator.clipboard.writeText(`${window.location.origin}/survey/${s.public_id}`)}><Copy className="ml-1 h-4 w-4"/>{locale==='ar'?'نسخ الرابط':'Copy link'}</Button>}
-        {can('quality.manage') && s.status === 'draft' && <Button onClick={()=>transition.mutate('open')} isLoading={transition.isPending}><Send className="ml-1 h-4 w-4"/>{locale==='ar'?'نشر الاستبيان':'Publish'}</Button>}
-        {can('quality.manage') && s.status === 'open' && <Button variant="outline" onClick={()=>transition.mutate('closed')} isLoading={transition.isPending}><Lock className="ml-1 h-4 w-4"/>{locale==='ar'?'إغلاق الاستبيان':'Close'}</Button>}
-        {can('quality.manage') && <Button variant="outline" onClick={() => { setQuestion(current => ({ ...current, question_number: String(questions.length + 1) })); setAdding(true); }}><Plus className="ml-1 h-4 w-4" />{locale === 'ar' ? 'إضافة سؤال' : 'Add question'}</Button>}
-      </PageHeader>
-      <QualitySectionGuide titleAr="إعداد الاستبيان ومتابعته" titleEn="Prepare and monitor this survey" stepsAr={['أضف الأسئلة؛ يرتبها ويرقمها النظام تلقائيًا.','راجع نوع الإجابة والمحور وإلزامية كل سؤال قبل النشر.','افتح رابط الاستبيان خلال فترة الحملة وتابع عدد الإجابات.','بعد الإغلاق راجع المتوسطات وحوّل النتائج المهمة إلى خطة تحسين.']} stepsEn={['Add questions; ordering and numbering are automatic.','Review answer type, axis, and required fields.','Open the form during the campaign and monitor responses.','After closing, analyze results and create improvement actions.']}/>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-teal-50 rounded-3xl p-5 flex items-center gap-4">
-          <MessageSquare className="w-7 h-7 text-teal-600" />
-          <div>
-            <div className="text-2xl font-black text-teal-700">{questions.length}</div>
-            <div className="text-xs font-semibold text-teal-600">{locale === 'ar' ? 'الأسئلة' : 'Questions'}</div>
-          </div>
-        </div>
-        <div className="bg-teal-50 rounded-3xl p-5 flex items-center gap-4">
-          <BarChart3 className="w-7 h-7 text-teal-600" />
-          <div>
-            <div className="text-2xl font-black text-teal-700">{responses?.submission_count ?? responses?.data?.submission_count ?? 0}</div>
-            <div className="text-xs font-semibold text-teal-600">{locale === 'ar' ? 'استجابات مكتملة' : 'Completed responses'}</div>
-          </div>
-        </div>
-        <div className="bg-teal-50 rounded-3xl p-5 flex items-center gap-4">
-          <TrendingUp className="w-7 h-7 text-teal-600" />
-          <div>
-            <div className="text-2xl font-black text-teal-700">
-              {summary.filter((q: any) => q.numeric_average != null).length ? (summary.reduce((acc: number, q: any) => acc + Number(q.numeric_average ?? 0), 0) / summary.filter((q: any) => q.numeric_average != null).length).toFixed(1) : '—'}
-            </div>
-            <div className="text-xs font-semibold text-teal-600">{locale === 'ar' ? 'متوسط التقييم' : 'Average Rating'}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Questions List */}
-      {questions.length > 0 && (
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100">
-            <h2 className="font-bold text-slate-800">{locale === 'ar' ? 'أسئلة الاستبيان' : 'Survey Questions'}</h2>
-          </div>
-          <div className="divide-y divide-slate-100">
-            {questions.map((q: any, i: number) => {
-              const qSummary = summary.find((s: any) => s.question_id === q.id);
-              return (
-                <div key={q.id} className="px-6 py-4 flex items-start gap-4">
-                  <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 text-sm font-black flex items-center justify-center shrink-0">{i + 1}</div>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-slate-800">{q.question_text}</p>
-                    <div className="flex items-center gap-3 mt-1">
-                      <span className="text-xs text-slate-400">{q.question_type}</span>
-                      {q.is_required && <span className="text-xs text-red-500 font-semibold">{locale === 'ar' ? 'مطلوب' : 'Required'}</span>}
-                      {q.weight && <span className="text-xs text-slate-400">{locale === 'ar' ? 'الوزن' : 'Weight'}: {q.weight}</span>}
-                    </div>
-                  </div>
-                  {qSummary && (
-                    <div className="text-right shrink-0">
-                      <div className="text-sm font-black text-teal-700">{qSummary.response_count} {locale === 'ar' ? 'إجابة' : 'resp.'}</div>
-                      {qSummary.numeric_average != null && (
-                        <div className="text-xs text-slate-400">{locale === 'ar' ? 'معدل' : 'avg'}: {Number(qSummary.numeric_average).toFixed(1)}</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Purpose / Notes */}
-      {(s.purpose || s.notes) && (
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 space-y-4">
-          {s.purpose && (
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">{locale === 'ar' ? 'الغرض' : 'Purpose'}</h3>
-              <p className="text-sm text-slate-700">{s.purpose}</p>
-            </div>
-          )}
-          {s.notes && (
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">{locale === 'ar' ? 'ملاحظات' : 'Notes'}</h3>
-              <p className="text-sm text-slate-700">{s.notes}</p>
-            </div>
-          )}
-        </div>
-      )}
-      <Modal isOpen={adding} onClose={() => setAdding(false)} title={locale === 'ar' ? 'إضافة سؤال إلى بنك الاستبيان' : 'Add survey question'} maxWidth="2xl"><form onSubmit={(e:FormEvent) => { e.preventDefault(); addQuestion.mutate(); }} className="space-y-4"><div className="grid gap-3 sm:grid-cols-3"><label><span className="mb-1 block text-xs font-bold">{locale === 'ar' ? 'رقم السؤال' : 'Question number'}</span><input required type="number" min="1" value={question.question_number} onChange={e => setQuestion({...question, question_number:e.target.value})} className={inputClass} /></label><label><span className="mb-1 block text-xs font-bold">{locale === 'ar' ? 'الإصدار' : 'Version'}</span><input required value={question.version} onChange={e => setQuestion({...question, version:e.target.value})} className={inputClass} /></label><label><span className="mb-1 block text-xs font-bold">{locale === 'ar' ? 'نوع الإجابة' : 'Answer type'}</span><select value={question.question_type} onChange={e => setQuestion({...question, question_type:e.target.value})} className={inputClass}><option value="rating">{locale === 'ar' ? 'مقياس رقمي' : 'Rating'}</option><option value="single_choice">{locale === 'ar' ? 'اختيار واحد' : 'Single choice'}</option><option value="text">{locale === 'ar' ? 'إجابة نصية' : 'Text'}</option></select></label></div><label><span className="mb-1 block text-xs font-bold">{locale === 'ar' ? 'نص السؤال' : 'Question text'}</span><textarea required rows={3} value={question.question_text} onChange={e => setQuestion({...question, question_text:e.target.value})} className={inputClass} /></label><div className="grid gap-3 sm:grid-cols-2"><label><span className="mb-1 block text-xs font-bold">{locale === 'ar' ? 'المحور' : 'Axis'}</span><input value={question.axis} onChange={e => setQuestion({...question, axis:e.target.value})} className={inputClass} /></label><label><span className="mb-1 block text-xs font-bold">{locale === 'ar' ? 'الخيارات' : 'Options'}</span><input value={question.options} onChange={e => setQuestion({...question, options:e.target.value})} className={inputClass} placeholder={locale === 'ar' ? 'افصل الخيارات بفاصلة' : 'Comma-separated'} /></label></div><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={question.is_required} onChange={e => setQuestion({...question, is_required:e.target.checked})} />{locale === 'ar' ? 'السؤال إلزامي' : 'Required question'}</label>{addQuestion.isError && <p className="text-sm font-bold text-red-600">{locale === 'ar' ? 'تعذر إضافة السؤال. تحقق من عدم تكرار الرقم في الإصدار نفسه.' : 'Unable to add question. Check duplicate number/version.'}</p>}<div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={() => setAdding(false)}>{locale === 'ar' ? 'إلغاء' : 'Cancel'}</Button><Button type="submit" isLoading={addQuestion.isPending}>{locale === 'ar' ? 'حفظ السؤال' : 'Save question'}</Button></div></form></Modal>
-    </div>
-  );
+export function SurveyDetailsPage(){
+ const{id}=useParams();const{can}=useAuth();const{locale}=useI18n();const ar=locale==='ar';const client=useQueryClient();const[editing,setEditing]=useState<Question|null|undefined>(undefined);const[form,setForm]=useState(blank);const[copied,setCopied]=useState(false);
+ const query=useQuery({queryKey:['quality-survey',id],queryFn:()=>apiFetch<Survey>(`/quality-surveys/${id}`)});const refresh=()=>client.invalidateQueries({queryKey:['quality-survey',id]});
+ const save=useMutation({mutationFn:()=>editing?apiFetch(`/quality-surveys/${id}/questions/${editing.id}`,{method:'PUT',body:form}):apiFetch(`/quality-surveys/${id}/questions`,{method:'POST',body:form}),onSuccess:async()=>{await refresh();setEditing(undefined);setForm(blank)}});
+ const remove=useMutation({mutationFn:(questionId:number)=>apiFetch(`/quality-surveys/${id}/questions/${questionId}`,{method:'DELETE'}),onSuccess:refresh});
+ const transition=useMutation({mutationFn:(status:string)=>apiFetch(`/quality-surveys/${id}/transition`,{method:'POST',body:{status}}),onSuccess:refresh});
+ if(query.isLoading)return <LoadingState/>;if(query.isError||!query.data)return <ErrorState/>;const survey=query.data;const publicUrl=`${window.location.origin}/survey/${survey.public_id}`;
+ const openNew=()=>{setForm(blank);setEditing(null)};const openEdit=(q:Question)=>{setForm({question_text:q.question_text,question_type:q.question_type,options:q.options||'',is_required:q.is_required,axis:q.axis||''});setEditing(q)};
+ return <div className="mx-auto max-w-5xl space-y-5 pb-14"><header className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="h-2 bg-teal-600"/><div className="p-5 sm:p-7"><div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start"><div><Link to="/quality/surveys" className="text-xs font-bold text-teal-700">{ar?'← جميع الاستبيانات':'← All surveys'}</Link><h1 className="mt-3 text-2xl font-black">{survey.title}</h1><p className="mt-2 text-sm text-slate-500">{survey.purpose||survey.target_group}</p></div><div className="flex flex-wrap gap-2">{survey.status==='open'&&<><a href={`/survey/${survey.public_id}`} target="_blank"><Button variant="outline"><Eye className="ml-1 h-4 w-4"/>{ar?'معاينة':'Preview'}</Button></a><Button variant="outline" onClick={async()=>{await navigator.clipboard.writeText(publicUrl);setCopied(true);setTimeout(()=>setCopied(false),1800)}}><Copy className="ml-1 h-4 w-4"/>{copied?(ar?'تم النسخ':'Copied'):(ar?'نسخ الرابط':'Copy link')}</Button></>}{can('quality.manage')&&survey.status==='draft'&&<Button onClick={()=>transition.mutate('open')} isLoading={transition.isPending}><Send className="ml-1 h-4 w-4"/>{ar?'نشر':'Publish'}</Button>}{can('quality.manage')&&survey.status==='open'&&<Button variant="outline" onClick={()=>transition.mutate('closed')}><Lock className="ml-1 h-4 w-4"/>{ar?'إيقاف الردود':'Stop responses'}</Button>}</div></div></div><nav className="flex border-t border-slate-100 px-5"><span className="border-b-2 border-teal-600 px-5 py-3 text-sm font-black text-teal-700">{ar?'الأسئلة':'Questions'} ({survey.questions.length})</span><Link to={`/quality/surveys/${survey.id}/responses`} className="px-5 py-3 text-sm font-bold text-slate-500 hover:text-teal-700">{ar?'الردود':'Responses'}</Link><span className="px-5 py-3 text-sm font-bold text-slate-400"><Settings2 className="ml-1 inline h-4 w-4"/>{ar?'الإعدادات':'Settings'}</span></nav></header>
+ <section className="space-y-3">{!survey.questions.length&&<div className="rounded-3xl border-2 border-dashed border-slate-200 bg-white p-12 text-center"><MessageSquarePlus className="mx-auto h-10 w-10 text-teal-600"/><h2 className="mt-3 font-black">{ar?'ابدأ بإضافة أول سؤال':'Add your first question'}</h2><p className="mt-1 text-sm text-slate-500">{ar?'اختر نوع الإجابة وأدخل نص السؤال فقط.':'Choose an answer type and enter the question.'}</p></div>}{survey.questions.map((q,index)=><article key={q.id} className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex gap-3"><GripVertical className="mt-1 h-5 w-5 shrink-0 text-slate-300"/><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><h2 className="text-sm font-black"><span className="ml-2 text-teal-700">{index+1}.</span>{q.question_text}{q.is_required&&<span className="mr-1 text-red-500">*</span>}</h2><span className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">{types[q.question_type]?.[ar?0:1]||q.question_type}</span></div>{q.axis&&<p className="mt-2 text-xs text-slate-400">{ar?'المحور:':'Section:'} {q.axis}</p>}{q.options&&<div className="mt-3 flex flex-wrap gap-2">{q.options.split(/[,\n]/).filter(Boolean).map(x=><span key={x} className="rounded-lg border border-slate-200 px-2 py-1 text-xs">{x.trim()}</span>)}</div>}</div>{can('quality.manage')&&<div className="flex shrink-0"><button onClick={()=>openEdit(q)} className="rounded-lg p-2 text-slate-400 hover:bg-teal-50 hover:text-teal-700"><Pencil className="h-4 w-4"/></button><button onClick={()=>confirm(ar?'حذف السؤال؟':'Delete question?')&&remove.mutate(q.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4"/></button></div>}</div></article>)}{can('quality.manage')&&<button onClick={openNew} className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-teal-200 bg-teal-50/40 p-4 text-sm font-black text-teal-700 hover:bg-teal-50"><Plus className="h-5 w-5"/>{ar?'إضافة سؤال':'Add question'}</button>}</section>
+ <Modal isOpen={editing!==undefined} onClose={()=>setEditing(undefined)} title={editing?(ar?'تعديل السؤال':'Edit question'):(ar?'إضافة سؤال':'Add question')} maxWidth="2xl"><form onSubmit={(e:FormEvent)=>{e.preventDefault();save.mutate()}} className="space-y-4"><div className="grid gap-3 sm:grid-cols-[1fr_15rem]"><input autoFocus required value={form.question_text} onChange={e=>setForm({...form,question_text:e.target.value})} className={field} placeholder={ar?'اكتب السؤال':'Question'}/><select value={form.question_type} onChange={e=>setForm({...form,question_type:e.target.value})} className={field}>{Object.entries(types).map(([key,label])=><option key={key} value={key}>{label[ar?0:1]}</option>)}</select></div>{['single_choice','multiple_choice'].includes(form.question_type)&&<label><span className="mb-1 block text-xs font-bold">{ar?'الخيارات، كل خيار في سطر':'Options, one per line'}</span><textarea required rows={5} value={form.options} onChange={e=>setForm({...form,options:e.target.value})} className={field} placeholder={'ممتاز\nجيد جدًا\nجيد\nضعيف'}/></label>}<label><span className="mb-1 block text-xs font-bold">{ar?'القسم أو المحور (اختياري)':'Section (optional)'}</span><input value={form.axis} onChange={e=>setForm({...form,axis:e.target.value})} className={field} placeholder={ar?'مثل: جودة الإشراف':'e.g. Supervision quality'}/></label><label className="flex items-center justify-between rounded-xl border border-slate-200 p-3 text-sm font-bold"><span>{ar?'مطلوب':'Required'}</span><input type="checkbox" checked={form.is_required} onChange={e=>setForm({...form,is_required:e.target.checked})}/></label>{save.isError&&<p className="rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">{(save.error as ApiError)?.message||'تعذر الحفظ'}</p>}<div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={()=>setEditing(undefined)}>{ar?'إلغاء':'Cancel'}</Button><Button type="submit" isLoading={save.isPending}>{ar?'حفظ السؤال':'Save question'}</Button></div></form></Modal></div>;
 }

@@ -40,6 +40,7 @@ import { TasksPage } from '@/pages/TasksPage';
 import { QualityDashboardPage } from '@/pages/quality/QualityDashboardPage';
 import { SurveysPage } from '@/pages/quality/SurveysPage';
 import { SurveyDetailsPage } from '@/pages/quality/SurveyDetailsPage';
+import { SurveyResponsesPage } from '@/pages/quality/SurveyResponsesPage';
 import { ImprovementPlansPage } from '@/pages/quality/ImprovementPlansPage';
 import { KpiPage } from '@/pages/quality/KpiPage';
 import { QualityOperationsPage } from '@/pages/quality/QualityOperationsPage';
@@ -190,6 +191,7 @@ export function App() {
                 <Route path="/quality" element={<QualityDashboardPage />} />
                 <Route path="/quality/surveys" element={<SurveysPage />} />
                 <Route path="/quality/surveys/:id" element={<SurveyDetailsPage />} />
+                <Route path="/quality/surveys/:id/responses" element={<SurveyResponsesPage />} />
                 <Route path="/quality/improvement" element={<ImprovementPlansPage />} />
                 <Route path="/quality/kpis" element={<KpiPage />} />
                 <Route path="/quality/operations" element={<QualityOperationsPage />} />

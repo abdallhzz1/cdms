@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useState, type FormEvent, type ReactNode } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
+import { CalendarDays, ClipboardList, ExternalLink, MessageSquare, Plus, Users } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
@@ -9,141 +10,22 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { QualitySectionGuide } from '@/components/quality/QualitySectionGuide';
-import { Plus, ExternalLink, MessageSquare, Users, CalendarDays } from 'lucide-react';
 
-const emptyForm={title:'',target_group:'',academic_year:'',purpose:'',frequency:'',opens_at:'',closes_at:'',expected_responses:'',responsible:'',is_mandatory:false,is_anonymous:true,form_url:'',status:'draft'};
+type Year={id:number;code:string;is_current:boolean};
+const blank={title:'',target_group:'الطلبة',academic_year:'',purpose:'',is_anonymous:true};
+const field='w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
 
-export function SurveysPage() {
-  const { can } = useAuth();
-  const { locale } = useI18n();
-  const queryClient = useQueryClient();
-
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [form, setForm] = useState(emptyForm);
-
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['quality-surveys'],
-    queryFn: () => apiFetch<any>('/quality-surveys?per_page=50'),
-  });
-  const options = useQuery({ queryKey:['quality-options'], queryFn:()=>apiFetch<{academic_years:Array<{id:number;code:string;is_current:boolean}>}>('/quality-options') });
-
-  const createMutation = useMutation({
-    mutationFn: (payload: any) => apiFetch('/quality-surveys', { method: 'POST', body: payload }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['quality-surveys'] }); setIsModalOpen(false); setForm(emptyForm); },
-  });
-
-  if (!can('quality.view')) return <ErrorState title="Access Denied" />;
-  if (isLoading) return <LoadingState />;
-  if (isError) return <ErrorState onRetry={refetch} />;
-
-  const items = Array.isArray(data) ? data : data?.items || [];
-
-  const handleSubmit = (e: FormEvent) => { e.preventDefault(); createMutation.mutate(form); };
-
-  return (
-    <div className="mx-auto max-w-[1200px] space-y-6 pb-12">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <PageHeader
-          title={locale === 'ar' ? 'الاستبيانات' : 'Quality Surveys'}
-          description={locale === 'ar' ? 'إدارة الاستبيانات الخاصة بتقييم جودة التدريب والتعليم' : 'Manage surveys for evaluating training and educational quality'}
-        />
-        {can('quality.manage') && (
-          <Button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 shrink-0">
-            <Plus className="w-4 h-4" />
-            {locale === 'ar' ? 'استبيان جديد' : 'New Survey'}
-          </Button>
-        )}
-      </div>
-
-      <QualitySectionGuide titleAr="دورة حياة الاستبيان" titleEn="Survey lifecycle" stepsAr={['أنشئ حملة وحدد الفئة والعام؛ يولد النظام الرمز تلقائيًا.','أضف الأسئلة من صفحة التفاصيل، ويرقمها النظام بالترتيب.','راجع الحملة ثم افتحها لجمع الإجابات خلال المدة المحددة.','راقب نسبة الاستجابة، أغلق الحملة، وحوّل النتائج إلى مؤشر أو خطة تحسين.']} stepsEn={['Create a campaign; its code is generated automatically.','Add questions; numbering is automatic.','Review then open it for responses.','Monitor response rate, close it, and turn results into improvement actions.']}/>
-
-      {!items.length ? (
-        <EmptyState message={locale === 'ar' ? 'لا توجد استبيانات بعد' : 'No surveys yet'} />
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {items.map((s: any) => (
-            <div key={s.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all overflow-hidden flex flex-col">
-              <div className="p-6 flex-1">
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <span className="text-xs font-black text-teal-700 bg-teal-50 px-2 py-1 rounded-lg">{s.code}</span>
-                  <div className="flex items-center gap-1">
-                    <span className={`text-xs px-2 py-1 font-bold rounded-lg ${s.status==='open'?'bg-emerald-100 text-emerald-700':s.status==='closed'?'bg-slate-100 text-slate-600':'bg-amber-100 text-amber-700'}`}>{s.status==='open'?(locale==='ar'?'منشور':'Open'):s.status==='closed'?(locale==='ar'?'مغلق':'Closed'):(locale==='ar'?'مسودة':'Draft')}</span>
-                    {s.is_mandatory && <span className="text-xs px-2 py-1 bg-red-100 text-red-700 font-bold rounded-lg">{locale === 'ar' ? 'إلزامي' : 'Mandatory'}</span>}
-                  </div>
-                </div>
-                <h3 className="font-bold text-slate-900 leading-snug mb-2">{s.title}</h3>
-                <p className="text-xs text-slate-500 mb-4">{s.target_group}</p>
-                <div className="flex items-center gap-3 pt-4 border-t border-slate-100">
-                  <div className="flex items-center gap-1.5 text-sm text-slate-500">
-                    <MessageSquare className="w-4 h-4" />
-                    <span>{s.questions_count ?? 0} {locale === 'ar' ? 'سؤال' : 'questions'}</span>
-                  </div>
-                  {s.frequency && <span className="text-xs text-slate-400">{s.frequency}</span>}
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]"><span className="flex items-center gap-1 rounded-lg bg-slate-50 p-2 text-slate-600"><Users className="h-3.5 w-3.5"/>{s.responses_count||0}/{s.expected_responses||'—'} {locale==='ar'?'استجابة':'responses'}</span><span className="flex items-center gap-1 rounded-lg bg-slate-50 p-2 text-slate-600"><CalendarDays className="h-3.5 w-3.5"/>{s.academic_year||'—'}</span></div>
-              </div>
-              <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between gap-2">
-                  <Link to={`/quality/surveys/${s.id}`} className="text-sm font-bold text-teal-700 hover:underline">
-                  {locale === 'ar' ? 'عرض التفاصيل' : 'View Details'}
-                </Link>
-                {s.status === 'open' && s.public_id && (
-                  <a href={`/survey/${s.public_id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 flex items-center gap-1 hover:text-teal-700">
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    {locale === 'ar' ? 'الرابط العام' : 'Public form'}
-                  </a>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 border-b border-slate-100 shrink-0">
-              <h3 className="font-bold text-lg text-slate-800">{locale === 'ar' ? 'إضافة استبيان جديد' : 'New Survey'}</h3>
-            </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
-              <div className="rounded-xl bg-teal-50 p-3 text-xs font-bold text-teal-800">{locale==='ar'?'سيُنشئ النظام رمز الاستبيان تلقائيًا بعد الحفظ.':'The survey code will be generated automatically.'}</div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الفئة المستهدفة' : 'Target Group'}</label>
-                  <input required value={form.target_group} onChange={e => setForm({ ...form, target_group: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" placeholder={locale === 'ar' ? 'الطلاب' : 'Students'} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-semibold text-slate-600 mb-1">{locale==='ar'?'العام الأكاديمي':'Academic year'}</label><select required value={form.academic_year} onChange={e=>setForm({...form,academic_year:e.target.value})} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"><option value="">{locale==='ar'?'اختر العام':'Select year'}</option>{options.data?.academic_years.map(y=><option key={y.id} value={y.code}>{y.code}{y.is_current?(locale==='ar'?' — الحالي':' — Current'):''}</option>)}</select></div><div><label className="block text-xs font-semibold text-slate-600 mb-1">{locale==='ar'?'العدد المتوقع':'Expected responses'}</label><input required type="number" min="1" value={form.expected_responses} onChange={e=>setForm({...form,expected_responses:e.target.value})} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"/></div></div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'عنوان الاستبيان' : 'Survey Title'}</label>
-                <input required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'الغرض' : 'Purpose'}</label>
-                <textarea rows={2} value={form.purpose} onChange={e => setForm({ ...form, purpose: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'التكرار' : 'Frequency'}</label>
-                  <input value={form.frequency} onChange={e => setForm({ ...form, frequency: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" placeholder={locale === 'ar' ? 'فصلي' : 'Semester'} />
-                </div>
-                <div className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">{locale==='ar'?'بعد إضافة الأسئلة ونشر الاستبيان، يولد النظام رابطًا عامًا تلقائيًا.':'A public link is generated automatically after questions are added and the survey is published.'}</div>
-              </div>
-              <div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-semibold text-slate-600 mb-1">{locale==='ar'?'تاريخ الفتح':'Opens'}</label><input type="date" value={form.opens_at} onChange={e=>setForm({...form,opens_at:e.target.value})} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"/></div><div><label className="block text-xs font-semibold text-slate-600 mb-1">{locale==='ar'?'تاريخ الإغلاق':'Closes'}</label><input type="date" value={form.closes_at} onChange={e=>setForm({...form,closes_at:e.target.value})} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"/></div></div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={form.is_mandatory} onChange={e => setForm({ ...form, is_mandatory: e.target.checked })} className="rounded" />
-                <span className="text-sm font-semibold text-slate-700">{locale === 'ar' ? 'استبيان إلزامي' : 'Mandatory Survey'}</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.is_anonymous} onChange={e=>setForm({...form,is_anonymous:e.target.checked})} className="rounded"/><span className="text-sm font-semibold text-slate-700">{locale==='ar'?'إجابات مجهولة الهوية':'Anonymous responses'}</span></label>
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>{locale === 'ar' ? 'إلغاء' : 'Cancel'}</Button>
-                <Button type="submit" isLoading={createMutation.isPending}>{locale === 'ar' ? 'حفظ' : 'Save'}</Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+export function SurveysPage(){
+ const{can}=useAuth();const{locale}=useI18n();const ar=locale==='ar';const client=useQueryClient();const navigate=useNavigate();const[open,setOpen]=useState(false);const[form,setForm]=useState(blank);
+ const query=useQuery({queryKey:['quality-surveys'],queryFn:()=>apiFetch<any[]>('/quality-surveys?per_page=100')});
+ const options=useQuery({queryKey:['quality-options'],queryFn:()=>apiFetch<{academic_years:Year[]}>('/quality-options')});
+ const create=useMutation({mutationFn:()=>apiFetch<any>('/quality-surveys',{method:'POST',body:form}),onSuccess:async survey=>{await client.invalidateQueries({queryKey:['quality-surveys']});setOpen(false);setForm(blank);navigate(`/quality/surveys/${survey.id}`);}});
+ if(!can('quality.view'))return <ErrorState title={ar?'غير مصرح':'Access denied'}/>;if(query.isLoading)return <LoadingState/>;if(query.isError)return <ErrorState onRetry={()=>query.refetch()}/>;
+ const items=query.data||[];return <div className="mx-auto max-w-7xl space-y-5 pb-14"><PageHeader title={ar?'الاستبيانات':'Surveys'} description={ar?'أنشئ الاستبيان، صمم أسئلته، انشره وتابع الردود من مكان واحد.':'Create, design, publish, and analyze surveys in one place.'}>{can('quality.manage')&&<Button onClick={()=>{const current=options.data?.academic_years.find(y=>y.is_current)?.code||'';setForm({...blank,academic_year:current});setOpen(true)}}><Plus className="ml-1 h-4 w-4"/>{ar?'استبيان جديد':'New survey'}</Button>}</PageHeader>
+ <QualitySectionGuide titleAr="سير العمل المختصر" titleEn="Simple workflow" stepsAr={['أنشئ الاستبيان بعنوان وفئة وعام فقط.','صمم الأسئلة داخل المحرر مثل نماذج Google.','راجع المعاينة ثم انشر وانسخ الرابط العام.','راجع الردود في شاشة مستقلة وصدّرها إلى Excel.']} stepsEn={['Create with a title, audience, and year.','Build questions in the form editor.','Preview, publish, and share the public link.','Review responses separately and export to Excel.']}/>
+ {!items.length?<EmptyState message={ar?'لا توجد استبيانات بعد. ابدأ بإنشاء أول نموذج.':'No surveys yet.'}/>:<section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{items.map(s=><article key={s.id} className="group overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><div className="h-1.5 bg-teal-600"/><div className="p-5"><div className="flex items-start justify-between gap-3"><span className={`rounded-lg px-2 py-1 text-[10px] font-black ${s.status==='open'?'bg-emerald-50 text-emerald-700':s.status==='closed'?'bg-slate-100 text-slate-600':'bg-amber-50 text-amber-700'}`}>{s.status==='open'?(ar?'يستقبل ردودًا':'Accepting responses'):s.status==='closed'?(ar?'مغلق':'Closed'):(ar?'مسودة':'Draft')}</span><span className="text-[10px] font-bold text-slate-400">{s.code}</span></div><h2 className="mt-4 min-h-12 text-base font-black leading-6">{s.title}</h2>{s.purpose&&<p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{s.purpose}</p>}<div className="mt-4 grid grid-cols-3 gap-2 text-center"><Mini icon={<MessageSquare/>} value={s.questions_count||0} label={ar?'سؤال':'Questions'}/><Mini icon={<Users/>} value={s.responses_count||0} label={ar?'إجابة':'Answers'}/><Mini icon={<CalendarDays/>} value={s.academic_year||'—'} label={ar?'العام':'Year'}/></div></div><div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-5 py-3"><Link to={`/quality/surveys/${s.id}`} className="inline-flex items-center gap-1 text-xs font-black text-teal-700"><ClipboardList className="h-4 w-4"/>{ar?'فتح المحرر':'Open editor'}</Link>{s.status==='open'&&<a href={`/survey/${s.public_id}`} target="_blank" className="inline-flex items-center gap-1 text-xs font-bold text-slate-500"><ExternalLink className="h-3.5 w-3.5"/>{ar?'النموذج':'Form'}</a>}</div></article>)}</section>}
+ <Modal isOpen={open} onClose={()=>setOpen(false)} title={ar?'إنشاء استبيان':'Create survey'}><form onSubmit={(e:FormEvent)=>{e.preventDefault();create.mutate()}} className="space-y-4"><p className="rounded-xl bg-teal-50 p-3 text-xs leading-5 text-teal-800">{ar?'ابدأ بالمعلومات الأساسية فقط. ستضيف الأسئلة والإعدادات من المحرر بعد الإنشاء.':'Start with the basics; questions and settings come next.'}</p><label><span className="mb-1 block text-xs font-bold">{ar?'عنوان الاستبيان':'Survey title'}</span><input autoFocus required value={form.title} onChange={e=>setForm({...form,title:e.target.value})} className={field}/></label><div className="grid gap-3 sm:grid-cols-2"><label><span className="mb-1 block text-xs font-bold">{ar?'الفئة المستهدفة':'Audience'}</span><select value={form.target_group} onChange={e=>setForm({...form,target_group:e.target.value})} className={field}><option>{ar?'الطلبة':'Students'}</option><option>{ar?'المشرفون السريريون':'Clinical supervisors'}</option><option>{ar?'أعضاء الهيئة التدريسية':'Faculty'}</option><option>{ar?'الخريجون':'Graduates'}</option><option>{ar?'جهات التدريب':'Training partners'}</option></select></label><label><span className="mb-1 block text-xs font-bold">{ar?'العام الأكاديمي':'Academic year'}</span><select required value={form.academic_year} onChange={e=>setForm({...form,academic_year:e.target.value})} className={field}><option value="">{ar?'اختر العام':'Select year'}</option>{options.data?.academic_years.map(y=><option key={y.id} value={y.code}>{y.code}{y.is_current?(ar?' — الحالي':' — Current'):''}</option>)}</select></label></div><label><span className="mb-1 block text-xs font-bold">{ar?'وصف مختصر يظهر للمجيب (اختياري)':'Description shown to respondents (optional)'}</span><textarea rows={3} value={form.purpose} onChange={e=>setForm({...form,purpose:e.target.value})} className={field}/></label><label className="flex items-center justify-between rounded-xl border border-slate-200 p-3 text-sm font-bold"><span>{ar?'إجابات مجهولة الهوية':'Anonymous responses'}</span><input type="checkbox" checked={form.is_anonymous} onChange={e=>setForm({...form,is_anonymous:e.target.checked})}/></label><div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={()=>setOpen(false)}>{ar?'إلغاء':'Cancel'}</Button><Button type="submit" isLoading={create.isPending}>{ar?'إنشاء وفتح المحرر':'Create and edit'}</Button></div></form></Modal></div>;
 }
+function Mini({icon,value,label}:{icon:ReactNode;value:string|number;label:string}){return <div className="rounded-xl bg-slate-50 p-2"><span className="mx-auto block h-4 w-4 text-teal-600 [&>svg]:h-4 [&>svg]:w-4">{icon}</span><p className="mt-1 truncate text-xs font-black">{value}</p><p className="text-[9px] text-slate-400">{label}</p></div>}
