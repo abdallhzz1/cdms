@@ -54,6 +54,7 @@ class PermissionSeeder extends Seeder
             ['code' => 'assessment.create', 'module' => 'Assessment', 'action' => 'CREATE', 'description_key' => 'permissions.assessment_create.description'],
             ['code' => 'assessment.submit', 'module' => 'Assessment', 'action' => 'SUBMIT', 'description_key' => 'permissions.assessment_submit.description'],
             ['code' => 'assessment.approve', 'module' => 'Assessment', 'action' => 'APPROVE', 'description_key' => 'permissions.assessment_approve.description'],
+            ['code' => 'assessment.criteria.manage', 'module' => 'Assessment', 'action' => 'MANAGE_CRITERIA', 'description_key' => 'permissions.assessment_criteria_manage.description'],
             ['code' => 'supervisor.workspace.view', 'module' => 'Assessment', 'action' => 'VIEW_OWN_WORKSPACE', 'description_key' => 'permissions.supervisor_workspace_view.description'],
             ['code' => 'courses.view', 'module' => 'Courses', 'action' => 'VIEW', 'description_key' => 'permissions.courses_view.description'],
             ['code' => 'courses.manage', 'module' => 'Courses', 'action' => 'MANAGE', 'description_key' => 'permissions.courses_manage.description'],

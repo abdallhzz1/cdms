@@ -25,6 +25,8 @@ import { AssessmentsMasterPage } from '@/pages/clinical/AssessmentsMasterPage';
 import { SupervisorPortalPage } from '@/pages/clinical/SupervisorPortalPage';
 import { SupervisorAttendancePage } from '@/pages/clinical/SupervisorAttendancePage';
 import { SupervisorAssessmentsPage } from '@/pages/clinical/SupervisorAssessmentsPage';
+import { SupervisorSchedulePage } from '@/pages/clinical/SupervisorSchedulePage';
+import { AssessmentCriteriaPage } from '@/pages/clinical/AssessmentCriteriaPage';
 import { DeptHeadProfilePage } from '@/pages/department/DeptHeadProfilePage';
 import { ClinicalSupervisorsDirectoryPage } from '@/pages/clinical/ClinicalSupervisorsDirectoryPage';
 import { ClinicalSupervisorProfilePage } from '@/pages/clinical/ClinicalSupervisorProfilePage';
@@ -172,8 +174,10 @@ export function App() {
                 <Route path="/distribution/:siteId" element={<Navigate to="/clinical/schedule" replace />} />
                 <Route path="/clinical/schedule" element={<ProtectedRoute requiredPermission="clinical_schedule.view"><ClinicalSchedulePage /></ProtectedRoute>} />
                 <Route path="/supervisor/portal" element={<SupervisorPortalPage />} />
+                <Route path="/supervisor/schedule" element={<SupervisorSchedulePage />} />
                 <Route path="/supervisor/attendance" element={<SupervisorAttendancePage />} />
                 <Route path="/supervisor/assessments" element={<SupervisorAssessmentsPage />} />
+                <Route path="/assessments/criteria" element={<ProtectedRoute requiredPermission="assessment.criteria.manage"><AssessmentCriteriaPage /></ProtectedRoute>} />
                 {/* Legacy roster routes -> redirect to clinical schedule */}
                 <Route path="/departments/:id/roster" element={<Navigate to="/clinical/schedule" replace />} />
                 <Route path="/training-sites/:id/roster" element={<Navigate to="/clinical/schedule" replace />} />

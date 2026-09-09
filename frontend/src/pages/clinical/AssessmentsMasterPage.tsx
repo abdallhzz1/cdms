@@ -1,4 +1,5 @@
 import { useDeferredValue, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -8,7 +9,7 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
-import { CheckCircle2, Clock3, RotateCcw, Search, Users, X } from 'lucide-react';
+import { CheckCircle2, Clock3, RotateCcw, Search, Settings2, Users, X } from 'lucide-react';
 
 type Assessment = any;
 type Payload = { items: Assessment[]; pagination: { current_page: number; last_page: number; total: number } };
@@ -47,13 +48,18 @@ export function AssessmentsMasterPage() {
   if (!can('assessment.view')) return <ErrorState title={tr('لا تملك صلاحية مشاهدة التقييمات', 'You do not have permission to view assessments')} />;
   if (list.isLoading || summary.isLoading) return <LoadingState />;
   if (list.isError || summary.isError) return <ErrorState onRetry={() => { list.refetch(); summary.refetch(); }} />;
-  const data = list.data ?? { items: [], pagination: { current_page: 1, last_page: 1, total: 0 } };
+  const rawData = list.data as Payload | Assessment[] | undefined;
+  const data = Array.isArray(rawData)
+    ? { items: rawData, pagination: { current_page: 1, last_page: 1, total: rawData.length } }
+    : rawData ?? { items: [], pagination: { current_page: 1, last_page: 1, total: 0 } };
   const stats = summary.data ?? { total: 0, submitted: 0, returned: 0, approved: 0, draft: 0, batches: 0, approved_average_percentage: null,clinical_periods:[] };
   const grouped = groupItems(data.items);
   const busy = approve.isPending || returnItem.isPending;
 
   return <div className="mx-auto max-w-[1280px] space-y-5 pb-12">
-    <PageHeader title={tr('مراجعة التقييمات السريرية', 'Clinical Assessment Review')} description={tr('اعتماد تقييمات المشرفين وإرجاعها للتعديل؛ العلامة المعتمدة فقط تدخل كشف العلامات.', 'Review supervisor assessments. Only approved results enter the official grade sheet.')} />
+    <PageHeader title={tr('مراجعة التقييمات السريرية', 'Clinical Assessment Review')} description={tr('اعتماد تقييمات المشرفين وإرجاعها للتعديل؛ العلامة المعتمدة فقط تدخل كشف العلامات.', 'Review supervisor assessments. Only approved results enter the official grade sheet.')}>
+      {can('assessment.criteria.manage') && <Link to="/assessments/criteria" className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-teal-800"><Settings2 className="h-4 w-4" />{tr('إعداد نموذج التقييم', 'Assessment template')}</Link>}
+    </PageHeader>
     <section className="rounded-2xl border border-slate-200 bg-white p-3"><select className={input} value={periodId} onChange={event=>{setPeriodId(event.target.value);setPage(1)}}><option value="">{tr('جميع الفترات السريرية','All clinical periods')}</option>{(stats.clinical_periods??[]).map(period=><option key={period.id} value={period.id}>{period.code} — {ar?period.name_ar:period.name_en||period.name_ar}</option>)}</select></section>
     <section className="grid grid-cols-2 gap-3 lg:grid-cols-4"><Metric icon={Clock3} label={tr('بانتظار الاعتماد', 'Awaiting review')} value={stats.submitted} hint={tr('تحتاج إجراء', 'Action required')} /><Metric icon={CheckCircle2} label={tr('معتمدة', 'Approved')} value={stats.approved} hint={stats.approved_average_percentage === null ? '—' : `${stats.approved_average_percentage}% ${tr('متوسط', 'average')}`} /><Metric icon={RotateCcw} label={tr('معادة', 'Returned')} value={stats.returned} hint={tr('عند المشرف', 'With supervisor')} /><Metric icon={Users} label={tr('حزم مجموعات', 'Group batches')} value={stats.batches} hint={`${stats.total} ${tr('تقييم', 'assessments')}`} /></section>
     <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 lg:grid-cols-[1fr_13rem_13rem_auto]"><label className="relative"><Search className={`absolute top-3.5 h-4 w-4 text-slate-400 ${ar ? 'right-3' : 'left-3'}`} /><input className={`${input} ${ar ? 'pr-10' : 'pl-10'}`} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder={tr('بحث بالطالب أو الرقم أو الطبيب أو المساق…', 'Search student, ID, evaluator, or course…')} /></label><select className={input} value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option value="">{tr('كل الحالات', 'All statuses')}</option><option value="submitted">{tr('بانتظار المراجعة', 'Awaiting review')}</option><option value="returned">{tr('معاد', 'Returned')}</option><option value="approved">{tr('معتمد', 'Approved')}</option><option value="draft">{tr('مسودة', 'Draft')}</option></select><select className={input} value={level} onChange={e => { setLevel(e.target.value); setPage(1); }}><option value="">{tr('كل الدفعات المخولة', 'All authorized cohorts')}</option><option value="fourth">{tr('السنة الرابعة', 'Fourth year')}</option><option value="fifth">{tr('السنة الخامسة', 'Fifth year')}</option><option value="sixth">{tr('السنة السادسة', 'Sixth year')}</option></select><button className="h-11 rounded-xl border border-slate-200 px-4 text-xs font-bold text-slate-600" onClick={() => { setSearch(''); setStatus('submitted'); setLevel(''); setPage(1); }}>{tr('مسح', 'Clear')}</button></div><p className="mt-3 border-t border-slate-100 pt-3 text-[11px] text-slate-500">{tr(`النتائج: ${data.pagination.total}`, `${data.pagination.total} results`)}</p></section>

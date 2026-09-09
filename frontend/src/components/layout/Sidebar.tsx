@@ -43,6 +43,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           title: locale === 'ar' ? 'التدريب السريري والتقييم' : 'Clinical Training & Grading',
           items: [
             { path: '/supervisor/portal', label: locale === 'ar' ? 'لوحة المشرف' : 'Supervisor Dashboard', icon: LayoutDashboard, permission: 'supervisor.workspace.view' },
+            { path: '/supervisor/schedule', label: locale === 'ar' ? 'جدولي السريري' : 'My Clinical Schedule', icon: Calendar, permission: 'supervisor.workspace.view' },
             { path: '/supervisor/attendance', label: locale === 'ar' ? 'الحضور والغياب' : 'Attendance', icon: Clock, customCheck: () => can('supervisor.workspace.view') && can('attendance.record') },
             { path: '/supervisor/assessments', label: locale === 'ar' ? 'تقييمات الطلبة' : 'Student Assessments', icon: ClipboardCheck, customCheck: () => can('supervisor.workspace.view') && can('assessment.create') },
             { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: GraduationCap, permission: 'advising.view' },
@@ -73,6 +74,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           { path: '/supervisor/portal', label: locale === 'ar' ? 'لوحة المشرف السريري' : 'Clinical Supervisor Workspace', icon: LayoutDashboard, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') },
           { path: '/attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance Log', icon: Clock, permission: 'attendance.view' },
           { path: '/assessments', label: locale === 'ar' ? 'مراجعة التقييمات السريرية' : 'Clinical Assessment Review', icon: ClipboardCheck, permission: 'assessment.view' },
+          { path: '/assessments/criteria', label: locale === 'ar' ? 'إعداد نموذج التقييم' : 'Assessment Template', icon: Settings, permission: 'assessment.criteria.manage' },
         ]
       },
       {

@@ -28,6 +28,7 @@ class ClinicalAssessmentController extends Controller
                 'session.rotationBlock.rotation.course:id,code,name_ar,name_en',
                 'session.rotationBlock.rotation.clinicalPeriod:id,academic_year_id,code,name_ar,name_en,sequence',
                 'evaluator:id,user_id,full_name_ar,full_name_en,email',
+                'template.criteria',
                 'workflowTransitions.user:id,name',
             ])
             ->orderByRaw("CASE status WHEN 'submitted' THEN 0 WHEN 'returned' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END")

@@ -30,8 +30,10 @@ export function SupervisorPortalPage() {
   const students = new Set(query.data.assignments.map(item => item.student.id)).size;
   const currentDate = today();
   const attendanceToday = new Set(query.data.attendance_records.filter(item => String(item.session?.session_date).slice(0, 10) === currentDate).map(item => item.student_id)).size;
-  const assessedStudents = new Set(query.data.assessments.filter(item => ['submitted', 'approved'].includes(item.status)).map(item => item.student_id)).size;
-  const pendingStudents = Math.max(0, students - assessedStudents);
+  const activeWeek = groups.flatMap(group => group.evaluationWeeks).find(item => currentDate >= item.start_date && currentDate <= item.end_date)?.number;
+  const weeklyStudents = new Set(groups.filter(group => group.evaluationWeeks.some(item => item.number === activeWeek)).flatMap(group => group.students.map(student => student.id)));
+  const assessedStudents = new Set(query.data.assessments.filter(item => item.evaluation_week === activeWeek && ['submitted', 'approved'].includes(item.status)).map(item => item.student_id)).size;
+  const pendingStudents = activeWeek ? Math.max(0, weeklyStudents.size - assessedStudents) : 0;
   const supervisorName = ar ? query.data.supervisor.full_name_ar : query.data.supervisor.full_name_en || query.data.supervisor.full_name_ar;
 
   return <div className="mx-auto max-w-6xl space-y-6 pb-16">
@@ -49,10 +51,21 @@ export function SupervisorPortalPage() {
       <StatCard icon={Users} label={tr('المجموعات الحالية', 'Current groups')} value={groups.length} />
       <StatCard icon={Users} label={tr('الطلبة المكلف بهم', 'Assigned students')} value={students} />
       <StatCard icon={CalendarCheck2} label={tr('حضور مسجل اليوم', 'Attendance today')} value={attendanceToday} />
-      <StatCard icon={Award} label={tr('بانتظار التقييم', 'Pending assessment')} value={pendingStudents} highlight={pendingStudents > 0} />
+      <StatCard icon={Award} label={activeWeek ? tr(`بانتظار تقييم الأسبوع ${activeWeek}`, `Pending week ${activeWeek}`) : tr('لا يوجد أسبوع فعّال', 'No active week')} value={pendingStudents} highlight={pendingStudents > 0} />
     </section>
 
-    <section className="grid gap-4 md:grid-cols-2">
+    <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex items-center justify-between gap-3"><div><h2 className="font-black text-slate-900">{tr('ملخص مجموعاتي', 'My group summary')}</h2><p className="mt-1 text-[11px] text-slate-500">{tr('التكليفات المنشورة الحالية وموقع كل مجموعة.','Current published assignments and each group location.')}</p></div><Link to="/supervisor/schedule" className="text-xs font-black text-teal-700">{tr('عرض الجدول الكامل','Full schedule')}</Link></div><div className="mt-4 grid gap-3 md:grid-cols-2">{groups.map(group=><article key={group.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><h3 className="font-black text-slate-900">{ar?group.courseAr:group.courseEn}</h3><p className="mt-1 text-xs font-bold text-teal-700">{group.group} ({group.subgroup})</p><p className="mt-2 text-[11px] text-slate-500">{ar?group.siteAr:group.siteEn} · {group.students.length} {tr('طالب','students')} · {group.scheduledDates.length} {tr('جلسة','sessions')}</p></article>)}</div></section>
+
+    <section className="grid gap-4 lg:grid-cols-3">
+      <WorkspaceButton
+        to="/supervisor/schedule"
+        icon={CalendarDays}
+        eyebrow={tr('التكليف المنشور', 'Published assignment')}
+        title={tr('جدولي السريري', 'My clinical schedule')}
+        description={tr('راجع أيام التدريب والمجموعات والمواقع من جدول واحد واضح.', 'Review training days, groups and sites in one clear schedule.')}
+        action={tr('فتح الجدول', 'Open schedule')}
+        tone="light"
+      />
       <WorkspaceButton
         to="/supervisor/attendance"
         icon={CalendarDays}

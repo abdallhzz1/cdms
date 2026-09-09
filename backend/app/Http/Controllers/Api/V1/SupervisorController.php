@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AttendanceRecord;
 use App\Models\ClinicalAssessment;
+use App\Models\ClinicalAssessmentTemplate;
 use App\Models\ClinicalSession;
 use App\Models\DistributionVersion;
 use App\Models\Person;
@@ -41,7 +42,7 @@ use Illuminate\Support\Str;
 class SupervisorController extends Controller
 {
     public function __construct(
-        private SupervisorReassignmentService $reassignmentService
+        private SupervisorReassignmentService $reassignmentService,
     ) {}
 
     /**
@@ -190,11 +191,14 @@ class SupervisorController extends Controller
     public function workspace(Request $request): JsonResponse
     {
         [$user, $person] = $this->supervisorIdentity($request);
+        $person->loadMissing('availabilities');
         $assignments = $this->currentAssignments($person);
-        $assignments->each(function (StudentClinicalAssignment $assignment): void {
+        $assignments->each(function (StudentClinicalAssignment $assignment) use ($person): void {
             [$start, $end] = $this->assignmentDateRange($assignment);
             $assignment->setAttribute('session_start_date', $start?->toDateString());
             $assignment->setAttribute('session_end_date', $end?->toDateString());
+            $assignment->setAttribute('scheduled_dates', $this->scheduledDates($person, $assignment));
+            $assignment->setAttribute('evaluation_weeks', $this->evaluationWeeks($assignment));
         });
         $studentIds = $assignments->pluck('student_id')->unique();
         $blockIds = $assignments->pluck('rotation_block_id')->filter()->unique();
@@ -206,7 +210,7 @@ class SupervisorController extends Controller
             ->latest('id')->limit(100)->get();
 
         $assessments = ClinicalAssessment::query()
-            ->with(['student:id,university_number,full_name_ar,full_name_en', 'session:id,rotation_block_id,training_site_id,session_date,title', 'workflowTransitions'])
+            ->with(['student:id,university_number,full_name_ar,full_name_en', 'session:id,rotation_block_id,training_site_id,session_date,title', 'template.criteria', 'workflowTransitions'])
             ->where('evaluator_person_id', $person->id)
             ->whereIn('student_id', $studentIds)
             ->latest('id')->limit(100)->get();
@@ -230,6 +234,9 @@ class SupervisorController extends Controller
             'attendance_records' => $attendance,
             'assessments' => $assessments,
             'student_notes' => $studentNotes,
+            'assessment_templates' => ClinicalAssessmentTemplate::query()
+                ->where('is_active', true)->with('criteria')->orderByRaw('course_id IS NULL DESC')->get(),
+            'schedule_configured' => $person->availabilities()->exists(),
         ]);
     }
 
@@ -294,7 +301,7 @@ class SupervisorController extends Controller
         ]);
 
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
-        $this->ensureSessionDateWithinAssignment($assignment, $data['session_date']);
+        $this->ensureScheduledSession($person, $assignment, $data['session_date']);
         $allowedStudentIds = $this->assignmentGroupQuery($assignment)->pluck('student_id')->map(fn ($id) => (int) $id);
         $requestedStudentIds = collect($data['records'])->pluck('student_id')->map(fn ($id) => (int) $id);
         abort_if($requestedStudentIds->diff($allowedStudentIds)->isNotEmpty(), 403, 'You may only record attendance for students assigned to you.');
@@ -321,65 +328,27 @@ class SupervisorController extends Controller
     {
         [, $person] = $this->supervisorIdentity($request);
         $data = $request->validate([
-            'assessment_id' => ['nullable', 'integer', 'exists:clinical_assessments,id'],
             'assignment_id' => ['required', 'integer'],
             'student_id' => ['required', 'integer', 'exists:students,id'],
-            'session_date' => ['required', 'date'],
-            'score' => ['required', 'numeric', 'min:0', 'max:20'],
+            'evaluation_week' => ['required', 'integer', 'min:1'],
+            'template_id' => ['required', 'integer', 'exists:clinical_assessment_templates,id'],
+            'criteria_scores' => ['required', 'array', 'min:1'],
+            'criteria_scores.*.criterion_id' => ['required', 'integer'],
+            'criteria_scores.*.score' => ['required', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string', 'max:3000'],
         ]);
-
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
-        $this->ensureSessionDateWithinAssignment($assignment, $data['session_date']);
-        abort_unless($this->assignmentGroupQuery($assignment)->where('student_id', $data['student_id'])->exists(), 403, 'You may only assess students assigned to you.');
+        $studentAssignment = $this->assignmentGroupQuery($assignment)->where('student_id', $data['student_id'])->first();
+        abort_unless($studentAssignment, 403, 'You may only assess students assigned to you.');
+        [$weekStart, $weekEnd] = $this->assignmentWeek($assignment, (int) $data['evaluation_week']);
+        [$template, $snapshot, $score] = $this->validatedCriteria($assignment, (int) $data['template_id'], $data['criteria_scores']);
 
-        $assessment = DB::transaction(function () use ($assignment, $data, $person, $workflow) {
-            $session = $this->resolveSession($assignment, $data['session_date']);
-            $assessment = ClinicalAssessment::query()
-                ->when(! empty($data['assessment_id']), fn ($query) => $query->whereKey($data['assessment_id']))
-                ->when(empty($data['assessment_id']), fn ($query) => $query
-                    ->where('student_id', $data['student_id'])
-                    ->where('clinical_session_id', $session->id)
-                    ->where('evaluator_person_id', $person->id))
-                ->lockForUpdate()->first();
+        $assessment = DB::transaction(fn () => $this->persistWeeklyAssessment(
+            $studentAssignment, $person, $template, (int) $data['evaluation_week'], $weekStart, $weekEnd,
+            $snapshot, $score, $data['notes'] ?? null, (string) Str::uuid(), $workflow,
+        ));
 
-            if ($assessment) {
-                abort_unless((int) $assessment->student_id === (int) $data['student_id'] && (int) $assessment->evaluator_person_id === (int) $person->id, 403, 'You may only edit your own returned assessment.');
-                if (! in_array($assessment->status, ['draft', 'returned'], true)) {
-                    throw ValidationException::withMessages(['assessment' => ['This assessment is awaiting review or already approved and cannot be changed.']]);
-                }
-                $assessment->update([
-                    'clinical_session_id' => $session->id,
-                    'score' => $data['score'],
-                    'max_score' => 20,
-                    'notes' => $data['notes'] ?? null,
-                ]);
-                $workflow->transition($assessment->fresh(), 'submitted');
-                $assessment->newQuery()->whereKey($assessment->id)->update(['submitted_at' => now()]);
-                return $assessment->fresh();
-            }
-
-            $assessment = ClinicalAssessment::create([
-                'student_id' => $data['student_id'],
-                'clinical_session_id' => $session->id,
-                'evaluator_person_id' => $person->id,
-                'score' => $data['score'],
-                'max_score' => 20,
-                'notes' => $data['notes'] ?? null,
-                'status' => 'submitted',
-                'submitted_at' => now(),
-            ]);
-            WorkflowTransitionLog::create([
-                'entity_type' => ClinicalAssessment::class,
-                'entity_id' => $assessment->id,
-                'from_state' => null,
-                'to_state' => 'submitted',
-                'user_id' => auth()->id(),
-            ]);
-            return $assessment;
-        });
-
-        return ApiResponse::success($assessment->load('student', 'session'), 'Clinical assessment saved successfully.');
+        return ApiResponse::success($assessment->load('student', 'session', 'template.criteria'), 'Clinical assessment saved successfully.');
     }
 
     public function storeAssessmentBatch(Request $request, WorkflowTransitionService $workflow): JsonResponse
@@ -387,57 +356,185 @@ class SupervisorController extends Controller
         [, $person] = $this->supervisorIdentity($request);
         $data = $request->validate([
             'assignment_id' => ['required', 'integer'],
-            'session_date' => ['required', 'date'],
+            'evaluation_week' => ['required', 'integer', 'min:1'],
+            'template_id' => ['required', 'integer', 'exists:clinical_assessment_templates,id'],
             'assessments' => ['required', 'array', 'min:1'],
             'assessments.*.student_id' => ['required', 'integer', 'distinct', 'exists:students,id'],
-            'assessments.*.score' => ['required', 'numeric', 'min:0', 'max:20'],
+            'assessments.*.criteria_scores' => ['required', 'array', 'min:1'],
+            'assessments.*.criteria_scores.*.criterion_id' => ['required', 'integer'],
+            'assessments.*.criteria_scores.*.score' => ['required', 'numeric', 'min:0'],
             'assessments.*.notes' => ['nullable', 'string', 'max:3000'],
         ]);
 
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
-        $this->ensureSessionDateWithinAssignment($assignment, $data['session_date']);
-        $allowedIds = $this->assignmentGroupQuery($assignment)->pluck('student_id')->map(fn ($id) => (int) $id)->sort()->values();
+        $groupAssignments = $this->assignmentGroupQuery($assignment)->get()->keyBy('student_id');
+        $allowedIds = $groupAssignments->keys()->map(fn ($id) => (int) $id)->sort()->values();
         $submittedIds = collect($data['assessments'])->pluck('student_id')->map(fn ($id) => (int) $id)->sort()->values();
         if ($allowedIds->all() !== $submittedIds->all()) {
             throw ValidationException::withMessages(['assessments' => ['Every student in the selected group must be evaluated exactly once.']]);
         }
 
+        [$weekStart, $weekEnd] = $this->assignmentWeek($assignment, (int) $data['evaluation_week']);
         $batchUuid = (string) Str::uuid();
-        $items = DB::transaction(function () use ($assignment, $data, $person, $workflow, $batchUuid) {
-            $session = $this->resolveSession($assignment, $data['session_date']);
-            return collect($data['assessments'])->map(function (array $row) use ($session, $person, $workflow, $batchUuid) {
-                $assessment = ClinicalAssessment::query()
-                    ->where('student_id', $row['student_id'])
-                    ->where('clinical_session_id', $session->id)
-                    ->where('evaluator_person_id', $person->id)
-                    ->lockForUpdate()->first();
-
-                if ($assessment && ! in_array($assessment->status, ['draft', 'returned'], true)) {
-                    throw ValidationException::withMessages(['assessments' => ["Student {$row['student_id']} already has an assessment awaiting review or approved for this session."]]);
-                }
-
-                if ($assessment) {
-                    $assessment->update(['assessment_batch_uuid' => $batchUuid, 'score' => $row['score'], 'max_score' => 20, 'notes' => $row['notes'] ?? null]);
-                    $workflow->transition($assessment->fresh(), 'submitted');
-                    $assessment->newQuery()->whereKey($assessment->id)->update(['submitted_at' => now()]);
-                    return $assessment->fresh();
-                }
-
-                $assessment = ClinicalAssessment::create([
-                    'student_id' => $row['student_id'], 'clinical_session_id' => $session->id,
-                    'evaluator_person_id' => $person->id, 'assessment_batch_uuid' => $batchUuid,
-                    'score' => $row['score'], 'max_score' => 20, 'notes' => $row['notes'] ?? null,
-                    'status' => 'submitted', 'submitted_at' => now(),
-                ]);
-                WorkflowTransitionLog::create([
-                    'entity_type' => ClinicalAssessment::class, 'entity_id' => $assessment->id,
-                    'from_state' => null, 'to_state' => 'submitted', 'user_id' => auth()->id(),
-                ]);
-                return $assessment;
+        $items = DB::transaction(function () use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd) {
+            return collect($data['assessments'])->map(function (array $row) use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd) {
+                [$template, $snapshot, $score] = $this->validatedCriteria($assignment, (int) $data['template_id'], $row['criteria_scores']);
+                return $this->persistWeeklyAssessment(
+                    $groupAssignments->get($row['student_id']), $person, $template, (int) $data['evaluation_week'],
+                    $weekStart, $weekEnd, $snapshot, $score, $row['notes'] ?? null, $batchUuid, $workflow,
+                );
             });
         });
 
         return ApiResponse::success(['batch_uuid' => $batchUuid, 'assessments' => $items], 'The group assessment batch was submitted successfully.');
+    }
+
+    private function persistWeeklyAssessment(
+        StudentClinicalAssignment $studentAssignment,
+        Person $person,
+        ClinicalAssessmentTemplate $template,
+        int $week,
+        Carbon $weekStart,
+        Carbon $weekEnd,
+        array $snapshot,
+        float $score,
+        ?string $notes,
+        string $batchUuid,
+        WorkflowTransitionService $workflow,
+    ): ClinicalAssessment {
+        $session = $this->resolveSession($studentAssignment, $weekEnd->toDateString());
+        $assessment = ClinicalAssessment::query()
+            ->where('student_clinical_assignment_id', $studentAssignment->id)
+            ->where('evaluation_week', $week)
+            ->where('evaluator_person_id', $person->id)
+            ->lockForUpdate()->first();
+
+        if ($assessment && ! in_array($assessment->status, ['draft', 'returned'], true)) {
+            throw ValidationException::withMessages(['assessments' => ['يوجد تقييم أسبوعي مرسل أو معتمد مسبقاً لهذا الطالب.']]);
+        }
+
+        $values = [
+            'student_id' => $studentAssignment->student_id,
+            'clinical_session_id' => $session->id,
+            'evaluator_person_id' => $person->id,
+            'assessment_template_id' => $template->id,
+            'student_clinical_assignment_id' => $studentAssignment->id,
+            'evaluation_week' => $week,
+            'week_start' => $weekStart->toDateString(),
+            'week_end' => $weekEnd->toDateString(),
+            'assessment_batch_uuid' => $batchUuid,
+            'score' => $score,
+            'max_score' => 10,
+            'criteria_scores' => $snapshot,
+            'notes' => $notes,
+            'status' => 'submitted',
+            'submitted_at' => now(),
+        ];
+
+        if ($assessment) {
+            $assessment->update($values);
+            $workflow->transition($assessment->fresh(), 'submitted');
+            return $assessment->fresh();
+        }
+
+        $assessment = ClinicalAssessment::create($values);
+        WorkflowTransitionLog::create([
+            'entity_type' => ClinicalAssessment::class,
+            'entity_id' => $assessment->id,
+            'from_state' => null,
+            'to_state' => 'submitted',
+            'user_id' => auth()->id(),
+        ]);
+        return $assessment;
+    }
+
+    private function validatedCriteria(StudentClinicalAssignment $assignment, int $templateId, array $rows): array
+    {
+        $assignment->loadMissing('rotationBlock.rotation.course');
+        $courseId = $assignment->rotationBlock?->rotation?->course_id;
+        $template = ClinicalAssessmentTemplate::query()->whereKey($templateId)->where('is_active', true)->with('criteria')->firstOrFail();
+        $expected = ClinicalAssessmentTemplate::currentForCourse($courseId);
+        if (! $expected || (int) $expected->id !== (int) $template->id) {
+            throw ValidationException::withMessages(['template_id' => ['نموذج التقييم المحدد ليس النموذج المعتمد لهذا المساق. حدّث الصفحة ثم أعد المحاولة.']]);
+        }
+
+        $provided = collect($rows)->keyBy(fn ($row) => (int) $row['criterion_id']);
+        if ($provided->count() !== $template->criteria->count() || $template->criteria->pluck('id')->diff($provided->keys())->isNotEmpty()) {
+            throw ValidationException::withMessages(['criteria_scores' => ['يجب رصد جميع معايير نموذج التقييم مرة واحدة.']]);
+        }
+
+        $snapshot = $template->criteria->map(function ($criterion) use ($provided) {
+            $score = (float) $provided->get($criterion->id)['score'];
+            if ($score < 0 || $score > (float) $criterion->max_score) {
+                throw ValidationException::withMessages(['criteria_scores' => ["درجة {$criterion->name_ar} يجب أن تكون بين 0 و {$criterion->max_score}."]]);
+            }
+            return [
+                'criterion_id' => $criterion->id,
+                'code' => $criterion->code,
+                'name_ar' => $criterion->name_ar,
+                'name_en' => $criterion->name_en,
+                'max_score' => (float) $criterion->max_score,
+                'score' => $score,
+            ];
+        })->values()->all();
+
+        return [$template, $snapshot, round((float) collect($snapshot)->sum('score'), 2)];
+    }
+
+    private function assignmentWeek(StudentClinicalAssignment $assignment, int $week): array
+    {
+        $assignment->loadMissing('rotationBlock.rotation');
+        $block = $assignment->rotationBlock;
+        $rotation = $block?->rotation;
+        if (! $rotation?->start_date || $week < (int) $block->from_week || $week > (int) $block->to_week) {
+            throw ValidationException::withMessages(['evaluation_week' => ['الأسبوع المحدد ليس ضمن فترة تكليف المجموعة.']]);
+        }
+        $start = Carbon::parse($rotation->start_date)->addWeeks($week - 1)->startOfDay();
+        if ($start->isFuture()) {
+            throw ValidationException::withMessages(['evaluation_week' => ['لا يمكن رصد تقييم لأسبوع لم يبدأ بعد.']]);
+        }
+        return [$start, $start->copy()->addDays(6)->endOfDay()];
+    }
+
+    private function scheduledDates(Person $person, StudentClinicalAssignment $assignment): array
+    {
+        [$start, $end] = $this->assignmentDateRange($assignment);
+        if (! $start || ! $end || ! $assignment->training_site_id || $person->availabilities->isEmpty()) return [];
+        $records = $person->availabilities->filter(fn ($row) =>
+            (int) $row->training_site_id === (int) $assignment->training_site_id
+            && ($row->status ?: 'work') === 'work'
+            && (! $row->available_until || $row->available_until->gte($start))
+            && (! $row->available_from || $row->available_from->lte($end))
+        );
+        $dates = [];
+        for ($date = $start->copy()->startOfDay(); $date->lte($end); $date->addDay()) {
+            if ($records->contains(fn ($row) =>
+                $row->day === strtolower($date->format('l'))
+                && (! $row->available_from || $row->available_from->lte($date))
+                && (! $row->available_until || $row->available_until->gte($date))
+            )) $dates[] = $date->toDateString();
+        }
+        return $dates;
+    }
+
+    private function evaluationWeeks(StudentClinicalAssignment $assignment): array
+    {
+        $assignment->loadMissing('rotationBlock.rotation');
+        $block = $assignment->rotationBlock;
+        $rotation = $block?->rotation;
+        if (! $rotation?->start_date || ! $block?->from_week || ! $block?->to_week) return [];
+        return collect(range((int) $block->from_week, (int) $block->to_week))->map(function (int $week) use ($rotation) {
+            $start = Carbon::parse($rotation->start_date)->addWeeks($week - 1);
+            return ['number' => $week, 'start_date' => $start->toDateString(), 'end_date' => $start->copy()->addDays(6)->toDateString()];
+        })->all();
+    }
+
+    private function ensureScheduledSession(Person $person, StudentClinicalAssignment $assignment, string $date): void
+    {
+        $this->ensureSessionDateWithinAssignment($assignment, $date);
+        if (! in_array(Carbon::parse($date)->toDateString(), $this->scheduledDates($person, $assignment), true)) {
+            throw ValidationException::withMessages(['session_date' => ['التاريخ المحدد ليس يوم تدريب معتمداً لهذا المشرف في موقع المجموعة.']]);
+        }
     }
 
     private function supervisorIdentity(Request $request): array

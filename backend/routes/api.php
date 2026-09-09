@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\AttendanceWarningController;
 use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClinicalAssessmentController;
+use App\Http\Controllers\Api\V1\ClinicalAssessmentTemplateController;
 use App\Http\Controllers\Api\V1\ClinicalSessionController;
 use App\Http\Controllers\Api\V1\ClinicalSupervisorController;
 use App\Http\Controllers\Api\V1\ClinicalSupervisorEvaluationController;
@@ -286,6 +287,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('clinical-assessments/{clinicalAssessment}/approve', [ClinicalAssessmentController::class, 'approve'])->middleware('permission:assessment.approve');
         Route::post('clinical-assessment-batches/{batchUuid}/approve', [ClinicalAssessmentController::class, 'approveBatch'])->middleware('permission:assessment.approve');
         Route::post('clinical-assessment-batches/{batchUuid}/return', [ClinicalAssessmentController::class, 'returnBatch'])->middleware('permission:assessment.approve');
+        Route::get('clinical-assessment-templates', [ClinicalAssessmentTemplateController::class, 'index'])->middleware('permission:assessment.criteria.manage');
+        Route::post('clinical-assessment-templates', [ClinicalAssessmentTemplateController::class, 'store'])->middleware('permission:assessment.criteria.manage');
         Route::get('advising-overview', [AdvisingRecordController::class, 'overview'])->middleware('permission:advising.view');
         Route::get('advising-records', [AdvisingRecordController::class, 'index'])->middleware('permission:advising.view');
         Route::get('advising-records/{advisingRecord}', [AdvisingRecordController::class, 'show'])->middleware('permission:advising.view');
