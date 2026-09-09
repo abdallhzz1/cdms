@@ -85,6 +85,7 @@ class Student extends Model
             'date_of_birth' => 'date',
             'last_warning_date' => 'date',
             'gpa' => 'decimal:2',
+            'batch_year' => 'integer',
             'has_amboss_subscription' => 'boolean',
             'documents' => 'array',
         ];

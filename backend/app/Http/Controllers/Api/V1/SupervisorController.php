@@ -330,16 +330,14 @@ class SupervisorController extends Controller
             'student_id' => ['required', 'integer', 'exists:students,id'],
             'evaluation_week' => ['required', 'integer', 'min:1'],
             'template_id' => ['required', 'integer', 'exists:clinical_assessment_templates,id'],
-            'criteria_scores' => ['required', 'array', 'min:1'],
-            'criteria_scores.*.criterion_id' => ['required', 'integer'],
-            'criteria_scores.*.score' => ['required', 'numeric', 'min:0'],
+            'score' => ['required', 'numeric', 'min:0', 'max:10'],
             'notes' => ['nullable', 'string', 'max:3000'],
         ]);
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
         $studentAssignment = $this->assignmentGroupQuery($assignment)->where('student_id', $data['student_id'])->first();
         abort_unless($studentAssignment, 403, 'You may only assess students assigned to you.');
         [$weekStart, $weekEnd] = $this->assignmentWeek($assignment, (int) $data['evaluation_week']);
-        [$template, $snapshot, $score] = $this->validatedCriteria($assignment, (int) $data['template_id'], $data['criteria_scores']);
+        [$template, $snapshot, $score] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $data['score']);
 
         $assessment = DB::transaction(fn () => $this->persistWeeklyAssessment(
             $studentAssignment, $person, $template, (int) $data['evaluation_week'], $weekStart, $weekEnd,
@@ -358,9 +356,7 @@ class SupervisorController extends Controller
             'template_id' => ['required', 'integer', 'exists:clinical_assessment_templates,id'],
             'assessments' => ['required', 'array', 'min:1'],
             'assessments.*.student_id' => ['required', 'integer', 'distinct', 'exists:students,id'],
-            'assessments.*.criteria_scores' => ['required', 'array', 'min:1'],
-            'assessments.*.criteria_scores.*.criterion_id' => ['required', 'integer'],
-            'assessments.*.criteria_scores.*.score' => ['required', 'numeric', 'min:0'],
+            'assessments.*.score' => ['required', 'numeric', 'min:0', 'max:10'],
             'assessments.*.notes' => ['nullable', 'string', 'max:3000'],
         ]);
 
@@ -376,9 +372,10 @@ class SupervisorController extends Controller
         $batchUuid = (string) Str::uuid();
         $items = DB::transaction(function () use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd) {
             return collect($data['assessments'])->map(function (array $row) use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd) {
-                [$template, $snapshot, $score] = $this->validatedCriteria($assignment, (int) $data['template_id'], $row['criteria_scores']);
+                $studentAssignment = $groupAssignments->get($row['student_id']);
+                [$template, $snapshot, $score] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $row['score']);
                 return $this->persistWeeklyAssessment(
-                    $groupAssignments->get($row['student_id']), $person, $template, (int) $data['evaluation_week'],
+                    $studentAssignment, $person, $template, (int) $data['evaluation_week'],
                     $weekStart, $weekEnd, $snapshot, $score, $row['notes'] ?? null, $batchUuid, $workflow,
                 );
             });
@@ -422,7 +419,7 @@ class SupervisorController extends Controller
             'week_end' => $weekEnd->toDateString(),
             'assessment_batch_uuid' => $batchUuid,
             'score' => $score,
-            'max_score' => 10,
+            'max_score' => $template->total_score,
             'criteria_scores' => $snapshot,
             'notes' => $notes,
             'status' => 'submitted',
@@ -446,37 +443,29 @@ class SupervisorController extends Controller
         return $assessment;
     }
 
-    private function validatedCriteria(StudentClinicalAssignment $assignment, int $templateId, array $rows): array
+    private function validatedTotalScore(StudentClinicalAssignment $assignment, int $templateId, mixed $rawScore): array
     {
-        $assignment->loadMissing('rotationBlock.rotation.course');
+        $assignment->loadMissing('rotationBlock.rotation.course', 'student');
         $courseId = $assignment->rotationBlock?->rotation?->course_id;
+        $batchYear = $assignment->student?->batch_year;
         $template = ClinicalAssessmentTemplate::query()->whereKey($templateId)->where('is_active', true)->with('criteria')->firstOrFail();
-        $expected = ClinicalAssessmentTemplate::currentForCourse($courseId);
+        $expected = ClinicalAssessmentTemplate::currentForCourse($courseId, $batchYear);
         if (! $expected || (int) $expected->id !== (int) $template->id) {
-            throw ValidationException::withMessages(['template_id' => ['نموذج التقييم المحدد ليس النموذج المعتمد لهذا المساق. حدّث الصفحة ثم أعد المحاولة.']]);
+            throw ValidationException::withMessages(['template_id' => ['نموذج التقييم المحدد ليس النموذج المعتمد لهذا المساق والدفعة. حدّث الصفحة ثم أعد المحاولة.']]);
         }
-
-        $provided = collect($rows)->keyBy(fn ($row) => (int) $row['criterion_id']);
-        if ($provided->count() !== $template->criteria->count() || $template->criteria->pluck('id')->diff($provided->keys())->isNotEmpty()) {
-            throw ValidationException::withMessages(['criteria_scores' => ['يجب رصد جميع معايير نموذج التقييم مرة واحدة.']]);
+        $score = round((float) $rawScore, 2);
+        if ($score < 0 || $score > (float) $template->total_score) {
+            throw ValidationException::withMessages(['score' => ["يجب أن تكون العلامة بين 0 و {$template->total_score}."]]);
         }
-
-        $snapshot = $template->criteria->map(function ($criterion) use ($provided) {
-            $score = (float) $provided->get($criterion->id)['score'];
-            if ($score < 0 || $score > (float) $criterion->max_score) {
-                throw ValidationException::withMessages(['criteria_scores' => ["درجة {$criterion->name_ar} يجب أن تكون بين 0 و {$criterion->max_score}."]]);
-            }
-            return [
+        $snapshot = $template->criteria->map(fn ($criterion) => [
                 'criterion_id' => $criterion->id,
                 'code' => $criterion->code,
                 'name_ar' => $criterion->name_ar,
                 'name_en' => $criterion->name_en,
                 'max_score' => (float) $criterion->max_score,
-                'score' => $score,
-            ];
-        })->values()->all();
+            ])->values()->all();
 
-        return [$template, $snapshot, round((float) collect($snapshot)->sum('score'), 2)];
+        return [$template, $snapshot, $score];
     }
 
     private function assignmentWeek(StudentClinicalAssignment $assignment, int $week): array
@@ -564,7 +553,7 @@ class SupervisorController extends Controller
             ->where('supervisor_id', $person->id)
             ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
             ->with([
-                'student:id,university_number,full_name_ar,full_name_en,academic_level,photo_url',
+                'student:id,university_number,full_name_ar,full_name_en,academic_level,batch_year,photo_url',
                 'studentSubgroup.group',
                 'rotationBlock.rotation.academicYear',
                 'rotationBlock.rotation.course',
@@ -585,12 +574,14 @@ class SupervisorController extends Controller
 
     private function assignmentGroupQuery(StudentClinicalAssignment $assignment)
     {
+        $assignment->loadMissing('student:id,batch_year');
         return StudentClinicalAssignment::query()
             ->where('distribution_version_id', $assignment->distribution_version_id)
             ->where('supervisor_id', $assignment->supervisor_id)
             ->where('rotation_block_id', $assignment->rotation_block_id)
             ->where('training_site_id', $assignment->training_site_id)
-            ->where('student_subgroup_id', $assignment->student_subgroup_id);
+            ->where('student_subgroup_id', $assignment->student_subgroup_id)
+            ->whereHas('student', fn ($query) => $query->where('batch_year', $assignment->student?->batch_year));
     }
 
     private function resolveSession(StudentClinicalAssignment $assignment, string $date): ClinicalSession

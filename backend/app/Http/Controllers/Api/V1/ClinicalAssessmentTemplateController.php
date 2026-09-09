@@ -7,6 +7,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\AuditLog;
 use App\Models\ClinicalAssessmentTemplate;
 use App\Models\Course;
+use App\Models\Student;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -19,9 +20,10 @@ class ClinicalAssessmentTemplateController extends Controller
         return ApiResponse::success([
             'templates' => ClinicalAssessmentTemplate::query()
                 ->with(['criteria', 'course:id,code,name_ar,name_en,academic_level', 'creator:id,name'])
-                ->orderByRaw('course_id IS NULL DESC')->orderBy('course_id')->orderByDesc('version')->get(),
+                ->orderByRaw('course_id IS NULL DESC')->orderBy('course_id')->orderBy('batch_year')->orderByDesc('version')->get(),
             'courses' => Course::query()->where('is_active', true)->orderBy('academic_level')->orderBy('code')
                 ->get(['id', 'code', 'name_ar', 'name_en', 'academic_level']),
+            'batch_years' => Student::query()->whereNotNull('batch_year')->distinct()->orderByDesc('batch_year')->pluck('batch_year')->values(),
         ]);
     }
 
@@ -31,6 +33,7 @@ class ClinicalAssessmentTemplateController extends Controller
             'name_ar' => ['required', 'string', 'max:255'],
             'name_en' => ['nullable', 'string', 'max:255'],
             'course_id' => ['nullable', 'integer', 'exists:courses,id'],
+            'batch_year' => ['nullable', 'integer', 'min:2000', 'max:2200'],
             'criteria' => ['required', 'array', 'min:1', 'max:20'],
             'criteria.*.code' => ['nullable', 'string', 'max:60'],
             'criteria.*.name_ar' => ['required', 'string', 'max:255'],
@@ -45,11 +48,12 @@ class ClinicalAssessmentTemplateController extends Controller
         $template = DB::transaction(function () use ($data, $request, $total) {
             $scope = ClinicalAssessmentTemplate::query();
             empty($data['course_id']) ? $scope->whereNull('course_id') : $scope->where('course_id', $data['course_id']);
+            empty($data['batch_year']) ? $scope->whereNull('batch_year') : $scope->where('batch_year', $data['batch_year']);
             $version = ((int) (clone $scope)->max('version')) + 1;
             (clone $scope)->where('is_active', true)->update(['is_active' => false]);
             $template = ClinicalAssessmentTemplate::create([
                 'name_ar' => trim($data['name_ar']), 'name_en' => filled($data['name_en'] ?? null) ? trim($data['name_en']) : null,
-                'course_id' => $data['course_id'] ?? null, 'version' => $version, 'total_score' => $total,
+                'course_id' => $data['course_id'] ?? null, 'batch_year' => $data['batch_year'] ?? null, 'version' => $version, 'total_score' => $total,
                 'is_active' => true, 'created_by_user_id' => $request->user()->id,
             ]);
             foreach (array_values($data['criteria']) as $index => $criterion) {
@@ -62,7 +66,7 @@ class ClinicalAssessmentTemplateController extends Controller
             AuditLog::create([
                 'user_id' => $request->user()->id, 'action' => 'clinical_assessment_template.created',
                 'entity_type' => ClinicalAssessmentTemplate::class, 'entity_id' => $template->id,
-                'changes' => ['course_id' => $template->course_id, 'version' => $template->version, 'total_score' => $total],
+                'changes' => ['course_id' => $template->course_id, 'batch_year' => $template->batch_year, 'version' => $template->version, 'total_score' => $total],
                 'is_override' => false,
             ]);
             return $template;
