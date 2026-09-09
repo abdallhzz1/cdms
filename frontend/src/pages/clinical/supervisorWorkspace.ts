@@ -19,7 +19,7 @@ export const today = () => dateValue(new Date());
 export const clampDate = (group:SupervisorGroup,value:string) => group.startDate&&value<group.startDate?group.startDate:group.endDate&&value>group.endDate?group.endDate:value;
 export const studentName = (student:Student,ar:boolean) => ar ? student.full_name_ar : student.full_name_en || student.full_name_ar;
 export const groupName = (group:SupervisorGroup,ar:boolean) => `${ar?group.courseAr:group.courseEn} — ${group.group} (${group.subgroup})`;
-export const formatDate = (value:string,ar:boolean) => new Intl.DateTimeFormat(ar?'ar-PS-u-nu-latn':'en-GB',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(`${value}T12:00:00`));
+export const formatDate = (value:string,_ar:boolean) => { const [year,month,day]=String(value).slice(0,10).split('-'); return year&&month&&day?`${day}/${month}/${year}`:String(value); };
 export const formatWeekday = (value:string,ar:boolean) => new Intl.DateTimeFormat(ar?'ar-PS':'en-GB',{weekday:'long'}).format(new Date(`${value}T12:00:00`));
 export const preferredDate = (dates:string[]) => dates.find(date=>date>=today()) ?? dates.at(-1) ?? '';
 export const templateForGroup = (templates:AssessmentTemplate[],group:SupervisorGroup) => templates.find(item=>item.course_id===group.courseId) ?? templates.find(item=>!item.course_id);
