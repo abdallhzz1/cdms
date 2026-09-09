@@ -250,7 +250,6 @@ class SupervisorController extends Controller
         ]);
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
         $noteDate = now()->toDateString();
-        $this->ensureSessionDateWithinAssignment($assignment, $noteDate);
         $studentAssignment = $this->assignmentGroupQuery($assignment)->where('student_id', $data['student_id'])->first();
         abort_unless($studentAssignment, 403, 'You may only add private notes for students assigned to you.');
 
