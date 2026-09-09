@@ -246,11 +246,11 @@ class SupervisorController extends Controller
         $data = $request->validate([
             'assignment_id' => ['required', 'integer'],
             'student_id' => ['required', 'integer', 'exists:students,id'],
-            'note_date' => ['required', 'date'],
             'note' => ['required', 'string', 'max:5000'],
         ]);
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
-        $this->ensureSessionDateWithinAssignment($assignment, $data['note_date']);
+        $noteDate = now()->toDateString();
+        $this->ensureSessionDateWithinAssignment($assignment, $noteDate);
         $studentAssignment = $this->assignmentGroupQuery($assignment)->where('student_id', $data['student_id'])->first();
         abort_unless($studentAssignment, 403, 'You may only add private notes for students assigned to you.');
 
@@ -260,7 +260,7 @@ class SupervisorController extends Controller
             'student_clinical_assignment_id' => $studentAssignment->id,
             'rotation_block_id' => $assignment->rotation_block_id,
             'training_site_id' => $assignment->training_site_id,
-            'note_date' => $data['note_date'],
+            'note_date' => $noteDate,
             'note' => trim($data['note']),
         ]);
 
@@ -271,12 +271,11 @@ class SupervisorController extends Controller
     {
         [, $person] = $this->supervisorIdentity($request);
         abort_unless((int) $note->supervisor_person_id === (int) $person->id, 404);
-        $data = $request->validate(['note_date' => ['required', 'date'], 'note' => ['required', 'string', 'max:5000']]);
+        $data = $request->validate(['note' => ['required', 'string', 'max:5000']]);
         if ($note->student_clinical_assignment_id) {
-            $assignment = $this->ownedCurrentAssignment($person, (int) $note->student_clinical_assignment_id);
-            $this->ensureSessionDateWithinAssignment($assignment, $data['note_date']);
+            $this->ownedCurrentAssignment($person, (int) $note->student_clinical_assignment_id);
         }
-        $note->update(['note_date' => $data['note_date'], 'note' => trim($data['note'])]);
+        $note->update(['note' => trim($data['note'])]);
         return ApiResponse::success($note->fresh(), 'Private supervisor note updated.');
     }
 
@@ -566,7 +565,7 @@ class SupervisorController extends Controller
             ->where('supervisor_id', $person->id)
             ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
             ->with([
-                'student:id,university_number,full_name_ar,full_name_en,academic_level',
+                'student:id,university_number,full_name_ar,full_name_en,academic_level,photo_url',
                 'studentSubgroup.group',
                 'rotationBlock.rotation.academicYear',
                 'rotationBlock.rotation.course',

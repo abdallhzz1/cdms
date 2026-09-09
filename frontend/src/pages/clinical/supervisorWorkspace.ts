@@ -1,7 +1,7 @@
 import { ApiError } from '@/api/client';
 
 export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
-export type Student = { id:number; university_number:string; full_name_ar:string; full_name_en?:string|null };
+export type Student = { id:number; university_number:string; full_name_ar:string; full_name_en?:string|null; photo_url?:string|null };
 export type EvaluationWeek = { number:number; start_date:string; end_date:string };
 export type Criterion = { id:number; code:string; name_ar:string; name_en?:string|null; max_score:string|number };
 export type AssessmentTemplate = { id:number; name_ar:string; name_en?:string|null; course_id?:number|null; version:number; is_active?:boolean; total_score:string|number; criteria:Criterion[] };
