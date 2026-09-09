@@ -65,6 +65,7 @@ import { OutboxPage } from '@/pages/OutboxPage';
 import { CorrespondenceDetailsPage } from '@/pages/CorrespondenceDetailsPage';
 import { PublicClinicalSchedulePage } from '@/pages/public/PublicClinicalSchedulePage';
 import { PublicStudentRegistrationPage } from '@/pages/PublicStudentRegistrationPage';
+import { PublicQualitySurveyPage } from '@/pages/public/PublicQualitySurveyPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
 
 export function App() {
@@ -72,6 +73,7 @@ export function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/public/student-registration" element={<PublicStudentRegistrationPage />} />
+      <Route path="/survey/:publicId" element={<PublicQualitySurveyPage />} />
       <Route path="/student-registration" element={<PublicStudentRegistrationPage />} />
       <Route path="/student-registration/:publicId" element={<PublicStudentRegistrationPage />} />
       <Route path="/public/student-registration/:publicId" element={<PublicStudentRegistrationPage />} />

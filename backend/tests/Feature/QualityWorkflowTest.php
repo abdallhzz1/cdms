@@ -79,4 +79,30 @@ class QualityWorkflowTest extends TestCase
             ->assertJsonPath('data.findings.0.reference', $finding['reference'])
             ->assertJsonPath('data.evidence.0.code', 'EVD-001');
     }
+
+    public function test_published_survey_accepts_one_grouped_public_submission(): void
+    {
+        $survey = $this->actingAs($this->user)->postJson('/api/v1/quality-surveys', [
+            'title' => 'تقييم التدريب السريري', 'target_group' => 'الطلبة',
+            'academic_year' => '2026/2027', 'is_anonymous' => true,
+        ])->assertCreated()->json('data');
+
+        $questionOne = $this->postJson("/api/v1/quality-surveys/{$survey['id']}/questions", [
+            'question_text' => 'ما تقييمك للتدريب؟', 'question_type' => 'rating', 'is_required' => true,
+        ])->assertCreated()->json('data');
+        $questionTwo = $this->postJson("/api/v1/quality-surveys/{$survey['id']}/questions", [
+            'question_text' => 'ملاحظاتك', 'question_type' => 'long_text', 'is_required' => false,
+        ])->assertCreated()->json('data');
+
+        $this->postJson("/api/v1/quality-surveys/{$survey['id']}/transition", ['status' => 'open'])->assertOk();
+        $this->getJson("/api/v1/public/quality-surveys/{$survey['public_id']}")->assertOk()->assertJsonCount(2, 'data.questions');
+        $submission = $this->postJson("/api/v1/public/quality-surveys/{$survey['public_id']}/submit", ['answers' => [
+            ['question_id' => $questionOne['id'], 'value' => 5],
+            ['question_id' => $questionTwo['id'], 'value' => 'تجربة ممتازة'],
+        ]])->assertCreated()->json('data.submission_id');
+
+        $this->assertDatabaseCount('quality_survey_responses', 2);
+        $this->assertDatabaseHas('quality_survey_responses', ['submission_id' => $submission, 'numeric_answer' => 5]);
+        $this->assertDatabaseHas('quality_survey_responses', ['submission_id' => $submission, 'text_answer' => 'تجربة ممتازة']);
+    }
 }

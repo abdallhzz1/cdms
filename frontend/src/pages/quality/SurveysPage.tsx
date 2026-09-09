@@ -87,10 +87,10 @@ export function SurveysPage() {
                   <Link to={`/quality/surveys/${s.id}`} className="text-sm font-bold text-teal-700 hover:underline">
                   {locale === 'ar' ? 'عرض التفاصيل' : 'View Details'}
                 </Link>
-                {s.form_url && (
-                  <a href={s.form_url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 flex items-center gap-1 hover:text-teal-700">
+                {s.status === 'open' && s.public_id && (
+                  <a href={`/survey/${s.public_id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 flex items-center gap-1 hover:text-teal-700">
                     <ExternalLink className="w-3.5 h-3.5" />
-                    {locale === 'ar' ? 'الاستبيان' : 'Form'}
+                    {locale === 'ar' ? 'الرابط العام' : 'Public form'}
                   </a>
                 )}
               </div>
@@ -128,10 +128,7 @@ export function SurveysPage() {
                   <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'التكرار' : 'Frequency'}</label>
                   <input value={form.frequency} onChange={e => setForm({ ...form, frequency: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" placeholder={locale === 'ar' ? 'فصلي' : 'Semester'} />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">{locale === 'ar' ? 'رابط الاستبيان' : 'Form URL'}</label>
-                  <input type="url" value={form.form_url} onChange={e => setForm({ ...form, form_url: e.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-100" placeholder="https://..." />
-                </div>
+                <div className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">{locale==='ar'?'بعد إضافة الأسئلة ونشر الاستبيان، يولد النظام رابطًا عامًا تلقائيًا.':'A public link is generated automatically after questions are added and the survey is published.'}</div>
               </div>
               <div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-semibold text-slate-600 mb-1">{locale==='ar'?'تاريخ الفتح':'Opens'}</label><input type="date" value={form.opens_at} onChange={e=>setForm({...form,opens_at:e.target.value})} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"/></div><div><label className="block text-xs font-semibold text-slate-600 mb-1">{locale==='ar'?'تاريخ الإغلاق':'Closes'}</label><input type="date" value={form.closes_at} onChange={e=>setForm({...form,closes_at:e.target.value})} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"/></div></div>
               <label className="flex items-center gap-2 cursor-pointer">

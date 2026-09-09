@@ -7,7 +7,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
-import { ExternalLink, BarChart3, MessageSquare, TrendingUp } from 'lucide-react';
+import { ExternalLink, BarChart3, MessageSquare, TrendingUp, Copy, Send, Lock } from 'lucide-react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -33,6 +33,7 @@ export function SurveyDetailsPage() {
     queryFn: () => apiFetch<any>(`/quality-surveys/${id}/responses`),
   });
   const addQuestion = useMutation({ mutationFn: () => apiFetch(`/quality-surveys/${id}/questions`, { method: 'POST', body: { ...question, question_number: Number(question.question_number), weight: question.weight ? Number(question.weight) : null, options: question.options || null, axis: question.axis || null, active_from: question.active_from || null, active_until: question.active_until || null } }), onSuccess: async () => { await client.invalidateQueries({ queryKey: ['quality-survey', id] }); setAdding(false); setQuestion({ version: '1', question_number: '', question_text: '', question_type: 'rating', options: '', is_required: true, weight: '', axis: '', active_from: '', active_until: '' }); } });
+  const transition = useMutation({ mutationFn: (status:string) => apiFetch(`/quality-surveys/${id}/transition`, { method:'POST', body:{status} }), onSuccess:()=>client.invalidateQueries({queryKey:['quality-survey',id]}) });
 
   if (isLoading) return <LoadingState />;
   if (isError || !survey) return <ErrorState />;
@@ -47,13 +48,16 @@ export function SurveyDetailsPage() {
         title={s.title}
         description={`${s.code} · ${s.target_group}${s.frequency ? ` · ${s.frequency}` : ''}`}
       >
-        {s.form_url && (
-          <a href={s.form_url} target="_blank" rel="noopener noreferrer"
+        {s.status === 'open' && (
+          <a href={`/survey/${s.public_id}`} target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-bold rounded-xl hover:bg-teal-700 transition-colors">
             <ExternalLink className="w-4 h-4" />
-            {locale === 'ar' ? 'فتح الاستبيان' : 'Open Survey Form'}
+            {locale === 'ar' ? 'فتح الرابط العام' : 'Open public form'}
           </a>
         )}
+        {s.status === 'open' && <Button variant="outline" onClick={()=>navigator.clipboard.writeText(`${window.location.origin}/survey/${s.public_id}`)}><Copy className="ml-1 h-4 w-4"/>{locale==='ar'?'نسخ الرابط':'Copy link'}</Button>}
+        {can('quality.manage') && s.status === 'draft' && <Button onClick={()=>transition.mutate('open')} isLoading={transition.isPending}><Send className="ml-1 h-4 w-4"/>{locale==='ar'?'نشر الاستبيان':'Publish'}</Button>}
+        {can('quality.manage') && s.status === 'open' && <Button variant="outline" onClick={()=>transition.mutate('closed')} isLoading={transition.isPending}><Lock className="ml-1 h-4 w-4"/>{locale==='ar'?'إغلاق الاستبيان':'Close'}</Button>}
         {can('quality.manage') && <Button variant="outline" onClick={() => { setQuestion(current => ({ ...current, question_number: String(questions.length + 1) })); setAdding(true); }}><Plus className="ml-1 h-4 w-4" />{locale === 'ar' ? 'إضافة سؤال' : 'Add question'}</Button>}
       </PageHeader>
       <QualitySectionGuide titleAr="إعداد الاستبيان ومتابعته" titleEn="Prepare and monitor this survey" stepsAr={['أضف الأسئلة؛ يرتبها ويرقمها النظام تلقائيًا.','راجع نوع الإجابة والمحور وإلزامية كل سؤال قبل النشر.','افتح رابط الاستبيان خلال فترة الحملة وتابع عدد الإجابات.','بعد الإغلاق راجع المتوسطات وحوّل النتائج المهمة إلى خطة تحسين.']} stepsEn={['Add questions; ordering and numbering are automatic.','Review answer type, axis, and required fields.','Open the form during the campaign and monitor responses.','After closing, analyze results and create improvement actions.']}/>
@@ -69,8 +73,8 @@ export function SurveyDetailsPage() {
         <div className="bg-teal-50 rounded-3xl p-5 flex items-center gap-4">
           <BarChart3 className="w-7 h-7 text-teal-600" />
           <div>
-            <div className="text-2xl font-black text-teal-700">{summary.length}</div>
-            <div className="text-xs font-semibold text-teal-600">{locale === 'ar' ? 'أسئلة لها إجابات' : 'Questions With Responses'}</div>
+            <div className="text-2xl font-black text-teal-700">{responses?.submission_count ?? responses?.data?.submission_count ?? 0}</div>
+            <div className="text-xs font-semibold text-teal-600">{locale === 'ar' ? 'استجابات مكتملة' : 'Completed responses'}</div>
           </div>
         </div>
         <div className="bg-teal-50 rounded-3xl p-5 flex items-center gap-4">
