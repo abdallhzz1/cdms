@@ -53,6 +53,25 @@
   --shadow-xl: 0 25px 35px 0 rgba(0, 0, 0, 0.08);
 }
 
+@media (max-width: 639px) {
+  .survey-editor-shell > header { border-radius: 1rem; }
+  .survey-editor-shell > header > div:nth-child(2) { padding: 1rem; }
+  .survey-editor-shell > header nav {
+    overflow-x: auto;
+    padding-inline: .5rem;
+    scrollbar-width: none;
+  }
+  .survey-editor-shell > header nav::-webkit-scrollbar { display: none; }
+  .survey-editor-shell > header nav > * {
+    flex: 0 0 auto;
+    padding: .75rem .875rem;
+    font-size: .75rem;
+  }
+  .survey-editor-shell > section article { border-radius: 1rem; padding: 1rem; }
+  .survey-editor-shell > section article > div { gap: .5rem; }
+  .survey-editor-shell > section article svg:first-child { display: none; }
+}
+
 html, body, #root {
   min-height: 100%;
 }
