@@ -8,7 +8,7 @@ import { useI18n } from '@/i18n/I18nContext';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { LoadingState } from '@/components/ui/LoadingState';
-import { formatDate, groupName, groupSupervisorAssignments, today, workspaceQueryKey, type SupervisorGroup, type Workspace } from './supervisorWorkspace';
+import { formatDate, formatWeekday, groupName, groupSupervisorAssignments, today, workspaceQueryKey, type SupervisorGroup, type Workspace } from './supervisorWorkspace';
 
 function target(group:SupervisorGroup,date:string,screen:'attendance'|'assessments'){
   const values=new URLSearchParams({group:group.key});
@@ -28,7 +28,7 @@ export function SupervisorSchedulePage(){
     <Link to="/supervisor/portal" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold"><ArrowRight className="h-4 w-4"/>{tr('الرجوع للوحة المشرف','Back to dashboard')}</Link>
     <PageHeader title={tr('جدولي السريري','My clinical schedule')} description={tr('اختر الحضور أو التقييم من أي جلسة للانتقال مباشرة إلى مجموعتها.','Open attendance or assessment from any session to select its group automatically.')}/>
     {!agenda.length?<ErrorState title={tr('لا توجد جلسات ظاهرة','No sessions available')} message={tr('راجع تكليفات الجدول وأيام العمل المحددة لك في المواقع التدريبية.','Review your schedule assignments and configured work days.')}/>:<div className="space-y-3">{agenda.map(({date,group})=>{const past=date<today(),isToday=date===today();return <article key={`${date}-${group.key}`} className={`grid gap-4 rounded-2xl border bg-white p-4 shadow-sm sm:grid-cols-[160px_1fr_auto] sm:items-center ${isToday?'border-teal-400 ring-2 ring-teal-100':'border-slate-200'} ${past?'opacity-60':''}`}>
-      <div><span className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black ${isToday?'bg-teal-700 text-white':'bg-slate-100 text-slate-700'}`}><CalendarDays className="h-4 w-4"/>{isToday?tr('اليوم','Today'):formatDate(date,ar)}</span></div>
+      <div className="flex flex-wrap items-center gap-2"><span className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black ${isToday?'bg-teal-700 text-white':'bg-slate-100 text-slate-700'}`}><CalendarDays className="h-4 w-4"/>{formatDate(date,ar)}</span><span className={`rounded-lg px-2.5 py-1.5 text-[11px] font-black ${isToday?'bg-amber-100 text-amber-800':'border border-slate-200 bg-white text-slate-600'}`}>{isToday?`${tr('اليوم','Today')} · ${formatWeekday(date,ar)}`:formatWeekday(date,ar)}</span></div>
       <div><h2 className="font-black text-slate-900">{groupName(group,ar)}</h2><p className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-500"><span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/>{ar?group.siteAr:group.siteEn}</span><span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5"/>{group.students.length} {tr('طالب','students')}</span></p></div>
       <div className="flex gap-2"><Link to={target(group,date,'attendance')} className="rounded-xl bg-teal-700 px-3 py-2 text-xs font-bold text-white">{tr('رصد الحضور','Attendance')}</Link><Link to={target(group,date,'assessments')} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">{tr('التقييم الأسبوعي','Assessment')}</Link></div>
     </article>})}</div>}
