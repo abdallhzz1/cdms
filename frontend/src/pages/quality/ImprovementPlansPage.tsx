@@ -11,8 +11,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 
-type Plan = { id: number; academic_year?: string; source: string; reference?: string; observation: string; improvement_action: string; responsible: string; start_date?: string; due_date: string; priority: string; status: string; closure_evidence?: string; verification_result?: string };
-const initialForm = { observation: '', improvement_action: '', priority: 'normal', due_date: '', start_date: '', responsible: '', academic_year: '', source: 'ملاحظة داخلية', reference: '', data_source: '' };
+type Plan = { id: number; academic_year?: string; source: string; reference?: string; observation: string; root_cause?: string; improvement_action: string; desired_outcome?: string; responsible: string; owner?: { name:string }; start_date?: string; due_date: string; priority: string; progress_percent:number; status: string; closure_evidence?: string; verification_result?: string };
+const initialForm = { observation: '', root_cause:'', improvement_action: '', desired_outcome:'', priority: 'normal', progress_percent:0, due_date: '', start_date: '', responsible: '', owner_user_id:'', quality_kpi_id:'', quality_survey_id:'', academic_year: '', source: 'ملاحظة داخلية', reference: '', data_source: '' };
 const inputClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
 const statusMap: Record<string, { ar: string; en: string }> = { open: { ar: 'مفتوحة', en: 'Open' }, in_progress: { ar: 'قيد التنفيذ', en: 'In progress' }, under_review: { ar: 'قيد التحقق', en: 'Under review' }, closed: { ar: 'مغلقة', en: 'Closed' } };
 const priorityMap: Record<string, { ar: string; en: string }> = { high: { ar: 'عالية', en: 'High' }, normal: { ar: 'متوسطة', en: 'Medium' }, low: { ar: 'منخفضة', en: 'Low' } };
@@ -23,7 +23,7 @@ export function ImprovementPlansPage() {
   const [form, setForm] = useState(initialForm); const [search, setSearch] = useState(''); const [status, setStatus] = useState('all');
   const [actionForm, setActionForm] = useState({ status: 'in_progress', reason: '', closure_evidence: '', verification_result: '' });
   const query = useQuery({ queryKey: ['quality-plans'], queryFn: () => apiFetch<Plan[]>('/quality-improvement-plans?per_page=100') });
-  const create = useMutation({ mutationFn: () => apiFetch('/quality-improvement-plans', { method: 'POST', body: form }), onSuccess: async () => { await refresh(); setCreateOpen(false); setForm(initialForm); } });
+  const create = useMutation({ mutationFn: () => apiFetch('/quality-improvement-plans', { method: 'POST', body: {...form,owner_user_id:form.owner_user_id?Number(form.owner_user_id):null,quality_kpi_id:form.quality_kpi_id?Number(form.quality_kpi_id):null,quality_survey_id:form.quality_survey_id?Number(form.quality_survey_id):null} }), onSuccess: async () => { await refresh(); setCreateOpen(false); setForm(initialForm); } });
   const transition = useMutation({ mutationFn: () => apiFetch(`/quality-improvement-plans/${actionPlan!.id}/transition`, { method: 'POST', body: actionForm }), onSuccess: async () => { await refresh(); setActionPlan(null); } });
   const refresh = async () => { await Promise.all([client.invalidateQueries({ queryKey: ['quality-plans'] }), client.invalidateQueries({ queryKey: ['quality-overview'] })]); };
 

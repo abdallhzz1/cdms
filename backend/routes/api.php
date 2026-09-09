@@ -307,6 +307,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::delete('operational-tasks/{operationalTask}', [OperationalTaskController::class, 'destroy'])->middleware('permission:tasks.manage');
         Route::get('quality-surveys', [QualitySurveyController::class, 'index'])->middleware('permission:quality.view');
         Route::post('quality-surveys', [QualitySurveyController::class, 'store'])->middleware('permission:quality.manage');
+        Route::put('quality-surveys/{qualitySurvey}', [QualitySurveyController::class, 'update'])->middleware('permission:quality.manage');
+        Route::post('quality-surveys/{qualitySurvey}/transition', [QualitySurveyController::class, 'transition'])->middleware('permission:quality.manage');
         Route::get('quality-surveys/{qualitySurvey}', [QualitySurveyController::class, 'show'])->middleware('permission:quality.view');
         Route::get('quality-surveys/{qualitySurvey}/responses', [QualitySurveyController::class, 'responses'])->middleware('permission:quality.view');
         Route::post('quality-surveys/{qualitySurvey}/questions', [QualitySurveyController::class, 'storeQuestion'])->middleware('permission:quality.manage');
@@ -315,9 +317,11 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('quality-improvement-plans', [QualityImprovementController::class, 'storePlan'])->middleware('permission:quality.manage');
         Route::put('quality-improvement-plans/{plan}', [QualityImprovementController::class, 'updatePlan'])->middleware('permission:quality.manage');
         Route::get('quality-overview', [QualityImprovementController::class, 'overview'])->middleware('permission:quality.view');
+        Route::get('quality-options', [QualityImprovementController::class, 'options'])->middleware('permission:quality.view');
         Route::get('quality-kpis', [QualityImprovementController::class, 'kpis'])->middleware('permission:quality.view');
         Route::post('quality-kpis', [QualityImprovementController::class, 'storeKpi'])->middleware('permission:kpi.manage');
         Route::post('quality-kpis/{kpi}/measurements', [QualityImprovementController::class, 'storeMeasurement'])->middleware('permission:kpi.manage');
+        Route::post('quality-kpi-measurements/{measurement}/review', [QualityImprovementController::class, 'reviewMeasurement'])->middleware('permission:kpi.manage');
         Route::get('meetings', [MeetingController::class, 'index'])->middleware('permission:meetings.manage');
         Route::post('meetings', [MeetingController::class, 'store'])->middleware('permission:meetings.manage');
         Route::get('meetings/{meeting}', [MeetingController::class, 'show'])->middleware('permission:meetings.manage');

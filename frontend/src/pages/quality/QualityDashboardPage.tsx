@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, BarChart3, CheckCircle2, ClipboardCheck, LineChart, RefreshCw, Target } from 'lucide-react';
@@ -12,8 +13,9 @@ type Plan = { id: number; observation: string; improvement_action: string; respo
 type Survey = { id: number; code: string; title: string; target_group: string; questions_count: number; responses_count: number };
 type Kpi = { id: number; code: string; name: string; target_value?: string; latest_measurement?: { display_value: string; achievement_status: string; measured_at: string } | null };
 type Overview = {
-  counts: { surveys: number; survey_responses: number; kpis: number; kpis_achieved: number; plans_open: number; plans_overdue: number; plans_closed: number };
+  counts: { surveys: number; survey_responses: number; kpis: number; kpis_achieved: number; kpis_pending_review: number; plans_open: number; plans_overdue: number; plans_closed: number };
   recent_surveys: Survey[]; recent_plans: Plan[]; recent_kpis: Kpi[];
+  attention: { overdue_plans: Plan[]; pending_measurements: Array<{id:number; measured_at:string; kpi?:{code:string;name:string}}> };
 };
 
 const planStatus: Record<string, string> = { open: 'مفتوحة', in_progress: 'قيد التنفيذ', under_review: 'قيد التحقق', closed: 'مغلقة' };
@@ -21,7 +23,9 @@ const planStatus: Record<string, string> = { open: 'مفتوحة', in_progress: 
 export function QualityDashboardPage() {
   const { can } = useAuth();
   const { locale } = useI18n();
-  const query = useQuery({ queryKey: ['quality-overview'], queryFn: () => apiFetch<Overview>('/quality-overview') });
+  const [year, setYear] = useState('');
+  const options = useQuery({ queryKey: ['quality-options'], queryFn: () => apiFetch<{academic_years:string[]}>('/quality-options') });
+  const query = useQuery({ queryKey: ['quality-overview', year], queryFn: () => apiFetch<Overview>(`/quality-overview${year ? `?academic_year=${encodeURIComponent(year)}` : ''}`) });
 
   if (!can('quality.view')) return <ErrorState title={locale === 'ar' ? 'غير مصرح' : 'Access denied'} />;
   if (query.isLoading) return <LoadingState />;
@@ -35,7 +39,7 @@ export function QualityDashboardPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 pb-14">
-      <PageHeader title={isAr ? 'مركز ضمان الجودة والتطوير' : 'Quality Assurance & Development Center'} description={isAr ? 'مساحة عمل موحدة للقياس، رصد فرص التحسين، متابعة التنفيذ، وتوثيق الإغلاق.' : 'One workspace for measurement, improvement opportunities, implementation, and verified closure.'} />
+      <PageHeader title={isAr ? 'مركز ضمان الجودة والتطوير' : 'Quality Assurance & Development Center'} description={isAr ? 'مساحة عمل موحدة للقياس، رصد فرص التحسين، متابعة التنفيذ، وتوثيق الإغلاق.' : 'One workspace for measurement, improvement opportunities, implementation, and verified closure.'}><select value={year} onChange={e=>setYear(e.target.value)} className="h-11 min-w-48 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700"><option value="">{isAr?'كل الأعوام الأكاديمية':'All academic years'}</option>{options.data?.academic_years.map(item=><option key={item}>{item}</option>)}</select></PageHeader>
 
       <section className="overflow-hidden rounded-3xl border border-teal-100 bg-white shadow-sm">
         <div className="grid lg:grid-cols-[1.2fr_1fr]">
@@ -57,6 +61,7 @@ export function QualityDashboardPage() {
               <div><p className="text-2xl font-black text-slate-800">{achievementRate}%</p><p className="mt-1 text-[11px] text-slate-500">{isAr ? 'تحقق المؤشرات' : 'KPI achievement'}</p></div>
             </div>
             {counts.plans_overdue > 0 && <Link to="/quality/improvement" className="mt-5 flex items-center justify-between rounded-2xl border border-amber-200 bg-white px-4 py-3 text-xs font-bold text-amber-800"><span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" />{counts.plans_overdue} {isAr ? 'خطط تجاوزت الموعد وتحتاج متابعة' : 'overdue plans need attention'}</span><ArrowLeft className="h-4 w-4" /></Link>}
+            {counts.kpis_pending_review > 0 && <Link to="/quality/kpis" className="mt-2 flex items-center justify-between rounded-2xl border border-blue-200 bg-white px-4 py-3 text-xs font-bold text-blue-800"><span className="flex items-center gap-2"><ClipboardCheck className="h-4 w-4" />{counts.kpis_pending_review} {isAr ? 'قياسات تنتظر المراجعة والاعتماد' : 'measurements await review'}</span><ArrowLeft className="h-4 w-4" /></Link>}
           </div>
         </div>
       </section>

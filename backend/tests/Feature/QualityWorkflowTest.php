@@ -44,13 +44,17 @@ class QualityWorkflowTest extends TestCase
     {
         $kpi = $this->actingAs($this->user)->postJson('/api/v1/quality-kpis', [
             'code' => 'KPI-QA-01', 'name' => 'رضا الطلبة', 'target_value' => '80%',
+            'target_numeric' => 80, 'comparison_operator' => 'gte', 'value_type' => 'percentage',
             'measurement_frequency' => 'فصلي', 'responsible' => 'منسق الجودة',
         ])->assertCreated()->json('data');
 
         $this->postJson("/api/v1/quality-kpis/{$kpi['id']}/measurements", [
             'measured_at' => now()->toDateString(), 'display_value' => '84%',
-            'numeric_value' => 84, 'achievement_status' => 'achieved', 'evidence' => 'نتائج الاستبيان الفصلي',
-        ])->assertCreated();
+            'numeric_value' => 84, 'evidence' => 'نتائج الاستبيان الفصلي', 'submit_for_review' => true,
+        ])->assertCreated()->assertJsonPath('data.achievement_status', 'achieved');
+
+        $measurement = \App\Models\QualityKpiMeasurement::firstOrFail();
+        $this->postJson("/api/v1/quality-kpi-measurements/{$measurement->id}/review", ['decision' => 'approved'])->assertOk();
 
         $this->getJson('/api/v1/quality-overview')->assertOk()
             ->assertJsonPath('data.counts.kpis', 1)
