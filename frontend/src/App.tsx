@@ -42,6 +42,7 @@ import { SurveysPage } from '@/pages/quality/SurveysPage';
 import { SurveyDetailsPage } from '@/pages/quality/SurveyDetailsPage';
 import { ImprovementPlansPage } from '@/pages/quality/ImprovementPlansPage';
 import { KpiPage } from '@/pages/quality/KpiPage';
+import { QualityOperationsPage } from '@/pages/quality/QualityOperationsPage';
 import { MeetingsPage } from '@/pages/MeetingsPage';
 import { MeetingDetailsPage } from '@/pages/MeetingDetailsPage';
 import { AcademicCalendarPage } from '@/pages/AcademicCalendarPage';
@@ -189,6 +190,7 @@ export function App() {
                 <Route path="/quality/surveys/:id" element={<SurveyDetailsPage />} />
                 <Route path="/quality/improvement" element={<ImprovementPlansPage />} />
                 <Route path="/quality/kpis" element={<KpiPage />} />
+                <Route path="/quality/operations" element={<QualityOperationsPage />} />
                 <Route path="/meetings" element={<MeetingsPage />} />
                 <Route path="/meetings/:id" element={<MeetingDetailsPage />} />
                 <Route path="/academic/calendar" element={<AcademicCalendarPage />} />

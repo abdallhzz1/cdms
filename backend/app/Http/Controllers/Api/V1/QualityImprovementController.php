@@ -9,6 +9,8 @@ use App\Models\QualityKpi;
 use App\Models\QualityKpiMeasurement;
 use App\Models\QualitySurvey;
 use App\Models\QualitySurveyResponse;
+use App\Models\QualityFinding;
+use App\Models\QualityEvidence;
 use App\Models\User;
 use App\Services\WorkflowTransitionService;
 use Illuminate\Http\JsonResponse;
@@ -36,6 +38,8 @@ class QualityImprovementController extends Controller
                 'plans_open' => (clone $plans)->whereIn('status', $open)->count(),
                 'plans_overdue' => (clone $plans)->whereIn('status', $open)->whereDate('due_date', '<', today())->count(),
                 'plans_closed' => (clone $plans)->where('status', 'closed')->count(),
+                'findings_open' => QualityFinding::where('status', '!=', 'closed')->when($year, fn ($q) => $q->where('academic_year', $year))->count(),
+                'evidence_expiring' => QualityEvidence::where('status', 'approved')->whereBetween('expires_at', [today(), today()->addDays(60)])->count(),
             ],
             'recent_surveys' => (clone $surveys)->withCount(['questions', 'responses'])->latest('updated_at')->limit(5)->get(),
             'recent_plans' => (clone $plans)->with('owner:id,name')->latest('updated_at')->limit(6)->get(),

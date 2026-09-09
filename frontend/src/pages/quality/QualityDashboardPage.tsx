@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, BarChart3, CheckCircle2, ClipboardCheck, LineChart, RefreshCw, Target } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BarChart3, CheckCircle2, ClipboardCheck, FileCheck2, LineChart, RefreshCw, Target } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
@@ -13,7 +13,7 @@ type Plan = { id: number; observation: string; improvement_action: string; respo
 type Survey = { id: number; code: string; title: string; target_group: string; questions_count: number; responses_count: number };
 type Kpi = { id: number; code: string; name: string; target_value?: string; latest_measurement?: { display_value: string; achievement_status: string; measured_at: string } | null };
 type Overview = {
-  counts: { surveys: number; survey_responses: number; kpis: number; kpis_achieved: number; kpis_pending_review: number; plans_open: number; plans_overdue: number; plans_closed: number };
+  counts: { surveys: number; survey_responses: number; kpis: number; kpis_achieved: number; kpis_pending_review: number; plans_open: number; plans_overdue: number; plans_closed: number; findings_open:number; evidence_expiring:number };
   recent_surveys: Survey[]; recent_plans: Plan[]; recent_kpis: Kpi[];
   attention: { overdue_plans: Plan[]; pending_measurements: Array<{id:number; measured_at:string; kpi?:{code:string;name:string}}> };
 };
@@ -66,11 +66,12 @@ export function QualityDashboardPage() {
         </div>
       </section>
 
-      <section className="grid gap-3 lg:grid-cols-3">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {[
           { to: '/quality/surveys', icon: ClipboardCheck, title: isAr ? 'القياس والاستبيانات' : 'Measurement & surveys', value: counts.surveys, hint: `${counts.survey_responses} ${isAr ? 'إجابة موثقة' : 'recorded responses'}` },
           { to: '/quality/kpis', icon: LineChart, title: isAr ? 'مؤشرات الجودة' : 'Quality indicators', value: counts.kpis, hint: `${counts.kpis_achieved} ${isAr ? 'مؤشرات متحققة' : 'indicators achieved'}` },
           { to: '/quality/improvement', icon: Target, title: isAr ? 'خطط التحسين' : 'Improvement plans', value: counts.plans_open, hint: `${counts.plans_closed} ${isAr ? 'خطط مغلقة بدليل' : 'plans closed with evidence'}` },
+          { to: '/quality/operations', icon: FileCheck2, title: isAr ? 'الملاحظات والأدلة' : 'Findings & evidence', value: counts.findings_open, hint: `${counts.evidence_expiring} ${isAr ? 'أدلة تقترب من الانتهاء' : 'evidence items nearing expiry'}` },
         ].map(({ to, icon: Icon, title, value, hint }) => <Link key={to} to={to} className="group rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-teal-200"><div className="flex items-center justify-between"><span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"><Icon className="h-5 w-5" /></span><ArrowLeft className="h-4 w-4 text-slate-300 transition group-hover:text-teal-600" /></div><div className="mt-4 flex items-end justify-between gap-3"><div><h3 className="text-sm font-black text-slate-800">{title}</h3><p className="mt-1 text-xs text-slate-500">{hint}</p></div><span className="text-2xl font-black text-teal-700">{value}</span></div></Link>)}
       </section>
 

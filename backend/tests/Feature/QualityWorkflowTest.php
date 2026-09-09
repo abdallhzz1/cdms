@@ -61,4 +61,22 @@ class QualityWorkflowTest extends TestCase
             ->assertJsonPath('data.counts.kpis_achieved', 1)
             ->assertJsonPath('data.recent_kpis.0.latest_measurement.display_value', '84%');
     }
+
+    public function test_quality_findings_and_evidence_are_operational_records(): void
+    {
+        $finding = $this->actingAs($this->user)->postJson('/api/v1/quality-findings', [
+            'academic_year' => '2026/2027', 'source' => 'تدقيق داخلي', 'title' => 'نقص توثيق نتيجة القياس',
+            'description' => 'لم يرفق الدليل مع أحد المؤشرات.', 'severity' => 'high', 'due_date' => now()->addWeek()->toDateString(),
+        ])->assertCreated()->assertJsonPath('data.status', 'open')->json('data');
+        $this->assertDatabaseHas('quality_findings', ['id' => $finding['id'], 'severity' => 'high']);
+
+        $this->postJson('/api/v1/quality-evidence', [
+            'code' => 'EVD-001', 'title' => 'محضر لجنة الجودة', 'reference_url' => 'https://example.test/evidence/1',
+            'document_version' => '1.0', 'status' => 'approved', 'expires_at' => now()->addYear()->toDateString(),
+        ])->assertCreated();
+
+        $this->getJson('/api/v1/quality-operations')->assertOk()
+            ->assertJsonPath('data.findings.0.reference', $finding['reference'])
+            ->assertJsonPath('data.evidence.0.code', 'EVD-001');
+    }
 }
