@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\V1\OperationalTaskController;
 use App\Http\Controllers\Api\V1\PartnershipController;
 use App\Http\Controllers\Api\V1\PersonController;
 use App\Http\Controllers\Api\V1\PublicGroupRegistrationController;
+use App\Http\Controllers\Api\V1\PublicProfileImageController;
 use App\Http\Controllers\Api\V1\PublicStudentScheduleController;
 use App\Http\Controllers\Api\V1\QualityImprovementController;
 use App\Http\Controllers\Api\V1\QualityOperationsController;
@@ -103,6 +104,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // Public Routes (No authentication required — for lobby displays & student self-lookup)
     // -------------------------------------------------------------------------
     Route::prefix('public')->name('public.')->group(function () {
+        Route::get('profile-images/{path}', PublicProfileImageController::class)
+            ->where('path', '.*')
+            ->middleware('throttle:operational-read')
+            ->name('profile-images.show');
         Route::get('quality-surveys/{qualitySurvey:public_id}', [QualitySurveyController::class, 'publicShow'])->middleware('throttle:operational-read');
         Route::post('quality-surveys/{qualitySurvey:public_id}/eligibility', [QualitySurveyController::class, 'publicEligibility'])->middleware('throttle:operational-read');
         Route::post('quality-surveys/{qualitySurvey:public_id}/submit', [QualitySurveyController::class, 'publicSubmit'])->middleware('throttle:operational-read');

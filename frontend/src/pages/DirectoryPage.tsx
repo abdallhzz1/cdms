@@ -665,7 +665,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
             <article key={String(row.id)} onClick={() => { if (kind === 'students') navigate(`/students/${String(row.id)}`); else if (kind === 'supervisors') navigate(`/staff/${String(row.id)}`); }} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm active:bg-slate-50">
               <div className="flex items-start gap-3">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-teal-100 bg-teal-50 text-sm font-black text-teal-700">
-                  {(row.photo_url || (kind === 'students' && localStorage.getItem(`student_photo_${row.id}`))) ? <img src={row.photo_url || localStorage.getItem(`student_photo_${row.id}`)!} alt={name(row)} className="h-full w-full object-cover"/> : name(row).substring(0,1)}
+                  {row.photo_url ? <img src={row.photo_url} alt={name(row)} className="h-full w-full object-cover"/> : name(row).substring(0,1)}
                 </div>
                 <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-black text-slate-800">{name(row)}</h3>{kind==='students'&&<p className="mt-1 font-mono text-[11px] text-slate-500">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span>}{getStatus(row)}</div></div>
                 {kind==='students'&&<div className="flex shrink-0 gap-1" onClick={event=>event.stopPropagation()}>{can('students.update')&&<button type="button" onClick={event=>handleOpenEdit(row,event)} className="rounded-lg bg-slate-50 p-2 text-teal-600"><Pencil className="h-4 w-4"/></button>}{can('students.delete')&&<button type="button" onClick={event=>handleDeleteStudent(row,event)} className="rounded-lg bg-red-50 p-2 text-red-500"><Trash2 className="h-4 w-4"/></button>}</div>}
@@ -696,9 +696,9 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                   <TableCell>
                     <div className="font-bold text-slate-800 flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-full bg-teal-50 text-teal-700 flex items-center justify-center text-xs font-black shrink-0 border border-teal-100 overflow-hidden">
-                        {(row.photo_url || (kind === 'students' && localStorage.getItem(`student_photo_${row.id}`))) ? (
+                        {row.photo_url ? (
                           <img 
-                            src={row.photo_url || localStorage.getItem(`student_photo_${row.id}`)!} 
+                            src={row.photo_url}
                             alt={name(row)} 
                             className="w-full h-full object-cover rounded-full" 
                           />

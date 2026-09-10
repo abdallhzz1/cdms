@@ -36,10 +36,22 @@ class SecureFileUploadService
 
         return [
             'path' => $path,
-            'url' => Storage::disk('public')->url($path),
+            // Serve profile images through the application itself. Shared-hosting
+            // deployments do not always allow a public/storage symlink, while
+            // this URL works identically from every browser and server layout.
+            'url' => self::publicAvatarUrl($path),
             'mime_type' => $mime,
             'size_bytes' => strlen($bytes),
         ];
+    }
+
+    public static function publicAvatarUrl(string $path): string
+    {
+        $encodedPath = collect(explode('/', trim($path, '/')))
+            ->map(fn (string $segment): string => rawurlencode($segment))
+            ->implode('/');
+
+        return '/api/v1/public/profile-images/'.$encodedPath;
     }
 
     public function storeDocument(UploadedFile|string $source, string $directory): array

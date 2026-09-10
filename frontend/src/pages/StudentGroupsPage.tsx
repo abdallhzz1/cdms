@@ -33,9 +33,7 @@ function balancedPlan(studentsCount: number, mode: PlanningMode, value: number):
 }
 
 function StudentAvatar({ student, small = false }: { student: RosterStudent; small?: boolean }) {
-  const localPhoto = typeof window !== 'undefined' ? localStorage.getItem(`student_photo_${student.id}`) : null;
-  const photo = student.photo_url || localPhoto;
-  return <div className={`flex shrink-0 items-center justify-center overflow-hidden border border-teal-100 bg-teal-50 font-black text-teal-700 ${small ? 'h-9 w-9 rounded-xl' : 'h-12 w-12 rounded-2xl'}`}>{photo ? <img src={photo} alt={student.name} className="h-full w-full object-cover" /> : student.name.slice(0, 1)}</div>;
+  return <div className={`flex shrink-0 items-center justify-center overflow-hidden border border-teal-100 bg-teal-50 font-black text-teal-700 ${small ? 'h-9 w-9 rounded-xl' : 'h-12 w-12 rounded-2xl'}`}>{student.photo_url ? <img src={student.photo_url} alt={student.name} className="h-full w-full object-cover" /> : student.name.slice(0, 1)}</div>;
 }
 
 export function StudentGroupsPage() {
