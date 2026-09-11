@@ -286,6 +286,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('grade-entries/batch-submit', [GradeEntryController::class, 'batchSubmit'])->middleware('permission:grades.create');
         Route::post('grade-entries/batch-approve', [GradeEntryController::class, 'batchApprove'])->middleware('permission.any:grades.approve,approvals.decide');
         Route::post('grade-entries/batch-return', [GradeEntryController::class, 'batchReturn'])->middleware('permission.any:grades.approve,approvals.decide');
+        Route::post('grade-entries/batch-withdraw-approval', [GradeEntryController::class, 'withdrawBatchApproval'])->middleware('permission.any:grades.approve,approvals.decide');
         Route::get('clinical-sessions', [ClinicalSessionController::class, 'index'])->middleware('permission:attendance.view');
         Route::post('clinical-sessions', [ClinicalSessionController::class, 'store'])->middleware('permission:attendance.record');
         Route::get('attendance-records', [AttendanceRecordController::class, 'index'])->middleware('permission:attendance.view');

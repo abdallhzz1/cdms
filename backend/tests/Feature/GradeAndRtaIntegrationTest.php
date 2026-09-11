@@ -399,5 +399,19 @@ class GradeAndRtaIntegrationTest extends TestCase
 
         $this->assertDatabaseHas('approval_requests', ['id' => $firstRequestId, 'status' => 'cancelled']);
         $this->assertDatabaseHas('approval_requests', ['status' => 'pending', 'current_step_order' => 1]);
+
+        $dean = User::factory()->create();
+        $dean->roles()->attach(Role::where('code', 'DEAN')->firstOrFail());
+        $this->actingAs($director)->postJson('/api/v1/grade-entries/batch-approve', $sheet)->assertOk();
+        $activeRequestId = DB::table('approval_requests')->where('status', 'pending')->where('current_step_order', 2)->value('id');
+        $this->actingAs($director)->postJson('/api/v1/grade-entries/batch-withdraw-approval', [
+            ...$sheet,
+            'reason' => 'Added student information requires correction.',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('approval_requests', ['id' => $activeRequestId, 'status' => 'cancelled']);
+        $this->assertSame(3, GradeEntry::where('status', 'returned')->count());
+        $this->assertDatabaseHas('notifications', ['notifiable_id' => $editor->id]);
+        $this->assertDatabaseHas('notifications', ['notifiable_id' => $dean->id]);
     }
 }

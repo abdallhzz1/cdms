@@ -494,6 +494,47 @@ class GradeEntryController extends Controller
         return ApiResponse::success(null, 'Grades returned for revision.');
     }
 
+    public function withdrawBatchApproval(Request $request, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
+    {
+        $data = $request->validate([
+            'course_code' => ['required', 'string'],
+            'academic_year_id' => ['nullable', 'integer', 'exists:academic_years,id', 'required_without:academic_year'],
+            'academic_year' => ['nullable', 'string', 'exists:academic_years,code', 'required_without:academic_year_id'],
+            'reason' => ['required', 'string', 'min:3', 'max:2000'],
+        ]);
+        $course = Course::where('code', $data['course_code'])->firstOrFail();
+        $this->authorizeCourseDepartmentAccess($course);
+        $academicYearId = $this->resolveAcademicYearId($data);
+        $subjectId = $course->id.':'.$academicYearId;
+
+        DB::transaction(function () use ($course, $academicYearId, $subjectId, $data, $request, $workflow, $approvals) {
+            $enrollmentIds = StudentCourseEnrollment::where('course_id', $course->id)
+                ->where('academic_year_id', $academicYearId)->pluck('id');
+            $grades = GradeEntry::whereIn('student_course_enrollment_id', $enrollmentIds)
+                ->where('status', 'submitted')->lockForUpdate()->get();
+            if ($grades->isEmpty()) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['grades' => [$this->tr(
+                    'لا توجد علامات مرسلة يمكن إعادتها بعد سحب الاعتماد.',
+                    'There are no submitted grades to return after withdrawing approval.',
+                )]]);
+            }
+
+            $approvals->withdrawOwnApproval('grade_sheet', 'grade_sheet', $subjectId, $request->user(), $data['reason']);
+            foreach ($grades as $grade) {
+                $workflow->transition($grade, 'returned', $data['reason']);
+                $grade->newQuery()->whereKey($grade->id)->update([
+                    'return_reason' => $data['reason'],
+                    'approved_by_user_id' => null,
+                    'approved_at' => null,
+                ]);
+            }
+        });
+
+        return ApiResponse::success(null, app()->getLocale() === 'ar'
+            ? 'تم سحب اعتمادك وإعادة كشف العلامات لمساعد البحث والتدريس.'
+            : 'Your approval was withdrawn and the grade sheet was returned to the research and teaching assistant.');
+    }
+
     public function submit(GradeEntry $gradeEntry, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->authorizeGradeEntryAccess($gradeEntry);

@@ -141,6 +141,62 @@ class ApprovalWorkflowService
             });
     }
 
+    public function withdrawOwnApproval(string $workflowCode, string $subjectType, string|int $subjectId, User $actor, string $reason): ApprovalRequest
+    {
+        $request = DB::transaction(function () use ($workflowCode, $subjectType, $subjectId, $actor, $reason) {
+            $request = $this->pendingRequest($workflowCode, $subjectType, $subjectId, true);
+            $approvedAction = $request->actions()
+                ->where('actor_user_id', $actor->id)
+                ->where('action', 'approved')
+                ->with('step')->latest('acted_at')->first();
+
+            if (! $approvedAction || ! $approvedAction->step
+                || (int) $request->current_step_order <= (int) $approvedAction->step->step_order) {
+                throw ValidationException::withMessages(['approval' => [$this->tr(
+                    'لا يوجد اعتماد سابق لك يمكن سحبه في المرحلة الحالية.',
+                    'You do not have a prior approval that can be withdrawn at the current stage.',
+                )]]);
+            }
+
+            ApprovalAction::create([
+                'approval_request_id' => $request->id,
+                'approval_workflow_step_id' => $approvedAction->approval_workflow_step_id,
+                'actor_user_id' => $actor->id,
+                'action' => 'withdrawn',
+                'comment' => $reason,
+                'metadata' => ['withdrawn_step_order' => $approvedAction->step->step_order],
+                'acted_at' => now(),
+            ]);
+            $request->update(['status' => 'cancelled', 'returned_at' => now()]);
+
+            return $request->fresh()->load(['workflow.steps', 'requester']);
+        });
+
+        $request->requester?->notify(new LocalSystemNotification([
+            'event_key' => 'approval.withdrawn', 'category' => 'approvals', 'severity' => 'urgent',
+            'title_ar' => 'سُحب اعتماد كشف العلامات', 'title_en' => 'Grade sheet approval withdrawn',
+            'message_ar' => $request->title_ar.' — '.$reason,
+            'message_en' => $request->title_en.' — '.$reason,
+            'action_url' => $request->source_url ?: '/grades', 'approval_request_id' => $request->public_id,
+        ]));
+
+        $currentStep = $request->workflow->steps->firstWhere('step_order', (int) $request->current_step_order);
+        if ($currentStep) {
+            User::query()->where('is_active', true)
+                ->whereKeyNot($actor->id)
+                ->whereHas('roles', fn ($query) => $query->whereIn('code', $currentStep->role_codes ?: []))
+                ->each(fn (User $user) => $user->notify(new LocalSystemNotification([
+                    'event_key' => 'approval.withdrawn', 'category' => 'approvals', 'severity' => 'notice',
+                    'title_ar' => 'تم سحب طلب اعتماد', 'title_en' => 'Approval request withdrawn',
+                    'message_ar' => $request->title_ar.' — '.$reason,
+                    'message_en' => $request->title_en.' — '.$reason,
+                    'action_url' => '/approvals', 'approval_request_id' => $request->public_id,
+                ])));
+        }
+
+        return $request;
+    }
+
     private function workflow(string $code): ApprovalWorkflow
     {
         $workflow = ApprovalWorkflow::with('steps')->where('code', $code)->where('is_active', true)->first();
