@@ -28,9 +28,17 @@ export function LoginPage() {
       navigate('/', { replace: true });
     } catch (error) {
       if (error instanceof ApiError) {
-        setFormError(error.status === 401
-          ? (locale === 'ar' ? 'تعذر إنشاء جلسة دخول آمنة. امسح بيانات الموقع ثم أعد المحاولة.' : 'A secure login session could not be established. Clear this site’s data and try again.')
-          : t('auth.invalidCredentials'));
+        if (error.status === 422) {
+          setFormError(t('auth.invalidCredentials'));
+        } else if (error.status === 401 || error.status === 419) {
+          setFormError(locale === 'ar'
+            ? 'تعذر إنشاء جلسة دخول آمنة. امسح ملفات الارتباط الخاصة بالموقع ثم حدّث الصفحة.'
+            : 'A secure login session could not be established. Clear this site’s cookies, then refresh the page.');
+        } else if (error.status === 429) {
+          setFormError(locale === 'ar' ? 'تمت محاولات دخول كثيرة. انتظر دقيقة ثم حاول مجددًا.' : 'Too many login attempts. Wait a minute, then try again.');
+        } else {
+          setFormError(error.message || t('auth.unknownError'));
+        }
       } else {
         setFormError(t('auth.unknownError'));
       }
