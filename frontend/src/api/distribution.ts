@@ -424,8 +424,8 @@ export function getAuditLogs(versionId: number, page: number = 1): Promise<Pagin
 export function approveVersion(
   versionId: number,
   payload?: { force?: boolean; override_reason?: string }
-): Promise<any> {
-  return apiFetch<any>(`/distribution-versions/${versionId}/approve`, {
+): Promise<{ approval_status: 'pending' | 'advanced' | 'approved'; approval_request?: unknown; audit_id?: number; fingerprint?: string }> {
+  return apiFetch<{ approval_status: 'pending' | 'advanced' | 'approved'; approval_request?: unknown; audit_id?: number; fingerprint?: string }>(`/distribution-versions/${versionId}/approve`, {
     method: 'POST',
     body: payload ?? {},
   });

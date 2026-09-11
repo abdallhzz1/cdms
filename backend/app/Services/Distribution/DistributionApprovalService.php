@@ -7,6 +7,7 @@ use App\Models\DistributionVersion;
 use App\Models\StudentClinicalAssignment;
 use App\Models\CourseScheduleBlockActivity;
 use App\Models\CourseScheduleCell;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -184,9 +185,9 @@ class DistributionApprovalService
      * Return a UI-safe approval state so users know whether approval is
      * missing or was invalidated by a later schedule change.
      *
-     * @return array{status:string, approved_at:?string, approved_by:?int}
+     * @return array{status:string, approved_at:?string, approved_by:?int, can_current_user_approve?:bool, current_step_name_ar?:string, current_step_name_en?:string}
      */
-    public function getApprovalState(DistributionVersion $version): array
+    public function getApprovalState(DistributionVersion $version, ?User $user = null): array
     {
         $validApproval = $this->getValidApproval($version);
         if ($validApproval) {
@@ -194,6 +195,19 @@ class DistributionApprovalService
                 'status' => 'approved',
                 'approved_at' => $validApproval->created_at?->toIso8601String(),
                 'approved_by' => $validApproval->user_id,
+            ];
+        }
+
+        $pending = $this->workflowApprovals->pending('clinical_distribution', 'distribution_version', $version->id);
+        if ($pending) {
+            $step = $pending->workflow->steps->firstWhere('step_order', (int) $pending->current_step_order);
+            return [
+                'status' => 'pending',
+                'approved_at' => null,
+                'approved_by' => null,
+                'can_current_user_approve' => $user ? $this->workflowApprovals->canApproveCurrentStep($pending, $user) : false,
+                'current_step_name_ar' => $step?->name_ar,
+                'current_step_name_en' => $step?->name_en,
             ];
         }
 

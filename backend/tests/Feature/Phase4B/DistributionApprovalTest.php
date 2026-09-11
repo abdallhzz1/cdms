@@ -12,6 +12,9 @@ use App\Models\StudentGroup;
 use App\Models\StudentSubgroup;
 use App\Models\TrainingSite;
 use App\Models\User;
+use App\Models\ApprovalRequest;
+use App\Models\Permission;
+use App\Models\Role;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -109,6 +112,46 @@ class DistributionApprovalTest extends TestCase
 
         $audit = AuditLog::where('action', 'version.approved')->first();
         $this->assertNotNull($audit->changes['fingerprint']);
+    }
+
+    public function test_preparer_submission_persists_and_appears_in_the_current_approvers_inbox(): void
+    {
+        $submitterRole = Role::create(['code' => 'TEST_DISTRIBUTION_PREPARER', 'name_key' => 'distribution.preparer']);
+        $submitterRole->permissions()->sync(
+            Permission::where('code', 'distribution.approve')->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $submitter = User::factory()->create();
+        $submitter->roles()->attach($submitterRole);
+
+        $this->actingAs($submitter)->postJson(route('api.v1.distribution-versions.approve', $this->version->id))
+            ->assertOk()
+            ->assertJsonPath('data.approval_status', 'pending');
+
+        $this->assertDatabaseCount('approval_requests', 1);
+        $this->assertSame('pending', ApprovalRequest::firstOrFail()->status);
+        $this->assertStringContainsString('academic_year_id='.$this->version->rotation->academic_year_id, ApprovalRequest::firstOrFail()->source_url);
+        $this->assertStringContainsString('academic_level='.$this->version->rotation->academic_level, ApprovalRequest::firstOrFail()->source_url);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'version.approved',
+            'distribution_version_id' => $this->version->id,
+        ]);
+
+        $approverRole = $this->approveAdmin->roles()->firstOrFail();
+        $approverRole->permissions()->syncWithoutDetaching(
+            Permission::where('code', 'approvals.view')->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->actingAs($this->approveAdmin)->getJson('/api/v1/approvals')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.subject_id', (string) $this->version->id);
+
+        $this->actingAs($this->approveAdmin)->postJson(route('api.v1.distribution-versions.approve', $this->version->id))
+            ->assertOk()
+            ->assertJsonPath('data.approval_status', 'approved');
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'version.approved',
+            'distribution_version_id' => $this->version->id,
+        ]);
     }
 
     public function test_unauthorized_user_cannot_approve()

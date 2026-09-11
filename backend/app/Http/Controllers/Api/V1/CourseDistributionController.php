@@ -150,7 +150,7 @@ class CourseDistributionController extends Controller
                     'subgroup_name' => $cell->studentSubgroup?->name,
                     'main_group_name' => $cell->studentSubgroup?->group?->name,
                 ])->values();
-            $approvalState = $this->approvalService->getApprovalState($version);
+            $approvalState = $this->approvalService->getApprovalState($version, $request->user());
         }
 
         $blocks = $rotation->blocks->sortBy('from_week')->values();

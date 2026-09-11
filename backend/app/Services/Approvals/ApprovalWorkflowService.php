@@ -116,6 +116,20 @@ class ApprovalWorkflowService
             ->with(['workflow.steps', 'requester', 'actions.actor', 'actions.step'])->first();
     }
 
+    public function canApproveCurrentStep(ApprovalRequest $request, User $actor): bool
+    {
+        $request->loadMissing(['workflow.steps', 'actions']);
+        $step = $request->workflow->steps->firstWhere('step_order', (int) $request->current_step_order);
+        if (! $step || $actor->roles()->pluck('code')->intersect($step->role_codes ?: [])->isEmpty()) {
+            return false;
+        }
+        if ($request->workflow->prevent_requester_approval && (int) $request->requested_by === (int) $actor->id) {
+            return false;
+        }
+        return ! ($request->workflow->require_distinct_approvers
+            && $request->actions()->where('action', 'approved')->where('actor_user_id', $actor->id)->exists());
+    }
+
     public function cancelPending(string $workflowCode, string $subjectType, string|int $subjectId, User $actor, string $reason): void
     {
         $workflow = ApprovalWorkflow::where('code', $workflowCode)->first();

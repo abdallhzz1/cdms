@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Responses\ApiResponse;
 use App\Models\DistributionVersion;
 use App\Services\Distribution\DistributionApprovalService;
 use App\Traits\ScopesByDepartmentAndLevel;
@@ -32,28 +33,49 @@ class DistributionApprovalController extends Controller
         $overrideReason = $validated['override_reason'] ?? null;
 
         $result = DB::transaction(function () use ($request, $version, $force, $overrideReason) {
-            if (! $this->workflowApprovals->pending('clinical_distribution', 'distribution_version', $version->id)) {
-                $this->workflowApprovals->submit('clinical_distribution', 'distribution_version', $version->id, $request->user(),
-                    'اعتماد جدول التوزيع السريري', 'Clinical distribution approval', '/distribution', ['rotation_id' => $version->rotation_id]);
+            $approvalRequest = $this->workflowApprovals->pending('clinical_distribution', 'distribution_version', $version->id);
+            if (! $approvalRequest) {
+                $version->loadMissing('rotation');
+                $rotation = $version->rotation;
+                $query = http_build_query([
+                    'academic_year_id' => $rotation?->academic_year_id,
+                    'academic_level' => $rotation?->academic_level,
+                    'course_id' => $rotation?->course_id,
+                    'period_id' => $rotation?->schedule_scope === 'annual' ? 'annual' : $rotation?->clinical_period_id,
+                ]);
+                $approvalRequest = $this->workflowApprovals->submit('clinical_distribution', 'distribution_version', $version->id, $request->user(),
+                    'اعتماد جدول التوزيع السريري', 'Clinical distribution approval', '/distribution?'.$query, ['rotation_id' => $version->rotation_id]);
+            }
+            if (! $this->workflowApprovals->canApproveCurrentStep($approvalRequest, $request->user())) {
+                return ['decision' => null, 'audit' => null, 'approval_request' => $approvalRequest];
             }
             $decision = $this->workflowApprovals->approve('clinical_distribution', 'distribution_version', $version->id, $request->user(), $overrideReason);
             $audit = $decision['completed'] ? $this->approvalService->approve($version, $request->user(), $force, $overrideReason) : null;
-            return compact('decision', 'audit');
+            return compact('decision', 'audit', 'approvalRequest');
         });
         $decision = $result['decision'];
+        if (! $decision) {
+            return ApiResponse::success([
+                'approval_status' => 'pending',
+                'approval_request' => $result['approval_request'],
+            ], app()->getLocale() === 'ar'
+                ? 'تم إرسال الجدول للاعتماد وهو بانتظار قرار المرحلة الحالية.'
+                : 'The schedule was submitted and is awaiting the current approval stage.');
+        }
         if (! $decision['completed']) {
-            return response()->json(['message' => app()->getLocale() === 'ar' ? 'تم اعتماد مرحلتك وإرسال الجدول للمرحلة التالية.' : 'Your step was approved and sent to the next stage.', 'data' => ['approval_request' => $decision['request']]], 200);
+            return ApiResponse::success([
+                'approval_status' => 'advanced',
+                'approval_request' => $decision['request'],
+            ], app()->getLocale() === 'ar' ? 'تم اعتماد مرحلتك وإرسال الجدول للمرحلة التالية.' : 'Your step was approved and sent to the next stage.');
         }
 
         $audit = $result['audit'];
 
-        return response()->json([
-            'message' => __('distribution.approval.success'),
-            'data' => [
+        return ApiResponse::success([
+                'approval_status' => 'approved',
                 'audit_id' => $audit->id,
                 'fingerprint' => $audit->changes['fingerprint']
-            ]
-        ], 200);
+            ], __('distribution.approval.success'));
     }
 
     private function ensureVersionInUserScope(DistributionVersion $version): void

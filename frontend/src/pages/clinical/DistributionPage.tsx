@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   BookOpen,
   Building2,
@@ -136,9 +136,12 @@ type ScheduleRow = {
 };
 type Version = { id: number; status: string; updated_at: string };
 type ApprovalState = {
-  status: "required" | "approved" | "revoked";
+  status: "required" | "pending" | "approved" | "revoked";
   approved_at?: string | null;
   approved_by?: number | null;
+  can_current_user_approve?: boolean;
+  current_step_name_ar?: string | null;
+  current_step_name_en?: string | null;
 };
 type Rotation = {
   id: number;
@@ -229,6 +232,7 @@ function weekDate(
 export function DistributionPage() {
   const { can, user } = useAuth();
   const { locale } = useI18n();
+  const [searchParams] = useSearchParams();
   const ar = locale === "ar";
   const tr = (arabic: string, english: string) => (ar ? arabic : english);
   const levelText: Record<Level, string> = {
@@ -259,12 +263,13 @@ export function DistributionPage() {
     (item) => !isCohortScopedRta || assignedRtaLevels.includes(item),
   );
   const queryClient = useQueryClient();
-  const [yearId, setYearId] = useState("");
+  const requestedLevel = normalizeAssignedLevel(searchParams.get("academic_level") ?? "");
+  const [yearId, setYearId] = useState(searchParams.get("academic_year_id") ?? "");
   const [level, setLevel] = useState<Level>(
-    isCohortScopedRta ? (assignedRtaLevels[0] ?? "fourth") : "fourth",
+    isCohortScopedRta ? (assignedRtaLevels[0] ?? "fourth") : (requestedLevel ?? "fourth"),
   );
-  const [courseId, setCourseId] = useState("");
-  const [periodId, setPeriodId] = useState("");
+  const [courseId, setCourseId] = useState(searchParams.get("course_id") ?? "");
+  const [periodId, setPeriodId] = useState(searchParams.get("period_id") ?? "");
   const [startDate, setStartDate] = useState("");
   const [weeksCount, setWeeksCount] = useState(12);
   const [notice, setNotice] = useState<{
@@ -737,19 +742,22 @@ export function DistributionPage() {
   const approve = useMutation({
     mutationFn: (payload: OverridePayload = {}) =>
       approveVersion(schedule!.version!.id, payload),
-    onSuccess: async (_data, payload) => {
+    onSuccess: async (data, payload) => {
       setApprovalOverrideReason(payload?.override_reason ?? null);
       await refresh();
       setNotice({
         type: "success",
-        text:
-          locale === "ar"
-            ? payload?.force
+        text: data.approval_status === "pending"
+          ? tr("تم إرسال الجدول إلى مركز الاعتمادات، وهو بانتظار قرار المرحلة الحالية.", "The schedule was sent to the Approval Center and is awaiting the current stage decision.")
+          : data.approval_status === "advanced"
+            ? tr("تم اعتماد مرحلتك وإرسال الجدول إلى جهة الاعتماد التالية.", "Your stage was approved and the schedule was sent to the next approver.")
+            : locale === "ar"
+              ? payload?.force
               ? "تم اعتماد الجدول استثنائيًا مع توثيق السبب."
               : "تم اعتماد الجدول وأصبح جاهزاً للنشر."
-            : payload?.force
-              ? "The schedule was approved by exception and the reason was recorded."
-              : "The schedule is approved and ready to publish.",
+              : payload?.force
+                ? "The schedule was approved by exception and the reason was recorded."
+                : "The schedule is approved and ready to publish.",
       });
     },
     onError: async (error, payload) => {
@@ -1232,12 +1240,19 @@ export function DistributionPage() {
                   <Button
                     variant="outline"
                     onClick={() => approve.mutate({})}
+                    disabled={approvalState === "pending" && !schedule.approval_state?.can_current_user_approve}
                     isLoading={approve.isPending}
                   >
                     <CheckCircle2 className="me-1 h-4 w-4" />
                     {approvalState === "revoked"
                       ? tr("إعادة الاعتماد", "Approve again")
-                      : tr("اعتماد", "Approve")}
+                      : approvalState === "pending" && !schedule.approval_state?.can_current_user_approve
+                        ? tr("بانتظار الاعتماد", "Awaiting approval")
+                        : approvalState === "pending"
+                          ? tr("اعتماد المرحلة", "Approve stage")
+                          : can("approvals.decide")
+                            ? tr("اعتماد", "Approve")
+                            : tr("إرسال للاعتماد", "Submit for approval")}
                   </Button>
                 )}
               {can("distribution.publish") && isEditable && (
@@ -1335,15 +1350,21 @@ export function DistributionPage() {
                   {locale === "ar"
                     ? approvalState === "revoked"
                       ? "تم إلغاء الاعتماد بعد تعديل الجدول"
-                      : "الجدول بحاجة إلى اعتماد قبل النشر"
+                      : approvalState === "pending"
+                        ? "الجدول قيد الاعتماد"
+                        : "الجدول بحاجة إلى اعتماد قبل النشر"
                     : approvalState === "revoked"
                       ? "Approval was revoked after the schedule changed"
-                      : "Approval is required before publishing"}
+                      : approvalState === "pending"
+                        ? "The schedule is in approval"
+                        : "Approval is required before publishing"}
                 </strong>
                 <span className="mt-1 block">
-                  {locale === "ar"
-                    ? "راجع التوزيع، اضغط «اعتماد»، وبعد نجاح الاعتماد اضغط «نشر». أي تعديل لاحق سيتطلب اعتماداً جديداً."
-                    : "Review the distribution, select Approve, then publish after approval succeeds. Any later change requires a new approval."}
+                  {approvalState === "pending"
+                    ? tr(`المرحلة الحالية: ${schedule.approval_state?.current_step_name_ar ?? "بانتظار الجهة المخولة"}. سيظهر الطلب في مركز اعتماد الجهة المحددة.`, `Current stage: ${schedule.approval_state?.current_step_name_en ?? "awaiting the authorized role"}. The request is available in that role's Approval Center.`)
+                    : locale === "ar"
+                      ? "راجع التوزيع، أرسله للاعتماد، وبعد اكتمال جميع المراحل اضغط «نشر». أي تعديل لاحق سيتطلب اعتماداً جديداً."
+                      : "Review and submit the distribution for approval, then publish after all stages are complete. Any later change requires a new approval."}
                 </span>
               </div>
             )}
