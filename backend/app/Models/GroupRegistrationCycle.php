@@ -10,10 +10,33 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class GroupRegistrationCycle extends Model
 {
     use HasFactory;
-    protected $fillable = ['academic_year_id', 'academic_level', 'public_id', 'status', 'default_capacity', 'opens_at', 'closes_at', 'created_by'];
-    protected function casts(): array { return ['opens_at' => 'datetime', 'closes_at' => 'datetime']; }
+    protected $fillable = ['academic_year_id', 'academic_level', 'public_id', 'status', 'default_capacity', 'main_group_codes', 'opens_at', 'closes_at', 'created_by'];
+    protected function casts(): array { return ['main_group_codes' => 'array', 'opens_at' => 'datetime', 'closes_at' => 'datetime']; }
     public function academicYear(): BelongsTo { return $this->belongsTo(AcademicYear::class); }
     public function rosters(): HasMany { return $this->hasMany(StudentGroupRoster::class); }
+    /** @return array<int, string> */
+    public function mainGroupCodes(): array
+    {
+        $codes = collect($this->main_group_codes)
+            ->map(fn ($code) => strtoupper(trim((string) $code)))
+            ->filter()
+            ->values();
+
+        if ($codes->isNotEmpty()) {
+            return $codes->all();
+        }
+
+        return StudentGroup::query()
+            ->where('academic_year_id', $this->academic_year_id)
+            ->where('academic_level', $this->academic_level)
+            ->where('group_type', 'self_registration')
+            ->orderBy('name')
+            ->pluck('name')
+            ->map(fn ($code) => strtoupper(trim((string) $code)))
+            ->filter()
+            ->values()
+            ->all();
+    }
     public function isOpen(): bool
     {
         return $this->status === 'open'

@@ -584,6 +584,7 @@ class StudentController extends Controller
                 ->where('academic_year_id', $cycle->academic_year_id)
                 ->where('academic_level', $cycle->academic_level)
                 ->where('group_type', 'self_registration')
+                ->whereIn('name', $cycle->mainGroupCodes())
                 ->get()
                 ->keyBy(fn (StudentGroup $group) => strtoupper($group->name));
 
@@ -695,6 +696,7 @@ class StudentController extends Controller
             ->where('academic_year_id', $cycle->academic_year_id)
             ->where('academic_level', $cycle->academic_level)
             ->where('group_type', 'self_registration')
+            ->whereIn('name', $cycle->mainGroupCodes())
             ->whereRaw('UPPER(name) = ?', [strtoupper(trim((string) $mainGroupCode))])
             ->first();
 

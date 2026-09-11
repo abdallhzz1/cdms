@@ -428,6 +428,45 @@ class GroupSelfRegistrationTest extends TestCase
         $this->actingAs($user)->putJson("/api/v1/group-registration-cycles/{$created->id}",['status'=>'open'])->assertOk()->assertJsonPath('data.status','open');
     }
 
+    public function test_administrator_can_choose_main_group_letters_for_each_cycle(): void
+    {
+        $role=Role::create(['code'=>'TEST_GROUP_CODES_ADMIN','name_key'=>'test.group.codes.admin']);
+        $role->permissions()->sync(Permission::where('code','group_registration.manage_groups')->pluck('id')->mapWithKeys(fn($id)=>[$id=>['scope_type'=>'global']])->all());
+        $user=User::factory()->create();
+        $user->roles()->attach($role);
+        $secondYear=AcademicYear::factory()->create();
+
+        $this->actingAs($user)->postJson('/api/v1/group-registration-cycles',[
+            'academic_year_id'=>$secondYear->id,
+            'academic_level'=>'sixth',
+            'default_capacity'=>6,
+            'letters'=>['X','Y','Z'],
+        ])->assertCreated()
+            ->assertJsonPath('data.main_group_codes.0','X')
+            ->assertJsonPath('data.main_group_codes.2','Z')
+            ->assertJsonPath('data.groups.0.name','X')
+            ->assertJsonCount(3,'data.groups');
+
+        $this->assertDatabaseHas('group_registration_cycles', ['academic_year_id'=>$secondYear->id]);
+        $this->assertSame(['X','Y','Z'], GroupRegistrationCycle::where('academic_year_id',$secondYear->id)->firstOrFail()->main_group_codes);
+        $this->assertDatabaseHas('student_groups', ['academic_year_id'=>$secondYear->id,'academic_level'=>'sixth','name'=>'Y']);
+    }
+
+    public function test_cycle_group_letters_must_be_distinct_regardless_of_case(): void
+    {
+        $role=Role::create(['code'=>'TEST_GROUP_CODES_VALIDATION','name_key'=>'test.group.codes.validation']);
+        $role->permissions()->sync(Permission::where('code','group_registration.manage_groups')->pluck('id')->mapWithKeys(fn($id)=>[$id=>['scope_type'=>'global']])->all());
+        $user=User::factory()->create();
+        $user->roles()->attach($role);
+
+        $this->actingAs($user)->postJson('/api/v1/group-registration-cycles',[
+            'academic_year_id'=>AcademicYear::factory()->create()->id,
+            'academic_level'=>'sixth',
+            'default_capacity'=>6,
+            'letters'=>['X','x','Z'],
+        ])->assertUnprocessable()->assertJsonValidationErrors('letters.1');
+    }
+
     public function test_authorized_administrator_can_move_and_remove_a_rostered_student_with_audited_reason(): void
     {
         $permission=Permission::where('code','group_registration.override')->firstOrFail();

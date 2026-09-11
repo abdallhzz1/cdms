@@ -53,15 +53,15 @@ class GroupRegistrationAdminController extends Controller
             'academic_level' => ['required', 'in:fourth,fifth,sixth'],
             'default_capacity' => ['required', 'integer', 'min:1', 'max:30'],
             'letters' => ['nullable', 'array', 'size:3'],
-            'letters.*' => ['required', 'string', 'max:2', 'distinct'],
+            'letters.*' => ['required', 'string', 'max:2', 'regex:/^[A-Za-z]+$/', 'distinct:ignore_case'],
         ]);
         $this->ensureAcademicLevelInUserScope($data['academic_level']);
         $defaults = ['fourth' => ['L','M','N'], 'fifth' => ['A','B','C'], 'sixth' => ['Q','R','S']];
-        $letters = array_map(fn ($v) => strtoupper(trim($v)), $data['letters'] ?? $defaults[$data['academic_level']]);
+        $letters = array_values(array_map(fn ($v) => strtoupper(trim($v)), $data['letters'] ?? $defaults[$data['academic_level']]));
 
         $cycle = DB::transaction(function () use ($data, $letters, $request) {
             $cycle = GroupRegistrationCycle::create([
-                ...$data, 'letters' => null, 'public_id' => (string) Str::uuid(), 'status' => 'draft', 'created_by' => $request->user()->id,
+                ...$data, 'letters' => null, 'main_group_codes' => $letters, 'public_id' => (string) Str::uuid(), 'status' => 'draft', 'created_by' => $request->user()->id,
             ]);
             foreach ($letters as $letter) {
                 $group = StudentGroup::firstOrCreate([
@@ -95,6 +95,7 @@ class GroupRegistrationAdminController extends Controller
             ->where('academic_year_id', $cycle->academic_year_id)
             ->where('academic_level', $cycle->academic_level)
             ->where('group_type', 'self_registration')
+            ->whereIn('name', $cycle->mainGroupCodes())
             ->with(['subgroups' => fn ($query) => $query
                 ->withCount(['assignments as current_students_count' => fn ($assignment) => $assignment->whereNull('valid_until')])
                 ->orderBy('name')])
@@ -199,7 +200,7 @@ class GroupRegistrationAdminController extends Controller
         }
         $cycle->update($data);
         if (isset($data['default_capacity'])) {
-            StudentSubgroup::whereHas('group', fn ($q) => $q->where('academic_year_id', $cycle->academic_year_id)->where('academic_level', $cycle->academic_level)->where('group_type', 'self_registration'))
+            StudentSubgroup::whereHas('group', fn ($q) => $q->where('academic_year_id', $cycle->academic_year_id)->where('academic_level', $cycle->academic_level)->where('group_type', 'self_registration')->whereIn('name', $cycle->mainGroupCodes()))
                 ->update(['max_size' => $data['default_capacity'], 'capacity' => $data['default_capacity']]);
         }
         $this->audit($request, 'group_registration.cycle_updated', $cycle->id, $data);
@@ -249,7 +250,8 @@ class GroupRegistrationAdminController extends Controller
         if ($cycle->status === 'archived') abort(409, 'Archived registration cycles cannot be changed.');
 
         $groups = StudentGroup::where('academic_year_id', $cycle->academic_year_id)
-            ->where('academic_level', $cycle->academic_level)->where('group_type', 'self_registration')->get()->keyBy(fn ($g) => strtoupper($g->name));
+            ->where('academic_level', $cycle->academic_level)->where('group_type', 'self_registration')
+            ->whereIn('name', $cycle->mainGroupCodes())->get()->keyBy(fn ($g) => strtoupper($g->name));
         $errors = [];
         foreach ($data['students'] as $i => $row) {
             if (!$groups->has(strtoupper(trim($row['main_group_code'])))) $errors["students.$i.main_group_code"][] = 'المجموعة الرئيسية غير معتمدة لهذه السنة.';
@@ -470,6 +472,7 @@ class GroupRegistrationAdminController extends Controller
 
         $groups = StudentGroup::where('academic_year_id', $cycle->academic_year_id)->where('academic_level', $cycle->academic_level)
             ->where('group_type', 'self_registration')
+            ->whereIn('name', $cycle->mainGroupCodes())
             ->with(['subgroups' => fn ($q) => $q
                 ->withCount(['assignments as current_students_count' => fn ($a) => $a->whereNull('valid_until')])
                 ->with(['assignments' => fn ($a) => $a->whereNull('valid_until')->with('student')->orderBy('created_at')])])
@@ -528,7 +531,7 @@ class GroupRegistrationAdminController extends Controller
         return [
             'id'=>$cycle->id, 'public_id'=>$cycle->public_id, 'academic_year_id'=>$cycle->academic_year_id,
             'academic_year'=>$cycle->academicYear, 'academic_level'=>$cycle->academic_level, 'status'=>$cycle->status,
-            'default_capacity'=>$cycle->default_capacity, 'opens_at'=>$cycle->opens_at, 'closes_at'=>$cycle->closes_at,
+            'default_capacity'=>$cycle->default_capacity, 'main_group_codes'=>$cycle->main_group_codes ?: $groups->pluck('name')->values()->all(), 'opens_at'=>$cycle->opens_at, 'closes_at'=>$cycle->closes_at,
             'rosters_count'=>$cycle->rosters()->whereHas('student', fn($q)=>$q->where('academic_level',$cycle->academic_level))->count(),
             'registered_rosters_count'=>$cycle->rosters()->whereHas('student', fn($q)=>$q->where('academic_level',$cycle->academic_level)->where('academic_registration_status','registered'))->count(),
             'public_url'=>'/student-registration/'.$cycle->public_id, 'groups'=>$groups, 'roster_students'=>$rosterStudents,
@@ -564,7 +567,7 @@ class GroupRegistrationAdminController extends Controller
 
     private function ensureCycleGroup(GroupRegistrationCycle $cycle, StudentGroup $group): void
     {
-        abort_unless($group->academic_year_id === $cycle->academic_year_id && $group->academic_level === $cycle->academic_level && $group->group_type === 'self_registration', 404);
+        abort_unless($group->academic_year_id === $cycle->academic_year_id && $group->academic_level === $cycle->academic_level && $group->group_type === 'self_registration' && in_array(strtoupper($group->name), $cycle->mainGroupCodes(), true), 404);
     }
 
     private function ensureCycleInUserScope(GroupRegistrationCycle $cycle): void
