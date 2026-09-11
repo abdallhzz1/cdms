@@ -139,13 +139,12 @@ export function MyProfilePage() {
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) { showNotice(tr('اختر صورة JPG أو PNG أو WebP بحجم لا يزيد عن 2MB.', 'Choose a JPG, PNG, or WebP image up to 2 MB.')); return; }
     avatarMutation.mutate(await toBase64(file));
   };
-  return <div className="mx-auto max-w-6xl pb-10">
+  return <div className="w-full pb-6">
     {notice && <div className="fixed start-1/2 top-20 z-40 flex w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 items-center gap-3 rounded-2xl border border-teal-200 bg-white px-4 py-3 text-sm font-bold text-teal-800 shadow-xl"><CheckCircle2 className="h-5 w-5 shrink-0" /><span className="flex-1">{notice}</span><button onClick={() => setNotice('')} className="text-xs text-slate-500">{tr('إغلاق', 'Close')}</button></div>}
-    <div className="grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)] lg:items-start">
-      <aside className="space-y-3 lg:sticky lg:top-5">
-        <Card className="border border-slate-200 p-5 shadow-none">
-          <div className="flex items-center gap-4 lg:flex-col lg:text-center">
-            <div className="relative grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-full bg-teal-50 text-2xl font-black text-teal-700 ring-4 ring-white shadow-sm">
+    <div className="space-y-4">
+      <aside className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center gap-4 p-4 sm:flex-nowrap sm:px-5">
+            <div className="relative grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full bg-teal-50 text-xl font-black text-teal-700 ring-2 ring-white shadow-sm">
               {profile.avatar_url ? <img src={profile.avatar_url} alt={profile.name} className="h-full w-full object-cover" /> : profile.name.slice(0, 1)}
               <label className="absolute bottom-0 end-0 grid h-7 w-7 cursor-pointer place-items-center rounded-full bg-teal-700 text-white ring-2 ring-white hover:bg-teal-800" title={tr('تحديث الصورة', 'Update photo')}>
                 <Camera className="h-3.5 w-3.5" />
@@ -154,22 +153,16 @@ export function MyProfilePage() {
             </div>
             <div className="min-w-0">
               <h1 className="truncate text-lg font-black text-slate-900">{profile.name}</h1>
-              {profile.full_name_en && <p dir="ltr" className="mt-1 truncate text-start text-sm text-slate-500 lg:text-center">{profile.full_name_en}</p>}
-              {profile.roles[0] && <p className="mt-2 text-sm font-bold text-teal-700">{roleLabel(profile.roles[0], locale)}{profile.roles.length > 1 && <span className="ms-1 text-xs font-medium text-slate-400">+{profile.roles.length - 1}</span>}</p>}
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">{profile.roles[0] && <p className="text-sm font-bold text-teal-700">{roleLabel(profile.roles[0], locale)}{profile.roles.length > 1 && <span className="ms-1 text-xs font-medium text-slate-400">+{profile.roles.length - 1}</span>}</p>}<p dir="ltr" className="truncate text-start text-sm text-slate-500">{profile.email}</p></div>
             </div>
-          </div>
-          <div className="mt-5 border-t border-slate-100 pt-4">
-            <p dir="ltr" className="truncate text-start text-sm text-slate-600">{profile.email}</p>
-            <div className="mt-3 flex items-center justify-between text-sm"><span className="text-slate-500">{tr('اكتمال البيانات', 'Profile completion')}</span><span className="font-black text-teal-700">{profile.completion_percent}%</span></div>
-            {profile.missing_fields.length > 0 && <button onClick={() => setProfileModalOpen(true)} className="mt-2 text-start text-xs font-bold leading-5 text-amber-700 hover:underline">{tr('استكمال البيانات الناقصة', 'Complete missing information')}</button>}
-          </div>
-        </Card>
-        <nav className="flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 lg:block" aria-label={tr('أقسام الملف الشخصي', 'Profile sections')}>
-          {sections.map(section => <button key={section.id} onClick={() => selectSection(section.id)} className={`flex min-w-max items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-bold transition lg:mb-1 lg:w-full ${activeSection === section.id ? 'bg-teal-50 text-teal-800' : 'text-slate-600 hover:bg-slate-50'}`}><section.icon className="h-4 w-4" /><span className="flex-1 text-start">{section.label}</span>{section.count !== undefined && <span className="text-xs text-slate-400">{section.count}</span>}</button>)}
+            <div className="ms-auto flex shrink-0 items-center gap-3 text-sm"><span className="text-slate-500">{tr('اكتمال البيانات', 'Completion')}</span><span className="font-black text-teal-700">{profile.completion_percent}%</span>{profile.missing_fields.length > 0 && <button onClick={() => setProfileModalOpen(true)} className="font-bold text-amber-700 hover:underline">{tr('استكمال', 'Complete')}</button>}</div>
+        </div>
+        <nav className="grid grid-cols-2 gap-1 border-t border-slate-100 p-1.5 sm:grid-cols-4" aria-label={tr('أقسام الملف الشخصي', 'Profile sections')}>
+          {sections.map(section => <button key={section.id} onClick={() => selectSection(section.id)} className={`flex min-w-0 items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-sm font-bold transition ${activeSection === section.id ? 'bg-teal-50 text-teal-800' : 'text-slate-600 hover:bg-slate-50'}`}><section.icon className="h-4 w-4 shrink-0" /><span className="truncate">{section.label}</span>{section.count !== undefined && <span className="shrink-0 text-xs text-slate-400">{section.count}</span>}</button>)}
         </nav>
       </aside>
 
-      <main className="min-w-0">
+      <main className="min-w-0 w-full">
         <div className="mb-5 flex items-center justify-between gap-4">
           <div><h2 className="text-xl font-black text-slate-900">{sections.find(section => section.id === activeSection)?.label}</h2>{activeSection === 'overview' && <p className="mt-1 text-sm text-slate-500">{tr('بياناتك المعتمدة في النظام.', 'Your verified system information.')}</p>}</div>
           {activeSection === 'overview' && <Button variant="outline" onClick={() => setProfileModalOpen(true)}><Pencil className="me-2 h-4 w-4" />{tr('تعديل', 'Edit')}</Button>}
