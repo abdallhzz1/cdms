@@ -148,7 +148,14 @@ class AttendanceRecordController extends Controller
             'academic_year_id' => ['nullable', 'integer', 'exists:academic_years,id'],
             'course_id' => ['nullable', 'integer', 'exists:courses,id'],
             'clinical_period_id' => ['nullable', 'integer', 'exists:clinical_periods,id'],
+            'date' => ['nullable', 'date'],
+            'include_complete' => ['nullable', 'boolean'],
         ]);
+
+        $targetDate = $request->filled('date')
+            ? Carbon::parse($request->string('date'))->startOfDay()
+            : null;
+        $includeComplete = $request->boolean('include_complete');
 
         $assignments = StudentClinicalAssignment::query()
             ->whereHas('distributionVersion', fn ($version) => $version->where('status', 'published')->where('is_current', true))
@@ -174,8 +181,12 @@ class AttendanceRecordController extends Controller
         $blockIds = $assignments->pluck('rotation_block_id')->unique();
         $sessions = ClinicalSession::query()
             ->whereIn('rotation_block_id', $blockIds)
-            ->whereDate('session_date', '<=', today())
-            ->with('attendanceRecords:id,clinical_session_id,student_id')
+            ->when(
+                $targetDate,
+                fn ($query) => $query->whereDate('session_date', $targetDate),
+                fn ($query) => $query->whereDate('session_date', '<=', today()),
+            )
+            ->with('attendanceRecords:id,clinical_session_id,student_id,status')
             ->get()->keyBy(fn (ClinicalSession $session) => $session->rotation_block_id.'|'.$session->training_site_id.'|'.$session->session_date->toDateString());
 
         $gaps = $assignments
@@ -184,7 +195,7 @@ class AttendanceRecordController extends Controller
                 $assignment->distribution_version_id, $assignment->supervisor_id, $assignment->rotation_block_id,
                 $assignment->training_site_id, $assignment->student_subgroup_id ?: 0,
             ]))
-            ->flatMap(function ($group) use ($sessions) {
+            ->flatMap(function ($group) use ($sessions, $targetDate, $includeComplete) {
                 /** @var StudentClinicalAssignment $first */
                 $first = $group->first();
                 $rotation = $first->rotationBlock?->rotation;
@@ -193,6 +204,10 @@ class AttendanceRecordController extends Controller
 
                 $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
                 $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->min(today())->endOfDay();
+                if ($targetDate) {
+                    $start = $targetDate->copy();
+                    $end = $targetDate->copy()->endOfDay();
+                }
                 if ($start->gt($end)) return [];
 
                 $availability = $first->supervisor->availabilities->filter(fn ($row) =>
@@ -213,14 +228,18 @@ class AttendanceRecordController extends Controller
 
                     $key = $first->rotation_block_id.'|'.$first->training_site_id.'|'.$date->toDateString();
                     $session = $sessions->get($key);
-                    $recorded = $session?->attendanceRecords->whereIn('student_id', $studentIds)->count() ?? 0;
-                    if ($recorded >= $studentIds->count()) continue;
+                    $attendance = $session?->attendanceRecords->whereIn('student_id', $studentIds) ?? collect();
+                    $recorded = $attendance->count();
+                    if (! $includeComplete && $recorded >= $studentIds->count()) continue;
 
                     $items[] = [
                         'date' => $date->toDateString(),
                         'expected_students' => $studentIds->count(),
                         'recorded_students' => $recorded,
                         'missing_students' => $studentIds->count() - $recorded,
+                        'status_summary' => collect(AttendanceRecord::STATUSES)->mapWithKeys(
+                            fn (string $status) => [$status => $attendance->where('status', $status)->count()]
+                        ),
                         'course' => $rotation->course,
                         'clinical_period' => $rotation->clinicalPeriod,
                         'training_site' => $first->trainingSite,

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -12,7 +12,6 @@ import {
   CheckCircle,
   ClipboardList,
   Clock,
-  Filter,
   Mail,
   RotateCcw,
   Search,
@@ -100,11 +99,25 @@ type AttendanceGap = {
   expected_students: number;
   recorded_students: number;
   missing_students: number;
+  status_summary?: Record<string, number>;
   group_name?: string | null;
   course?: { code: string; name_ar: string; name_en?: string | null } | null;
   training_site?: { name_ar: string; name_en?: string | null } | null;
   supervisor?: { full_name_ar: string; full_name_en?: string | null } | null;
 };
+
+function localDateValue(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function moveDateValue(value: string, days: number): string {
+  const date = new Date(`${value}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return localDateValue(date);
+}
 
 const STATUS_CONFIG: Record<string, {
   icon: LucideIcon;
@@ -160,27 +173,20 @@ export function AttendanceMasterPage() {
   const ar = locale === 'ar';
   const tr = (arabic: string, english: string) => (ar ? arabic : english);
 
-  const [sessionFilter, setSessionFilter] = useState('');
   const [periodFilter, setPeriodFilter] = useState('');
   const [yearFilter, setYearFilter] = useState('');
   const [courseFilter, setCourseFilter] = useState('');
-  const [siteFilter, setSiteFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [dateFilter, setDateFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState(() => localDateValue());
   const [searchFilter, setSearchFilter] = useState('');
   const [page, setPage] = useState(1);
-  const [activeTab, setActiveTab] = useState<'records' | 'alerts' | 'gaps'>('records');
+  const [activeTab, setActiveTab] = useState<'records' | 'alerts'>('records');
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const recordQuery = useQuery({
-    queryKey: ['attendance-records', periodFilter, yearFilter, courseFilter, siteFilter, sessionFilter, statusFilter, dateFilter, searchFilter, page],
+    queryKey: ['attendance-records', statusFilter, dateFilter, searchFilter, page],
     queryFn: () => {
       const params = new URLSearchParams({ per_page: '25', page_payload: '1', page: String(page) });
-      if (sessionFilter) params.set('clinical_session_id', sessionFilter);
-      if (periodFilter) params.set('clinical_period_id', periodFilter);
-      if (yearFilter) params.set('academic_year_id', yearFilter);
-      if (courseFilter) params.set('course_id', courseFilter);
-      if (siteFilter) params.set('training_site_id', siteFilter);
       if (statusFilter) params.set('status', statusFilter);
       if (dateFilter) params.set('date', dateFilter);
       if (searchFilter.trim()) params.set('search', searchFilter.trim());
@@ -202,9 +208,9 @@ export function AttendanceMasterPage() {
   });
 
   const gapQuery = useQuery({
-    queryKey: ['attendance-record-gaps', periodFilter, yearFilter, courseFilter],
-    queryFn: () => { const params=new URLSearchParams();if(periodFilter)params.set('clinical_period_id',periodFilter);if(yearFilter)params.set('academic_year_id',yearFilter);if(courseFilter)params.set('course_id',courseFilter);return apiFetch<AttendanceGap[]>(`/attendance-records/gaps${params.size?`?${params}`:''}`); },
-    enabled: can('attendance.review') && activeTab === 'gaps',
+    queryKey: ['attendance-daily-schedule', dateFilter],
+    queryFn: () => apiFetch<AttendanceGap[]>(`/attendance-records/gaps?date=${dateFilter}&include_complete=1`),
+    enabled: can('attendance.review') && activeTab === 'records' && Boolean(dateFilter),
   });
 
   const sendWarning = useMutation({
@@ -230,28 +236,13 @@ export function AttendanceMasterPage() {
   const records = recordQuery.data?.items ?? [];
   const pagination = recordQuery.data?.pagination ?? { current_page: 1, last_page: 1, per_page: 25, total: 0 };
   const options = optionsQuery.data ?? { academic_years: [], courses: [], clinical_periods: [], training_sites: [], sessions: [] };
-  const sessions = options.sessions;
   const warnings = Array.isArray(warningQuery.data) ? warningQuery.data : [];
   const periods = options.clinical_periods;
-  const visibleSessions = useMemo(()=>sessions.filter(session=>!periodFilter||String(session.clinical_period_id)===periodFilter),[sessions,periodFilter]);
-
-  const stats = useMemo(
-    () => recordQuery.data?.summary ?? {},
-    [recordQuery.data?.summary],
-  );
-
-  const hasFilters = Boolean(periodFilter || yearFilter || courseFilter || siteFilter || sessionFilter || statusFilter || dateFilter || searchFilter);
   const initialWarnings = warnings.filter((warning) => warning.current_threshold === 10).length;
   const urgentWarnings = warnings.filter((warning) => warning.current_threshold === 20).length;
 
-  const clearFilters = () => {
-    setSessionFilter('');
-    setPeriodFilter('');
-    setYearFilter('');
-    setCourseFilter('');
-    setSiteFilter('');
+  const clearRecordFilters = () => {
     setStatusFilter('');
-    setDateFilter('');
     setSearchFilter('');
     setPage(1);
   };
@@ -282,13 +273,6 @@ export function AttendanceMasterPage() {
   if (activeTab === 'records' && recordQuery.isLoading) return <LoadingState />;
   if (activeTab === 'records' && recordQuery.isError) return <ErrorState onRetry={() => recordQuery.refetch()} />;
 
-  const statCards: Array<{ status: string; value: number }> = [
-    { status: 'present', value: stats.present ?? 0 },
-    { status: 'absent', value: stats.absent ?? 0 },
-    { status: 'late', value: stats.late ?? 0 },
-    { status: 'excused', value: stats.excused ?? 0 },
-  ];
-
   return (
     <div className="mx-auto max-w-[1280px] space-y-5 pb-12">
       <PageHeader
@@ -299,59 +283,19 @@ export function AttendanceMasterPage() {
         )}
       />
 
-      <div className="grid grid-cols-3 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+      <div className="grid grid-cols-2 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
         <button type="button" onClick={() => setActiveTab('records')} className={`rounded-xl px-4 py-2.5 text-xs font-black transition ${activeTab === 'records' ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
           {tr('سجل الحضور', 'Attendance records')}
         </button>
         <button type="button" onClick={() => setActiveTab('alerts')} className={`rounded-xl px-4 py-2.5 text-xs font-black transition ${activeTab === 'alerts' ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
           {tr('تنبيهات الغياب', 'Absence alerts')}
         </button>
-        <button type="button" onClick={() => setActiveTab('gaps')} className={`rounded-xl px-4 py-2.5 text-xs font-black transition ${activeTab === 'gaps' ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
-          {tr('نواقص الرصد', 'Recording gaps')}
-        </button>
       </div>
 
-      {(activeTab === 'alerts' || activeTab === 'gaps') && <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-3">
+      {activeTab === 'alerts' && <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-3">
         <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('العام الأكاديمي','Academic year')}</span><select value={yearFilter} onChange={event=>setYearFilter(event.target.value)} className={inputClass}><option value="">{tr('جميع الأعوام','All years')}</option>{options.academic_years.map(year=><option key={year.id} value={year.id}>{year.code}</option>)}</select></label>
         <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('المساق','Course')}</span><select value={courseFilter} onChange={event=>setCourseFilter(event.target.value)} className={inputClass}><option value="">{tr('جميع المساقات','All courses')}</option>{options.courses.map(course=><option key={course.id} value={course.id}>{course.code} — {ar?course.name_ar:course.name_en||course.name_ar}</option>)}</select></label>
         <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('الفترة السريرية','Clinical period')}</span><select value={periodFilter} onChange={event=>setPeriodFilter(event.target.value)} className={inputClass}><option value="">{tr('جميع الفترات','All periods')}</option>{periods.map(period=><option key={period.id} value={period.id}>{period.code} — {ar?period.name_ar:period.name_en||period.name_ar}</option>)}</select></label>
-      </section>}
-
-      {activeTab === 'records' && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
-              <ClipboardList className="h-5 w-5" />
-            </span>
-            <div>
-              <h2 className="text-sm font-black text-slate-900">{tr('ملخص النتائج الحالية', 'Current results summary')}</h2>
-              <p className="mt-0.5 text-[11px] text-slate-500">
-                {tr('يتغير الملخص مباشرة حسب الفلاتر المختارة.', 'The summary follows the selected filters.')}
-              </p>
-            </div>
-          </div>
-          <span className="w-fit rounded-full bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-500">
-            {tr(`${pagination.total} سجل مطابق`, `${pagination.total} matching records`)}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-4">
-          {statCards.map(({ status, value }) => {
-            const config = STATUS_CONFIG[status];
-            const Icon = config.icon;
-            return (
-              <div key={status} className="flex items-center gap-3 bg-white px-4 py-4 sm:justify-center">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-                  <Icon className="h-4.5 w-4.5" />
-                </span>
-                <div>
-                  <p className="text-lg font-black leading-none text-slate-900">{value}</p>
-                  <p className="mt-1 text-[11px] font-bold text-slate-500">{ar ? config.label_ar : config.label_en}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
       </section>}
 
       {activeTab === 'alerts' && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -533,58 +477,23 @@ export function AttendanceMasterPage() {
         )}
       </section>}
 
-      {activeTab === 'gaps' && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <header className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-black text-slate-900">{tr('أيام التدريب التي لم يكتمل رصدها','Training days with incomplete recording')}</h2><p className="mt-1 text-[11px] text-slate-500">{tr('يعتمد الكشف على الجدول المنشور وأيام دوام المشرف حتى تاريخ اليوم.','Based on the published schedule and supervisor working days up to today.')}</p></header>
-        {gapQuery.isLoading ? <div className="p-8 text-center text-xs font-bold text-slate-500">{tr('جاري فحص اكتمال الرصد...','Checking recording completeness...')}</div>
-          : gapQuery.isError ? <div className="p-8 text-center text-xs font-bold text-rose-600">{tr('تعذر فحص نواقص الرصد.','Could not check recording gaps.')}</div>
-          : !(gapQuery.data?.length) ? <div className="p-6"><EmptyState message={tr('لا توجد أيام تدريب ناقصة ضمن الاختيار الحالي.','No incomplete training days match the current selection.')}/></div>
-          : <div className="divide-y divide-slate-100">{gapQuery.data.map((gap,index)=>{
-            const courseName=ar?gap.course?.name_ar:gap.course?.name_en||gap.course?.name_ar;
-            const siteName=ar?gap.training_site?.name_ar:gap.training_site?.name_en||gap.training_site?.name_ar;
-            const supervisorName=ar?gap.supervisor?.full_name_ar:gap.supervisor?.full_name_en||gap.supervisor?.full_name_ar;
-            return <article key={`${gap.date}-${gap.course?.code}-${gap.group_name}-${index}`} className="grid gap-3 px-5 py-4 md:grid-cols-[9rem_1fr_1fr_10rem] md:items-center">
-              <div><p className="text-xs font-black text-slate-800">{weekday(gap.date,locale)}</p><p dir="ltr" className="mt-1 text-start text-[11px] text-slate-500">{readableDate(gap.date,locale)}</p></div>
-              <div><p className="text-xs font-black text-slate-800">{courseName||'—'} {gap.course?.code?`· ${gap.course.code}`:''}</p><p className="mt-1 text-[11px] text-slate-500">{tr('المجموعة','Group')}: {gap.group_name||'—'} · {siteName||'—'}</p></div>
-              <p className="text-[11px] font-bold text-slate-600">{supervisorName||tr('مشرف غير محدد','Unassigned supervisor')}</p>
-              <div className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-center"><p className="text-sm font-black text-rose-700">{gap.missing_students}</p><p className="text-[10px] font-bold text-rose-600">{tr(`غير مرصود من ${gap.expected_students}`,`missing of ${gap.expected_students}`)}</p></div>
-            </article>;
-          })}</div>}
-      </section>}
-
       {activeTab === 'records' && <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-teal-700" />
-            <div>
-              <h2 className="text-sm font-black text-slate-900">{tr('تصفية سجل الحضور', 'Filter attendance records')}</h2>
-              <p className="mt-0.5 text-[10px] text-slate-500">{tr('اختر جلسة أو حالة أو تاريخاً محدداً.', 'Choose a session, status, or date.')}</p>
-            </div>
+        <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-[11px] font-black text-teal-700">{tr('المتابعة اليومية','Daily follow-up')}</p>
+            <h2 className="mt-1 text-base font-black text-slate-900">{weekday(dateFilter,locale)} · <span dir="ltr">{readableDate(dateFilter,locale)}</span></h2>
+            <p className="mt-1 text-[11px] text-slate-500">{tr('المجموعات أدناه مستخرجة تلقائياً من التوزيع المنشور وأيام دوام المشرفين.','Groups are derived automatically from the published distribution and supervisor work days.')}</p>
           </div>
-          {hasFilters && (
-            <button type="button" onClick={clearFilters} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600 transition hover:bg-teal-50 hover:text-teal-700">
-              <RotateCcw className="h-3.5 w-3.5" />
-              {tr('مسح الفلاتر', 'Clear filters')}
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={()=>{setDateFilter(moveDateValue(dateFilter,-1));setPage(1)}} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600" aria-label={tr('اليوم السابق','Previous day')}>{ar?<ChevronRight className="h-4 w-4"/>:<ChevronLeft className="h-4 w-4"/>}</button>
+            <input dir="ltr" type="date" value={dateFilter} onChange={event=>{setDateFilter(event.target.value);setPage(1)}} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold outline-none focus:border-teal-400" />
+            <button type="button" onClick={()=>{setDateFilter(localDateValue());setPage(1)}} className="h-10 rounded-xl bg-teal-50 px-4 text-xs font-black text-teal-800">{tr('اليوم','Today')}</button>
+            <button type="button" onClick={()=>{setDateFilter(moveDateValue(dateFilter,1));setPage(1)}} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600" aria-label={tr('اليوم التالي','Next day')}>{ar?<ChevronLeft className="h-4 w-4"/>:<ChevronRight className="h-4 w-4"/>}</button>
+          </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <label className="relative xl:col-span-2"><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('البحث عن طالب','Search for a student')}</span><Search className="absolute bottom-3 start-3 h-4 w-4 text-slate-400"/><input value={searchFilter} onChange={event=>{setSearchFilter(event.target.value);setPage(1)}} placeholder={tr('الاسم أو الرقم الجامعي...','Name or university number...')} className={`${inputClass} ps-9`}/></label>
-          <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('العام الأكاديمي','Academic year')}</span><select value={yearFilter} onChange={event=>{setYearFilter(event.target.value);setPage(1)}} className={inputClass}><option value="">{tr('جميع الأعوام','All years')}</option>{options.academic_years.map(year=><option key={year.id} value={year.id}>{year.code}</option>)}</select></label>
-          <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('المساق','Course')}</span><select value={courseFilter} onChange={event=>{setCourseFilter(event.target.value);setPage(1)}} className={inputClass}><option value="">{tr('جميع المساقات','All courses')}</option>{options.courses.map(course=><option key={course.id} value={course.id}>{course.code} — {ar?course.name_ar:course.name_en||course.name_ar}</option>)}</select></label>
-          <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('الفترة السريرية','Clinical period')}</span><select value={periodFilter} onChange={event=>{setPeriodFilter(event.target.value);setSessionFilter('');setPage(1)}} className={inputClass}><option value="">{tr('جميع الفترات','All periods')}</option>{periods.map(period=><option key={period.id} value={period.id}>{period.code} — {ar?period.name_ar:period.name_en||period.name_ar}</option>)}</select></label>
-          <label>
-            <span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('الجلسة السريرية', 'Clinical session')}</span>
-            <select value={sessionFilter} onChange={(event) => {setSessionFilter(event.target.value);setPage(1)}} className={inputClass}>
-              <option value="">{tr('جميع الجلسات', 'All sessions')}</option>
-              {visibleSessions.map((session: any) => (
-                <option key={session.id} value={session.id}>
-                  {readableDate(session.session_date, locale)} — {session.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('الموقع التدريبي','Training site')}</span><select value={siteFilter} onChange={event=>{setSiteFilter(event.target.value);setPage(1)}} className={inputClass}><option value="">{tr('جميع المواقع','All sites')}</option>{options.training_sites.map(site=><option key={site.id} value={site.id}>{ar?site.name_ar:site.name_en||site.name_ar}</option>)}</select></label>
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-end">
+          <label className="relative"><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('البحث عن طالب','Search for a student')}</span><Search className="absolute bottom-3 start-3 h-4 w-4 text-slate-400"/><input value={searchFilter} onChange={event=>{setSearchFilter(event.target.value);setPage(1)}} placeholder={tr('الاسم أو الرقم الجامعي...','Name or university number...')} className={`${inputClass} ps-9`}/></label>
           <label>
             <span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('حالة الحضور', 'Attendance status')}</span>
             <select value={statusFilter} onChange={(event) => {setStatusFilter(event.target.value);setPage(1)}} className={inputClass}>
@@ -594,11 +503,32 @@ export function AttendanceMasterPage() {
               ))}
             </select>
           </label>
-          <label>
-            <span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('تاريخ الجلسة', 'Session date')}</span>
-            <input dir="ltr" type="date" value={dateFilter} onChange={(event) => {setDateFilter(event.target.value);setPage(1)}} className={inputClass} />
-          </label>
+          {(searchFilter||statusFilter)&&<button type="button" onClick={clearRecordFilters} className="h-11 rounded-xl border border-slate-200 px-4 text-[11px] font-bold text-slate-600">{tr('مسح','Clear')}</button>}
         </div>
+      </section>}
+
+      {activeTab === 'records' && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+          <div>
+            <h2 className="text-sm font-black text-slate-900">{tr('مجموعات اليوم','Today’s groups')}</h2>
+            <p className="mt-1 text-[10px] text-slate-500">{tr('حالة تسجيل المشرف لكل مجموعة مجدولة في هذا اليوم.','Recording status for every group scheduled on this day.')}</p>
+          </div>
+          <span className="rounded-full bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-600">{gapQuery.data?.length??0} {tr('مجموعة','groups')}</span>
+        </header>
+        {gapQuery.isLoading ? <div className="p-7 text-center text-xs font-bold text-slate-500">{tr('جاري تحميل جدول اليوم...','Loading today’s schedule...')}</div>
+          : gapQuery.isError ? <div className="p-7 text-center text-xs font-bold text-rose-600">{tr('تعذر تحميل جدول اليوم.','Could not load today’s schedule.')}</div>
+          : !(gapQuery.data?.length) ? <div className="p-6"><EmptyState message={tr('لا توجد مجموعات مجدولة في هذا اليوم حسب التوزيع وأيام دوام المشرفين.','No groups are scheduled on this day based on the distribution and supervisor work days.')}/></div>
+          : <div className="divide-y divide-slate-100">{gapQuery.data.map((group,index)=>{
+            const courseName=ar?group.course?.name_ar:group.course?.name_en||group.course?.name_ar;
+            const siteName=ar?group.training_site?.name_ar:group.training_site?.name_en||group.training_site?.name_ar;
+            const supervisorName=ar?group.supervisor?.full_name_ar:group.supervisor?.full_name_en||group.supervisor?.full_name_ar;
+            const complete=group.missing_students===0;
+            return <article key={`${group.date}-${group.course?.code}-${group.group_name}-${index}`} className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_12rem] md:items-center">
+              <div><p className="text-xs font-black text-slate-900">{courseName||'—'} {group.course?.code?`· ${group.course.code}`:''}</p><p className="mt-1 text-[11px] text-slate-500">{tr('المجموعة','Group')}: {group.group_name||'—'} · {siteName||'—'}</p></div>
+              <p className="text-[11px] font-bold text-slate-600">{supervisorName||tr('مشرف غير محدد','Unassigned supervisor')}</p>
+              <div className={`rounded-xl border px-3 py-2 text-center ${complete?'border-emerald-100 bg-emerald-50 text-emerald-700':'border-amber-100 bg-amber-50 text-amber-800'}`}><p className="text-xs font-black">{complete?tr('مكتمل','Complete'):tr(`${group.recorded_students} من ${group.expected_students} مرصود`,`${group.recorded_students} of ${group.expected_students} recorded`)}</p>{!complete&&<p className="mt-0.5 text-[10px] font-bold">{tr(`${group.missing_students} طالب متبقٍ`,`${group.missing_students} students remaining`)}</p>}</div>
+            </article>;
+          })}</div>}
       </section>}
 
       {activeTab === 'records' && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">

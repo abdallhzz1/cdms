@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AcademicYear;
 use App\Models\Course;
 use App\Models\Permission;
+use App\Models\Person;
 use App\Models\Role;
 use App\Models\Student;
 use App\Models\User;
@@ -19,6 +20,7 @@ use App\Models\Rotation;
 use App\Models\RotationBlock;
 use App\Models\StudentClinicalAssignment;
 use App\Models\TrainingSite;
+use App\Models\SupervisorAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -194,6 +196,25 @@ class GradeAndRtaIntegrationTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data.academic_years')
             ->assertJsonCount(1, 'data.sessions');
+
+        $supervisor = Person::factory()->create(['department_id' => $department->id, 'primary_site_id' => $site->id]);
+        $assignments['fourth']->update(['supervisor_id' => $supervisor->id]);
+        SupervisorAvailability::create([
+            'person_id' => $supervisor->id,
+            'training_site_id' => $site->id,
+            'department_id' => $department->id,
+            'day' => 'tuesday',
+            'available_from' => '2026-09-01',
+            'available_until' => '2026-09-30',
+            'status' => 'work',
+        ]);
+        $this->actingAs($rta)->getJson('/api/v1/attendance-records/gaps?date=2026-09-01&include_complete=1')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.expected_students', 1)
+            ->assertJsonPath('data.0.recorded_students', 1)
+            ->assertJsonPath('data.0.missing_students', 0)
+            ->assertJsonPath('data.0.status_summary.present', 1);
 
         $this->actingAs($rta)->getJson('/api/v1/clinical-sessions?per_page=100')
             ->assertOk()
