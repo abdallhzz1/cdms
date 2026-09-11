@@ -227,11 +227,7 @@ class AttendanceWarningController extends Controller
                 $absentDays = $statusDates('absent');
                 $percentage = round(($absentDays / $requiredDays) * 100, 2);
                 $currentThreshold = $percentage > 20 ? 20 : ($percentage > 10 ? 10 : null);
-                $domain = trim((string) config('group_registration.student_email_domain', 'students.hebron.edu'));
-                $storedEmail = trim((string) $student->university_email);
-                $email = filter_var($storedEmail, FILTER_VALIDATE_EMAIL)
-                    ? $storedEmail
-                    : $student->university_number.'@'.$domain;
+                $email = $student->resolvedUniversityEmail();
                 $historyKey = fn (int $threshold) => $student->id.'|'.$rotation->id.'|'.$threshold;
 
                 return [

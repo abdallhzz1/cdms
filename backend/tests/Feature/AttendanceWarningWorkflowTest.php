@@ -134,6 +134,7 @@ class AttendanceWarningWorkflowTest extends TestCase
 
     public function test_ten_percent_email_is_an_initial_notice(): void
     {
+        $this->student->update(['university_email' => '21212121@students.hebron.edu']);
         Mail::shouldReceive('raw')->once()->withArgs(function (string $body) {
             $this->assertStringContainsString('تنبيه أولي بخصوص نسبة الغياب', $body);
             $this->assertStringContainsString('لتجنب الوصول إلى مرحلة الإنذار الرسمي', $body);
@@ -148,7 +149,8 @@ class AttendanceWarningWorkflowTest extends TestCase
             'student_id' => $this->student->id,
             'rotation_id' => $this->rotation->id,
             'threshold_percent' => 10,
-        ])->assertOk();
+        ])->assertOk()
+            ->assertJsonPath('data.recipient_email', '22210466@students.hebron.edu');
     }
 
     public function test_mail_failure_is_recorded_as_failed_and_not_sent(): void

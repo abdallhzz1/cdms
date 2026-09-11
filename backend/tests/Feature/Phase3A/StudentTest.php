@@ -139,6 +139,39 @@ class StudentTest extends TestCase
         ]);
     }
 
+    public function test_changing_university_number_synchronizes_only_generated_email(): void
+    {
+        $generated = Student::factory()->create([
+            'university_number' => '21212121',
+            'university_email' => '21212121@students.hebron.edu',
+        ]);
+        $custom = Student::factory()->create([
+            'university_number' => '21212122',
+            'university_email' => 'student.alias@hebron.edu',
+        ]);
+
+        $this->actingAs($this->admin)->putJson("/api/v1/students/{$generated->id}", [
+            'university_number' => '22210466',
+        ])->assertOk()
+            ->assertJsonPath('data.university_email', '22210466@students.hebron.edu');
+
+        $this->actingAs($this->admin)->putJson("/api/v1/students/{$custom->id}", [
+            'university_number' => '22210467',
+        ])->assertOk()
+            ->assertJsonPath('data.university_email', 'student.alias@hebron.edu');
+
+        $this->assertDatabaseHas('students', [
+            'id' => $generated->id,
+            'university_number' => '22210466',
+            'university_email' => '22210466@students.hebron.edu',
+        ]);
+        $this->assertDatabaseHas('students', [
+            'id' => $custom->id,
+            'university_number' => '22210467',
+            'university_email' => 'student.alias@hebron.edu',
+        ]);
+    }
+
     public function test_profile_updates_both_student_statuses_and_persists_assets(): void
     {
         Storage::fake('local');

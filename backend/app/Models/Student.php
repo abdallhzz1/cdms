@@ -91,6 +91,51 @@ class Student extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::updating(function (Student $student): void {
+            if (! $student->isDirty('university_number') || $student->isDirty('university_email')) {
+                return;
+            }
+
+            $domain = self::universityEmailDomain();
+            $oldNumber = trim((string) $student->getOriginal('university_number'));
+            $oldEmail = trim((string) $student->getOriginal('university_email'));
+
+            if ($oldEmail === '' || strcasecmp($oldEmail, $oldNumber.'@'.$domain) === 0) {
+                $student->university_email = trim((string) $student->university_number).'@'.$domain;
+            }
+        });
+    }
+
+    /**
+     * Return the deliverable university email and recover safely from legacy
+     * records whose numeric email was not synchronized after a number change.
+     */
+    public function resolvedUniversityEmail(): string
+    {
+        $domain = self::universityEmailDomain();
+        $expected = trim((string) $this->university_number).'@'.$domain;
+        $stored = trim((string) $this->university_email);
+
+        if (! filter_var($stored, FILTER_VALIDATE_EMAIL)) {
+            return $expected;
+        }
+
+        [$localPart, $storedDomain] = array_pad(explode('@', $stored, 2), 2, '');
+        $looksLikeStaleGeneratedEmail = strcasecmp($storedDomain, $domain) === 0
+            && ctype_digit($localPart)
+            && $localPart !== (string) $this->university_number;
+
+        return $looksLikeStaleGeneratedEmail ? $expected : $stored;
+    }
+
+    private static function universityEmailDomain(): string
+    {
+        return ltrim(trim((string) config('group_registration.student_email_domain', 'students.hebron.edu')), '@')
+            ?: 'students.hebron.edu';
+    }
+
     // -------------------------------------------------------------------------
     // Relationships
     // -------------------------------------------------------------------------
