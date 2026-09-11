@@ -10,6 +10,8 @@ use App\Models\AcademicYear;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use App\Services\Approvals\ApprovalWorkflowService;
+use App\Models\User;
 
 class CourseReportController extends Controller
 {
@@ -52,7 +54,7 @@ class CourseReportController extends Controller
         return ApiResponse::success($report->fresh('academicYear'), 'تم حفظ مسودة تقرير المساق.');
     }
 
-    public function submit(Request $request, Course $course, CourseReport $report): JsonResponse
+    public function submit(Request $request, Course $course, CourseReport $report, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->assertBelongsToCourse($course, $report);
         if (!in_array($report->status, ['draft', 'returned'], true)) {
@@ -69,11 +71,14 @@ class CourseReportController extends Controller
             'approved_by' => null,
             'review_notes' => null,
         ]);
+        $approvals->submit('course_report', 'course_report', $report->id, $request->user(),
+            'تقرير مساق '.$course->name_ar, 'Course report: '.($course->name_en ?: $course->code), '/courses/'.$course->id,
+            ['course_id' => $course->id, 'academic_year_id' => $report->academic_year_id]);
 
         return ApiResponse::success($report->fresh('academicYear'), 'تم إرسال التقرير للاعتماد.');
     }
 
-    public function approve(Request $request, Course $course, CourseReport $report): JsonResponse
+    public function approve(Request $request, Course $course, CourseReport $report, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->assertBelongsToCourse($course, $report);
         if ($report->status !== 'submitted') {
@@ -81,6 +86,11 @@ class CourseReportController extends Controller
         }
 
         $data = $request->validate(['review_notes' => ['nullable', 'string', 'max:5000']]);
+        $this->ensureApprovalRequest($request, $course, $report, $approvals);
+        $decision = $approvals->approve('course_report', 'course_report', $report->id, $request->user(), $data['review_notes'] ?? null);
+        if (! $decision['completed']) {
+            return ApiResponse::success($report->fresh(['academicYear', 'approver:id,name']), app()->getLocale() === 'ar' ? 'تمت مراجعة التقرير وإرساله لمرحلة الاعتماد التالية.' : 'The report was reviewed and sent to the next approval stage.');
+        }
         $report->update([
             'status' => 'approved',
             'approved_by' => $request->user()->id,
@@ -91,13 +101,15 @@ class CourseReportController extends Controller
         return ApiResponse::success($report->fresh(['academicYear', 'approver:id,name']), 'تم اعتماد تقرير المساق.');
     }
 
-    public function returnForRevision(Request $request, Course $course, CourseReport $report): JsonResponse
+    public function returnForRevision(Request $request, Course $course, CourseReport $report, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->assertBelongsToCourse($course, $report);
         if ($report->status !== 'submitted') {
             throw ValidationException::withMessages(['report' => ['يمكن إعادة التقارير المرسلة فقط.']]);
         }
         $data = $request->validate(['review_notes' => ['required', 'string', 'max:5000']]);
+        $this->ensureApprovalRequest($request, $course, $report, $approvals);
+        $approvals->returnForRevision('course_report', 'course_report', $report->id, $request->user(), $data['review_notes']);
         $report->update([
             'status' => 'returned',
             'review_notes' => $data['review_notes'],
@@ -106,6 +118,15 @@ class CourseReportController extends Controller
         ]);
 
         return ApiResponse::success($report->fresh(['academicYear', 'approver:id,name']), 'تمت إعادة التقرير للتعديل.');
+    }
+
+    private function ensureApprovalRequest(Request $request, Course $course, CourseReport $report, ApprovalWorkflowService $approvals): void
+    {
+        if ($approvals->pending('course_report', 'course_report', $report->id)) return;
+        $requester = User::findOrFail((int) $report->prepared_by);
+        $approvals->submit('course_report', 'course_report', $report->id, $requester,
+            'تقرير مساق '.$course->name_ar, 'Course report: '.($course->name_en ?: $course->code), '/courses/'.$course->id,
+            ['course_id' => $course->id, 'academic_year_id' => $report->academic_year_id]);
     }
 
     private function assertBelongsToCourse(Course $course, CourseReport $report): void

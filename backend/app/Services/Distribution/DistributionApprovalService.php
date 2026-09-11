@@ -10,11 +10,13 @@ use App\Models\CourseScheduleCell;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use App\Services\Approvals\ApprovalWorkflowService;
 
 class DistributionApprovalService
 {
     public function __construct(
-        private DistributionStateValidator $stateValidator
+        private DistributionStateValidator $stateValidator,
+        private ApprovalWorkflowService $workflowApprovals,
     ) {}
 
     /**
@@ -39,7 +41,7 @@ class DistributionApprovalService
             ]);
         }
 
-        if (!Gate::allows('permission', ['distribution.approve'])) {
+        if (!Gate::allows('permission', ['distribution.approve']) && !Gate::allows('permission', ['approvals.decide'])) {
             throw ValidationException::withMessages([
                 'authorization' => [__('distribution.approval.forbidden')]
             ]);
@@ -102,6 +104,7 @@ class DistributionApprovalService
      */
     public function invalidateApproval(DistributionVersion $version, $user): void
     {
+        $this->workflowApprovals->cancelPending('clinical_distribution', 'distribution_version', $version->id, $user, 'Distribution content changed');
         // Check if there is a valid approval active
         $latestApproval = AuditLog::where('action', 'version.approved')
             ->where('distribution_version_id', $version->id)

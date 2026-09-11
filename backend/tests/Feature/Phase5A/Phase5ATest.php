@@ -52,6 +52,10 @@ class Phase5ATest extends TestCase
         $this->admin = User::factory()->create();
         $this->admin->roles()->attach($adminRole);
 
+        $workflow = \App\Models\ApprovalWorkflow::where('code', 'clinical_distribution')->firstOrFail();
+        $workflow->steps()->firstOrFail()->update(['role_codes' => ['TEST_ADMIN']]);
+        $workflow->steps()->where('step_order', '>', 1)->delete();
+
         $this->unauthorized = User::factory()->create();
 
         $this->department1 = Department::factory()->create();

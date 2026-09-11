@@ -11,6 +11,7 @@ use App\Notifications\AdministrativeWorkAssignedNotification;
 use App\Notifications\LocalSystemNotification;
 use App\Services\CorrespondenceRecipientService;
 use App\Services\WorkflowTransitionService;
+use App\Services\Approvals\ApprovalWorkflowService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -129,7 +130,7 @@ class CorrespondenceController extends Controller
         return ApiResponse::success($correspondence->fresh(), 'Correspondence updated.');
     }
 
-    public function submit(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow): JsonResponse
+    public function submit(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         if ($correspondence->sender_id !== $request->user()->id) {
             throw new AuthorizationException('Only the sender may submit this correspondence.');
@@ -140,17 +141,19 @@ class CorrespondenceController extends Controller
         $this->addParticipant($correspondence, (int) $data['assigned_to'], 'recipient');
         $correspondence = $workflow->transition($correspondence->fresh(), 'submitted', $data['notes'] ?? null);
         $this->notifyAssignee($correspondence, 'correspondence');
+        $approvals->submit('correspondence', 'correspondence', $correspondence->id, $request->user(),
+            'معاملة: '.$correspondence->subject, 'Correspondence: '.$correspondence->subject, '/correspondence/'.$correspondence->id);
 
         return ApiResponse::success($correspondence->fresh(), 'Correspondence submitted.');
     }
 
-    public function forward(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow): JsonResponse
+    public function forward(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->ensureAssignedOrSender($request, $correspondence);
         $data = $request->validate(['assigned_to' => ['required', 'exists:users,id'], 'notes' => ['nullable', 'string', 'max:2000']]);
         app(CorrespondenceRecipientService::class)->validate($request->user(), (int) $data['assigned_to']);
         if (in_array($correspondence->status, ['draft', 'returned'], true)) {
-            return $this->submit($request, $correspondence, $workflow);
+            return $this->submit($request, $correspondence, $workflow, $approvals);
         }
         if (! in_array($correspondence->status, ['submitted', 'under_review'], true)) {
             throw ValidationException::withMessages(['status' => ['This correspondence cannot be forwarded in its current state.']]);
@@ -165,10 +168,15 @@ class CorrespondenceController extends Controller
         return ApiResponse::success($correspondence->fresh()->load('assignee.person'), 'Correspondence forwarded.');
     }
 
-    public function returnCorrespondence(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow): JsonResponse
+    public function returnCorrespondence(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->ensureAssignedOrManager($request, $correspondence);
         $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
+        if (! $approvals->pending('correspondence', 'correspondence', $correspondence->id)) {
+            $approvals->submit('correspondence', 'correspondence', $correspondence->id, $correspondence->sender,
+                'معاملة: '.$correspondence->subject, 'Correspondence: '.$correspondence->subject, '/correspondence/'.$correspondence->id);
+        }
+        $approvals->returnForRevision('correspondence', 'correspondence', $correspondence->id, $request->user(), $data['reason']);
         $correspondence = $workflow->transition($correspondence, 'returned', $data['reason']);
         $correspondence->update(['assigned_to' => $correspondence->sender_id, 'returned_at' => now(), 'read_at' => null]);
         $this->addParticipant($correspondence, (int) $correspondence->sender_id, 'sender');
@@ -177,9 +185,15 @@ class CorrespondenceController extends Controller
         return ApiResponse::success($correspondence->fresh(), 'Correspondence returned.');
     }
 
-    public function approve(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow): JsonResponse
+    public function approve(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->ensureAssignedOrManager($request, $correspondence);
+        if (! $approvals->pending('correspondence', 'correspondence', $correspondence->id)) {
+            $approvals->submit('correspondence', 'correspondence', $correspondence->id, $correspondence->sender,
+                'معاملة: '.$correspondence->subject, 'Correspondence: '.$correspondence->subject, '/correspondence/'.$correspondence->id);
+        }
+        $decision = $approvals->approve('correspondence', 'correspondence', $correspondence->id, $request->user());
+        if (! $decision['completed']) return ApiResponse::success($correspondence->fresh(), app()->getLocale() === 'ar' ? 'تم اعتماد مرحلتك وإرسال المعاملة للمرحلة التالية.' : 'Your step was approved and sent to the next stage.');
         $correspondence = $workflow->transition($correspondence, 'approved');
         $correspondence->update(['approved_at' => now()]);
         $this->notifySenderOfStatus($correspondence, 'approved', $request->user()->name);
@@ -318,6 +332,7 @@ class CorrespondenceController extends Controller
     private function canManageAll($user): bool
     {
         return Gate::forUser($user)->allows('permission', ['correspondence.approve'])
+            || Gate::forUser($user)->allows('permission', ['approvals.decide'])
             || Gate::forUser($user)->allows('permission', ['correspondence.close']);
     }
 

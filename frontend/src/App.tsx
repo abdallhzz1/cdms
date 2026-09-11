@@ -59,6 +59,8 @@ import { UsersPage } from '@/pages/UsersPage';
 import { AuditLogsPage } from '@/pages/AuditLogsPage';
 import { ActiveSessionsPage } from '@/pages/admin/ActiveSessionsPage';
 import { PermissionMatrixPage } from '@/pages/admin/PermissionMatrixPage';
+import { ApprovalWorkflowsPage } from '@/pages/admin/ApprovalWorkflowsPage';
+import { ApprovalsPage } from '@/pages/ApprovalsPage';
 import { DepartmentsManagementPage } from '@/pages/admin/DepartmentsManagementPage';
 import { SystemHealthPage } from '@/pages/admin/SystemHealthPage';
 import { SystemSettingsPage } from '@/pages/admin/SystemSettingsPage';
@@ -104,6 +106,7 @@ export function App() {
                 <Route path="/staff/:id" element={<StaffProfilePage />} />
                 <Route path="/profile" element={<MyProfilePage />} />
                 <Route path="/notifications" element={<NotificationsPage />} />
+                <Route path="/approvals" element={<ProtectedRoute requiredPermission="approvals.view"><ApprovalsPage /></ProtectedRoute>} />
 
                 {/* Technical administration screens are governed by the same
                     permissions exposed in the admin matrix. */}
@@ -139,6 +142,7 @@ export function App() {
                     </ProtectedRoute>
                   } 
                 />
+                <Route path="/admin/approval-workflows" element={<ProtectedRoute requiredPermission="approval_workflows.view"><ApprovalWorkflowsPage /></ProtectedRoute>} />
                 <Route 
                   path="/admin/departments" 
                   element={

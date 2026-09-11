@@ -602,9 +602,9 @@ class Phase5CTest extends TestCase
         $this->assertDatabaseCount('clinical_assessments', 2);
         $this->assertSame(2, \App\Models\ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->where('status', 'submitted')->count());
 
-        $reviewerRole = Role::where('code', 'TEST_ADMIN_5C')->firstOrFail();
+        $reviewerRole = Role::where('code', 'CLINICAL_DIRECTOR')->firstOrFail();
         $reviewerRole->permissions()->syncWithoutDetaching(
-            Permission::where('code', 'assessment.approve')->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+            Permission::whereIn('code', ['assessment.approve', 'approvals.decide'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
         );
         $reviewer = User::factory()->create();
         $reviewer->roles()->attach($reviewerRole);

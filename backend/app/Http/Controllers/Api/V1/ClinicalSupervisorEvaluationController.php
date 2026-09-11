@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use App\Services\Approvals\ApprovalWorkflowService;
 
 class ClinicalSupervisorEvaluationController extends Controller
 {
@@ -85,20 +86,28 @@ class ClinicalSupervisorEvaluationController extends Controller
         return ApiResponse::success($this->present($clinicalSupervisorEvaluation->fresh(), true), 'تم حفظ مسودة تقييم المشرف.');
     }
 
-    public function submit(Request $request, ClinicalSupervisorEvaluation $clinicalSupervisorEvaluation): JsonResponse
+    public function submit(Request $request, ClinicalSupervisorEvaluation $clinicalSupervisorEvaluation, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->ensurePermission($request->user(), 'clinical_supervisor_evaluations.create');
         $this->ensureDraft($clinicalSupervisorEvaluation); $this->ensureComplete($clinicalSupervisorEvaluation);
         $user = $request->user(); $activity = $clinicalSupervisorEvaluation->activity_log ?: []; $activity[] = $this->event('submitted_and_signed', $user);
         $clinicalSupervisorEvaluation->update(['status' => 'submitted', 'evaluator_user_id' => $user->id, 'evaluator_name' => $user->name, 'evaluator_role' => $this->roleLabel($user), 'evaluator_signed_at' => now(), 'submitted_at' => now(), 'activity_log' => $activity]);
+        $approvals->submit('clinical_supervisor_evaluation', 'clinical_supervisor_evaluation', $clinicalSupervisorEvaluation->id, $user,
+            'تقييم المشرف السريري', 'Clinical supervisor evaluation', '/clinical-supervisor-evaluations', ['academic_year_id' => $clinicalSupervisorEvaluation->academic_year_id]);
         return ApiResponse::success($this->present($clinicalSupervisorEvaluation->fresh(), true), 'تم توقيع التقييم وإرساله للاعتماد.');
     }
 
-    public function approve(Request $request, ClinicalSupervisorEvaluation $clinicalSupervisorEvaluation): JsonResponse
+    public function approve(Request $request, ClinicalSupervisorEvaluation $clinicalSupervisorEvaluation, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->ensurePermission($request->user(), 'clinical_supervisor_evaluations.approve');
         if ($clinicalSupervisorEvaluation->status !== 'submitted') throw ValidationException::withMessages(['status' => ['لا يمكن اعتماد تقييم غير موقّع من المقيّم.']]);
-        $user = $request->user(); $activity = $clinicalSupervisorEvaluation->activity_log ?: []; $activity[] = $this->event('approved_by_dean', $user);
+        if (! $approvals->pending('clinical_supervisor_evaluation', 'clinical_supervisor_evaluation', $clinicalSupervisorEvaluation->id)) {
+            $requester = User::findOrFail((int) $clinicalSupervisorEvaluation->evaluator_user_id);
+            $approvals->submit('clinical_supervisor_evaluation', 'clinical_supervisor_evaluation', $clinicalSupervisorEvaluation->id, $requester, 'تقييم المشرف السريري', 'Clinical supervisor evaluation', '/clinical-supervisor-evaluations');
+        }
+        $decision = $approvals->approve('clinical_supervisor_evaluation', 'clinical_supervisor_evaluation', $clinicalSupervisorEvaluation->id, $request->user());
+        if (! $decision['completed']) return ApiResponse::success($this->present($clinicalSupervisorEvaluation, true), app()->getLocale() === 'ar' ? 'تم اعتماد مرحلتك وإرسال التقييم للمرحلة التالية.' : 'Your step was approved and sent to the next stage.');
+        $user = $request->user(); $activity = $clinicalSupervisorEvaluation->activity_log ?: []; $activity[] = $this->event('final_approval_completed', $user);
         $clinicalSupervisorEvaluation->update(['status' => 'approved', 'dean_user_id' => $user->id, 'dean_name' => $user->name, 'dean_role' => $this->roleLabel($user), 'dean_signed_at' => now(), 'approved_at' => now(), 'activity_log' => $activity]);
         return ApiResponse::success($this->present($clinicalSupervisorEvaluation->fresh(), true), 'تم اعتماد تقييم المشرف رسميًا.');
     }
@@ -154,7 +163,7 @@ class ClinicalSupervisorEvaluationController extends Controller
     }
     private function ensureDraft(ClinicalSupervisorEvaluation $item): void { if ($item->status !== 'draft') throw ValidationException::withMessages(['status' => ['التقييم الموقّع أو المعتمد لا يعدّل مباشرة.']]); }
     private function ensureComplete(ClinicalSupervisorEvaluation $item): void { if (count($item->domains ?: []) !== count(self::DOMAINS) || collect($item->domains)->contains(fn ($domain) => (float) ($domain['score'] ?? 0) < 1)) throw ValidationException::withMessages(['domains' => ['أكمل محاور التقييم قبل التوقيع.']]); }
-    private function ensurePermission(?User $user, string $permission): void { abort_unless($user && Gate::forUser($user)->allows('permission', [$permission]), 403, 'This action is unauthorized.'); }
+    private function ensurePermission(?User $user, string $permission): void { abort_unless($user && (Gate::forUser($user)->allows('permission', [$permission]) || (str_ends_with($permission, '.approve') && Gate::forUser($user)->allows('permission', ['approvals.decide']))), 403, 'This action is unauthorized.'); }
     private function cleanList(array $items): array { return array_values(array_filter(array_map(fn ($item) => trim((string) $item), $items))); }
     private function event(string $action, User $user): array { return ['action' => $action, 'user_id' => $user->id, 'user_name' => $user->name, 'at' => now()->toIso8601String()]; }
     private function roleLabel(User $user): string { $roles = $user->roles()->pluck('code')->all(); return in_array('DEAN', $roles, true) ? 'عميد كلية الطب' : (in_array('CLINICAL_DIRECTOR', $roles, true) ? 'مدير الدائرة السريرية' : 'إدارة النظام'); }

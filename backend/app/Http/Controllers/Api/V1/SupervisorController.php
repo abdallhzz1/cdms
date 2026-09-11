@@ -15,6 +15,7 @@ use App\Models\SupervisorStudentNote;
 use App\Models\WorkflowTransitionLog;
 use App\Services\Distribution\SupervisorReassignmentService;
 use App\Services\WorkflowTransitionService;
+use App\Services\Approvals\ApprovalWorkflowService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -347,7 +348,7 @@ class SupervisorController extends Controller
         return ApiResponse::success($assessment->load('student', 'session', 'template.criteria'), 'Clinical assessment saved successfully.');
     }
 
-    public function storeAssessmentBatch(Request $request, WorkflowTransitionService $workflow): JsonResponse
+    public function storeAssessmentBatch(Request $request, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         [, $person] = $this->supervisorIdentity($request);
         $data = $request->validate([
@@ -380,6 +381,13 @@ class SupervisorController extends Controller
                 );
             });
         });
+
+        $course = $assignment->rotationBlock?->rotation?->course;
+        $groupLabel = $assignment->studentSubgroup?->name ?: '';
+        $approvals->submit('clinical_assessment', 'clinical_assessment_batch', $batchUuid, $request->user(),
+            'التقييم الأسبوعي '.$groupLabel.' - الأسبوع '.$data['evaluation_week'],
+            'Weekly assessment '.$groupLabel.' - week '.$data['evaluation_week'], '/assessments',
+            ['batch_uuid' => $batchUuid, 'week' => $data['evaluation_week'], 'course_id' => $course?->id]);
 
         return ApiResponse::success(['batch_uuid' => $batchUuid, 'assessments' => $items], 'The group assessment batch was submitted successfully.');
     }

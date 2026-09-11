@@ -14,6 +14,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use App\Services\Approvals\ApprovalWorkflowService;
+use App\Models\User;
 
 class MeetingController extends Controller
 {
@@ -59,7 +61,7 @@ class MeetingController extends Controller
         return ApiResponse::success($meeting->fresh(), 'Meeting updated.');
     }
 
-    public function changeStatus(Request $request, Meeting $meeting): JsonResponse
+    public function changeStatus(Request $request, Meeting $meeting, ApprovalWorkflowService $approvals): JsonResponse
     {
         $data = $request->validate([
             'status' => ['required', Rule::in(['draft', 'scheduled', 'held', 'minutes_draft', 'cancelled'])],
@@ -79,27 +81,40 @@ class MeetingController extends Controller
             'cancellation_reason' => $data['status'] === 'cancelled' ? ($data['reason'] ?? null) : null,
         ]);
         $this->recordStatus($meeting, $from, $data['status'], $request->user()->id, $data['reason'] ?? null);
+        if ($data['status'] === 'minutes_draft') {
+            $approvals->submit('meeting_minutes', 'meeting_minutes', $meeting->id, $request->user(),
+                'محضر اجتماع '.$meeting->minutes_number, 'Meeting minutes '.$meeting->minutes_number, '/meetings/'.$meeting->id);
+        }
         return ApiResponse::success($meeting->fresh(), 'Meeting status updated.');
     }
 
-    public function approve(Request $request, Meeting $meeting): JsonResponse
+    public function approve(Request $request, Meeting $meeting, ApprovalWorkflowService $approvals): JsonResponse
     {
         if (! in_array($meeting->status, ['held', 'minutes_draft'], true)) {
             throw ValidationException::withMessages(['status' => ['Only held meetings with completed minutes may be approved.']]);
         }
+        if (! $approvals->pending('meeting_minutes', 'meeting_minutes', $meeting->id)) {
+            $requester = User::find((int) $meeting->created_by) ?: $request->user();
+            $approvals->submit('meeting_minutes', 'meeting_minutes', $meeting->id, $requester,
+                'محضر اجتماع '.$meeting->minutes_number, 'Meeting minutes '.$meeting->minutes_number, '/meetings/'.$meeting->id);
+        }
+        $decision = $approvals->approve('meeting_minutes', 'meeting_minutes', $meeting->id, $request->user());
+        if (! $decision['completed']) return ApiResponse::success($meeting->fresh(), app()->getLocale() === 'ar' ? 'تم اعتماد مرحلتك وإرسال المحضر للمرحلة التالية.' : 'Your step was approved and sent to the next stage.');
         $from = $meeting->status;
         $meeting->update(['status' => 'approved', 'approved_by' => $request->user()->id, 'approved_at' => now()]);
         $this->recordStatus($meeting, $from, 'approved', $request->user()->id);
         return ApiResponse::success($meeting->fresh()->load('approver.person'), 'Meeting minutes approved.');
     }
 
-    public function reopen(Request $request, Meeting $meeting): JsonResponse
+    public function reopen(Request $request, Meeting $meeting, ApprovalWorkflowService $approvals): JsonResponse
     {
         if ($meeting->status !== 'approved') {
             throw ValidationException::withMessages(['status' => ['Only approved minutes may be reopened.']]);
         }
         $meeting->update(['status' => 'minutes_draft', 'approved_by' => null, 'approved_at' => null]);
         $this->recordStatus($meeting, 'approved', 'minutes_draft', $request->user()->id, 'Minutes reopened for editing');
+        $approvals->submit('meeting_minutes', 'meeting_minutes', $meeting->id, $request->user(),
+            'إعادة اعتماد محضر اجتماع '.$meeting->minutes_number, 'Re-approval of meeting minutes '.$meeting->minutes_number, '/meetings/'.$meeting->id);
         return ApiResponse::success($meeting->fresh(), 'Meeting minutes reopened for editing.');
     }
 

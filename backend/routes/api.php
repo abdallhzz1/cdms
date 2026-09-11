@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\Api\V1\AcademicCalendarEventController;
 use App\Http\Controllers\Api\V1\AcademicYearController;
+use App\Http\Controllers\Api\V1\ApprovalInboxController;
+use App\Http\Controllers\Api\V1\ApprovalWorkflowController;
 use App\Http\Controllers\Api\V1\AdminDepartmentController;
 use App\Http\Controllers\Api\V1\AdvisingRecordController;
 use App\Http\Controllers\Api\V1\AnnualReportEntryController;
@@ -142,6 +144,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::patch('notifications/{notification}/read', [NotificationController::class, 'markRead']);
         Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
 
+        Route::get('approval-workflows', [ApprovalWorkflowController::class, 'index'])->middleware('permission:approval_workflows.view');
+        Route::put('approval-workflows/{approvalWorkflow:code}', [ApprovalWorkflowController::class, 'update'])->middleware('permission:approval_workflows.manage');
+        Route::get('approvals', [ApprovalInboxController::class, 'index'])->middleware('permission:approvals.view');
+
         Route::get('student-schedule-portal', [StudentSchedulePortalController::class, 'show'])
             ->middleware('permission:clinical_schedule.view');
         Route::put('student-schedule-portal', [StudentSchedulePortalController::class, 'update'])
@@ -258,8 +264,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('courses/{course}/reports', [CourseReportController::class, 'index'])->middleware('permission.any:courses.view,course_report.manage,course_report.approve');
         Route::post('courses/{course}/reports', [CourseReportController::class, 'store'])->middleware('permission:course_report.manage');
         Route::post('courses/{course}/reports/{report}/submit', [CourseReportController::class, 'submit'])->middleware('permission:course_report.manage');
-        Route::post('courses/{course}/reports/{report}/approve', [CourseReportController::class, 'approve'])->middleware('permission:course_report.approve');
-        Route::post('courses/{course}/reports/{report}/return', [CourseReportController::class, 'returnForRevision'])->middleware('permission:course_report.approve');
+        Route::post('courses/{course}/reports/{report}/approve', [CourseReportController::class, 'approve'])->middleware('permission.any:course_report.approve,approvals.decide');
+        Route::post('courses/{course}/reports/{report}/return', [CourseReportController::class, 'returnForRevision'])->middleware('permission.any:course_report.approve,approvals.decide');
         Route::get('study-plans', [StudyPlanController::class, 'index'])->middleware('permission:courses.view');
         Route::get('study-plans/{studyPlan}', [StudyPlanController::class, 'show'])->middleware('permission:courses.view');
         Route::post('study-plans', [StudyPlanController::class, 'store'])->middleware('permission:courses.manage');
@@ -276,8 +282,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('grade-entries', [GradeEntryController::class, 'store'])->middleware('permission:grades.create');
         Route::post('grade-entries/batch', [GradeEntryController::class, 'batchStore'])->middleware('permission:grades.create');
         Route::post('grade-entries/batch-submit', [GradeEntryController::class, 'batchSubmit'])->middleware('permission:grades.create');
-        Route::post('grade-entries/batch-approve', [GradeEntryController::class, 'batchApprove'])->middleware('permission:grades.approve');
-        Route::post('grade-entries/batch-return', [GradeEntryController::class, 'batchReturn'])->middleware('permission:grades.approve');
+        Route::post('grade-entries/batch-approve', [GradeEntryController::class, 'batchApprove'])->middleware('permission.any:grades.approve,approvals.decide');
+        Route::post('grade-entries/batch-return', [GradeEntryController::class, 'batchReturn'])->middleware('permission.any:grades.approve,approvals.decide');
         Route::get('clinical-sessions', [ClinicalSessionController::class, 'index'])->middleware('permission:attendance.view');
         Route::post('clinical-sessions', [ClinicalSessionController::class, 'store'])->middleware('permission:attendance.record');
         Route::get('attendance-records', [AttendanceRecordController::class, 'index'])->middleware('permission:attendance.view');
@@ -289,9 +295,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('clinical-assessments-summary', [ClinicalAssessmentController::class, 'summary'])->middleware('permission:assessment.view');
         Route::post('clinical-assessments', [ClinicalAssessmentController::class, 'store'])->middleware('permission:assessment.create');
         Route::post('clinical-assessments/{clinicalAssessment}/submit', [ClinicalAssessmentController::class, 'submit'])->middleware('permission:assessment.submit');
-        Route::post('clinical-assessments/{clinicalAssessment}/approve', [ClinicalAssessmentController::class, 'approve'])->middleware('permission:assessment.approve');
-        Route::post('clinical-assessment-batches/{batchUuid}/approve', [ClinicalAssessmentController::class, 'approveBatch'])->middleware('permission:assessment.approve');
-        Route::post('clinical-assessment-batches/{batchUuid}/return', [ClinicalAssessmentController::class, 'returnBatch'])->middleware('permission:assessment.approve');
+        Route::post('clinical-assessments/{clinicalAssessment}/approve', [ClinicalAssessmentController::class, 'approve'])->middleware('permission.any:assessment.approve,approvals.decide');
+        Route::post('clinical-assessment-batches/{batchUuid}/approve', [ClinicalAssessmentController::class, 'approveBatch'])->middleware('permission.any:assessment.approve,approvals.decide');
+        Route::post('clinical-assessment-batches/{batchUuid}/return', [ClinicalAssessmentController::class, 'returnBatch'])->middleware('permission.any:assessment.approve,approvals.decide');
         Route::get('clinical-assessment-templates', [ClinicalAssessmentTemplateController::class, 'index'])->middleware('permission:assessment.criteria.manage');
         Route::post('clinical-assessment-templates', [ClinicalAssessmentTemplateController::class, 'store'])->middleware('permission:assessment.criteria.manage');
         Route::get('advising-overview', [AdvisingRecordController::class, 'overview'])->middleware('permission:advising.view');
@@ -305,9 +311,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::put('correspondence/{correspondence}', [CorrespondenceController::class, 'update'])->middleware('permission:correspondence.update');
         Route::post('correspondence/{correspondence}/submit', [CorrespondenceController::class, 'submit'])->middleware('permission:correspondence.submit');
         Route::post('correspondence/{correspondence}/close', [CorrespondenceController::class, 'close'])->middleware('permission:correspondence.close');
-        Route::post('correspondence/{correspondence}/return', [CorrespondenceController::class, 'returnCorrespondence'])->middleware('permission.any:correspondence.forward,correspondence.approve');
+        Route::post('correspondence/{correspondence}/return', [CorrespondenceController::class, 'returnCorrespondence'])->middleware('permission.any:correspondence.forward,correspondence.approve,approvals.decide');
         Route::post('correspondence/{correspondence}/forward', [CorrespondenceController::class, 'forward'])->middleware('permission:correspondence.forward');
-        Route::post('correspondence/{correspondence}/approve', [CorrespondenceController::class, 'approve'])->middleware('permission:correspondence.approve');
+        Route::post('correspondence/{correspondence}/approve', [CorrespondenceController::class, 'approve'])->middleware('permission.any:correspondence.approve,approvals.decide');
         Route::post('correspondence/{correspondence}/tasks', [CorrespondenceController::class, 'createTask'])->middleware('permission:tasks.manage');
         Route::post('correspondence/{correspondence}/attachments', [CorrespondenceController::class, 'storeAttachment'])->middleware('permission:correspondence.view');
         Route::post('correspondence/{correspondence}/messages', [CorrespondenceController::class, 'storeMessage'])->middleware('permission:correspondence.view');
@@ -347,8 +353,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('meetings/{meeting}', [MeetingController::class, 'show'])->middleware('permission:meetings.manage');
         Route::put('meetings/{meeting}', [MeetingController::class, 'update'])->middleware('permission:meetings.manage');
         Route::post('meetings/{meeting}/status', [MeetingController::class, 'changeStatus'])->middleware('permission:meetings.manage');
-        Route::post('meetings/{meeting}/approve', [MeetingController::class, 'approve'])->middleware('permission:meetings.approve_minutes');
-        Route::post('meetings/{meeting}/reopen', [MeetingController::class, 'reopen'])->middleware('permission:meetings.approve_minutes');
+        Route::post('meetings/{meeting}/approve', [MeetingController::class, 'approve'])->middleware('permission.any:meetings.approve_minutes,approvals.decide');
+        Route::post('meetings/{meeting}/reopen', [MeetingController::class, 'reopen'])->middleware('permission.any:meetings.approve_minutes,approvals.decide');
         Route::post('meetings/{meeting}/actions', [MeetingController::class, 'storeAction'])->middleware('permission:meetings.manage');
         Route::put('meetings/{meeting}/actions/{action}', [MeetingController::class, 'updateAction'])->middleware('permission:meetings.manage');
         Route::delete('meetings/{meeting}/actions/{action}', [MeetingController::class, 'destroyAction'])->middleware('permission:meetings.manage');
@@ -380,9 +386,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('department-head-evaluations/{departmentHeadEvaluation}/submit', [DepartmentHeadEvaluationController::class, 'submit'])
             ->middleware('permission:department_head_evaluations.create');
         Route::post('department-head-evaluations/{departmentHeadEvaluation}/approve', [DepartmentHeadEvaluationController::class, 'approve'])
-            ->middleware('permission:department_head_evaluations.approve');
+            ->middleware('permission.any:department_head_evaluations.approve,approvals.decide');
         Route::post('department-head-evaluations/{departmentHeadEvaluation}/reopen', [DepartmentHeadEvaluationController::class, 'reopen'])
-            ->middleware('permission:department_head_evaluations.approve');
+            ->middleware('permission.any:department_head_evaluations.approve,approvals.decide');
 
         // Clinical Supervisors Routes
         Route::get('clinical-supervisors', [ClinicalSupervisorController::class, 'index'])
@@ -410,8 +416,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}', [ClinicalSupervisorEvaluationController::class, 'show'])->middleware('permission:clinical_supervisor_evaluations.view');
         Route::put('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}', [ClinicalSupervisorEvaluationController::class, 'update'])->middleware('permission:clinical_supervisor_evaluations.create');
         Route::post('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}/submit', [ClinicalSupervisorEvaluationController::class, 'submit'])->middleware('permission:clinical_supervisor_evaluations.create');
-        Route::post('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}/approve', [ClinicalSupervisorEvaluationController::class, 'approve'])->middleware('permission:clinical_supervisor_evaluations.approve');
-        Route::post('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}/reopen', [ClinicalSupervisorEvaluationController::class, 'reopen'])->middleware('permission:clinical_supervisor_evaluations.approve');
+        Route::post('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}/approve', [ClinicalSupervisorEvaluationController::class, 'approve'])->middleware('permission.any:clinical_supervisor_evaluations.approve,approvals.decide');
+        Route::post('clinical-supervisor-evaluations/{clinicalSupervisorEvaluation}/reopen', [ClinicalSupervisorEvaluationController::class, 'reopen'])->middleware('permission.any:clinical_supervisor_evaluations.approve,approvals.decide');
         Route::get('academic-calendar-overview/{academicYear}', [AcademicCalendarEventController::class, 'overview'])->middleware('permission:academic_years.view');
         Route::get('academic-calendar-events', [AcademicCalendarEventController::class, 'index'])->middleware('permission:academic_years.view');
         Route::post('academic-calendar-events', [AcademicCalendarEventController::class, 'store'])->middleware('permission:academic_years.manage');
@@ -461,9 +467,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         // Workflow transitions — Package C
         Route::post('grade-entries/{gradeEntry}/submit', [GradeEntryController::class, 'submit'])->middleware('permission:grades.create');
-        Route::post('grade-entries/{gradeEntry}/return', [GradeEntryController::class, 'returnGrade'])->middleware('permission:grades.approve');
-        Route::post('grade-entries/{gradeEntry}/approve', [GradeEntryController::class, 'approve'])->middleware('permission:grades.approve');
-        Route::post('clinical-assessments/{clinicalAssessment}/return', [ClinicalAssessmentController::class, 'returnAssessment'])->middleware('permission:assessment.approve');
+        Route::post('grade-entries/{gradeEntry}/return', [GradeEntryController::class, 'returnGrade'])->middleware('permission.any:grades.approve,approvals.decide');
+        Route::post('grade-entries/{gradeEntry}/approve', [GradeEntryController::class, 'approve'])->middleware('permission.any:grades.approve,approvals.decide');
+        Route::post('clinical-assessments/{clinicalAssessment}/return', [ClinicalAssessmentController::class, 'returnAssessment'])->middleware('permission.any:assessment.approve,approvals.decide');
         Route::post('quality-improvement-plans/{plan}/transition', [QualityImprovementController::class, 'transition'])->middleware('permission:quality.manage');
 
         // Annual Report
@@ -603,7 +609,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         // Distribution Version Lifecycle & Comparison
         Route::post('distribution-versions/{version}/approve', [DistributionApprovalController::class, 'store'])
-            ->middleware('permission:distribution.approve')
+            ->middleware('permission.any:distribution.approve,approvals.decide')
             ->name('distribution-versions.approve');
 
         Route::post('distribution-versions/{version}/publish', [DistributionPublicationController::class, 'store'])

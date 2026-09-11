@@ -12,6 +12,7 @@ class LogicalPermissionSeeder extends Seeder
     {
         $roleMapping = [
             'CLINICAL_DIRECTOR' => [
+                'approval_workflows.view', 'approvals.view', 'approvals.decide',
                 'academic_years.view', 'academic_years.manage',
                 'advising.view', 'advising.export_pdf',
                 'assessment.view', 'assessment.approve',
@@ -21,7 +22,7 @@ class LogicalPermissionSeeder extends Seeder
                 'courses.view', 'courses.manage',
                 'departments.view',
                 'distribution.view', 'distribution.create', 'distribution.generate', 'distribution.update', 'distribution.schedule_rows.manage', 'distribution.student_portal.manage', 'distribution.validate', 'distribution.approve', 'distribution.publish', 'distribution.revise', 'distribution.unpublish', 'distribution.delete', 'distribution.override',
-                'grades.view', 'grades.create', 'grades.update', 'grades.approve', 'grades.publish', 'grades.lock',
+                'grades.view', 'grades.create', 'grades.update', 'grades.approve', 'grades.lock',
                 'groups.view', 'groups.manage',
                 'kpi.manage',
                 'meetings.manage', 'meetings.approve_minutes',
@@ -70,6 +71,7 @@ class LogicalPermissionSeeder extends Seeder
                 'tasks.view',
             ],
             'DEPARTMENT_HEAD' => [
+                'approvals.view', 'approvals.decide',
                 'academic_years.view',
                 'assessment.view', 'assessment.approve',
                 'attendance.view',
@@ -106,12 +108,13 @@ class LogicalPermissionSeeder extends Seeder
                 'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward',
             ],
             'DEAN' => [
+                'approval_workflows.view', 'approvals.view', 'approvals.decide',
                 'academic_years.view',
                 'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward', 'correspondence.approve', 'correspondence.close',
                 'course_report.approve',
                 'courses.view',
                 'distribution.view', 'distribution.publish',
-                'grades.view', 'grades.publish',
+                'grades.view',
                 'meetings.manage', 'meetings.approve_minutes',
                 'performance.view',
                 'department_head_evaluations.view', 'department_head_evaluations.create', 'department_head_evaluations.approve', 'department_head_evaluations.export',
@@ -119,6 +122,7 @@ class LogicalPermissionSeeder extends Seeder
                 'reports.view', 'reports.export',
             ],
             'VICE_DEAN' => [
+                'approvals.view', 'approvals.decide',
                 'academic_years.view',
                 'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward', 'correspondence.approve', 'correspondence.close',
                 'course_report.approve',

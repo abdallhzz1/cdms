@@ -8,6 +8,7 @@ use App\Models\ClinicalAssessment;
 use App\Models\ClinicalPeriod;
 use App\Models\Student;
 use App\Services\WorkflowTransitionService;
+use App\Services\Approvals\ApprovalWorkflowService;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -110,7 +111,7 @@ class ClinicalAssessmentController extends Controller
         return ApiResponse::success($assessment, 'Clinical assessment draft created.', [], 201);
     }
 
-    public function submit(ClinicalAssessment $clinicalAssessment, WorkflowTransitionService $workflow): JsonResponse
+    public function submit(ClinicalAssessment $clinicalAssessment, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->authorizeAssessmentAccess($clinicalAssessment);
         $user = auth()->user();
@@ -122,21 +123,25 @@ class ClinicalAssessmentController extends Controller
         }
         $workflow->transition($clinicalAssessment, 'submitted');
         $clinicalAssessment->newQuery()->whereKey($clinicalAssessment->id)->update(['submitted_at' => now()]);
+        $approvals->submit('clinical_assessment', 'clinical_assessment', $clinicalAssessment->id, auth()->user(),
+            'تقييم سريري لطالب', 'Clinical student assessment', '/assessments');
 
         return ApiResponse::success($clinicalAssessment->fresh(), 'Assessment submitted.');
     }
 
-    public function returnAssessment(Request $request, ClinicalAssessment $clinicalAssessment, WorkflowTransitionService $workflow): JsonResponse
+    public function returnAssessment(Request $request, ClinicalAssessment $clinicalAssessment, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->authorizeAssessmentAccess($clinicalAssessment);
         $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:2000']]);
         $this->preventSelfApproval($request, $clinicalAssessment);
+        $this->ensureAssessmentRequest($clinicalAssessment, $approvals, 'clinical_assessment', $clinicalAssessment->id);
+        $approvals->returnForRevision('clinical_assessment', 'clinical_assessment', $clinicalAssessment->id, $request->user(), $data['reason']);
         $workflow->transition($clinicalAssessment, 'returned', $data['reason']);
 
         return ApiResponse::success($clinicalAssessment->fresh(), 'Assessment returned.');
     }
 
-    public function approve(ClinicalAssessment $clinicalAssessment, WorkflowTransitionService $workflow): JsonResponse
+    public function approve(ClinicalAssessment $clinicalAssessment, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->authorizeAssessmentAccess($clinicalAssessment);
         $this->preventSelfApproval(request(), $clinicalAssessment);
@@ -144,12 +149,15 @@ class ClinicalAssessmentController extends Controller
         if ($clinicalAssessment->score === null || ! $clinicalAssessment->evaluator_person_id || ! $clinicalAssessment->session?->rotationBlock?->rotation?->course_id) {
             throw ValidationException::withMessages(['assessment' => ['Only complete assessments linked to a clinical course can be approved.']]);
         }
+        $this->ensureAssessmentRequest($clinicalAssessment, $approvals, 'clinical_assessment', $clinicalAssessment->id);
+        $decision = $approvals->approve('clinical_assessment', 'clinical_assessment', $clinicalAssessment->id, auth()->user());
+        if (! $decision['completed']) return ApiResponse::success($decision['request'], app()->getLocale() === 'ar' ? 'تم اعتماد مرحلتك وإرسال الطلب للمرحلة التالية.' : 'Your step was approved and sent to the next stage.');
         $workflow->transition($clinicalAssessment, 'approved');
 
         return ApiResponse::success($clinicalAssessment->fresh(), 'Assessment approved.');
     }
 
-    public function approveBatch(Request $request, string $batchUuid, WorkflowTransitionService $workflow): JsonResponse
+    public function approveBatch(Request $request, string $batchUuid, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $allCount = ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->count();
         $items = $this->scopedQuery($request, false)
@@ -164,12 +172,15 @@ class ClinicalAssessmentController extends Controller
                 throw ValidationException::withMessages(['batch' => ['Every assessment in the batch must be complete and awaiting review.']]);
             }
         }
+        $this->ensureAssessmentRequest($items->first(), $approvals, 'clinical_assessment_batch', $batchUuid);
+        $decision = $approvals->approve('clinical_assessment', 'clinical_assessment_batch', $batchUuid, $request->user());
+        if (! $decision['completed']) return ApiResponse::success(['batch_uuid' => $batchUuid, 'count' => $items->count(), 'approval' => $decision['request']], app()->getLocale() === 'ar' ? 'تم اعتماد مرحلتك وإرسال المجموعة للمرحلة التالية.' : 'Your step was approved and sent to the next stage.');
         DB::transaction(fn () => $items->each(fn ($assessment) => $workflow->transition($assessment, 'approved')));
 
         return ApiResponse::success(['batch_uuid' => $batchUuid, 'count' => $items->count()], 'Assessment batch approved.');
     }
 
-    public function returnBatch(Request $request, string $batchUuid, WorkflowTransitionService $workflow): JsonResponse
+    public function returnBatch(Request $request, string $batchUuid, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:2000']]);
         $allCount = ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->count();
@@ -182,6 +193,8 @@ class ClinicalAssessmentController extends Controller
                 throw ValidationException::withMessages(['batch' => ['Every assessment in the batch must be awaiting review.']]);
             }
         }
+        $this->ensureAssessmentRequest($items->first(), $approvals, 'clinical_assessment_batch', $batchUuid);
+        $approvals->returnForRevision('clinical_assessment', 'clinical_assessment_batch', $batchUuid, $request->user(), $data['reason']);
         DB::transaction(fn () => $items->each(fn ($assessment) => $workflow->transition($assessment, 'returned', $data['reason'])));
 
         return ApiResponse::success(['batch_uuid' => $batchUuid, 'count' => $items->count()], 'Assessment batch returned.');
@@ -191,6 +204,15 @@ class ClinicalAssessmentController extends Controller
     {
         $personId = $request->user()?->person?->id;
         abort_if($personId && (int) $clinicalAssessment->evaluator_person_id === (int) $personId, 403, 'You cannot approve or return your own clinical assessment.');
+    }
+
+    private function ensureAssessmentRequest(ClinicalAssessment $assessment, ApprovalWorkflowService $approvals, string $type, string|int $id): void
+    {
+        if ($approvals->pending('clinical_assessment', $type, $id)) return;
+        $assessment->loadMissing('evaluator.user');
+        $requester = $assessment->evaluator?->user;
+        if (! $requester) throw ValidationException::withMessages(['approval' => [app()->getLocale() === 'ar' ? 'تعذر تحديد مرسل التقييم.' : 'The assessment requester could not be resolved.']]);
+        $approvals->submit('clinical_assessment', $type, $id, $requester, 'اعتماد تقييم سريري', 'Clinical assessment approval', '/assessments');
     }
 
     private function authorizeAssessmentAccess(ClinicalAssessment $clinicalAssessment): void

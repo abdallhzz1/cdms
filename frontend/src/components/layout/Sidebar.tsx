@@ -5,7 +5,7 @@ import {
   Users, Calendar, LayoutDashboard,
   Map, FileText, ClipboardCheck, BookOpen, Clock, ShieldCheck,
   MessagesSquare, FolderGit2, BarChart3,
-  GraduationCap, X, Monitor, Settings, Activity, Award, Building2, UserRound
+  GraduationCap, X, Monitor, Settings, Activity, Award, Building2, UserRound, GitBranch
 } from 'lucide-react';
 
 interface NavItem {
@@ -105,6 +105,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
       {
         title: locale === 'ar' ? 'المراسلات والاجتماعات' : 'Governance & Meetings',
         items: [
+          { path: '/approvals', label: locale === 'ar' ? 'مركز الاعتمادات' : 'Approval Center', icon: GitBranch, permission: 'approvals.view' },
           { path: '/inbox', label: locale === 'ar' ? 'المراسلات' : 'Mail', icon: MessagesSquare, permission: 'correspondence.view' },
           { path: '/meetings', label: locale === 'ar' ? 'محاضر الاجتماعات' : 'Meetings', icon: Calendar, permission: 'meetings.manage' },
           { path: '/tasks', label: locale === 'ar' ? 'المهام والتكليفات' : 'Tasks', icon: FolderGit2, permission: 'tasks.view' },
@@ -116,6 +117,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
           { path: '/users', label: locale === 'ar' ? 'المستخدمون والأدوار' : 'Users & Roles', icon: Users, permission: 'users.manage' },
           { path: '/admin/departments', label: locale === 'ar' ? 'إدارة أقسام الكلية والقيادات' : 'Departments & Leaders Management', icon: Building2, permission: 'users.manage' },
           { path: '/admin/permissions', label: locale === 'ar' ? 'مصفوفة الصلاحيات والشاشات' : 'Permission Matrix', icon: ShieldCheck, permission: 'roles.manage' },
+          { path: '/admin/approval-workflows', label: locale === 'ar' ? 'إعداد مسارات الاعتماد' : 'Approval Workflows', icon: GitBranch, permission: 'approval_workflows.view' },
           { path: '/admin/sessions', label: locale === 'ar' ? 'الجلسات والأمان الحية' : 'Active Sessions & Security', icon: Monitor, permission: 'users.manage' },
           { path: '/admin/health', label: locale === 'ar' ? 'مراقبة صحة السيرفر' : 'System Health Monitor', icon: Activity, permission: 'settings.manage' },
           { path: '/admin/settings', label: locale === 'ar' ? 'إعدادات النظام والنسخ الاحتياطي' : 'System Settings & Backup', icon: Settings, permission: 'settings.manage' },

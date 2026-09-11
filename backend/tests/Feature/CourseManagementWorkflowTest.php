@@ -56,7 +56,7 @@ class CourseManagementWorkflowTest extends TestCase
             'name_ar' => 'مساق سريري دون تصنيف فصل',
             'credit_hours' => 4,
             'academic_level' => 'fourth',
-        ])->assertCreated()->assertJsonPath('data.semester', 1);
+        ])->assertCreated()->assertJsonPath('data.semester', null);
     }
 
     public function test_course_detail_resources_validate_weights_outcomes_and_program_mappings(): void
@@ -126,9 +126,25 @@ class CourseManagementWorkflowTest extends TestCase
 
         $this->actingAs($this->manager)->postJson("/api/v1/courses/{$course->id}/reports/{$reportId}/submit")
             ->assertOk()->assertJsonPath('data.status', 'submitted');
-        $this->actingAs($this->manager)->postJson("/api/v1/courses/{$course->id}/reports/{$reportId}/approve", [
+        $director = $this->approvalUser('CLINICAL_DIRECTOR', 'course_report.approve');
+        $this->actingAs($director)->postJson("/api/v1/courses/{$course->id}/reports/{$reportId}/approve", [
             'review_notes' => 'معتمد',
+        ])->assertOk()->assertJsonPath('data.status', 'submitted');
+        $dean = $this->approvalUser('DEAN', 'course_report.approve');
+        $this->actingAs($dean)->postJson("/api/v1/courses/{$course->id}/reports/{$reportId}/approve", [
+            'review_notes' => 'اعتماد نهائي',
         ])->assertOk()->assertJsonPath('data.status', 'approved');
+    }
+
+    private function approvalUser(string $roleCode, string $modulePermission): User
+    {
+        $role = Role::where('code', $roleCode)->firstOrFail();
+        foreach (Permission::whereIn('code', [$modulePermission, 'approvals.decide'])->get() as $permission) {
+            $role->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
+        }
+        $user = User::factory()->create();
+        $user->roles()->attach($role);
+        return $user;
     }
 
     public function test_bulk_import_reports_invalid_rows_without_misclassifying_them(): void
@@ -142,7 +158,7 @@ class CourseManagementWorkflowTest extends TestCase
             ->assertJsonPath('data.imported', 1)
             ->assertJsonCount(1, 'data.errors');
 
-        $this->assertDatabaseHas('courses', ['code' => 'VALID-501', 'academic_level' => 'fifth', 'semester' => 2]);
+        $this->assertDatabaseHas('courses', ['code' => 'VALID-501', 'academic_level' => 'fifth', 'semester' => null]);
         $this->assertDatabaseMissing('courses', ['code' => 'BAD-1']);
     }
 }

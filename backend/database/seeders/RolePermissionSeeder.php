@@ -94,6 +94,21 @@ class RolePermissionSeeder extends Seeder
             ]);
         }
 
+        $approvalGrants = [
+            'SYS_ADMIN' => ['approval_workflows.view', 'approval_workflows.manage', 'approvals.view'],
+            'CLINICAL_DIRECTOR' => ['approval_workflows.view', 'approvals.view', 'approvals.decide'],
+            'DEAN' => ['approval_workflows.view', 'approvals.view', 'approvals.decide'],
+            'VICE_DEAN' => ['approvals.view', 'approvals.decide'],
+            'DEPARTMENT_HEAD' => ['approvals.view', 'approvals.decide'],
+        ];
+        foreach ($approvalGrants as $roleCode => $codes) {
+            $role = Role::where('code', $roleCode)->first();
+            if (! $role) continue;
+            foreach (Permission::whereIn('code', $codes)->get() as $permission) {
+                $role->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
+            }
+        }
+
         $groupRegistrationGrants = Permission::where('code', 'like', 'group_registration.%')->get();
         foreach (Role::whereIn('code', ['SYS_ADMIN', 'ADMIN_ASSISTANT', 'CLINICAL_DIRECTOR'])->get() as $role) {
             foreach ($groupRegistrationGrants as $permission) {

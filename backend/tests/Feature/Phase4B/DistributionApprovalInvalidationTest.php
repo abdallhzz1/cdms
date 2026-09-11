@@ -46,6 +46,10 @@ class DistributionApprovalInvalidationTest extends TestCase
         $this->admin = User::factory()->create();
         $this->admin->roles()->attach($adminRole);
 
+        $workflow = \App\Models\ApprovalWorkflow::where('code', 'clinical_distribution')->firstOrFail();
+        $workflow->steps()->firstOrFail()->update(['role_codes' => ['TEST_ADMIN']]);
+        $workflow->steps()->where('step_order', '>', 1)->delete();
+
         $rotation = Rotation::factory()->create();
         $this->block1 = RotationBlock::factory()->create(['rotation_id' => $rotation->id]);
         

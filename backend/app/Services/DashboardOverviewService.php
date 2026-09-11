@@ -58,6 +58,9 @@ class DashboardOverviewService
         if ($permissions->contains('meetings.manage')) {
             $this->addMeetingSection($metrics, $charts, $attention);
         }
+        if ($permissions->contains('approvals.view')) {
+            $this->addApprovalSection($user, $metrics, $attention);
+        }
         if ($permissions->intersect(['quality.view', 'quality.manage', 'kpi.manage'])->isNotEmpty()) {
             $this->addQualitySection($metrics, $charts, $attention);
         }
@@ -273,7 +276,21 @@ class DashboardOverviewService
         $charts->push($this->chart('meeting_status', 'bar', 'حالة الاجتماعات والمحاضر', 'Meeting and minutes status', $counts->map(
             fn ($value, $status) => $this->chartItem($this->workflowAr((string) $status), ucfirst((string) $status), (int) $value),
         )->values()->all()));
-        $attention->push($this->attention('minutes_pending', 'محاضر بانتظار الاعتماد', 'Minutes awaiting approval', (int) ($counts['submitted'] ?? 0), '/meetings', 'review'));
+        $attention->push($this->attention('minutes_pending', 'محاضر بانتظار الاعتماد', 'Minutes awaiting approval', (int) ($counts['minutes_draft'] ?? 0), '/meetings', 'review'));
+    }
+
+    private function addApprovalSection(User $user, Collection $metrics, Collection $attention): void
+    {
+        $roles = $user->roles()->pluck('code')->all();
+        $query = DB::table('approval_requests')->join('approval_workflow_steps', function ($join) {
+            $join->on('approval_workflow_steps.approval_workflow_id', '=', 'approval_requests.approval_workflow_id')
+                ->on('approval_workflow_steps.step_order', '=', 'approval_requests.current_step_order');
+        })->where('approval_requests.status', 'pending')->where(function ($q) use ($roles) {
+            foreach ($roles as $role) $q->orWhereJsonContains('approval_workflow_steps.role_codes', $role);
+        });
+        $count = $query->count();
+        $metrics->push($this->metric('approval_queue', 'طلبات الاعتماد بانتظارك', 'Approval requests awaiting you', $count, null, '/approvals'));
+        $attention->push($this->attention('approval_queue', 'طلبات تحتاج قرار اعتماد', 'Requests need an approval decision', $count, '/approvals', 'review'));
     }
 
     private function addQualitySection(Collection $metrics, Collection $charts, Collection $attention): void

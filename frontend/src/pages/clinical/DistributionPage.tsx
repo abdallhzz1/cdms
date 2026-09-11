@@ -1226,7 +1226,7 @@ export function DistributionPage() {
                   {tr("إضافة صف", "Add row")}
                 </Button>
               )}
-              {can("distribution.approve") &&
+              {(can("distribution.approve") || can("approvals.decide")) &&
                 isEditable &&
                 approvalState !== "approved" && (
                   <Button

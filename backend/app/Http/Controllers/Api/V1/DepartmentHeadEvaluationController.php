@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use App\Services\Approvals\ApprovalWorkflowService;
 
 class DepartmentHeadEvaluationController extends Controller
 {
@@ -116,7 +117,7 @@ class DepartmentHeadEvaluationController extends Controller
         return ApiResponse::success($this->present($departmentHeadEvaluation->fresh(), true), 'تم حفظ مسودة التقييم.');
     }
 
-    public function submit(Request $request, DepartmentHeadEvaluation $departmentHeadEvaluation): JsonResponse
+    public function submit(Request $request, DepartmentHeadEvaluation $departmentHeadEvaluation, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->ensurePermission($request->user(), 'department_head_evaluations.create');
         $this->ensureDraft($departmentHeadEvaluation);
@@ -133,19 +134,29 @@ class DepartmentHeadEvaluationController extends Controller
             'submitted_at' => now(),
             'activity_log' => $activity,
         ]);
+        $approvals->submit('department_head_evaluation', 'department_head_evaluation', $departmentHeadEvaluation->id, $request->user(),
+            'تقييم رئيس القسم',
+            'Department head evaluation', '/department-head-evaluations', ['academic_year_id' => $departmentHeadEvaluation->academic_year_id]);
 
         return ApiResponse::success($this->present($departmentHeadEvaluation->fresh(), true), 'تم توقيع التقييم وإرساله للاعتماد.');
     }
 
-    public function approve(Request $request, DepartmentHeadEvaluation $departmentHeadEvaluation): JsonResponse
+    public function approve(Request $request, DepartmentHeadEvaluation $departmentHeadEvaluation, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->ensurePermission($request->user(), 'department_head_evaluations.approve');
         if ($departmentHeadEvaluation->status !== 'submitted') {
             throw ValidationException::withMessages(['status' => ['لا يمكن اعتماد تقييم غير موقّع من المقيّم.']]);
         }
+        if (! $approvals->pending('department_head_evaluation', 'department_head_evaluation', $departmentHeadEvaluation->id)) {
+            $requester = User::findOrFail((int) $departmentHeadEvaluation->evaluator_user_id);
+            $approvals->submit('department_head_evaluation', 'department_head_evaluation', $departmentHeadEvaluation->id, $requester,
+                'تقييم رئيس قسم', 'Department head evaluation', '/department-head-evaluations');
+        }
+        $decision = $approvals->approve('department_head_evaluation', 'department_head_evaluation', $departmentHeadEvaluation->id, $request->user());
+        if (! $decision['completed']) return ApiResponse::success($this->present($departmentHeadEvaluation, true), app()->getLocale() === 'ar' ? 'تم اعتماد مرحلتك وإرسال التقييم للمرحلة التالية.' : 'Your step was approved and sent to the next stage.');
         $user = $request->user();
         $activity = $departmentHeadEvaluation->activity_log ?: [];
-        $activity[] = $this->event('approved_by_dean', $user);
+        $activity[] = $this->event('final_approval_completed', $user);
         $departmentHeadEvaluation->update([
             'status' => 'approved',
             'dean_user_id' => $user->id,
@@ -263,7 +274,8 @@ class DepartmentHeadEvaluationController extends Controller
 
     private function ensurePermission(?User $user, string $permission): void
     {
-        abort_unless($user && Gate::forUser($user)->allows('permission', [$permission]), 403, 'This action is unauthorized.');
+        abort_unless($user && (Gate::forUser($user)->allows('permission', [$permission])
+            || (str_ends_with($permission, '.approve') && Gate::forUser($user)->allows('permission', ['approvals.decide']))), 403, 'This action is unauthorized.');
     }
 
     private function domainByCode(string $code): ?array

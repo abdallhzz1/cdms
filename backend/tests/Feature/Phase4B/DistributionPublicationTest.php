@@ -39,6 +39,10 @@ class DistributionPublicationTest extends TestCase
         $this->publishAdmin = User::factory()->create();
         $this->publishAdmin->roles()->attach($publishRole);
 
+        $workflow = \App\Models\ApprovalWorkflow::where('code', 'clinical_distribution')->firstOrFail();
+        $workflow->steps()->firstOrFail()->update(['role_codes' => ['TEST_PUBLISH']]);
+        $workflow->steps()->where('step_order', '>', 1)->delete();
+
         $rotation = Rotation::factory()->create();
         $this->block1 = RotationBlock::factory()->create(['rotation_id' => $rotation->id]);
         

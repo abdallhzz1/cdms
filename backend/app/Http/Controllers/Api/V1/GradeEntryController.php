@@ -12,6 +12,7 @@ use App\Models\Student;
 use App\Models\AcademicYear;
 use App\Models\ClinicalAssessment;
 use App\Services\WorkflowTransitionService;
+use App\Services\Approvals\ApprovalWorkflowService;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -274,7 +275,7 @@ class GradeEntryController extends Controller
         return ApiResponse::success($savedGrades, 'Grades saved successfully.');
     }
     
-    public function batchSubmit(Request $request, WorkflowTransitionService $workflow): JsonResponse
+    public function batchSubmit(Request $request, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $data = $request->validate([
             'course_code' => ['required', 'string'],
@@ -307,11 +308,15 @@ class GradeEntryController extends Controller
                 $grade->newQuery()->whereKey($grade->id)->update(['submitted_at' => now(), 'return_reason' => null]);
             }
         });
+
+        $approvals->submit('grade_sheet', 'grade_sheet', $course->id.':'.$academicYearId, $request->user(),
+            'كشف علامات '.$course->name_ar, 'Grade sheet: '.($course->name_en ?: $course->code), '/grades',
+            ['course_id' => $course->id, 'academic_year_id' => $academicYearId]);
         
         return ApiResponse::success(null, 'Grades submitted for approval.');
     }
 
-    public function batchApprove(Request $request, WorkflowTransitionService $workflow): JsonResponse
+    public function batchApprove(Request $request, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $user = auth()->user();
         if ($user && $user->hasRole('RTA') && !$user->hasRole('DEPARTMENT_HEAD') && !$user->hasRole('SYS_ADMIN') && !$user->hasRole('DEAN') && !$user->hasRole('CLINICAL_DIRECTOR')) {
@@ -331,7 +336,7 @@ class GradeEntryController extends Controller
         $this->authorizeCourseDepartmentAccess($course);
         
         $academicYearId = $this->resolveAcademicYearId($data);
-        DB::transaction(function () use ($course, $academicYearId, $workflow) {
+        $result = DB::transaction(function () use ($course, $academicYearId, $workflow, $approvals, $request) {
             $enrollments = StudentCourseEnrollment::where('course_id', $course->id)
                 ->where('academic_year_id', $academicYearId)
                 ->pluck('id');
@@ -344,16 +349,27 @@ class GradeEntryController extends Controller
             if ($grades->contains(fn (GradeEntry $grade) => (int) $grade->prepared_by_user_id === (int) auth()->id())) {
                 throw \Illuminate\Validation\ValidationException::withMessages(['grades' => ['The preparer cannot approve the same grade sheet.']]);
             }
+            if (! $approvals->pending('grade_sheet', 'grade_sheet', $course->id.':'.$academicYearId)) {
+                $requester = \App\Models\User::findOrFail((int) $grades->first()->prepared_by_user_id);
+                $approvals->submit('grade_sheet', 'grade_sheet', $course->id.':'.$academicYearId, $requester,
+                    'كشف علامات '.$course->name_ar, 'Grade sheet: '.($course->name_en ?: $course->code), '/grades',
+                    ['course_id' => $course->id, 'academic_year_id' => $academicYearId]);
+            }
+            $decision = $approvals->approve('grade_sheet', 'grade_sheet', $course->id.':'.$academicYearId, $request->user());
+            if (! $decision['completed']) return $decision;
             foreach ($grades as $grade) {
                 $workflow->transition($grade, 'approved');
                 $grade->newQuery()->whereKey($grade->id)->update(['approved_by_user_id' => auth()->id(), 'approved_at' => now()]);
             }
+            return $decision;
         });
         
-        return ApiResponse::success(null, 'Grades approved successfully.');
+        return ApiResponse::success($result['request'], $result['completed']
+            ? (app()->getLocale() === 'ar' ? 'اكتمل اعتماد كشف العلامات.' : 'Grade sheet approved successfully.')
+            : (app()->getLocale() === 'ar' ? 'تم اعتماد مرحلتك وإرسال الكشف للمرحلة التالية.' : 'Your step was approved and sent to the next stage.'));
     }
     
-    public function batchReturn(Request $request, WorkflowTransitionService $workflow): JsonResponse
+    public function batchReturn(Request $request, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $user = auth()->user();
         if ($user && $user->hasRole('RTA') && !$user->hasRole('DEPARTMENT_HEAD') && !$user->hasRole('SYS_ADMIN') && !$user->hasRole('DEAN') && !$user->hasRole('CLINICAL_DIRECTOR')) {
@@ -374,7 +390,7 @@ class GradeEntryController extends Controller
         $this->authorizeCourseDepartmentAccess($course);
         
         $academicYearId = $this->resolveAcademicYearId($data);
-        DB::transaction(function () use ($course, $academicYearId, $data, $workflow) {
+        DB::transaction(function () use ($course, $academicYearId, $data, $workflow, $approvals, $request) {
             $enrollments = StudentCourseEnrollment::where('course_id', $course->id)
                 ->where('academic_year_id', $academicYearId)
                 ->pluck('id');
@@ -384,6 +400,13 @@ class GradeEntryController extends Controller
             if ($grades->isEmpty()) {
                 throw \Illuminate\Validation\ValidationException::withMessages(['grades' => ['There are no submitted grades to return.']]);
             }
+            if (! $approvals->pending('grade_sheet', 'grade_sheet', $course->id.':'.$academicYearId)) {
+                $requester = \App\Models\User::findOrFail((int) $grades->first()->prepared_by_user_id);
+                $approvals->submit('grade_sheet', 'grade_sheet', $course->id.':'.$academicYearId, $requester,
+                    'كشف علامات '.$course->name_ar, 'Grade sheet: '.($course->name_en ?: $course->code), '/grades',
+                    ['course_id' => $course->id, 'academic_year_id' => $academicYearId]);
+            }
+            $approvals->returnForRevision('grade_sheet', 'grade_sheet', $course->id.':'.$academicYearId, $request->user(), $data['reason']);
             foreach ($grades as $grade) {
                 $workflow->transition($grade, 'returned', $data['reason']);
                 $grade->newQuery()->whereKey($grade->id)->update(['return_reason' => $data['reason'], 'approved_by_user_id' => null, 'approved_at' => null]);
@@ -393,7 +416,7 @@ class GradeEntryController extends Controller
         return ApiResponse::success(null, 'Grades returned for revision.');
     }
 
-    public function submit(GradeEntry $gradeEntry, WorkflowTransitionService $workflow): JsonResponse
+    public function submit(GradeEntry $gradeEntry, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->authorizeGradeEntryAccess($gradeEntry);
         if ($gradeEntry->clinical_score === null || $gradeEntry->osce_score === null || $gradeEntry->written_score === null || $gradeEntry->score === null) {
@@ -401,19 +424,27 @@ class GradeEntryController extends Controller
         }
         $workflow->transition($gradeEntry, 'submitted');
         $gradeEntry->newQuery()->whereKey($gradeEntry->id)->update(['submitted_at' => now(), 'return_reason' => null]);
+        $gradeEntry->loadMissing('enrollment.course');
+        $course = $gradeEntry->enrollment->course;
+        $approvals->submit('grade_sheet', 'grade_entry', $gradeEntry->id, auth()->user(), 'علامة طالب في '.$course->name_ar, 'Student grade in '.($course->name_en ?: $course->code), '/grades');
         return ApiResponse::success($gradeEntry->fresh(), 'Grade submitted.');
     }
 
-    public function returnGrade(Request $r, GradeEntry $gradeEntry, WorkflowTransitionService $workflow): JsonResponse
+    public function returnGrade(Request $r, GradeEntry $gradeEntry, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->authorizeGradeEntryAccess($gradeEntry);
         $data = $r->validate(['reason' => ['required', 'string', 'min:3', 'max:2000']]);
+        if (! $approvals->pending('grade_sheet', 'grade_entry', $gradeEntry->id)) {
+            $requester = \App\Models\User::findOrFail((int) $gradeEntry->prepared_by_user_id);
+            $approvals->submit('grade_sheet', 'grade_entry', $gradeEntry->id, $requester, 'اعتماد علامة طالب', 'Student grade approval', '/grades');
+        }
+        $approvals->returnForRevision('grade_sheet', 'grade_entry', $gradeEntry->id, $r->user(), $data['reason']);
         $workflow->transition($gradeEntry, 'returned', $data['reason']);
         $gradeEntry->newQuery()->whereKey($gradeEntry->id)->update(['return_reason' => $data['reason']]);
         return ApiResponse::success($gradeEntry->fresh(), 'Grade returned.');
     }
 
-    public function approve(GradeEntry $gradeEntry, WorkflowTransitionService $workflow): JsonResponse
+    public function approve(GradeEntry $gradeEntry, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $user = auth()->user();
         if ($user && $user->hasRole('RTA') && !$user->hasRole('DEPARTMENT_HEAD') && !$user->hasRole('SYS_ADMIN') && !$user->hasRole('DEAN') && !$user->hasRole('CLINICAL_DIRECTOR')) {
@@ -426,6 +457,12 @@ class GradeEntryController extends Controller
             throw \Illuminate\Validation\ValidationException::withMessages(['grade' => ['The preparer cannot approve the same grade.']]);
         }
 
+        if (! $approvals->pending('grade_sheet', 'grade_entry', $gradeEntry->id)) {
+            $requester = \App\Models\User::findOrFail((int) $gradeEntry->prepared_by_user_id);
+            $approvals->submit('grade_sheet', 'grade_entry', $gradeEntry->id, $requester, 'اعتماد علامة طالب', 'Student grade approval', '/grades');
+        }
+        $decision = $approvals->approve('grade_sheet', 'grade_entry', $gradeEntry->id, auth()->user());
+        if (! $decision['completed']) return ApiResponse::success($decision['request'], app()->getLocale() === 'ar' ? 'تم اعتماد مرحلتك.' : 'Your approval step is complete.');
         $workflow->transition($gradeEntry, 'approved');
         $gradeEntry->newQuery()->whereKey($gradeEntry->id)->update(['approved_by_user_id' => auth()->id(), 'approved_at' => now()]);
         return ApiResponse::success($gradeEntry->fresh(), 'Grade approved.');

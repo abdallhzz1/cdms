@@ -42,6 +42,11 @@ class CourseDistributionWorkflowTest extends TestCase
         $role->permissions()->sync($ids->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all());
         $this->user = User::factory()->create();
         $this->user->roles()->attach($role);
+        $directorRole = Role::where('code', 'CLINICAL_DIRECTOR')->firstOrFail();
+        $directorRole->permissions()->syncWithoutDetaching(
+            Permission::where('code', 'approvals.decide')->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->user->roles()->attach($directorRole);
 
         $this->year = AcademicYear::factory()->create([
             'is_current' => true,
@@ -196,8 +201,7 @@ class CourseDistributionWorkflowTest extends TestCase
             ->assertJsonFragment(['subgroup_name' => 'L1'])
             ->assertJsonFragment(['subgroup_name' => 'L2']);
 
-        $this->actingAs($this->user)->postJson("/api/v1/distribution-versions/{$versionId}/approve")
-            ->assertOk();
+        $this->completeApproval($versionId);
         $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
             ->assertOk()
             ->assertJsonPath('data.approval_state.status', 'approved');
@@ -260,8 +264,19 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->actingAs($this->user)->getJson("/api/v1/distribution-versions/{$versionId}/unassigned")
             ->assertOk()
             ->assertJsonMissing(['id' => $otherStudent->id]);
-        $this->actingAs($this->user)->postJson("/api/v1/distribution-versions/{$versionId}/approve")
-            ->assertOk();
+        $this->completeApproval($versionId);
+    }
+
+    private function completeApproval(int $versionId): void
+    {
+        $this->actingAs($this->user)->postJson("/api/v1/distribution-versions/{$versionId}/approve")->assertOk();
+        $deanRole = Role::where('code', 'DEAN')->firstOrFail();
+        foreach (Permission::whereIn('code', ['distribution.approve', 'approvals.decide'])->get() as $permission) {
+            $deanRole->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
+        }
+        $dean = User::factory()->create();
+        $dean->roles()->attach($deanRole);
+        $this->actingAs($dean)->postJson("/api/v1/distribution-versions/{$versionId}/approve")->assertOk();
     }
 
     public function test_publication_approval_error_follows_the_requested_system_language(): void

@@ -49,6 +49,11 @@ class DistributionApprovalTest extends TestCase
         $this->overrideAdmin = User::factory()->create();
         $this->overrideAdmin->roles()->attach($overrideRole);
 
+        \App\Models\ApprovalWorkflow::where('code', 'clinical_distribution')->firstOrFail()
+            ->steps()->firstOrFail()->update(['role_codes' => ['TEST_APPROVE', 'TEST_OVERRIDE']]);
+        \App\Models\ApprovalWorkflow::where('code', 'clinical_distribution')->firstOrFail()
+            ->steps()->where('step_order', '>', 1)->delete();
+
         $this->unauthorized = User::factory()->create();
 
         $rotation = Rotation::factory()->create();

@@ -7,6 +7,7 @@ use App\Models\Meeting;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\ApprovalWorkflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -213,6 +214,9 @@ class AdministrativeWorkflowTest extends TestCase
     {
         $manager = $this->userWithPermissions(['meetings.manage']);
         $approver = $this->userWithPermissions(['meetings.manage', 'meetings.approve_minutes']);
+        ApprovalWorkflow::where('code', 'meeting_minutes')->firstOrFail()->steps()->firstOrFail()->update([
+            'role_codes' => $approver->roles()->pluck('code')->all(),
+        ]);
         $meeting = Meeting::create([
             'minutes_number' => 'MTG-TEST-002', 'meeting_type' => 'Council', 'meeting_date' => now()->toDateString(),
             'status' => 'minutes_draft', 'created_by' => $manager->id,

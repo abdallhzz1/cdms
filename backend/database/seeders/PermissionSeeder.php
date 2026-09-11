@@ -33,7 +33,6 @@ class PermissionSeeder extends Seeder
             ['code' => 'grades.update', 'module' => 'Grades', 'action' => 'UPDATE', 'description_key' => 'permissions.grades_update.description'],
             ['code' => 'grades.lock', 'module' => 'Grades', 'action' => 'LOCK', 'description_key' => 'permissions.grades_lock.description'],
             ['code' => 'grades.approve', 'module' => 'Grades', 'action' => 'APPROVE', 'description_key' => 'permissions.grades_approve.description'],
-            ['code' => 'grades.publish', 'module' => 'Grades', 'action' => 'PUBLISH', 'description_key' => 'permissions.grades_publish.description'],
             ['code' => 'distribution.view', 'module' => 'Distribution', 'action' => 'VIEW', 'description_key' => 'permissions.distribution_view.description'],
             ['code' => 'clinical_schedule.view', 'module' => 'Distribution', 'action' => 'VIEW_CLINICAL_SCHEDULE', 'description_key' => 'permissions.clinical_schedule_view.description'],
             ['code' => 'distribution.create', 'module' => 'Distribution', 'action' => 'CREATE', 'description_key' => 'permissions.distribution_create.description'],
@@ -93,6 +92,10 @@ class PermissionSeeder extends Seeder
             ['code' => 'roles.manage', 'module' => 'Security', 'action' => 'MANAGE_ROLES', 'description_key' => 'permissions.roles_manage.description'],
             ['code' => 'audit.view', 'module' => 'Security', 'action' => 'VIEW_AUDIT', 'description_key' => 'permissions.audit_view.description'],
             ['code' => 'settings.manage', 'module' => 'System', 'action' => 'MANAGE_SETTINGS', 'description_key' => 'permissions.settings_manage.description'],
+            ['code' => 'approval_workflows.view', 'module' => 'Approval Workflows', 'action' => 'VIEW', 'description_key' => 'permissions.approval_workflows_view.description'],
+            ['code' => 'approval_workflows.manage', 'module' => 'Approval Workflows', 'action' => 'MANAGE', 'description_key' => 'permissions.approval_workflows_manage.description'],
+            ['code' => 'approvals.view', 'module' => 'Approvals', 'action' => 'VIEW', 'description_key' => 'permissions.approvals_view.description'],
+            ['code' => 'approvals.decide', 'module' => 'Approvals', 'action' => 'DECIDE', 'description_key' => 'permissions.approvals_decide.description'],
         ];
 
         foreach ($permissions as $permission) {
