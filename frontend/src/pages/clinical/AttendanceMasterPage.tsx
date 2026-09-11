@@ -1,26 +1,7 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { LucideIcon } from 'lucide-react';
-import {
-  AlertCircle,
-  BellRing,
-  BookOpen,
-  Building2,
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  CheckCircle,
-  ClipboardList,
-  Clock,
-  Mail,
-  RotateCcw,
-  Search,
-  Send,
-  UserRound,
-  X,
-  XCircle,
-} from 'lucide-react';
-import { apiFetch, ApiError } from '@/api/client';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { AlertTriangle, CalendarDays, CheckCircle2, MapPin, UserRound, XCircle } from 'lucide-react';
+import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -28,635 +9,162 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 
-type AttendanceWarning = {
-  student: {
-    id: number;
-    university_number: string;
-    full_name_ar: string;
-    full_name_en?: string | null;
-    email: string;
-  };
-  rotation_id: number;
-  course: {
-    id: number;
-    code: string;
-    name_ar: string;
-    name_en?: string | null;
-    credit_hours: number;
-  };
-  academic_year?: { id: number; name: string } | null;
-  clinical_period?: { id:number;code:string;name_ar:string;name_en?:string|null;sequence:number } | null;
-  total_required_days: number;
-  recorded_days: number;
-  present_days: number;
-  absent_days: number;
-  late_days: number;
-  excused_days: number;
-  absence_percentage: number;
-  current_threshold: 10 | 20;
-  last_sent: Record<'10' | '20', { id: number; sent_at: string } | null>;
+type Named = { id?: number; code?: string; name?: string; name_ar?: string; name_en?: string | null };
+type Supervisor = { id?: number; full_name_ar?: string; full_name_en?: string | null } | null;
+type AttendanceGroup = {
+  assignment_id: number; academic_year?: Named | null; course?: Named | null; clinical_period?: Named | null;
+  block?: { code?: string | null; from_week?: number | null; to_week?: number | null } | null;
+  group_name?: string | null; subgroup_name?: string | null; batch_year?: number | null;
+  training_site?: Named | null; supervisor?: Supervisor; student_count: number;
+};
+type WeekSummary = {
+  number: number; start_date: string; end_date: string; scheduled_days: number; elapsed_scheduled_days: number;
+  recorded_days: number; present: number; absent: number; late: number; excused: number;
+};
+type StudentSummary = {
+  student: { id: number; university_number: string; full_name_ar: string; full_name_en?: string | null; photo_url?: string | null };
+  weeks: WeekSummary[];
+  totals: Omit<WeekSummary, 'number' | 'start_date' | 'end_date'> & { absence_percentage: number; warning_level?: 10 | 20 | null };
+};
+type GroupWeek = Omit<WeekSummary, 'recorded_days' | 'present' | 'absent' | 'late' | 'excused'> & { scheduled_dates: string[] };
+type GroupSummary = {
+  group: AttendanceGroup;
+  weeks: GroupWeek[];
+  students: StudentSummary[];
 };
 
-type AttendanceRecord = {
-  id: number;
-  status: keyof typeof STATUS_CONFIG;
-  excuse_note?: string | null;
-  student?: {
-    full_name_ar?: string;
-    full_name_en?: string | null;
-    university_number?: string;
-  };
-  session?: {
-    title?: string;
-    session_date?: string;
-    training_site?: { name_ar?: string; name_en?: string | null } | null;
-    rotation_block?: {
-      rotation?: {
-        course?: { name_ar?: string; name_en?: string | null; code?: string } | null;
-        clinical_period?: { id:number;code:string;name_ar:string;name_en?:string|null;sequence:number } | null;
-      } | null;
-    } | null;
-  };
-  recorder?: { name?: string } | null;
-};
-
-type AttendancePayload = {
-  items: AttendanceRecord[];
-  pagination: { current_page: number; last_page: number; per_page: number; total: number };
-  summary: Record<string, number>;
-};
-
-type AttendanceOptions = {
-  academic_years: Array<{ id: number; code: string; is_current?: boolean }>;
-  courses: Array<{ id: number; code: string; name_ar: string; name_en?: string | null }>;
-  clinical_periods: Array<{ id: number; code: string; name_ar: string; name_en?: string | null; sequence: number }>;
-  training_sites: Array<{ id: number; name_ar: string; name_en?: string | null }>;
-  sessions: Array<{ id: number; session_date: string; title: string; clinical_period_id?: number | null }>;
-};
-
-type AttendanceGap = {
-  date: string;
-  expected_students: number;
-  recorded_students: number;
-  missing_students: number;
-  status_summary?: Record<string, number>;
-  group_name?: string | null;
-  course?: { code: string; name_ar: string; name_en?: string | null } | null;
-  training_site?: { name_ar: string; name_en?: string | null } | null;
-  supervisor?: { full_name_ar: string; full_name_en?: string | null } | null;
-};
-
-function localDateValue(date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function moveDateValue(value: string, days: number): string {
-  const date = new Date(`${value}T12:00:00`);
-  date.setDate(date.getDate() + days);
-  return localDateValue(date);
-}
-
-const STATUS_CONFIG: Record<string, {
-  icon: LucideIcon;
-  label_ar: string;
-  label_en: string;
-  className: string;
-}> = {
-  present: { icon: CheckCircle, label_ar: 'حاضر', label_en: 'Present', className: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-  absent: { icon: XCircle, label_ar: 'غائب', label_en: 'Absent', className: 'border-rose-100 bg-rose-50 text-rose-700' },
-  late: { icon: Clock, label_ar: 'متأخر', label_en: 'Late', className: 'border-amber-100 bg-amber-50 text-amber-700' },
-  excused: { icon: AlertCircle, label_ar: 'بعذر', label_en: 'Excused', className: 'border-sky-100 bg-sky-50 text-sky-700' },
-};
-
-const inputClass =
-  'h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-teal-300 focus:ring-2 focus:ring-teal-100';
-
-function readableDate(value: string | null | undefined, locale: string, withTime = false): string {
-  if (!value) return '—';
-  const dateOnly = value.slice(0, 10);
-  const parsed = new Date(withTime ? value : `${dateOnly}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return dateOnly;
-
-  return new Intl.DateTimeFormat(locale === 'ar' ? 'ar-PS' : 'en-GB', {
-    year: 'numeric',
-    month: '2-digit',
-    day: 'numeric',
-    ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}),
-  }).format(parsed);
-}
-
-function weekday(value: string | null | undefined, locale: string): string {
-  if (!value) return '—';
-  const parsed = new Date(`${value.slice(0, 10)}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? '—' : new Intl.DateTimeFormat(locale === 'ar' ? 'ar-PS' : 'en-GB', { weekday: 'long' }).format(parsed);
-}
-
-function StatusBadge({ status, locale }: { status: string; locale: string }) {
-  const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.present;
-  const Icon = config.icon;
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-black ${config.className}`}>
-      <Icon className="h-3.5 w-3.5" />
-      {locale === 'ar' ? config.label_ar : config.label_en}
-    </span>
-  );
-}
+const dateLabel = (value: string, ar: boolean) => new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', {
+  day: '2-digit', month: '2-digit',
+}).format(new Date(`${String(value).slice(0, 10)}T12:00:00`));
 
 export function AttendanceMasterPage() {
   const { can } = useAuth();
   const { locale } = useI18n();
-  const queryClient = useQueryClient();
   const ar = locale === 'ar';
-  const tr = (arabic: string, english: string) => (ar ? arabic : english);
+  const tr = (arabic: string, english: string) => ar ? arabic : english;
+  const [selectedAssignment, setSelectedAssignment] = useState('');
+  const [activeTab, setActiveTab] = useState<'register' | 'alerts'>('register');
 
-  const [periodFilter, setPeriodFilter] = useState('');
-  const [yearFilter, setYearFilter] = useState('');
-  const [courseFilter, setCourseFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [dateFilter, setDateFilter] = useState(() => localDateValue());
-  const [searchFilter, setSearchFilter] = useState('');
-  const [page, setPage] = useState(1);
-  const [activeTab, setActiveTab] = useState<'records' | 'alerts'>('records');
-  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  const recordQuery = useQuery({
-    queryKey: ['attendance-records', statusFilter, dateFilter, searchFilter, page],
-    queryFn: () => {
-      const params = new URLSearchParams({ per_page: '25', page_payload: '1', page: String(page) });
-      if (statusFilter) params.set('status', statusFilter);
-      if (dateFilter) params.set('date', dateFilter);
-      if (searchFilter.trim()) params.set('search', searchFilter.trim());
-      return apiFetch<AttendancePayload>(`/attendance-records?${params.toString()}`);
-    },
-    enabled: can('attendance.review') && activeTab === 'records',
-  });
-
-  const optionsQuery = useQuery({
-    queryKey: ['attendance-record-options'],
-    queryFn: () => apiFetch<AttendanceOptions>('/attendance-records/options'),
+  const groupsQuery = useQuery({
+    queryKey: ['attendance-review-groups'],
+    queryFn: () => apiFetch<AttendanceGroup[]>('/attendance-records/groups'),
     enabled: can('attendance.review'),
   });
+  const groups = Array.isArray(groupsQuery.data) ? groupsQuery.data : [];
+  useEffect(() => {
+    if (!groups.length) return;
+    setSelectedAssignment(current => groups.some(group => String(group.assignment_id) === current) ? current : String(groups[0].assignment_id));
+  }, [groups]);
 
-  const warningQuery = useQuery({
-    queryKey: ['attendance-warnings',periodFilter,yearFilter,courseFilter],
-    queryFn: () => { const params=new URLSearchParams(); if(periodFilter)params.set('clinical_period_id',periodFilter);if(yearFilter)params.set('academic_year_id',yearFilter);if(courseFilter)params.set('course_id',courseFilter);return apiFetch<AttendanceWarning[]>(`/attendance-warnings${params.size?`?${params}`:''}`); },
-    enabled: can('attendance.review') && activeTab === 'alerts',
+  const summaryQuery = useQuery({
+    queryKey: ['attendance-group-summary', selectedAssignment],
+    queryFn: () => apiFetch<GroupSummary>(`/attendance-records/group-summary?assignment_id=${selectedAssignment}`),
+    enabled: can('attendance.review') && Boolean(selectedAssignment),
   });
+  const summary = summaryQuery.data;
+  const warningStudents = useMemo(() => summary?.students.filter(row => row.totals.warning_level) ?? [], [summary]);
+  const name = (value?: Named | null) => ar ? value?.name_ar : value?.name_en || value?.name_ar;
+  const supervisorName = (value?: Supervisor) => ar ? value?.full_name_ar : value?.full_name_en || value?.full_name_ar;
+  const groupLabel = (group: AttendanceGroup) => [
+    group.subgroup_name || group.group_name || tr('دون مجموعة', 'Ungrouped'),
+    name(group.course), group.course?.code, group.academic_year?.code || group.academic_year?.name,
+  ].filter(Boolean).join(' — ');
 
-  const gapQuery = useQuery({
-    queryKey: ['attendance-daily-schedule', dateFilter],
-    queryFn: () => apiFetch<AttendanceGap[]>(`/attendance-records/gaps?date=${dateFilter}&include_complete=1`),
-    enabled: can('attendance.review') && activeTab === 'records' && Boolean(dateFilter),
-  });
+  if (!can('attendance.review')) return <ErrorState title={tr('لا تملك صلاحية عرض سجل الحضور', 'Access denied')} />;
+  if (groupsQuery.isLoading) return <LoadingState />;
+  if (groupsQuery.isError) return <ErrorState onRetry={() => groupsQuery.refetch()} />;
 
-  const sendWarning = useMutation({
-    mutationFn: (payload: { student_id: number; rotation_id: number; threshold_percent: 10 | 20; resend?: boolean }) =>
-      apiFetch('/attendance-warnings/send', { method: 'POST', body: payload }),
-    onSuccess: () => {
-      setNotice({
-        type: 'success',
-        text: tr('تم إرسال الإنذار إلى البريد الجامعي وتوثيقه بنجاح.', 'The warning was emailed and logged successfully.'),
-      });
-      queryClient.invalidateQueries({ queryKey: ['attendance-warnings'] });
-    },
-    onError: (error) => {
-      setNotice({
-        type: 'error',
-        text: error instanceof ApiError
-          ? error.message
-          : tr('تعذر إرسال الإنذار.', 'Could not send the warning.'),
-      });
-    },
-  });
+  return <div className="mx-auto max-w-[1380px] space-y-5 pb-14">
+    <PageHeader title={tr('سجل الحضور والغياب', 'Attendance register')} description={tr(
+      'اختر مجموعة فرعية لمراجعة سجل طلبتها الأسبوعي والمشرف المسؤول عنها.',
+      'Select a subgroup to review its weekly student attendance and assigned supervisor.',
+    )}/>
 
-  const records = recordQuery.data?.items ?? [];
-  const pagination = recordQuery.data?.pagination ?? { current_page: 1, last_page: 1, per_page: 25, total: 0 };
-  const options = optionsQuery.data ?? { academic_years: [], courses: [], clinical_periods: [], training_sites: [], sessions: [] };
-  const warnings = Array.isArray(warningQuery.data) ? warningQuery.data : [];
-  const periods = options.clinical_periods;
-  const initialWarnings = warnings.filter((warning) => warning.current_threshold === 10).length;
-  const urgentWarnings = warnings.filter((warning) => warning.current_threshold === 20).length;
+    {!groups.length ? <EmptyState message={tr('لا توجد مجموعات في توزيع سريري منشور ضمن نطاق صلاحياتك.','No groups exist in a published clinical distribution within your access scope.')} /> : <>
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <label className="block">
+          <span className="mb-2 block text-[11px] font-black text-slate-600">{tr('المجموعة الفرعية','Subgroup')}</span>
+          <select value={selectedAssignment} onChange={event => setSelectedAssignment(event.target.value)} className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-800 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100">
+            {groups.map(group => <option key={group.assignment_id} value={group.assignment_id}>{groupLabel(group)}</option>)}
+          </select>
+        </label>
+      </section>
 
-  const clearRecordFilters = () => {
-    setStatusFilter('');
-    setSearchFilter('');
-    setPage(1);
-  };
-
-  const handleSend = (warning: AttendanceWarning) => {
-    const key = String(warning.current_threshold) as '10' | '20';
-    const lastSent = warning.last_sent[key];
-    if (
-      lastSent
-      && !window.confirm(tr(
-        'سبق إرسال هذا المستوى من الإنذار. هل تريد إعادة إرساله؟',
-        'This warning level was already sent. Send it again?',
-      ))
-    ) return;
-
-    setNotice(null);
-    sendWarning.mutate({
-      student_id: warning.student.id,
-      rotation_id: warning.rotation_id,
-      threshold_percent: warning.current_threshold,
-      resend: Boolean(lastSent),
-    });
-  };
-
-  if (!can('attendance.review')) {
-    return <ErrorState title={tr('لا تملك صلاحية عرض سجل الحضور', 'Access denied')} />;
-  }
-  if (activeTab === 'records' && recordQuery.isLoading) return <LoadingState />;
-  if (activeTab === 'records' && recordQuery.isError) return <ErrorState onRetry={() => recordQuery.refetch()} />;
-
-  return (
-    <div className="mx-auto max-w-[1280px] space-y-5 pb-12">
-      <PageHeader
-        title={tr('سجل الحضور والغياب', 'Attendance Records')}
-        description={tr(
-          'متابعة يومية للحضور، ونسب الغياب، والتنبيهات الأكاديمية من شاشة عمل واحدة.',
-          'Daily attendance, absence rates, and academic alerts in one workspace.',
-        )}
-      />
-
-      <div className="grid grid-cols-2 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
-        <button type="button" onClick={() => setActiveTab('records')} className={`rounded-xl px-4 py-2.5 text-xs font-black transition ${activeTab === 'records' ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
-          {tr('سجل الحضور', 'Attendance records')}
-        </button>
-        <button type="button" onClick={() => setActiveTab('alerts')} className={`rounded-xl px-4 py-2.5 text-xs font-black transition ${activeTab === 'alerts' ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
-          {tr('تنبيهات الغياب', 'Absence alerts')}
-        </button>
-      </div>
-
-      {activeTab === 'alerts' && <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-3">
-        <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('العام الأكاديمي','Academic year')}</span><select value={yearFilter} onChange={event=>setYearFilter(event.target.value)} className={inputClass}><option value="">{tr('جميع الأعوام','All years')}</option>{options.academic_years.map(year=><option key={year.id} value={year.id}>{year.code}</option>)}</select></label>
-        <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('المساق','Course')}</span><select value={courseFilter} onChange={event=>setCourseFilter(event.target.value)} className={inputClass}><option value="">{tr('جميع المساقات','All courses')}</option>{options.courses.map(course=><option key={course.id} value={course.id}>{course.code} — {ar?course.name_ar:course.name_en||course.name_ar}</option>)}</select></label>
-        <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('الفترة السريرية','Clinical period')}</span><select value={periodFilter} onChange={event=>setPeriodFilter(event.target.value)} className={inputClass}><option value="">{tr('جميع الفترات','All periods')}</option>{periods.map(period=><option key={period.id} value={period.id}>{period.code} — {ar?period.name_ar:period.name_en||period.name_ar}</option>)}</select></label>
-      </section>}
-
-      {activeTab === 'alerts' && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <header className="flex flex-col gap-4 border-b border-slate-100 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
-              <BellRing className="h-5 w-5" />
-            </span>
+      {summaryQuery.isLoading ? <LoadingState /> : summaryQuery.isError || !summary ? <ErrorState onRetry={() => summaryQuery.refetch()} /> : <>
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-sm font-black text-slate-900">{tr('تنبيهات تجاوز الغياب', 'Absence threshold alerts')}</h2>
-              <p className="mt-1 max-w-2xl text-[11px] leading-5 text-slate-500">
-                {tr(
-                  'إجمالي أيام المساق = الساعات المعتمدة × 5. يحتسب الغياب الفعلي فقط، ولا يدخل التأخير أو الغياب بعذر في نسبة الإنذار.',
-                  'Course days equal credit hours × 5. Only actual absence counts toward alerts; lateness and excused absence are excluded.',
-                )}
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2 text-[11px] font-black">
-            <span className="rounded-full border border-teal-100 bg-teal-50 px-3 py-1.5 text-teal-700">
-              {tr(`تنبيه أولي: ${initialWarnings}`, `Initial notice: ${initialWarnings}`)}
-            </span>
-            <span className="rounded-full border border-teal-200 bg-white px-3 py-1.5 text-teal-800">
-              {tr(`إنذار رسمي: ${urgentWarnings}`, `Formal warning: ${urgentWarnings}`)}
-            </span>
-          </div>
-        </header>
-
-        {notice && (
-          <div className="px-4 pt-4 sm:px-5">
-            <div className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs font-bold ${
-              notice.type === 'success'
-                ? 'border-teal-100 bg-teal-50 text-teal-800'
-                : 'border-rose-100 bg-rose-50 text-rose-700'
-            }`}>
-              <span className="flex items-center gap-2">
-                {notice.type === 'success' ? <CheckCircle className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
-                {notice.text}
-              </span>
-              <button type="button" onClick={() => setNotice(null)} className="rounded-lg p-1 opacity-60 transition hover:bg-white hover:opacity-100" aria-label={tr('إغلاق', 'Close')}>
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {warningQuery.isLoading ? (
-          <div className="p-8 text-center text-xs font-semibold text-slate-500">
-            {tr('جاري احتساب نسب الغياب...', 'Calculating absence rates...')}
-          </div>
-        ) : warningQuery.isError ? (
-          <div className="p-8 text-center">
-            <p className="text-xs font-bold text-rose-600">{tr('تعذر تحميل تنبيهات الغياب.', 'Could not load absence alerts.')}</p>
-            <button type="button" onClick={() => warningQuery.refetch()} className="mt-3 rounded-xl border border-teal-200 px-4 py-2 text-xs font-bold text-teal-700">
-              {tr('إعادة المحاولة', 'Retry')}
-            </button>
-          </div>
-        ) : warnings.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 px-5 py-8 text-center">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
-              <CheckCircle className="h-5 w-5" />
-            </span>
-            <p className="text-sm font-black text-slate-800">{tr('الوضع مطمئن', 'All clear')}</p>
-            <p className="text-xs text-slate-500">{tr('لا يوجد طلبة تجاوزوا حدود الغياب حالياً.', 'No students currently exceed an absence threshold.')}</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {warnings.map((warning) => {
-              const isUrgent = warning.current_threshold === 20;
-              const warningKey = String(warning.current_threshold) as '10' | '20';
-              const lastSent = warning.last_sent[warningKey];
-              const studentName = ar
-                ? warning.student.full_name_ar
-                : warning.student.full_name_en || warning.student.full_name_ar;
-              const courseName = ar
-                ? warning.course.name_ar
-                : warning.course.name_en || warning.course.name_ar;
-              const isSending = sendWarning.isPending
-                && sendWarning.variables?.student_id === warning.student.id
-                && sendWarning.variables?.rotation_id === warning.rotation_id;
-
-              return (
-                <article key={`${warning.student.id}-${warning.rotation_id}`} className="px-4 py-5 transition hover:bg-slate-50/60 sm:px-5">
-                  <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(18rem,.8fr)_12rem] xl:items-center">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-sm font-black text-teal-700">
-                        {studentName.trim().charAt(0) || <UserRound className="h-5 w-5" />}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="truncate text-sm font-black text-slate-900">{studentName}</h3>
-                          <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black ${
-                            isUrgent
-                              ? 'border-teal-200 bg-teal-100 text-teal-800'
-                              : 'border-teal-100 bg-teal-50 text-teal-700'
-                          }`}>
-                            {tr(isUrgent ? 'إنذار رسمي · تجاوز 20%' : 'تنبيه أولي · تجاوز 10%', isUrgent ? 'Formal warning · over 20%' : 'Initial notice · over 10%')}
-                          </span>
-                        </div>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-                          <span className="font-bold text-slate-600">{warning.student.university_number}</span>
-                          <span dir="ltr" className="truncate">{warning.student.email}</span>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                          <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 font-bold text-slate-600">
-                            <BookOpen className="h-3.5 w-3.5 text-teal-600" />
-                            {courseName} · {warning.course.code}
-                          </span>
-                          {warning.academic_year?.name && (
-                            <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 font-bold text-slate-600">
-                              <CalendarDays className="h-3.5 w-3.5 text-teal-600" />
-                              {warning.academic_year.name}
-                            </span>
-                          )}
-                          {warning.clinical_period&&<span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-1.5 font-bold text-indigo-700">{ar?warning.clinical_period.name_ar:warning.clinical_period.name_en||warning.clinical_period.name_ar}</span>}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-end justify-between gap-3">
-                        <div>
-                          <p className="text-[11px] font-bold text-slate-500">{tr('نسبة الغياب المسجلة', 'Recorded absence rate')}</p>
-                          <p className="mt-1 text-2xl font-black text-teal-700">{Number(warning.absence_percentage).toFixed(1)}%</p>
-                        </div>
-                        <p className="text-[11px] font-bold text-slate-500">
-                          {tr(
-                            `${warning.absent_days} غياب من ${warning.total_required_days} أيام`,
-                            `${warning.absent_days} absent of ${warning.total_required_days} days`,
-                          )}
-                        </p>
-                      </div>
-                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
-                        <div
-                          className="h-full rounded-full bg-teal-500"
-                          style={{ width: `${Math.min(100, Number(warning.absence_percentage))}%` }}
-                        />
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-semibold text-slate-500">
-                        <span>{tr('تأخير', 'Late')}: <b className="text-slate-700">{warning.late_days}</b></span>
-                        <span>{tr('بعذر', 'Excused')}: <b className="text-slate-700">{warning.excused_days}</b></span>
-                        <span>{tr('أيام مرصودة', 'Recorded days')}: <b className="text-slate-700">{warning.recorded_days}</b></span>
-                      </div>
-                    </div>
-
-                    <div className="xl:text-center">
-                      {lastSent && (
-                        <p className="mb-2 text-[10px] font-semibold text-slate-400">
-                          {tr('آخر إرسال', 'Last sent')}: {readableDate(lastSent.sent_at, locale, true)}
-                        </p>
-                      )}
-                      {can('attendance.notify') ? (
-                        <button
-                          type="button"
-                          disabled={sendWarning.isPending}
-                          onClick={() => handleSend(warning)}
-                          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-3 text-xs font-black text-white shadow-sm transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {isSending ? (
-                            <RotateCcw className="h-4 w-4 animate-spin" />
-                          ) : lastSent ? (
-                            <Mail className="h-4 w-4" />
-                          ) : (
-                            <Send className="h-4 w-4" />
-                          )}
-                          {tr(lastSent ? 'إعادة الإرسال' : 'إرسال للطالب', lastSent ? 'Resend' : 'Email student')}
-                        </button>
-                      ) : (
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[10px] font-semibold text-slate-500">
-                          {tr('يلزم منح صلاحية إرسال الإنذارات.', 'Notification permission is required.')}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>}
-
-      {activeTab === 'records' && <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-[11px] font-black text-teal-700">{tr('المتابعة اليومية','Daily follow-up')}</p>
-            <h2 className="mt-1 text-base font-black text-slate-900">{weekday(dateFilter,locale)} · <span dir="ltr">{readableDate(dateFilter,locale)}</span></h2>
-            <p className="mt-1 text-[11px] text-slate-500">{tr('المجموعات أدناه مستخرجة تلقائياً من التوزيع المنشور وأيام دوام المشرفين.','Groups are derived automatically from the published distribution and supervisor work days.')}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={()=>{setDateFilter(moveDateValue(dateFilter,-1));setPage(1)}} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600" aria-label={tr('اليوم السابق','Previous day')}>{ar?<ChevronRight className="h-4 w-4"/>:<ChevronLeft className="h-4 w-4"/>}</button>
-            <input dir="ltr" type="date" value={dateFilter} onChange={event=>{setDateFilter(event.target.value);setPage(1)}} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold outline-none focus:border-teal-400" />
-            <button type="button" onClick={()=>{setDateFilter(localDateValue());setPage(1)}} className="h-10 rounded-xl bg-teal-50 px-4 text-xs font-black text-teal-800">{tr('اليوم','Today')}</button>
-            <button type="button" onClick={()=>{setDateFilter(moveDateValue(dateFilter,1));setPage(1)}} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600" aria-label={tr('اليوم التالي','Next day')}>{ar?<ChevronLeft className="h-4 w-4"/>:<ChevronRight className="h-4 w-4"/>}</button>
-          </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-end">
-          <label className="relative"><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('البحث عن طالب','Search for a student')}</span><Search className="absolute bottom-3 start-3 h-4 w-4 text-slate-400"/><input value={searchFilter} onChange={event=>{setSearchFilter(event.target.value);setPage(1)}} placeholder={tr('الاسم أو الرقم الجامعي...','Name or university number...')} className={`${inputClass} ps-9`}/></label>
-          <label>
-            <span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('حالة الحضور', 'Attendance status')}</span>
-            <select value={statusFilter} onChange={(event) => {setStatusFilter(event.target.value);setPage(1)}} className={inputClass}>
-              <option value="">{tr('جميع الحالات', 'All statuses')}</option>
-              {Object.entries(STATUS_CONFIG).map(([value, config]) => (
-                <option key={value} value={value}>{ar ? config.label_ar : config.label_en}</option>
-              ))}
-            </select>
-          </label>
-          {(searchFilter||statusFilter)&&<button type="button" onClick={clearRecordFilters} className="h-11 rounded-xl border border-slate-200 px-4 text-[11px] font-bold text-slate-600">{tr('مسح','Clear')}</button>}
-        </div>
-      </section>}
-
-      {activeTab === 'records' && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-          <div>
-            <h2 className="text-sm font-black text-slate-900">{tr('مجموعات اليوم','Today’s groups')}</h2>
-            <p className="mt-1 text-[10px] text-slate-500">{tr('حالة تسجيل المشرف لكل مجموعة مجدولة في هذا اليوم.','Recording status for every group scheduled on this day.')}</p>
-          </div>
-          <span className="rounded-full bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-600">{gapQuery.data?.length??0} {tr('مجموعة','groups')}</span>
-        </header>
-        {gapQuery.isLoading ? <div className="p-7 text-center text-xs font-bold text-slate-500">{tr('جاري تحميل جدول اليوم...','Loading today’s schedule...')}</div>
-          : gapQuery.isError ? <div className="p-7 text-center text-xs font-bold text-rose-600">{tr('تعذر تحميل جدول اليوم.','Could not load today’s schedule.')}</div>
-          : !(gapQuery.data?.length) ? <div className="p-6"><EmptyState message={tr('لا توجد مجموعات مجدولة في هذا اليوم حسب التوزيع وأيام دوام المشرفين.','No groups are scheduled on this day based on the distribution and supervisor work days.')}/></div>
-          : <div className="divide-y divide-slate-100">{gapQuery.data.map((group,index)=>{
-            const courseName=ar?group.course?.name_ar:group.course?.name_en||group.course?.name_ar;
-            const siteName=ar?group.training_site?.name_ar:group.training_site?.name_en||group.training_site?.name_ar;
-            const supervisorName=ar?group.supervisor?.full_name_ar:group.supervisor?.full_name_en||group.supervisor?.full_name_ar;
-            const complete=group.missing_students===0;
-            return <article key={`${group.date}-${group.course?.code}-${group.group_name}-${index}`} className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_12rem] md:items-center">
-              <div><p className="text-xs font-black text-slate-900">{courseName||'—'} {group.course?.code?`· ${group.course.code}`:''}</p><p className="mt-1 text-[11px] text-slate-500">{tr('المجموعة','Group')}: {group.group_name||'—'} · {siteName||'—'}</p></div>
-              <p className="text-[11px] font-bold text-slate-600">{supervisorName||tr('مشرف غير محدد','Unassigned supervisor')}</p>
-              <div className={`rounded-xl border px-3 py-2 text-center ${complete?'border-emerald-100 bg-emerald-50 text-emerald-700':'border-amber-100 bg-amber-50 text-amber-800'}`}><p className="text-xs font-black">{complete?tr('مكتمل','Complete'):tr(`${group.recorded_students} من ${group.expected_students} مرصود`,`${group.recorded_students} of ${group.expected_students} recorded`)}</p>{!complete&&<p className="mt-0.5 text-[10px] font-bold">{tr(`${group.missing_students} طالب متبقٍ`,`${group.missing_students} students remaining`)}</p>}</div>
-            </article>;
-          })}</div>}
-      </section>}
-
-      {activeTab === 'records' && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-              <ClipboardList className="h-4.5 w-4.5" />
-            </span>
-            <div>
-              <h2 className="text-sm font-black text-slate-900">{tr('سجلات الطلبة', 'Student records')}</h2>
-              <p className="mt-0.5 text-[10px] text-slate-500">{tr(`${pagination.total} نتيجة ضمن الاختيار الحالي`, `${pagination.total} results in the current view`)}</p>
-            </div>
-          </div>
-        </header>
-
-        {records.length === 0 ? (
-          <div className="p-6"><EmptyState message={tr('لا توجد سجلات حضور ضمن الاختيار الحالي.', 'No attendance records match the current selection.')} /></div>
-        ) : (
-          <>
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full border-collapse text-start">
-                <thead>
-                  <tr className="bg-slate-50/70 text-[11px] font-bold text-slate-500">
-                    <th className="px-5 py-3.5 text-start">{tr('الطالب', 'Student')}</th>
-                    <th className="px-5 py-3.5 text-start">{tr('الجلسة', 'Session')}</th>
-                    <th className="px-5 py-3.5 text-start">{tr('اليوم', 'Day')}</th>
-                    <th className="px-5 py-3.5 text-start">{tr('التاريخ', 'Date')}</th>
-                    <th className="px-5 py-3.5 text-start">{tr('المساق والموقع', 'Course and site')}</th>
-                    <th className="px-5 py-3.5 text-start">{tr('الحالة', 'Status')}</th>
-                    <th className="px-5 py-3.5 text-start">{tr('التوثيق', 'Recorded by')}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {records.map((record) => {
-                    const studentName = ar
-                      ? record.student?.full_name_ar
-                      : record.student?.full_name_en || record.student?.full_name_ar;
-                    const course = record.session?.rotation_block?.rotation?.course;
-                    const courseName = ar ? course?.name_ar : course?.name_en || course?.name_ar;
-                    const site = record.session?.training_site;
-                    const siteName = ar ? site?.name_ar : site?.name_en || site?.name_ar;
-
-                    return (
-                      <tr key={record.id} className="transition hover:bg-slate-50/60">
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-2.5">
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-xs font-black text-teal-700">
-                              {(studentName || '').trim().charAt(0) || <UserRound className="h-4 w-4" />}
-                            </span>
-                            <div>
-                              <p className="text-xs font-black text-slate-900">{studentName || '—'}</p>
-                              <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{record.student?.university_number || '—'}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4">
-                          <p className="max-w-[18rem] truncate text-xs font-bold text-slate-700">{record.session?.title || '—'}</p>
-                        </td>
-                        <td className="px-5 py-4 text-xs font-bold text-slate-600">{weekday(record.session?.session_date, locale)}</td>
-                        <td dir="ltr" className="px-5 py-4 text-start text-xs font-bold text-slate-600">{readableDate(record.session?.session_date, locale)}</td>
-                        <td className="px-5 py-4">
-                          <p className="text-xs font-bold text-slate-700">{courseName || '—'}{course?.code ? ` · ${course.code}` : ''}</p>
-                          <p className="mt-1 inline-flex items-center gap-1 text-[10px] text-slate-500">
-                            <Building2 className="h-3 w-3 text-teal-600" />
-                            {siteName || tr('غير محدد', 'Not specified')}
-                          </p>
-                        </td>
-                        <td className="px-5 py-4"><StatusBadge status={record.status} locale={locale} /></td>
-                        <td className="px-5 py-4">
-                          <p className="text-[11px] font-bold text-slate-600">{record.recorder?.name || tr('إدخال نظامي', 'System entry')}</p>
-                          <p className="mt-1 max-w-[14rem] truncate text-[10px] text-slate-400">{record.excuse_note || tr('لا توجد ملاحظة', 'No note')}</p>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="divide-y divide-slate-100 md:hidden">
-              {records.map((record) => {
-                const studentName = ar
-                  ? record.student?.full_name_ar
-                  : record.student?.full_name_en || record.student?.full_name_ar;
-                const course = record.session?.rotation_block?.rotation?.course;
-                const courseName = ar ? course?.name_ar : course?.name_en || course?.name_ar;
-                const site = record.session?.training_site;
-                const siteName = ar ? site?.name_ar : site?.name_en || site?.name_ar;
-
-                return (
-                  <article key={record.id} className="p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-xs font-black text-teal-700">
-                          {(studentName || '').trim().charAt(0) || <UserRound className="h-4 w-4" />}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-black text-slate-900">{studentName || '—'}</p>
-                          <p className="mt-0.5 text-[10px] text-slate-500">{record.student?.university_number || '—'}</p>
-                        </div>
-                      </div>
-                      <StatusBadge status={record.status} locale={locale} />
-                    </div>
-                    <div className="mt-3 space-y-2 rounded-2xl bg-slate-50 p-3 text-[11px] text-slate-600">
-                      <p className="flex items-start gap-2"><CalendarDays className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" /><span><b>{record.session?.title || '—'}</b><br />{weekday(record.session?.session_date, locale)} · <span dir="ltr">{readableDate(record.session?.session_date, locale)}</span></span></p>
-                      <p className="flex items-start gap-2"><BookOpen className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" /><span>{courseName || '—'}{course?.code ? ` · ${course.code}` : ''}</span></p>
-                      <p className="flex items-start gap-2"><Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" /><span>{siteName || tr('الموقع غير محدد', 'Site not specified')}</span></p>
-                    </div>
-                    {(record.recorder?.name || record.excuse_note) && (
-                      <p className="mt-3 text-[10px] text-slate-500">
-                        {record.recorder?.name || tr('إدخال نظامي', 'System entry')}
-                        {record.excuse_note ? ` · ${record.excuse_note}` : ''}
-                      </p>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
-            {pagination.last_page > 1 && <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-4 py-3">
-              <p className="text-[11px] font-bold text-slate-500">{tr(`صفحة ${pagination.current_page} من ${pagination.last_page}`, `Page ${pagination.current_page} of ${pagination.last_page}`)}</p>
-              <div className="flex gap-2">
-                <button type="button" disabled={pagination.current_page <= 1 || recordQuery.isFetching} onClick={() => setPage(current => Math.max(1, current - 1))} className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700 disabled:opacity-40"><ChevronRight className="h-3.5 w-3.5"/>{tr('السابق','Previous')}</button>
-                <button type="button" disabled={pagination.current_page >= pagination.last_page || recordQuery.isFetching} onClick={() => setPage(current => Math.min(pagination.last_page, current + 1))} className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700 disabled:opacity-40">{tr('التالي','Next')}<ChevronLeft className="h-3.5 w-3.5"/></button>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base font-black text-slate-900">{summary.group.subgroup_name || summary.group.group_name || '—'}</h2>
+                <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-black text-teal-700">{summary.group.student_count} {tr('طالب','students')}</span>
               </div>
-            </div>}
-          </>
-        )}
-      </section>}
-    </div>
-  );
+              <p className="mt-1 text-xs font-bold text-slate-600">{name(summary.group.course) || '—'}{summary.group.course?.code ? ` · ${summary.group.course.code}` : ''}</p>
+            </div>
+            <div className="grid gap-2 text-[11px] sm:grid-cols-3 lg:min-w-[620px]">
+              <Info icon={UserRound} label={tr('المشرف السريري','Clinical supervisor')} value={supervisorName(summary.group.supervisor) || tr('غير محدد','Not assigned')}/>
+              <Info icon={MapPin} label={tr('الموقع التدريبي','Training site')} value={name(summary.group.training_site) || tr('غير محدد','Not assigned')}/>
+              <Info icon={CalendarDays} label={tr('فترة التكليف','Assignment period')} value={`${tr('الأسبوع','Week')} ${summary.group.block?.from_week ?? '—'}–${summary.group.block?.to_week ?? '—'}`}/>
+            </div>
+          </div>
+          {!summary.group.supervisor && <Notice>{tr('لا يمكن احتساب أيام الحضور المتوقعة قبل تعيين مشرف سريري للمجموعة.','Expected attendance days cannot be calculated until a clinical supervisor is assigned.')}</Notice>}
+          {summary.group.supervisor && summary.weeks.every(week => week.scheduled_dates.length === 0) && <Notice>{tr('المشرف معين، لكن لا توجد أيام دوام مطابقة للموقع وفترة هذه المجموعة. راجع أيام عمل المشرف.','A supervisor is assigned, but no work days match this group’s site and period. Review the supervisor work schedule.')}</Notice>}
+        </section>
+
+        <div className="grid grid-cols-2 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+          <Tab active={activeTab === 'register'} onClick={() => setActiveTab('register')}>{tr('سجل المجموعة','Group register')}</Tab>
+          <Tab active={activeTab === 'alerts'} onClick={() => setActiveTab('alerts')}>{tr(`تنبيهات الغياب (${warningStudents.length})`,`Absence alerts (${warningStudents.length})`)}</Tab>
+        </div>
+
+        {activeTab === 'register' && <WeeklyRegister summary={summary} ar={ar} tr={tr}/>}
+        {activeTab === 'alerts' && <Alerts students={warningStudents} ar={ar} tr={tr}/>}
+      </>}
+    </>}
+  </div>;
+}
+
+function Info({ icon: Icon, label, value }: { icon: typeof UserRound; label: string; value: string }) {
+  return <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2.5"><Icon className="h-4 w-4 shrink-0 text-teal-700"/><div><span className="block text-[9px] font-bold text-slate-400">{label}</span><b className="text-slate-700">{value}</b></div></div>;
+}
+function Notice({ children }: { children: string }) { return <div className="border-t border-amber-100 bg-amber-50 px-5 py-3 text-xs font-bold text-amber-800">{children}</div>; }
+function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) { return <button type="button" onClick={onClick} className={`rounded-xl px-4 py-2.5 text-xs font-black transition ${active ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>{children}</button>; }
+
+function WeeklyRegister({ summary, ar, tr }: { summary: GroupSummary; ar: boolean; tr: (a: string, e: string) => string }) {
+  return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <header className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-black text-slate-900">{tr('الحضور الأسبوعي لطلبة المجموعة','Weekly attendance by student')}</h2><p className="mt-1 text-[10px] text-slate-500">{tr('ح = حاضر، غ = غائب. يظهر التأخير والعذر عند وجودهما.','P = present, A = absent. Late and excused counts appear when applicable.')}</p></header>
+    {!summary.students.length ? <div className="p-6"><EmptyState message={tr('لا يوجد طلبة في هذه المجموعة.','This group has no students.')} /></div> : <div className="overflow-x-auto">
+      <table className="w-full min-w-max border-collapse text-start">
+        <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-500">
+          <th className="sticky start-0 z-10 min-w-[220px] bg-slate-50 px-4 py-3 text-start">{tr('الطالب','Student')}</th>
+          {summary.weeks.map(week => <th key={week.number} className="min-w-[112px] border-s border-slate-100 px-3 py-3 text-center"><span className="block">{tr(`الأسبوع ${week.number}`,`Week ${week.number}`)}</span><span dir="ltr" className="mt-1 block font-normal text-slate-400">{dateLabel(week.start_date,ar)}–{dateLabel(week.end_date,ar)}</span></th>)}
+          <th className="min-w-[170px] border-s border-slate-100 px-4 py-3 text-center">{tr('الإجمالي','Total')}</th>
+        </tr></thead>
+        <tbody className="divide-y divide-slate-100">{summary.students.map(row => <StudentRow key={row.student.id} row={row} ar={ar} tr={tr}/>)}</tbody>
+      </table>
+    </div>}
+  </section>;
+}
+
+function StudentRow({ row, ar, tr }: { row: StudentSummary; ar: boolean; tr: (a: string, e: string) => string }) {
+  const studentName = ar ? row.student.full_name_ar : row.student.full_name_en || row.student.full_name_ar;
+  return <tr className="text-[11px] hover:bg-slate-50/50">
+    <td className="sticky start-0 z-10 bg-white px-4 py-3"><div className="flex items-center gap-2.5"><span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl bg-teal-50 font-black text-teal-700">{row.student.photo_url ? <img src={row.student.photo_url} alt="" className="h-full w-full object-cover"/> : studentName.trim().charAt(0)}</span><div><b className="block max-w-[170px] truncate text-slate-800">{studentName}</b><span dir="ltr" className="font-mono text-[9px] text-slate-400">{row.student.university_number}</span></div></div></td>
+    {row.weeks.map(week => <td key={week.number} className="border-s border-slate-100 px-3 py-3 text-center"><WeekCell week={week} tr={tr}/></td>)}
+    <td className="border-s border-slate-100 px-4 py-3"><div className="flex items-center justify-center gap-3 font-black"><span className="text-emerald-700">{tr('ح','P')} {row.totals.present}</span><span className={row.totals.absent ? 'text-rose-700' : 'text-slate-400'}>{tr('غ','A')} {row.totals.absent}</span></div><p className="mt-1 text-center text-[9px] text-slate-400">{row.totals.recorded_days}/{row.totals.elapsed_scheduled_days} {tr('يوم مستحق','due days')}</p></td>
+  </tr>;
+}
+
+function WeekCell({ week, tr }: { week: WeekSummary; tr: (a: string, e: string) => string }) {
+  if (week.elapsed_scheduled_days === 0) return <span className="text-slate-300">—</span>;
+  return <div><div className="flex items-center justify-center gap-2 font-black"><span className="text-emerald-700">{tr('ح','P')} {week.present}</span><span className={week.absent ? 'text-rose-700' : 'text-slate-400'}>{tr('غ','A')} {week.absent}</span></div>{(week.late > 0 || week.excused > 0) && <p className="mt-1 text-[9px] text-slate-500">{tr('ت','L')} {week.late} · {tr('ع','E')} {week.excused}</p>}<p className="mt-1 text-[9px] text-slate-400">{week.recorded_days}/{week.elapsed_scheduled_days} {tr('مرصود','recorded')}</p></div>;
+}
+
+function Alerts({ students, ar, tr }: { students: StudentSummary[]; ar: boolean; tr: (a: string, e: string) => string }) {
+  return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <header className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-black text-slate-900">{tr('تنبيهات غياب المجموعة','Group absence alerts')}</h2><p className="mt-1 text-[10px] text-slate-500">{tr('النسبة = أيام الغياب المسجلة ÷ أيام دوام المشرف المستحقة للمجموعة حتى اليوم.','Rate = recorded absences divided by supervisor work days due for this group through today.')}</p></header>
+    {!students.length ? <div className="flex flex-col items-center gap-2 p-8 text-center"><CheckCircle2 className="h-8 w-8 text-emerald-600"/><b className="text-sm text-slate-800">{tr('لا توجد تنبيهات غياب لهذه المجموعة','No absence alerts for this group')}</b></div> : <div className="divide-y divide-slate-100">{students.map(row => {
+      const studentName = ar ? row.student.full_name_ar : row.student.full_name_en || row.student.full_name_ar;
+      const urgent = row.totals.warning_level === 20;
+      return <article key={row.student.id} className="grid gap-3 px-5 py-4 sm:grid-cols-[1fr_auto_auto] sm:items-center"><div className="flex items-center gap-3"><span className={`grid h-10 w-10 place-items-center rounded-xl ${urgent?'bg-rose-50 text-rose-700':'bg-amber-50 text-amber-700'}`}>{urgent?<XCircle className="h-5 w-5"/>:<AlertTriangle className="h-5 w-5"/>}</span><div><b className="text-xs text-slate-900">{studentName}</b><p dir="ltr" className="mt-1 text-start font-mono text-[10px] text-slate-400">{row.student.university_number}</p></div></div><div className="text-center"><b className={urgent?'text-rose-700':'text-amber-700'}>{Number(row.totals.absence_percentage).toFixed(1)}%</b><p className="text-[9px] text-slate-400">{row.totals.absent} {tr('غياب من','absent of')} {row.totals.elapsed_scheduled_days}</p></div><span className={`rounded-full px-3 py-1.5 text-[10px] font-black ${urgent?'bg-rose-50 text-rose-700':'bg-amber-50 text-amber-700'}`}>{urgent?tr('إنذار رسمي','Formal warning'):tr('تنبيه أولي','Initial alert')}</span></article>;
+    })}</div>}
+  </section>;
 }

@@ -142,6 +142,161 @@ class AttendanceRecordController extends Controller
         ]);
     }
 
+    public function groups(Request $request): JsonResponse
+    {
+        $assignments = $this->scopedCurrentAssignments()
+            ->with([
+                'student:id,batch_year',
+                'studentSubgroup.group',
+                'rotationBlock.rotation.course:id,code,name_ar,name_en',
+                'rotationBlock.rotation.academicYear:id,code,is_current',
+                'rotationBlock.rotation.clinicalPeriod:id,code,name_ar,name_en,sequence',
+                'trainingSite:id,name_ar,name_en',
+                'supervisor:id,full_name_ar,full_name_en',
+            ])->get();
+
+        $groups = $assignments->groupBy(fn (StudentClinicalAssignment $assignment) => $this->assignmentGroupKey($assignment))
+            ->map(function ($items) {
+                /** @var StudentClinicalAssignment $first */
+                $first = $items->first();
+                $rotation = $first->rotationBlock?->rotation;
+
+                return [
+                    'assignment_id' => $first->id,
+                    'academic_year' => $rotation?->academicYear,
+                    'course' => $rotation?->course,
+                    'clinical_period' => $rotation?->clinicalPeriod,
+                    'block' => [
+                        'code' => $first->rotationBlock?->block_code,
+                        'from_week' => $first->rotationBlock?->from_week,
+                        'to_week' => $first->rotationBlock?->to_week,
+                    ],
+                    'group_name' => $first->studentSubgroup?->group?->name,
+                    'subgroup_name' => $first->studentSubgroup?->name,
+                    'batch_year' => $first->student?->batch_year,
+                    'training_site' => $first->trainingSite,
+                    'supervisor' => $first->supervisor,
+                    'student_count' => $items->pluck('student_id')->unique()->count(),
+                ];
+            })->sortBy(fn (array $group) => implode('|', [
+                $group['academic_year']?->code ?? '',
+                $group['course']?->code ?? '',
+                $group['subgroup_name'] ?? '',
+            ]))->values();
+
+        return ApiResponse::success($groups);
+    }
+
+    public function groupSummary(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'assignment_id' => ['required', 'integer', 'exists:student_clinical_assignments,id'],
+        ]);
+
+        /** @var StudentClinicalAssignment $reference */
+        $reference = $this->scopedCurrentAssignments()
+            ->with([
+                'student:id,batch_year',
+                'studentSubgroup.group',
+                'rotationBlock.rotation.course',
+                'rotationBlock.rotation.academicYear',
+                'rotationBlock.rotation.clinicalPeriod',
+                'trainingSite',
+                'supervisor.availabilities',
+            ])->findOrFail($data['assignment_id']);
+
+        $assignments = $this->sameGroupAssignments($reference)
+            ->with('student:id,university_number,full_name_ar,full_name_en,photo_url,batch_year')
+            ->get();
+        $students = $assignments->pluck('student')->filter()->unique('id')->values();
+        $studentIds = $students->pluck('id');
+        $rotation = $reference->rotationBlock?->rotation;
+        $block = $reference->rotationBlock;
+
+        $records = AttendanceRecord::query()
+            ->with('session:id,rotation_block_id,training_site_id,session_date')
+            ->whereIn('student_id', $studentIds)
+            ->whereHas('session', fn ($session) => $session
+                ->where('rotation_block_id', $reference->rotation_block_id)
+                ->where('training_site_id', $reference->training_site_id))
+            ->get();
+
+        $weeks = collect();
+        if ($rotation?->start_date && $block?->from_week && $block?->to_week) {
+            foreach (range((int) $block->from_week, (int) $block->to_week) as $weekNumber) {
+                $start = Carbon::parse($rotation->start_date)->addWeeks($weekNumber - 1)->startOfDay();
+                $end = $start->copy()->addDays(6)->endOfDay();
+                $scheduledDates = $this->scheduledDates($reference, $start, $end);
+                $weeks->push([
+                    'number' => $weekNumber,
+                    'start_date' => $start->toDateString(),
+                    'end_date' => $end->toDateString(),
+                    'scheduled_dates' => $scheduledDates,
+                    'elapsed_scheduled_days' => collect($scheduledDates)->filter(fn ($date) => Carbon::parse($date)->lte(today()))->count(),
+                ]);
+            }
+        }
+
+        $studentRows = $students->map(function (Student $student) use ($records, $weeks) {
+            $studentRecords = $records->where('student_id', $student->id);
+            $weekRows = $weeks->map(function (array $week) use ($studentRecords) {
+                $weekRecords = $studentRecords->filter(fn (AttendanceRecord $record) =>
+                    $record->session?->session_date
+                    && in_array($record->session->session_date->toDateString(), $week['scheduled_dates'], true));
+
+                return [
+                    'number' => $week['number'],
+                    'start_date' => $week['start_date'],
+                    'end_date' => $week['end_date'],
+                    'scheduled_days' => count($week['scheduled_dates']),
+                    'elapsed_scheduled_days' => $week['elapsed_scheduled_days'],
+                    'recorded_days' => $weekRecords->pluck('session.session_date')->filter()->unique()->count(),
+                    'present' => $weekRecords->where('status', 'present')->count(),
+                    'absent' => $weekRecords->where('status', 'absent')->count(),
+                    'late' => $weekRecords->where('status', 'late')->count(),
+                    'excused' => $weekRecords->where('status', 'excused')->count(),
+                ];
+            })->values();
+            $elapsedRequired = $weekRows->sum('elapsed_scheduled_days');
+            $absent = $weekRows->sum('absent');
+            $absencePercentage = $elapsedRequired > 0 ? round(($absent / $elapsedRequired) * 100, 2) : 0;
+
+            return [
+                'student' => $student,
+                'weeks' => $weekRows,
+                'totals' => [
+                    'scheduled_days' => $weekRows->sum('scheduled_days'),
+                    'elapsed_scheduled_days' => $elapsedRequired,
+                    'recorded_days' => $weekRows->sum('recorded_days'),
+                    'present' => $weekRows->sum('present'),
+                    'absent' => $absent,
+                    'late' => $weekRows->sum('late'),
+                    'excused' => $weekRows->sum('excused'),
+                    'absence_percentage' => $absencePercentage,
+                    'warning_level' => $absencePercentage > 20 ? 20 : ($absencePercentage > 10 ? 10 : null),
+                ],
+            ];
+        });
+
+        return ApiResponse::success([
+            'group' => [
+                'assignment_id' => $reference->id,
+                'academic_year' => $rotation?->academicYear,
+                'course' => $rotation?->course,
+                'clinical_period' => $rotation?->clinicalPeriod,
+                'block' => ['code' => $block?->block_code, 'from_week' => $block?->from_week, 'to_week' => $block?->to_week],
+                'group_name' => $reference->studentSubgroup?->group?->name,
+                'subgroup_name' => $reference->studentSubgroup?->name,
+                'batch_year' => $reference->student?->batch_year,
+                'training_site' => $reference->trainingSite,
+                'supervisor' => $reference->supervisor,
+                'student_count' => $students->count(),
+            ],
+            'weeks' => $weeks->values(),
+            'students' => $studentRows,
+        ]);
+    }
+
     public function gaps(Request $request): JsonResponse
     {
         $request->validate([
@@ -297,6 +452,87 @@ class AttendanceRecordController extends Controller
         );
 
         return ApiResponse::success($record, 'Attendance recorded.');
+    }
+
+    private function scopedCurrentAssignments()
+    {
+        $query = StudentClinicalAssignment::query()
+            ->whereHas('distributionVersion', fn ($version) => $version
+                ->where('status', 'published')
+                ->where('is_current', true))
+            ->whereIn('student_id', $this->applyStudentAccessScope(Student::query())->select('students.id'));
+
+        $departmentId = $this->getClinicalOperationsDepartmentId();
+        if ($departmentId) {
+            $query->where('department_id', $departmentId);
+        }
+
+        $levelScope = $this->getEffectiveAcademicLevelScope();
+        if ($levelScope !== null) {
+            empty($levelScope)
+                ? $query->whereRaw('1 = 0')
+                : $query->whereHas('student', fn ($student) => $student->whereIn('academic_level', $levelScope));
+        }
+
+        return $query;
+    }
+
+    private function sameGroupAssignments(StudentClinicalAssignment $reference)
+    {
+        $reference->loadMissing('student:id,batch_year');
+
+        return $this->scopedCurrentAssignments()
+            ->where('distribution_version_id', $reference->distribution_version_id)
+            ->where('rotation_block_id', $reference->rotation_block_id)
+            ->where('training_site_id', $reference->training_site_id)
+            ->where('supervisor_id', $reference->supervisor_id)
+            ->where('student_subgroup_id', $reference->student_subgroup_id)
+            ->whereHas('student', fn ($student) => $student->where('batch_year', $reference->student?->batch_year));
+    }
+
+    private function assignmentGroupKey(StudentClinicalAssignment $assignment): string
+    {
+        return implode('|', [
+            $assignment->distribution_version_id,
+            $assignment->rotation_block_id ?: 0,
+            $assignment->training_site_id ?: 0,
+            $assignment->supervisor_id ?: 0,
+            $assignment->student_subgroup_id ?: 0,
+            $assignment->student?->batch_year ?: 0,
+        ]);
+    }
+
+    /** @return array<string> */
+    private function scheduledDates(StudentClinicalAssignment $assignment, Carbon $rangeStart, Carbon $rangeEnd): array
+    {
+        $assignment->loadMissing('supervisor.availabilities', 'rotationBlock.rotation');
+        $rotation = $assignment->rotationBlock?->rotation;
+        $block = $assignment->rotationBlock;
+        if (! $rotation?->start_date || ! $block?->from_week || ! $block?->to_week || ! $assignment->training_site_id || ! $assignment->supervisor) {
+            return [];
+        }
+
+        $assignmentStart = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
+        $assignmentEnd = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->endOfDay();
+        $start = $rangeStart->copy()->max($assignmentStart)->startOfDay();
+        $end = $rangeEnd->copy()->min($assignmentEnd)->endOfDay();
+        $availability = $assignment->supervisor->availabilities->filter(fn ($row) =>
+            (int) $row->training_site_id === (int) $assignment->training_site_id
+            && ($row->status ?: 'work') === 'work'
+            && (! $row->available_until || $row->available_until->gte($start))
+            && (! $row->available_from || $row->available_from->lte($end)));
+
+        $dates = [];
+        for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
+            if ($availability->contains(fn ($row) =>
+                $row->day === strtolower($date->format('l'))
+                && (! $row->available_from || $row->available_from->lte($date))
+                && (! $row->available_until || $row->available_until->gte($date)))) {
+                $dates[] = $date->toDateString();
+            }
+        }
+
+        return $dates;
     }
 
     private function isSupervisorOnly($roles): bool

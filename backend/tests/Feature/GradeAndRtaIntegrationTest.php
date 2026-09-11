@@ -208,6 +208,17 @@ class GradeAndRtaIntegrationTest extends TestCase
             'available_until' => '2026-09-30',
             'status' => 'work',
         ]);
+        $this->actingAs($rta)->getJson('/api/v1/attendance-records/groups')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.assignment_id', $assignments['fourth']->id)
+            ->assertJsonPath('data.0.student_count', 1);
+        $this->actingAs($rta)->getJson('/api/v1/attendance-records/group-summary?assignment_id='.$assignments['fourth']->id)
+            ->assertOk()
+            ->assertJsonPath('data.group.supervisor.id', $supervisor->id)
+            ->assertJsonPath('data.students.0.weeks.0.present', 1)
+            ->assertJsonPath('data.students.0.weeks.0.absent', 0)
+            ->assertJsonPath('data.students.0.totals.recorded_days', 1);
         $this->actingAs($rta)->getJson('/api/v1/attendance-records/gaps?date=2026-09-01&include_complete=1')
             ->assertOk()
             ->assertJsonCount(1, 'data')
