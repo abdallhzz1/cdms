@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, CalendarDays, CheckCircle2, MapPin, UserRound, XCircle } from 'lucide-react';
-import { apiFetch } from '@/api/client';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, CalendarDays, CheckCircle2, Mail, MapPin, UserRound, XCircle } from 'lucide-react';
+import { ApiError, apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -34,6 +34,21 @@ type GroupSummary = {
   schedule: ScheduleItem[];
   students: StudentSummary[];
 };
+type SentWarning = { id: number; sent_at: string; sent_by_user_id?: number | null } | null;
+type AttendanceWarning = {
+  student: StudentSummary['student'] & { academic_level?: string; email: string };
+  rotation_id: number;
+  course: Named & { credit_hours?: number };
+  total_required_days: number;
+  recorded_days: number;
+  present_days: number;
+  absent_days: number;
+  late_days: number;
+  excused_days: number;
+  absence_percentage: number;
+  current_threshold: 10 | 20;
+  last_sent: { '10': SentWarning; '20': SentWarning };
+};
 
 const dateLabel = (value: string, ar: boolean) => new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', {
   day: '2-digit', month: '2-digit',
@@ -41,12 +56,14 @@ const dateLabel = (value: string, ar: boolean) => new Intl.DateTimeFormat(ar ? '
 
 export function AttendanceMasterPage() {
   const { can } = useAuth();
+  const queryClient = useQueryClient();
   const { locale } = useI18n();
   const ar = locale === 'ar';
   const tr = (arabic: string, english: string) => ar ? arabic : english;
   const [selectedAssignment, setSelectedAssignment] = useState('');
   const [selectedWeek, setSelectedWeek] = useState('');
   const [activeTab, setActiveTab] = useState<'register' | 'alerts'>('register');
+  const [mailNotice, setMailNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
   const groupsQuery = useQuery({
     queryKey: ['attendance-review-groups'],
@@ -65,7 +82,33 @@ export function AttendanceMasterPage() {
     enabled: can('attendance.review') && Boolean(selectedAssignment),
   });
   const summary = summaryQuery.data;
-  const warningStudents = useMemo(() => summary?.students.filter(row => row.totals.warning_level) ?? [], [summary]);
+  const warningParams = useMemo(() => {
+    const params = new URLSearchParams();
+    if (summary?.group.academic_year?.id) params.set('academic_year_id', String(summary.group.academic_year.id));
+    if (summary?.group.course?.id) params.set('course_id', String(summary.group.course.id));
+    if (summary?.group.clinical_period?.id) params.set('clinical_period_id', String(summary.group.clinical_period.id));
+    return params.toString();
+  }, [summary]);
+  const warningsQuery = useQuery({
+    queryKey: ['attendance-warnings', warningParams],
+    queryFn: () => apiFetch<AttendanceWarning[]>(`/attendance-warnings?${warningParams}`),
+    enabled: can('attendance.review') && Boolean(summary && warningParams),
+  });
+  const warningStudents = useMemo(() => {
+    const groupStudentIds = new Set(summary?.students.map(row => row.student.id) ?? []);
+    return (warningsQuery.data ?? []).filter(row => groupStudentIds.has(row.student.id));
+  }, [summary, warningsQuery.data]);
+  const sendWarning = useMutation({
+    mutationFn: ({ warning, resend }: { warning: AttendanceWarning; resend: boolean }) => apiFetch<{ recipient_email: string; threshold_percent: number; sent_at: string }>('/attendance-warnings/send', {
+      method: 'POST',
+      body: { student_id: warning.student.id, rotation_id: warning.rotation_id, threshold_percent: warning.current_threshold, resend },
+    }),
+    onSuccess: async result => {
+      setMailNotice({ ok: true, text: tr(`تم إرسال الإنذار إلى ${result.recipient_email}.`, `Warning sent to ${result.recipient_email}.`) });
+      await queryClient.invalidateQueries({ queryKey: ['attendance-warnings'] });
+    },
+    onError: error => setMailNotice({ ok: false, text: error instanceof ApiError ? error.message : tr('تعذر إرسال البريد. حاول مرة أخرى.', 'Unable to send the email. Please try again.') }),
+  });
   const name = (value?: Named | null) => ar ? value?.name_ar : value?.name_en || value?.name_ar;
   const supervisorName = (value?: Supervisor) => ar ? value?.full_name_ar : value?.full_name_en || value?.full_name_ar;
   const groupLabel = (group: AttendanceGroup) => [
@@ -87,7 +130,7 @@ export function AttendanceMasterPage() {
       <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 md:grid-cols-[minmax(0,1fr)_240px]">
         <label className="block">
           <span className="mb-2 block text-[11px] font-black text-slate-600">{tr('المجموعة الفرعية','Subgroup')}</span>
-          <select value={selectedAssignment} onChange={event => { setSelectedAssignment(event.target.value); setSelectedWeek(''); }} className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-800 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100">
+          <select value={selectedAssignment} onChange={event => { setSelectedAssignment(event.target.value); setSelectedWeek(''); setMailNotice(null); }} className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-800 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100">
             {groups.map(group => <option key={group.assignment_id} value={group.assignment_id}>{groupLabel(group)}</option>)}
           </select>
         </label>
@@ -127,7 +170,24 @@ export function AttendanceMasterPage() {
         </div>
 
         {activeTab === 'register' && <WeeklyRegister summary={summary} ar={ar} tr={tr}/>}
-        {activeTab === 'alerts' && <Alerts students={warningStudents} ar={ar} tr={tr}/>}
+        {activeTab === 'alerts' && <Alerts
+          warnings={warningStudents}
+          ar={ar}
+          tr={tr}
+          canNotify={can('attendance.notify')}
+          loading={warningsQuery.isLoading}
+          failed={warningsQuery.isError}
+          notice={mailNotice}
+          sendingKey={sendWarning.isPending ? `${sendWarning.variables?.warning.student.id}-${sendWarning.variables?.warning.current_threshold}` : null}
+          onRetry={() => warningsQuery.refetch()}
+          onSend={(warning, resend) => {
+            const level = warning.current_threshold === 20 ? tr('الإنذار الرسمي', 'the formal warning') : tr('التنبيه الأولي', 'the initial notice');
+            const action = resend ? tr('إعادة إرسال', 'resend') : tr('إرسال', 'send');
+            if (!window.confirm(tr(`${action} ${level} إلى ${warning.student.email}؟`, `${action} ${level} to ${warning.student.email}?`))) return;
+            setMailNotice(null);
+            sendWarning.mutate({ warning, resend });
+          }}
+        />}
       </>}
     </>}
   </div>;
@@ -164,13 +224,20 @@ function StudentRow({ row, ar, tr }: { row: StudentSummary; ar: boolean; tr: (a:
 
 function Count({ value, tone }: { value: number; tone: 'emerald' | 'rose' | 'amber' | 'sky' }) { const colors={emerald:'text-emerald-700',rose:'text-rose-700',amber:'text-amber-700',sky:'text-sky-700'}; return <td className={`px-4 py-3 text-center text-sm font-black ${value?colors[tone]:'text-slate-300'}`}>{value}</td>; }
 
-function Alerts({ students, ar, tr }: { students: StudentSummary[]; ar: boolean; tr: (a: string, e: string) => string }) {
+function Alerts({ warnings, ar, tr, canNotify, loading, failed, notice, sendingKey, onRetry, onSend }: {
+  warnings: AttendanceWarning[]; ar: boolean; tr: (a: string, e: string) => string; canNotify: boolean;
+  loading: boolean; failed: boolean; notice: { ok: boolean; text: string } | null; sendingKey: string | null;
+  onRetry: () => void; onSend: (warning: AttendanceWarning, resend: boolean) => void;
+}) {
   return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-    <header className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-black text-slate-900">{tr('تنبيهات غياب الأسبوع المختار','Selected week absence alerts')}</h2><p className="mt-1 text-[10px] text-slate-500">{tr('النسبة = غياب الطالب ÷ أيام دوام المشرف المستحقة في هذا الأسبوع حتى اليوم.','Rate = student absences divided by supervisor work days due in this week through today.')}</p></header>
-    {!students.length ? <div className="flex flex-col items-center gap-2 p-8 text-center"><CheckCircle2 className="h-8 w-8 text-emerald-600"/><b className="text-sm text-slate-800">{tr('لا توجد تنبيهات غياب لهذه المجموعة','No absence alerts for this group')}</b></div> : <div className="divide-y divide-slate-100">{students.map(row => {
+    <header className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-black text-slate-900">{tr('تنبيهات الغياب التراكمية','Cumulative absence alerts')}</h2><p className="mt-1 text-[10px] text-slate-500">{tr('تنبيه أولي بعد تجاوز 10%، وإنذار رسمي بعد تجاوز 20% من الأيام التدريبية المعتمدة للمساق.','Initial notice above 10%; formal warning above 20% of the course required clinical days.')}</p></header>
+    {notice && <div className={`mx-5 mt-4 rounded-xl px-4 py-3 text-[11px] font-bold ${notice.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>{notice.text}</div>}
+    {loading ? <LoadingState /> : failed ? <div className="p-5"><ErrorState onRetry={onRetry}/></div> : !warnings.length ? <div className="flex flex-col items-center gap-2 p-8 text-center"><CheckCircle2 className="h-8 w-8 text-emerald-600"/><b className="text-sm text-slate-800">{tr('لا توجد تنبيهات غياب تراكمية لهذه المجموعة','No cumulative absence alerts for this group')}</b></div> : <div className="divide-y divide-slate-100">{warnings.map(row => {
       const studentName = ar ? row.student.full_name_ar : row.student.full_name_en || row.student.full_name_ar;
-      const urgent = row.totals.warning_level === 20;
-      return <article key={row.student.id} className="grid gap-3 px-5 py-4 sm:grid-cols-[1fr_auto_auto] sm:items-center"><div className="flex items-center gap-3"><span className={`grid h-10 w-10 place-items-center rounded-xl ${urgent?'bg-rose-50 text-rose-700':'bg-amber-50 text-amber-700'}`}>{urgent?<XCircle className="h-5 w-5"/>:<AlertTriangle className="h-5 w-5"/>}</span><div><b className="text-xs text-slate-900">{studentName}</b><p dir="ltr" className="mt-1 text-start font-mono text-[10px] text-slate-400">{row.student.university_number}</p></div></div><div className="text-center"><b className={urgent?'text-rose-700':'text-amber-700'}>{Number(row.totals.absence_percentage).toFixed(1)}%</b><p className="text-[9px] text-slate-400">{row.totals.absent} {tr('غياب من','absent of')} {row.totals.elapsed_scheduled_days}</p></div><span className={`rounded-full px-3 py-1.5 text-[10px] font-black ${urgent?'bg-rose-50 text-rose-700':'bg-amber-50 text-amber-700'}`}>{urgent?tr('إنذار رسمي','Formal warning'):tr('تنبيه أولي','Initial alert')}</span></article>;
+      const urgent = row.current_threshold === 20;
+      const sent = row.last_sent[String(row.current_threshold) as '10' | '20'];
+      const isSending = sendingKey === `${row.student.id}-${row.current_threshold}`;
+      return <article key={`${row.student.id}-${row.rotation_id}`} className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(220px,1fr)_auto_auto] md:items-center"><div className="flex items-center gap-3"><span className={`grid h-10 w-10 place-items-center rounded-xl ${urgent?'bg-rose-50 text-rose-700':'bg-amber-50 text-amber-700'}`}>{urgent?<XCircle className="h-5 w-5"/>:<AlertTriangle className="h-5 w-5"/>}</span><div><b className="text-xs text-slate-900">{studentName}</b><p dir="ltr" className="mt-1 text-start font-mono text-[10px] text-slate-400">{row.student.university_number} · {row.student.email}</p></div></div><div className="text-center"><b className={urgent?'text-rose-700':'text-amber-700'}>{Number(row.absence_percentage).toFixed(1)}%</b><p className="text-[9px] text-slate-400">{row.absent_days} {tr('غياب من','absent of')} {row.total_required_days}</p></div><div className="flex min-w-[190px] flex-col items-stretch gap-1.5"><span className={`self-center rounded-full px-3 py-1 text-[10px] font-black ${urgent?'bg-rose-50 text-rose-700':'bg-amber-50 text-amber-700'}`}>{urgent?tr('إنذار رسمي','Formal warning'):tr('تنبيه أولي','Initial notice')}</span>{sent && <span className="text-center text-[9px] font-bold text-emerald-700">{tr('أُرسل','Sent')} · {new Intl.DateTimeFormat(ar?'ar-PS':'en-GB',{dateStyle:'short',timeStyle:'short'}).format(new Date(sent.sent_at))}</span>}{canNotify ? <button type="button" disabled={Boolean(sendingKey)} onClick={() => onSend(row, Boolean(sent))} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-teal-700 px-3 py-2 text-[10px] font-black text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"><Mail className="h-3.5 w-3.5"/>{isSending ? tr('جارٍ الإرسال...','Sending...') : sent ? tr('إعادة إرسال البريد','Resend email') : urgent ? tr('إرسال الإنذار الرسمي','Send formal warning') : tr('إرسال التنبيه الأولي','Send initial notice')}</button> : <span className="text-center text-[9px] text-slate-400">{tr('تحتاج صلاحية إرسال إنذارات الغياب','Email notification permission required')}</span>}</div></article>;
     })}</div>}
   </section>;
 }

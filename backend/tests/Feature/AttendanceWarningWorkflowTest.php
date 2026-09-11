@@ -93,6 +93,7 @@ class AttendanceWarningWorkflowTest extends TestCase
 
     public function test_authorized_user_can_send_and_explicitly_resend_a_warning(): void
     {
+        $this->student->update(['university_email' => 'clinical.student@hebron.edu']);
         Mail::shouldReceive('raw')->twice()->withArgs(function (string $body) {
             $this->assertStringContainsString('إنذار رسمي بسبب تجاوز نسبة الغياب المسموح بها', $body);
             $this->assertStringContainsString('مراجعة عمادة كلية الطب', $body);
@@ -112,14 +113,14 @@ class AttendanceWarningWorkflowTest extends TestCase
 
         $this->actingAs($this->rta)->postJson('/api/v1/attendance-warnings/send', $payload)
             ->assertOk()
-            ->assertJsonPath('data.recipient_email', '22210466@students.hebron.edu');
+            ->assertJsonPath('data.recipient_email', 'clinical.student@hebron.edu');
 
         $this->assertDatabaseHas('attendance_warning_notifications', [
             'student_id' => $this->student->id,
             'rotation_id' => $this->rotation->id,
             'threshold_percent' => 20,
             'delivery_status' => 'sent',
-            'recipient_email' => '22210466@students.hebron.edu',
+            'recipient_email' => 'clinical.student@hebron.edu',
         ]);
 
         $this->actingAs($this->rta)->postJson('/api/v1/attendance-warnings/send', $payload)

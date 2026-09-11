@@ -147,7 +147,7 @@ class AttendanceWarningController extends Controller
     {
         $query = AttendanceRecord::query()
             ->with([
-                'student:id,university_number,full_name_ar,full_name_en,academic_level',
+                'student:id,university_number,full_name_ar,full_name_en,university_email,academic_level',
                 'session:id,rotation_block_id,session_date',
                 'session.rotationBlock:id,rotation_id,department_id',
                 'session.rotationBlock.rotation:id,academic_year_id,course_id,academic_level,name,code',
@@ -228,7 +228,10 @@ class AttendanceWarningController extends Controller
                 $percentage = round(($absentDays / $requiredDays) * 100, 2);
                 $currentThreshold = $percentage > 20 ? 20 : ($percentage > 10 ? 10 : null);
                 $domain = trim((string) config('group_registration.student_email_domain', 'students.hebron.edu'));
-                $email = $student->university_number.'@'.$domain;
+                $storedEmail = trim((string) $student->university_email);
+                $email = filter_var($storedEmail, FILTER_VALIDATE_EMAIL)
+                    ? $storedEmail
+                    : $student->university_number.'@'.$domain;
                 $historyKey = fn (int $threshold) => $student->id.'|'.$rotation->id.'|'.$threshold;
 
                 return [
