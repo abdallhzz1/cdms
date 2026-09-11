@@ -3,17 +3,18 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\DepartmentHeadProfile;
 use App\Models\DepartmentHeadAssignment;
 use App\Models\DepartmentHeadEvaluation;
+use App\Models\DepartmentHeadProfile;
 use App\Models\User;
 use App\Models\UserProfile;
 use App\Services\ProfileAuthorizationService;
 use App\Services\SecureFileUploadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class DepartmentHeadController extends Controller
 {
@@ -41,6 +42,7 @@ class DepartmentHeadController extends Controller
             $person = $assignment->person;
             $user = $person->user;
             $profile = $user->departmentHeadProfile ?: new DepartmentHeadProfile(['user_id' => $user->id]);
+            $shared = $user->userProfile;
             $officialEvaluation = $officialByHead->get($user->id);
             $deptName = preg_replace('/^قسم\s+/', '', $assignment->department?->name_ar ?: 'غير محدد');
 
@@ -58,10 +60,10 @@ class DepartmentHeadController extends Controller
                 'specialty' => $profile->specialty,
                 'phone' => $profile->phone ?: $person->phone,
                 'avatar_url' => $user->userProfile?->avatar_url ?: $person->photo_url ?: $profile->avatar_url,
-                'cv_summary' => $profile->cv_summary ?: '',
-                'publications' => $profile->publications ?: [],
-                'conferences' => $profile->conferences ?: [],
-                'documents' => $profile->documents ?: [],
+                'cv_summary' => $shared?->bio ?: $profile->cv_summary ?: '',
+                'publications' => $shared?->publications ?: $profile->publications ?: [],
+                'conferences' => $shared?->conferences ?: $profile->conferences ?: [],
+                'documents' => [],
                 'official_evaluation' => $canViewEvaluation ? $this->officialEvaluationSummary($officialEvaluation) : null,
                 // Compatibility fields now intentionally mirror the official
                 // approved form; the legacy automatic KPI is no longer used.
@@ -73,7 +75,7 @@ class DepartmentHeadController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $data
+            'data' => $data,
         ]);
     }
 
@@ -88,14 +90,15 @@ class DepartmentHeadController extends Controller
 
         $u = User::with(['roles', 'person.department', 'person.headAssignments' => fn ($query) => $query->current()->heads()->with('department'), 'departmentHeadProfile.department', 'userProfile'])->find($userId);
 
-        if (!$u) {
+        if (! $u) {
             return response()->json([
                 'success' => false,
-                'message' => 'Department head user not found.'
+                'message' => 'Department head user not found.',
             ], 404);
         }
 
         $profile = $u->departmentHeadProfile ?: new DepartmentHeadProfile(['user_id' => $u->id]);
+        $shared = $u->userProfile;
         $currentAssignment = $u->person?->headAssignments?->first();
         $deptName = $currentAssignment?->department?->name_ar
             ?: ($profile->department?->name_ar ?: ($u->person?->department?->name_ar ?: 'غير محدد'));
@@ -114,7 +117,7 @@ class DepartmentHeadController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'id' => (string)$u->id,
+                'id' => (string) $u->id,
                 'user_id' => $u->id,
                 'name' => $u->person ? $u->person->full_name_ar : $u->name,
                 'email' => $u->email,
@@ -126,16 +129,17 @@ class DepartmentHeadController extends Controller
                 'specialty' => $profile->specialty,
                 'phone' => $profile->phone ?: $u->person?->phone,
                 'avatar_url' => $u->userProfile?->avatar_url ?: $u->person?->photo_url ?: $profile->avatar_url,
-                'cv_summary' => $profile->cv_summary ?: '',
-                'publications' => $profile->publications ?: [],
-                'conferences' => $profile->conferences ?: [],
-                'documents' => $profile->documents ?: [],
+                'cv_summary' => $shared?->bio ?: $profile->cv_summary ?: '',
+                'publications' => $shared?->publications ?: $profile->publications ?: [],
+                'conferences' => $shared?->conferences ?: $profile->conferences ?: [],
+                'documents' => $request->user()?->id === $userId || Gate::forUser($request->user())->allows('permission', ['people.manage'])
+                    ? ($shared?->documents ?: $profile->documents ?: []) : [],
                 'official_evaluation' => $canViewEvaluation ? $this->officialEvaluationSummary($officialEvaluation) : null,
                 'kpi_score' => $canViewEvaluation ? (float) ($officialEvaluation?->overall_score ?? 0) : null,
                 'kpi_rating' => $canViewEvaluation ? $officialEvaluation?->overall_rating : null,
                 'kpi_complete' => $canViewEvaluation && $officialEvaluation !== null,
                 'kpi_breakdown' => null,
-            ]
+            ],
         ]);
     }
 
@@ -151,13 +155,24 @@ class DepartmentHeadController extends Controller
 
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
-        $payload = $request->all();
+        $payload = $request->validate([
+            'title' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'academic_title' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'specialty' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'phone' => ['sometimes', 'nullable', 'string', 'max:40'],
+            'cv_summary' => ['sometimes', 'nullable', 'string', 'max:3000'],
+            'contract_type' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'appointment_date' => ['sometimes', 'nullable', 'date'],
+            'publications' => ['sometimes', 'array', 'max:100'],
+            'conferences' => ['sometimes', 'array', 'max:100'],
+        ]);
+        $canManagePeople = Gate::forUser($request->user())->allows('permission', ['people.manage']);
 
         $profile->update([
-            'academic_title' => $payload['title'] ?? $payload['academic_title'] ?? $profile->academic_title,
-            'specialty' => $payload['specialty'] ?? $profile->specialty,
-            'contract_type' => $payload['contract_type'] ?? $profile->contract_type,
-            'appointment_date' => $payload['appointment_date'] ?? $profile->appointment_date,
+            'academic_title' => $canManagePeople ? ($payload['title'] ?? $payload['academic_title'] ?? $profile->academic_title) : $profile->academic_title,
+            'specialty' => $canManagePeople ? ($payload['specialty'] ?? $profile->specialty) : $profile->specialty,
+            'contract_type' => $canManagePeople ? ($payload['contract_type'] ?? $profile->contract_type) : $profile->contract_type,
+            'appointment_date' => $canManagePeople ? ($payload['appointment_date'] ?? $profile->appointment_date) : $profile->appointment_date,
             'phone' => $payload['phone'] ?? $profile->phone,
             'cv_summary' => $payload['cv_summary'] ?? $profile->cv_summary,
             'publications' => isset($payload['publications']) ? $payload['publications'] : $profile->publications,
@@ -168,17 +183,35 @@ class DepartmentHeadController extends Controller
         if ($user?->person) {
             $user->person->update([
                 'phone' => $payload['phone'] ?? $user->person->phone,
-                'specialty' => $payload['specialty'] ?? $user->person->specialty,
-                'academic_degree' => $payload['title'] ?? $payload['academic_title'] ?? $user->person->academic_degree,
+                'specialty' => $canManagePeople ? ($payload['specialty'] ?? $user->person->specialty) : $user->person->specialty,
+                'academic_degree' => $canManagePeople ? ($payload['title'] ?? $payload['academic_title'] ?? $user->person->academic_degree) : $user->person->academic_degree,
             ]);
         }
-        UserProfile::updateOrCreate(['user_id' => $userId], [
-            'phone' => $payload['phone'] ?? null,
-            'specialty' => $payload['specialty'] ?? null,
-            'academic_degree' => $payload['title'] ?? $payload['academic_title'] ?? null,
-        ]);
+        $shared = UserProfile::firstOrCreate(['user_id' => $userId]);
+        $sharedUpdates = [];
+        if (array_key_exists('phone', $payload)) {
+            $sharedUpdates['phone'] = $payload['phone'];
+        }
+        if ($canManagePeople && array_key_exists('specialty', $payload)) {
+            $sharedUpdates['specialty'] = $payload['specialty'];
+        }
+        if ($canManagePeople && (array_key_exists('title', $payload) || array_key_exists('academic_title', $payload))) {
+            $sharedUpdates['academic_degree'] = $payload['title'] ?? $payload['academic_title'];
+        }
+        if (array_key_exists('cv_summary', $payload)) {
+            $sharedUpdates['bio'] = $payload['cv_summary'];
+        }
+        if (array_key_exists('publications', $payload)) {
+            $sharedUpdates['publications'] = array_values($payload['publications']);
+        }
+        if (array_key_exists('conferences', $payload)) {
+            $sharedUpdates['conferences'] = array_values($payload['conferences']);
+        }
+        if ($sharedUpdates !== []) {
+            $shared->update($sharedUpdates);
+        }
 
-        return $this->show($request, (string)$userId);
+        return $this->show($request, (string) $userId);
     }
 
     /**
@@ -199,14 +232,14 @@ class DepartmentHeadController extends Controller
             'evaluation' => [
                 'evaluator_name' => $eval['evaluator_name'] ?? ($request->user() ? $request->user()->name : 'د. معتز التميمي'),
                 'evaluator_role' => $eval['evaluator_role'] ?? 'مدير الدائرة السريرية',
-                'leadership_score' => (float)($eval['leadership_score'] ?? 7.5),
-                'clinical_score' => (float)($eval['clinical_score'] ?? 7.5),
+                'leadership_score' => (float) ($eval['leadership_score'] ?? 7.5),
+                'clinical_score' => (float) ($eval['clinical_score'] ?? 7.5),
                 'comments' => $eval['comments'] ?? 'تم التقييم والاعتماد الرسمي.',
                 'evaluation_date' => $eval['evaluation_date'] ?? now()->format('Y/m/d'),
-            ]
+            ],
         ]);
 
-        return $this->show($request, (string)$userId);
+        return $this->show($request, (string) $userId);
     }
 
     /**
@@ -223,10 +256,10 @@ class DepartmentHeadController extends Controller
         $weights = $request->input('kpi_weights', $request->all());
 
         $profile->update([
-            'kpi_weights' => $weights
+            'kpi_weights' => $weights,
         ]);
 
-        return $this->show($request, (string)$userId);
+        return $this->show($request, (string) $userId);
     }
 
     /**
@@ -243,10 +276,10 @@ class DepartmentHeadController extends Controller
         $overrides = $request->input('kpi_overrides', $request->all());
 
         $profile->update([
-            'kpi_overrides' => $overrides
+            'kpi_overrides' => $overrides,
         ]);
 
-        return $this->show($request, (string)$userId);
+        return $this->show($request, (string) $userId);
     }
 
     /**
@@ -262,7 +295,7 @@ class DepartmentHeadController extends Controller
         $profile = DepartmentHeadProfile::firstOrCreate(['user_id' => $userId]);
 
         $source = $request->file('avatar') ?: $request->input('avatar_base64');
-        if (!$source) {
+        if (! $source) {
             return response()->json(['success' => false, 'message' => 'No image file provided.'], 400);
         }
 
@@ -296,15 +329,15 @@ class DepartmentHeadController extends Controller
         $docName = $request->input('name', 'وثيقة رسمية');
         $docCategory = $request->input('category', 'أخرى');
         $source = $request->file('file') ?: $request->input('file_base64');
-        if (!$source) {
+        if (! $source) {
             return response()->json([
                 'success' => false,
-                'message' => 'No file provided for upload.'
+                'message' => 'No file provided for upload.',
             ], 400);
         }
 
         $stored = $files->storeDocument($source, 'profile-documents/department-heads/'.$userId);
-        $docId = 'doc_'.\Illuminate\Support\Str::uuid();
+        $docId = 'doc_'.Str::uuid();
 
         $newDoc = [
             'id' => $docId,
@@ -314,7 +347,7 @@ class DepartmentHeadController extends Controller
             'storage_path' => $stored['storage_path'],
             'mime_type' => $stored['mime_type'],
             'file_type' => $stored['file_type'],
-            'file_size' => round($stored['size_bytes'] / (1024 * 1024), 2) . ' MB',
+            'file_size' => round($stored['size_bytes'] / (1024 * 1024), 2).' MB',
             'created_at' => date('Y-m-d'),
         ];
 
@@ -322,12 +355,13 @@ class DepartmentHeadController extends Controller
         $currentDocs[] = $newDoc;
 
         $profile->update(['documents' => $currentDocs]);
+        UserProfile::updateOrCreate(['user_id' => $userId], ['documents' => $currentDocs]);
 
         return response()->json([
             'success' => true,
             'data' => $newDoc,
             'documents' => $currentDocs,
-            'message' => 'Document uploaded and saved successfully.'
+            'message' => 'Document uploaded and saved successfully.',
         ]);
     }
 
@@ -343,20 +377,21 @@ class DepartmentHeadController extends Controller
 
         $currentDocs = is_array($profile->documents) ? $profile->documents : [];
         $deleted = collect($currentDocs)->first(fn ($doc) => (string) ($doc['id'] ?? '') === (string) $docId);
-        if (!empty($deleted['storage_path'])) {
+        if (! empty($deleted['storage_path'])) {
             Storage::disk('local')->delete($deleted['storage_path']);
         }
 
         $filtered = array_values(array_filter($currentDocs, function ($doc) use ($docId) {
-            return isset($doc['id']) ? (string)$doc['id'] !== (string)$docId : true;
+            return isset($doc['id']) ? (string) $doc['id'] !== (string) $docId : true;
         }));
 
         $profile->update(['documents' => $filtered]);
+        UserProfile::updateOrCreate(['user_id' => $userId], ['documents' => $filtered]);
 
         return response()->json([
             'success' => true,
             'documents' => $filtered,
-            'message' => 'Document deleted successfully.'
+            'message' => 'Document deleted successfully.',
         ]);
     }
 
@@ -370,7 +405,7 @@ class DepartmentHeadController extends Controller
             fn ($doc) => (string) ($doc['id'] ?? '') === (string) $docId
         );
 
-        if (!$document || empty($document['storage_path']) || !Storage::disk('local')->exists($document['storage_path'])) {
+        if (! $document || empty($document['storage_path']) || ! Storage::disk('local')->exists($document['storage_path'])) {
             abort(404);
         }
 
@@ -400,22 +435,22 @@ class DepartmentHeadController extends Controller
         $ov = $profile->kpi_overrides ?: [];
         $eval = $profile->evaluation;
 
-        $wGrades = (float)($w['gradeTimelinessWeight'] ?? 25);
-        $wRotations = (float)($w['rotationMgmtWeight'] ?? 25);
-        $wResearch = (float)($w['researchWeight'] ?? 20);
-        $wConf = (float)($w['confWeight'] ?? 15);
-        $wEval = (float)($w['evaluationWeight'] ?? 15);
+        $wGrades = (float) ($w['gradeTimelinessWeight'] ?? 25);
+        $wRotations = (float) ($w['rotationMgmtWeight'] ?? 25);
+        $wResearch = (float) ($w['researchWeight'] ?? 20);
+        $wConf = (float) ($w['confWeight'] ?? 15);
+        $wEval = (float) ($w['evaluationWeight'] ?? 15);
 
-        $gScore = isset($ov['gradeTimelinessScore']) ? (float)$ov['gradeTimelinessScore'] : 0.0;
-        $rScore = isset($ov['rotationMgmtScore']) ? (float)$ov['rotationMgmtScore'] : 0.0;
+        $gScore = isset($ov['gradeTimelinessScore']) ? (float) $ov['gradeTimelinessScore'] : 0.0;
+        $rScore = isset($ov['rotationMgmtScore']) ? (float) $ov['rotationMgmtScore'] : 0.0;
 
         $pubCount = is_array($profile->publications) ? count($profile->publications) : 0;
-        $resScore = isset($ov['researchScore']) ? (float)$ov['researchScore'] : min($wResearch, $pubCount * 5);
+        $resScore = isset($ov['researchScore']) ? (float) $ov['researchScore'] : min($wResearch, $pubCount * 5);
 
         $confCount = is_array($profile->conferences) ? count($profile->conferences) : 0;
-        $cScore = isset($ov['confScore']) ? (float)$ov['confScore'] : min($wConf, $confCount * 5);
+        $cScore = isset($ov['confScore']) ? (float) $ov['confScore'] : min($wConf, $confCount * 5);
 
-        $rawEvalSum = $eval ? ((float)($eval['leadership_score'] ?? 0) + (float)($eval['clinical_score'] ?? 0)) : 0.0;
+        $rawEvalSum = $eval ? ((float) ($eval['leadership_score'] ?? 0) + (float) ($eval['clinical_score'] ?? 0)) : 0.0;
         $eScore = $eval ? round(($rawEvalSum / 15.0) * $wEval, 1) : 0.0;
 
         $totalScore = min(100.0, round($gScore + $rScore + $resScore + $cScore + $eScore, 1));
@@ -423,9 +458,13 @@ class DepartmentHeadController extends Controller
         $rating = 'غير مكتمل';
         if ($isComplete) {
             $rating = 'مقبول';
-            if ($totalScore >= 90) $rating = 'ممتاز';
-            else if ($totalScore >= 80) $rating = 'جيد جداً';
-            else if ($totalScore >= 70) $rating = 'جيد';
+            if ($totalScore >= 90) {
+                $rating = 'ممتاز';
+            } elseif ($totalScore >= 80) {
+                $rating = 'جيد جداً';
+            } elseif ($totalScore >= 70) {
+                $rating = 'جيد';
+            }
         }
 
         return [
@@ -448,7 +487,7 @@ class DepartmentHeadController extends Controller
             return $request->user() ? $request->user()->id : 0;
         }
 
-        $val = (int)$id;
+        $val = (int) $id;
         if ($val > 0) {
             return $val;
         }
@@ -492,5 +531,4 @@ class DepartmentHeadController extends Controller
 
         abort(403, 'This action is unauthorized.');
     }
-
 }

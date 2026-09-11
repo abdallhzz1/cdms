@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\Person;
+use App\Models\Role;
 use App\Models\User;
 use App\Models\UserProfile;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class UserProfileTest extends TestCase
@@ -19,6 +21,8 @@ class UserProfileTest extends TestCase
             'user_id' => $user->id,
             'full_name_ar' => 'الاسم السابق',
             'phone' => '0590000000',
+            'specialty' => 'الطب الباطني',
+            'academic_degree' => 'أستاذ مساعد',
         ]);
 
         $this->actingAs($user, 'web')
@@ -37,10 +41,10 @@ class UserProfileTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('data.name', 'د. اسم جديد')
-            ->assertJsonPath('data.specialty', 'الجراحة العامة');
+            ->assertJsonPath('data.specialty', 'الطب الباطني');
 
         $this->assertDatabaseHas('users', ['id' => $user->id, 'name' => 'د. اسم جديد']);
-        $this->assertDatabaseHas('people', ['id' => $person->id, 'full_name_ar' => 'د. اسم جديد', 'specialty' => 'الجراحة العامة']);
+        $this->assertDatabaseHas('people', ['id' => $person->id, 'full_name_ar' => 'د. اسم جديد', 'specialty' => 'الطب الباطني']);
         $this->assertDatabaseHas('user_profiles', ['user_id' => $user->id, 'full_name_en' => 'Dr. New Name']);
     }
 
@@ -63,7 +67,7 @@ class UserProfileTest extends TestCase
             ])
             ->assertOk();
 
-        $this->assertTrue(\Illuminate\Support\Facades\Hash::check('new-password', $user->fresh()->password));
+        $this->assertTrue(Hash::check('new-password', $user->fresh()->password));
     }
 
     public function test_profile_uses_existing_shared_data_without_creating_duplicate_person_records(): void
@@ -77,5 +81,43 @@ class UserProfileTest extends TestCase
             ->assertJsonPath('data.phone', '0592222222');
 
         $this->assertDatabaseCount('people', 0);
+    }
+
+    public function test_supervisor_professional_record_is_saved_once_and_exposed_by_the_shared_profile(): void
+    {
+        $user = User::factory()->create();
+        $role = Role::create([
+            'code' => 'CLINICAL_SUPERVISOR',
+            'name_key' => 'roles.clinical_supervisor',
+            'description_key' => 'roles.clinical_supervisor_description',
+        ]);
+        $user->roles()->attach($role);
+
+        $this->actingAs($user, 'web')->putJson('/api/v1/profile/me/professional', [
+            'bio' => 'استشاري طب باطني.',
+            'publications' => [['title' => 'Clinical paper', 'journal' => 'HU Journal', 'year' => 2026, 'doi' => null]],
+            'conferences' => [['name' => 'Medical Conference', 'location' => 'Hebron', 'date' => '2026-09-12', 'role' => 'Speaker']],
+        ])->assertOk()
+            ->assertJsonPath('data.capabilities.clinical_supervisor', true)
+            ->assertJsonPath('data.professional.publications.0.title', 'Clinical paper');
+
+        $this->assertDatabaseHas('user_profiles', ['user_id' => $user->id, 'bio' => 'استشاري طب باطني.']);
+        $this->assertDatabaseHas('clinical_supervisor_profiles', ['user_id' => $user->id, 'cv_summary' => 'استشاري طب باطني.']);
+    }
+
+    public function test_non_professional_account_cannot_create_a_clinical_profile_through_me_route(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user, 'web')
+            ->getJson('/api/v1/clinical-supervisors/me')
+            ->assertNotFound();
+
+        $this->actingAs($user, 'web')
+            ->putJson('/api/v1/profile/me/professional', [
+                'bio' => null,
+                'publications' => [],
+                'conferences' => [],
+            ])->assertForbidden();
     }
 }

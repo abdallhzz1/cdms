@@ -60,13 +60,6 @@ export function ClinicalSupervisorProfilePage() {
   const [newConfRole, setNewConfRole]     = useState("");
 
   const targetId = !paramId || paramId === "me" ? "me" : paramId;
-  const userRoles = (user?.roles || []).map((r: any) =>
-    typeof r === "string" ? r.toUpperCase() : String(r.code || r.name || "").toUpperCase()
-  );
-  const canEvaluate = userRoles.some((r) =>
-    ["CLINICAL_DIRECTOR","DEAN","VICE_DEAN","SYS_ADMIN","SYSTEM_ADMIN"].includes(r)
-  );
-
   const { data: rawProfile, isLoading } = useQuery({
     queryKey: ["clinical-supervisor-profile-v1", targetId, user?.id],
     queryFn: async () => {
@@ -80,17 +73,11 @@ export function ClinicalSupervisorProfilePage() {
   const isOwnProfile = paramId === "me" ||
     String(targetId) === String(user?.id) ||
     (user?.email && rawProfile?.email && user.email.toLowerCase() === rawProfile.email.toLowerCase());
-  const canEdit = isOwnProfile || canEvaluate;
+  const canEdit = isOwnProfile;
 
   useEffect(() => {
     if (!rawProfile) return;
-    const localKey = `clinical_sup_docs_${String(rawProfile.user_id || rawProfile.id || targetId)}`;
     const apiDocs: DocumentItem[] = Array.isArray(rawProfile.documents) ? rawProfile.documents : [];
-    let localDocs: DocumentItem[] = [];
-    try { localDocs = JSON.parse(localStorage.getItem(localKey) || "[]"); } catch { localDocs = []; }
-    const docMap = new Map<string, DocumentItem>();
-    for (const d of apiDocs) if (d?.name) docMap.set(d.id || d.name, d);
-    for (const d of localDocs) if (d?.name && !docMap.has(d.id || d.name)) docMap.set(d.id || d.name, d);
     setProfileData({
       id: String(rawProfile.id || rawProfile.user_id),
       user_id: rawProfile.user_id || rawProfile.id,
@@ -107,16 +94,9 @@ export function ClinicalSupervisorProfilePage() {
       cv_summary: rawProfile.cv_summary || "",
       publications: rawProfile.publications || [],
       conferences: rawProfile.conferences || [],
-      documents: Array.from(docMap.values()),
+      documents: apiDocs,
     });
   }, [rawProfile, targetId]);
-
-  useEffect(() => {
-    if (profileData?.documents?.length) {
-      const key = `clinical_sup_docs_${String(profileData.user_id || profileData.id)}`;
-      localStorage.setItem(key, JSON.stringify(profileData.documents));
-    }
-  }, [profileData?.documents]);
 
   const refreshAll = () => {
     queryClient.invalidateQueries({ queryKey: ["clinical-supervisor-profile-v1"] });
@@ -176,17 +156,11 @@ export function ClinicalSupervisorProfilePage() {
     if (!newDocTitle.trim() || !profileData) return;
     setIsUploadingDoc(true);
     try {
-      let res: any;
-      if (selectedDocFile) {
-        const fd = new FormData();
-        fd.append("file", selectedDocFile); fd.append("name", newDocTitle.trim()); fd.append("category", newDocCategory);
-        res = await apiFetch<any>(`/clinical-supervisors/${targetId}/documents`, { method:"POST", body: fd });
-      } else {
-        res = await apiFetch<any>(`/clinical-supervisors/${targetId}/documents`, { method:"POST", body:{ name:newDocTitle.trim(), category:newDocCategory, file_base64:"", file_type:"pdf", file_size:"0 MB" } });
-      }
+      if (!selectedDocFile) return;
+      const fd = new FormData();
+      fd.append("file", selectedDocFile); fd.append("name", newDocTitle.trim()); fd.append("category", newDocCategory);
+      const res = await apiFetch<any>(`/clinical-supervisors/${targetId}/documents`, { method:"POST", body: fd });
       const docs = res?.documents || [...(profileData.documents||[]), res?.data];
-      const key = `clinical_sup_docs_${String(profileData.user_id||profileData.id)}`;
-      localStorage.setItem(key, JSON.stringify(docs));
       setProfileData({ ...profileData, documents: docs });
       setIsDocModalOpen(false); setNewDocTitle(""); setSelectedDocFile(null);
     } catch { alert(tr("حدث خطأ أثناء رفع الوثيقة", "An error occurred while uploading the document.")); }
@@ -195,8 +169,6 @@ export function ClinicalSupervisorProfilePage() {
   const handleDeleteDoc = async (docId: string, idx: number) => {
     if (!profileData || !window.confirm(tr("هل أنت متأكد من حذف هذا المستند؟", "Are you sure you want to delete this document?"))) return;
     const updated = (profileData.documents||[]).filter((d,i)=> d.id ? d.id!==docId : i!==idx);
-    const key = `clinical_sup_docs_${String(profileData.user_id||profileData.id)}`;
-    localStorage.setItem(key, JSON.stringify(updated));
     setProfileData({ ...profileData, documents: updated });
     try { await apiFetch(`/clinical-supervisors/${targetId}/documents/${docId||idx}`, { method:"DELETE" }); } catch {}
     finally { refreshAll(); }

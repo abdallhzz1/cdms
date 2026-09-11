@@ -25,9 +25,21 @@ class UserProfile extends Model
         'specialty',
         'academic_degree',
         'bio',
+        'publications',
+        'conferences',
+        'documents',
         'avatar_url',
         'avatar_storage_path',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'publications' => 'array',
+            'conferences' => 'array',
+            'documents' => 'array',
+        ];
+    }
 
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo

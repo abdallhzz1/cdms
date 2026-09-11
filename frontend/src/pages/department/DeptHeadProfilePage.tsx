@@ -214,31 +214,7 @@ export function DeptHeadProfilePage() {
     setManualResearchScore(loadedOverrides.researchScore !== undefined ? String(loadedOverrides.researchScore) : '');
     setManualConfScore(loadedOverrides.confScore !== undefined ? String(loadedOverrides.confScore) : '');
 
-    // Robust document merging from API and isolated local storage
-    const profileUserId = String(data.user_id || data.id || targetId);
     const apiDocs: DocumentItem[] = Array.isArray(data.documents) ? data.documents : [];
-    let localDocs: DocumentItem[] = [];
-    const localSaved = localStorage.getItem(`dept_head_docs_${profileUserId}`) ||
-                       (targetId === 'me' ? localStorage.getItem('dept_head_docs_me') : null);
-    if (localSaved) {
-      try {
-        const parsed = JSON.parse(localSaved);
-        if (Array.isArray(parsed)) localDocs = parsed;
-      } catch (e) {
-        localDocs = [];
-      }
-    }
-
-    const docMap = new Map<string, DocumentItem>();
-    for (const doc of apiDocs) {
-      if (doc && doc.name) docMap.set(doc.id || doc.name, doc);
-    }
-    for (const doc of localDocs) {
-      if (doc && doc.name && !docMap.has(doc.id || doc.name)) {
-        docMap.set(doc.id || doc.name, doc);
-      }
-    }
-    const combinedDocs = Array.from(docMap.values());
 
     setProfileData({
       id: String(data.id || data.user_id),
@@ -256,7 +232,7 @@ export function DeptHeadProfilePage() {
       specialty: data.specialty || `استشاري ${data.department_name || 'سريري'}`,
       publications: data.publications || [],
       conferences: data.conferences || [],
-      documents: combinedDocs,
+      documents: apiDocs,
       kpi_weights: loadedWeights,
       kpi_overrides: loadedOverrides,
       evaluation: data.evaluation || undefined,
@@ -273,20 +249,6 @@ export function DeptHeadProfilePage() {
     }
 
   }, [dbProfileResponse, targetId]);
-
-  // Persist documents strictly per department head user_id ONLY when non-empty to prevent cache wipe
-  useEffect(() => {
-    if (profileData && profileData.documents && profileData.documents.length > 0) {
-      const profileUserId = String(profileData.user_id || profileData.id);
-      if (profileUserId && profileUserId !== 'undefined') {
-        const jsonDocs = JSON.stringify(profileData.documents);
-        localStorage.setItem(`dept_head_docs_${profileUserId}`, jsonDocs);
-        if (targetId === 'me') {
-          localStorage.setItem('dept_head_docs_me', jsonDocs);
-        }
-      }
-    }
-  }, [profileData?.documents, profileData?.user_id, profileData?.id, targetId]);
 
   // Transparent KPI Breakdown Calculation
   const automatedKpiBreakdown = useMemo(() => {
@@ -556,60 +518,24 @@ export function DeptHeadProfilePage() {
 
     setIsUploadingDoc(true);
 
-    let dataUrl: string | undefined = undefined;
-    let fileType: string | undefined = undefined;
-    let fileSize = '1.2 MB';
-
-    if (selectedDocFile) {
-      fileSize = `${(selectedDocFile.size / (1024 * 1024)).toFixed(1)} MB`;
-      fileType = selectedDocFile.type;
-
-      if (selectedDocFile.type.startsWith('image/') || selectedDocFile.type === 'application/pdf') {
-        dataUrl = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (evt) => resolve(evt.target?.result as string);
-          reader.readAsDataURL(selectedDocFile);
-        });
-      }
-    }
+    if (!selectedDocFile) return;
 
     try {
-      let res: any = null;
-      if (selectedDocFile) {
-        const formData = new FormData();
-        formData.append('file', selectedDocFile);
-        formData.append('name', newDocTitle.trim());
-        formData.append('category', newDocCategory);
-
-        res = await apiFetch<any>(`/dept-heads/${targetId}/documents`, {
-          method: 'POST',
-          body: formData
-        });
-      } else {
-        res = await apiFetch<any>(`/dept-heads/${targetId}/documents`, {
-          method: 'POST',
-          body: {
-            name: newDocTitle.trim(),
-            category: newDocCategory,
-            file_base64: dataUrl || '',
-            file_type: fileType || 'pdf',
-            file_size: fileSize
-          }
-        });
-      }
+      const formData = new FormData();
+      formData.append('file', selectedDocFile);
+      formData.append('name', newDocTitle.trim());
+      formData.append('category', newDocCategory);
+      const res = await apiFetch<any>(`/dept-heads/${targetId}/documents`, { method: 'POST', body: formData });
 
       const finalDocs = res?.documents || [...(profileData.documents || []), {
-        id: res?.data?.id || 'doc_' + Date.now(),
+        id: res?.data?.id,
         name: newDocTitle.trim(),
         category: newDocCategory,
-        file_url: res?.data?.file_url || dataUrl || '',
-        file_type: fileType || 'pdf',
-        file_size: fileSize,
+        file_url: res?.data?.file_url || '',
+        file_type: res?.data?.file_type || '',
+        file_size: res?.data?.file_size || '',
         created_at: new Date().toISOString().split('T')[0]
       }];
-
-      const activeUserId = String(profileData.user_id || profileData.id || targetId);
-      localStorage.setItem(`dept_head_docs_${activeUserId}`, JSON.stringify(finalDocs));
       setProfileData({ ...profileData, documents: finalDocs });
 
       setIsDocModalOpen(false);
@@ -617,23 +543,6 @@ export function DeptHeadProfilePage() {
       setSelectedDocFile(null);
     } catch (err) {
       console.error('Failed uploading doc:', err);
-      const today = new Date().toISOString().split('T')[0];
-      const newDoc: DocumentItem = {
-        id: 'doc_' + Date.now(),
-        name: newDocTitle.trim(),
-        category: newDocCategory,
-        file_url: dataUrl || '',
-        file_type: fileType || 'pdf',
-        file_size: fileSize,
-        created_at: today
-      };
-      const fallbackDocs = [...(profileData.documents || []), newDoc];
-      const activeUserId = String(profileData.user_id || profileData.id || targetId);
-      localStorage.setItem(`dept_head_docs_${activeUserId}`, JSON.stringify(fallbackDocs));
-      setProfileData({ ...profileData, documents: fallbackDocs });
-      setIsDocModalOpen(false);
-      setNewDocTitle('');
-      setSelectedDocFile(null);
     } finally {
       setIsUploadingDoc(false);
       refreshAllQueries();
@@ -644,8 +553,6 @@ export function DeptHeadProfilePage() {
     if (!profileData) return;
     if (window.confirm(locale === 'ar' ? 'هل أنت متأكد من رغبتك في حذف هذا المستند؟' : 'Are you sure you want to delete this document?')) {
       const updatedDocs = (profileData.documents || []).filter((d, idx) => d.id ? d.id !== docId : idx !== index);
-      const activeUserId = String(profileData.user_id || profileData.id || targetId);
-      localStorage.setItem(`dept_head_docs_${activeUserId}`, JSON.stringify(updatedDocs));
       setProfileData({ ...profileData, documents: updatedDocs });
 
       try {

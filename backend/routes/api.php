@@ -137,6 +137,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::put('profile/me', [UserProfileController::class, 'update']);
         Route::post('profile/me/avatar', [UserProfileController::class, 'uploadAvatar']);
         Route::put('profile/me/password', [UserProfileController::class, 'updatePassword']);
+        Route::put('profile/me/professional', [UserProfileController::class, 'updateProfessional']);
+        Route::post('profile/me/documents', [UserProfileController::class, 'uploadDocument']);
+        Route::get('profile/me/documents/{docId}/download', [UserProfileController::class, 'downloadDocument']);
+        Route::delete('profile/me/documents/{docId}', [UserProfileController::class, 'deleteDocument']);
 
         // Every authenticated user can access only their own local notification inbox.
         Route::get('notifications', [NotificationController::class, 'index']);
