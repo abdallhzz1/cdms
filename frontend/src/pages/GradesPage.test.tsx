@@ -24,12 +24,42 @@ describe('GradesPage official workflow',()=>{
     expect(screen.getByText('18')).toBeVisible();
     const inputs=screen.getAllByRole('spinbutton');
     await userEvent.type(inputs[0],'35'); await userEvent.type(inputs[1],'37');
-    await userEvent.click(screen.getByRole('button',{name:'Save draft'}));
+    await userEvent.click(screen.getByRole('button',{name:'Save new grades'}));
     await waitFor(()=>{
       const call=fetchSpy.mock.calls.find(([input])=>String(input).endsWith('/grade-entries/batch'));
       expect(call).toBeTruthy();
       expect(String(call?.[1]?.body)).toContain('"osce_score":35');
       expect(String(call?.[1]?.body)).not.toContain('clinical_score');
     });
+  });
+
+  it('keeps submitted rows locked while allowing a newly added student to be saved and submitted',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope({id:1,name:'RTA',email:'rta@hebron.edu',roles:['RTA'],assigned_levels:['fourth'],department_ids:[1],permissions:[{code:'grades.view',scope:'global'},{code:'grades.create',scope:'global'}]});
+      if(url.includes('/grade-entries/options'))return envelope({academic_years:[{id:3,code:'2026-2027',is_current:true}],courses:[{id:8,code:'MED401',name_ar:'الجراحة',name_en:'Surgery',academic_level:'fourth',is_active:true}],assigned_levels:['fourth']});
+      if(url.includes('/grade-entries/roster'))return envelope([
+        {student:{id:5,university_number:'22210001',full_name_ar:'طالب سابق',full_name_en:'Submitted Student',academic_level:'fourth'},official_clinical_score:18,grade_entry:{id:11,clinical_score:18,osce_score:35,written_score:37,score:90,status:'submitted'}},
+        {student:{id:6,university_number:'22210002',full_name_ar:'طالب جديد',full_name_en:'New Student',academic_level:'fourth'},official_clinical_score:17,grade_entry:null},
+      ]);
+      if(url.endsWith('/grade-entries/batch'))return envelope([]);
+      if(url.endsWith('/grade-entries/batch-submit'))return envelope(null);
+      throw new Error(`Unmocked request: ${url} ${init?.method}`);
+    });
+    renderWithProviders(<GradesPage/>,{route:'/grades'});
+    expect(await screen.findByText('New Student')).toBeVisible();
+    const inputs=screen.getAllByRole('spinbutton');
+    expect(inputs[0]).toBeDisabled(); expect(inputs[1]).toBeDisabled();
+    expect(inputs[2]).toBeEnabled(); expect(inputs[3]).toBeEnabled();
+    await userEvent.type(inputs[2],'34'); await userEvent.type(inputs[3],'36');
+    await userEvent.click(screen.getByRole('button',{name:'Save new grades'}));
+    await waitFor(()=>{
+      const call=fetchSpy.mock.calls.find(([input])=>String(input).endsWith('/grade-entries/batch'));
+      const body=String(call?.[1]?.body);
+      expect(body).toContain('"student_id":6');
+      expect(body).not.toContain('"student_id":5');
+    });
+    expect(screen.getByRole('button',{name:'Submit new grades'})).toBeVisible();
   });
 });

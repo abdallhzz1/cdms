@@ -20,6 +20,7 @@ use App\Models\RotationBlock;
 use App\Models\StudentClinicalAssignment;
 use App\Models\TrainingSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class GradeAndRtaIntegrationTest extends TestCase
@@ -304,5 +305,93 @@ class GradeAndRtaIntegrationTest extends TestCase
         $this->actingAs($dean)->postJson('/api/v1/grade-entries/batch-approve', $payload)->assertOk();
         $this->assertDatabaseHas('grade_entries', ['student_course_enrollment_id' => $enrollment->id, 'status' => 'approved', 'approved_by_user_id' => $dean->id]);
         $this->assertDatabaseCount('workflow_transition_logs', 2);
+    }
+
+    public function test_new_student_can_be_added_without_reopening_submitted_grade_rows(): void
+    {
+        $year = AcademicYear::factory()->create();
+        $course = Course::factory()->create(['academic_level' => 'fourth']);
+        $oldStudent = Student::factory()->create(['academic_level' => 'fourth', 'registration_status' => 'active']);
+        $newStudent = Student::factory()->create(['academic_level' => 'fourth', 'registration_status' => 'active']);
+        $oldEnrollment = StudentCourseEnrollment::create([
+            'student_id' => $oldStudent->id, 'course_id' => $course->id,
+            'academic_year_id' => $year->id, 'semester' => 'FIRST', 'status' => 'enrolled',
+        ]);
+
+        $role = Role::create(['code' => 'GRADE_SUPPLEMENT_EDITOR', 'name_key' => 'grade.supplement.editor', 'name_ar' => 'معد', 'name_en' => 'Editor']);
+        $role->permissions()->attach(Permission::where('code', 'grades.create')->firstOrFail()->id, ['scope_type' => 'global']);
+        $editor = User::factory()->create();
+        $editor->roles()->attach($role);
+
+        GradeEntry::create([
+            'student_course_enrollment_id' => $oldEnrollment->id, 'clinical_score' => 18,
+            'osce_score' => 35, 'written_score' => 37, 'score' => 90, 'max_score' => 100,
+            'status' => 'submitted', 'prepared_by_user_id' => $editor->id, 'submitted_at' => now(),
+        ]);
+
+        $rotation = Rotation::factory()->create([
+            'course_id' => $course->id, 'academic_year_id' => $year->id, 'academic_level' => 'fourth',
+        ]);
+        $block = RotationBlock::factory()->create(['rotation_id' => $rotation->id]);
+        $session = ClinicalSession::create([
+            'rotation_block_id' => $block->id, 'session_date' => '2026-09-10', 'title' => 'Clinical assessment',
+        ]);
+        ClinicalAssessment::create([
+            'student_id' => $newStudent->id, 'clinical_session_id' => $session->id,
+            'score' => 8.5, 'max_score' => 10, 'status' => 'submitted',
+        ]);
+
+        $savePayload = [
+            'course_code' => $course->code, 'academic_year_id' => $year->id,
+            'grades' => [[
+                'student_id' => $newStudent->id, 'osce_score' => 36,
+                'written_score' => 38, 'max_score' => 100,
+            ]],
+        ];
+        $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch', $savePayload)->assertOk();
+
+        $newEnrollment = StudentCourseEnrollment::where('student_id', $newStudent->id)
+            ->where('course_id', $course->id)->where('academic_year_id', $year->id)->firstOrFail();
+        $this->assertDatabaseHas('grade_entries', [
+            'student_course_enrollment_id' => $oldEnrollment->id, 'status' => 'submitted', 'score' => 90,
+        ]);
+        $this->assertDatabaseHas('grade_entries', [
+            'student_course_enrollment_id' => $newEnrollment->id, 'status' => 'draft',
+            'clinical_score' => 17, 'osce_score' => 36, 'written_score' => 38, 'score' => 91,
+        ]);
+
+        $sheet = ['course_code' => $course->code, 'academic_year_id' => $year->id];
+        $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch-submit', $sheet)->assertOk();
+        $this->assertDatabaseHas('grade_entries', [
+            'student_course_enrollment_id' => $newEnrollment->id, 'status' => 'submitted',
+        ]);
+        $this->assertDatabaseCount('approval_requests', 1);
+
+        $directorRole = Role::where('code', 'CLINICAL_DIRECTOR')->firstOrFail();
+        foreach (Permission::whereIn('code', ['grades.approve', 'approvals.decide'])->get() as $permission) {
+            $directorRole->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
+        }
+        $director = User::factory()->create();
+        $director->roles()->attach($directorRole);
+        $this->actingAs($director)->postJson('/api/v1/grade-entries/batch-approve', $sheet)->assertOk();
+        $firstRequestId = DB::table('approval_requests')->where('status', 'pending')->where('current_step_order', 2)->value('id');
+        $this->assertNotNull($firstRequestId);
+
+        $lateStudent = Student::factory()->create(['academic_level' => 'fourth', 'registration_status' => 'active']);
+        ClinicalAssessment::create([
+            'student_id' => $lateStudent->id, 'clinical_session_id' => $session->id,
+            'score' => 9, 'max_score' => 10, 'status' => 'submitted',
+        ]);
+        $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch', [
+            'course_code' => $course->code, 'academic_year_id' => $year->id,
+            'grades' => [[
+                'student_id' => $lateStudent->id, 'osce_score' => 35,
+                'written_score' => 37, 'max_score' => 100,
+            ]],
+        ])->assertOk();
+        $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch-submit', $sheet)->assertOk();
+
+        $this->assertDatabaseHas('approval_requests', ['id' => $firstRequestId, 'status' => 'cancelled']);
+        $this->assertDatabaseHas('approval_requests', ['status' => 'pending', 'current_step_order' => 1]);
     }
 }

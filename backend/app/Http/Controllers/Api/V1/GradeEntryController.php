@@ -244,9 +244,12 @@ class GradeEntryController extends Controller
                 $existing = GradeEntry::where('student_course_enrollment_id', $enrollment->id)
                     ->lockForUpdate()
                     ->first();
-                if ($existing && in_array($existing->status, ['approved', 'published', 'locked'], true)) {
+                if ($existing && in_array($existing->status, ['submitted', 'approved', 'published', 'locked'], true)) {
                     throw \Illuminate\Validation\ValidationException::withMessages([
-                        'status' => ['The batch contains an approved or locked grade. No grades were changed.'],
+                        'status' => [$this->tr(
+                            'يتضمن الطلب علامة مرسلة أو معتمدة لا يجوز تعديلها. لم يتم تغيير أي علامة.',
+                            'The request contains a submitted or approved grade that cannot be edited. No grades were changed.',
+                        )],
                     ]);
                 }
 
@@ -305,7 +308,7 @@ class GradeEntryController extends Controller
                 )]]);
             }
 
-            // Clinical marks are owned by the approved supervisor assessments.
+            // Clinical marks are owned by submitted supervisor assessments.
             // Refresh them here so a sheet saved before the supervisors finished
             // does not retain stale null values when it is later submitted.
             $officialClinical = $this->clinicalScores($enrollments->pluck('student_id')->all(), $course->id, $academicYearId);
@@ -332,7 +335,19 @@ class GradeEntryController extends Controller
             }
         });
 
-        $approvals->submit('grade_sheet', 'grade_sheet', $course->id.':'.$academicYearId, $request->user(),
+        $approvalSubjectId = $course->id.':'.$academicYearId;
+        $pendingApproval = $approvals->pending('grade_sheet', 'grade_sheet', $approvalSubjectId);
+        if ($pendingApproval && (int) $pendingApproval->current_step_order > 1) {
+            // A student added after the director reviewed the sheet must not
+            // bypass that review. Restart the sheet from its first configured
+            // approval step while preserving all submitted grade rows.
+            $approvals->cancelPending(
+                'grade_sheet', 'grade_sheet', $approvalSubjectId, $request->user(),
+                $this->tr('أعيد فتح مسار الكشف بعد إضافة علامات جديدة.', 'The sheet workflow was restarted after new grades were added.'),
+            );
+        }
+
+        $approvals->submit('grade_sheet', 'grade_sheet', $approvalSubjectId, $request->user(),
             'كشف علامات '.$course->name_ar, 'Grade sheet: '.($course->name_en ?: $course->code), '/grades',
             ['course_id' => $course->id, 'academic_year_id' => $academicYearId]);
         
