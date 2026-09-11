@@ -15,6 +15,7 @@ describe('GradesPage official workflow',()=>{
       const url=String(input);
       if(url.includes('/auth/me'))return envelope({id:1,name:'RTA',email:'rta@hebron.edu',roles:['RTA'],assigned_levels:['fourth'],department_ids:[1],permissions:[{code:'grades.view',scope:'global'},{code:'grades.create',scope:'global'}]});
       if(url.includes('/grade-entries/options'))return envelope({academic_years:[{id:3,code:'2026-2027',is_current:true}],courses:[{id:8,code:'MED401',name_ar:'الجراحة',name_en:'Surgery',academic_level:'fourth',is_active:true}],assigned_levels:['fourth']});
+      if(url.includes('/grade-entries/approval-status'))return envelope(null);
       if(url.includes('/grade-entries/roster'))return envelope([{student:{id:5,university_number:'22210001',full_name_ar:'طالب',full_name_en:'Clinical Student',academic_level:'fourth'},official_clinical_score:18,grade_entry:null}]);
       if(url.endsWith('/grade-entries/batch'))return envelope([]);
       throw new Error(`Unmocked request: ${url} ${init?.method}`);
@@ -39,6 +40,7 @@ describe('GradesPage official workflow',()=>{
       const url=String(input);
       if(url.includes('/auth/me'))return envelope({id:1,name:'RTA',email:'rta@hebron.edu',roles:['RTA'],assigned_levels:['fourth'],department_ids:[1],permissions:[{code:'grades.view',scope:'global'},{code:'grades.create',scope:'global'}]});
       if(url.includes('/grade-entries/options'))return envelope({academic_years:[{id:3,code:'2026-2027',is_current:true}],courses:[{id:8,code:'MED401',name_ar:'الجراحة',name_en:'Surgery',academic_level:'fourth',is_active:true}],assigned_levels:['fourth']});
+      if(url.includes('/grade-entries/approval-status'))return envelope(null);
       if(url.includes('/grade-entries/roster'))return envelope([
         {student:{id:5,university_number:'22210001',full_name_ar:'طالب سابق',full_name_en:'Submitted Student',academic_level:'fourth'},official_clinical_score:18,grade_entry:{id:11,clinical_score:18,osce_score:35,written_score:37,score:90,status:'submitted'}},
         {student:{id:6,university_number:'22210002',full_name_ar:'طالب جديد',full_name_en:'New Student',academic_level:'fourth'},official_clinical_score:17,grade_entry:null},
@@ -61,5 +63,21 @@ describe('GradesPage official workflow',()=>{
       expect(body).not.toContain('"student_id":5');
     });
     expect(screen.getByRole('button',{name:'Submit new grades'})).toBeVisible();
+  });
+
+  it('shows a completed director stage and hides decision controls while awaiting the dean',async()=>{
+    vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope({id:9,name:'Director',email:'director@hebron.edu',roles:['CLINICAL_DIRECTOR'],assigned_levels:null,department_ids:[],permissions:[{code:'grades.view',scope:'global'},{code:'grades.approve',scope:'global'},{code:'approvals.decide',scope:'global'}]});
+      if(url.includes('/grade-entries/options'))return envelope({academic_years:[{id:3,code:'2026-2027',is_current:true}],courses:[{id:8,code:'MED401',name_ar:'الجراحة',name_en:'Surgery',academic_level:'fourth',is_active:true}],assigned_levels:null});
+      if(url.includes('/grade-entries/approval-status'))return envelope({status:'pending',current_step_order:2,current_step_name_ar:'الاعتماد النهائي للعمادة',current_step_name_en:'Dean final approval',current_role_codes:['DEAN','VICE_DEAN'],acted_by_me:true,can_act:false});
+      if(url.includes('/grade-entries/roster'))return envelope([{student:{id:5,university_number:'22210001',full_name_ar:'طالب',full_name_en:'Clinical Student',academic_level:'fourth'},official_clinical_score:18,grade_entry:{id:11,clinical_score:18,osce_score:35,written_score:37,score:90,status:'submitted'}}]);
+      throw new Error(`Unmocked request: ${url} ${init?.method}`);
+    });
+    renderWithProviders(<GradesPage/>,{route:'/grades'});
+    expect(await screen.findByText('You approved your stage of this sheet')).toBeVisible();
+    expect(screen.getByText(/awaiting: Dean final approval/)).toBeVisible();
+    expect(screen.queryByRole('button',{name:'Approve my stage'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Return'})).not.toBeInTheDocument();
   });
 });

@@ -293,13 +293,19 @@ class GradeAndRtaIntegrationTest extends TestCase
         $directorRole = Role::where('code', 'CLINICAL_DIRECTOR')->firstOrFail();
         $deanRole = Role::where('code', 'DEAN')->firstOrFail();
         foreach ([$directorRole, $deanRole] as $role) {
-            foreach (Permission::whereIn('code', ['grades.approve', 'approvals.decide'])->get() as $permission) {
+            foreach (Permission::whereIn('code', ['grades.view', 'grades.approve', 'approvals.decide'])->get() as $permission) {
                 $role->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
             }
         }
         $reviewer = User::factory()->create(); $reviewer->roles()->attach($directorRole);
         $this->actingAs($reviewer)->postJson('/api/v1/grade-entries/batch-approve', $payload)->assertOk();
         $this->assertDatabaseHas('grade_entries', ['student_course_enrollment_id' => $enrollment->id, 'status' => 'submitted']);
+        $this->actingAs($reviewer)->getJson('/api/v1/grade-entries/approval-status?course_id='.$course->id.'&academic_year_id='.$year->id)
+            ->assertOk()
+            ->assertJsonPath('data.current_step_order', 2)
+            ->assertJsonPath('data.acted_by_me', true)
+            ->assertJsonPath('data.can_act', false)
+            ->assertJsonPath('data.current_step_name_en', 'Dean final approval');
 
         $dean = User::factory()->create(); $dean->roles()->attach($deanRole);
         $this->actingAs($dean)->postJson('/api/v1/grade-entries/batch-approve', $payload)->assertOk();

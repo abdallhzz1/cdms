@@ -279,6 +279,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('grade-entries', [GradeEntryController::class, 'index'])->middleware('permission:grades.view');
         Route::get('grade-entries/options', [GradeEntryController::class, 'options'])->middleware('permission:grades.view');
         Route::get('grade-entries/roster', [GradeEntryController::class, 'roster'])->middleware('permission:grades.view');
+        Route::get('grade-entries/approval-status', [GradeEntryController::class, 'approvalStatus'])->middleware('permission:grades.view');
         Route::get('grade-entries/clinical-assessment-summary', [GradeEntryController::class, 'clinicalAssessmentSummary'])->middleware('permission:grades.view');
         Route::post('grade-entries', [GradeEntryController::class, 'store'])->middleware('permission:grades.create');
         Route::post('grade-entries/batch', [GradeEntryController::class, 'batchStore'])->middleware('permission:grades.create');

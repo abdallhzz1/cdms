@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import ExcelJS from 'exceljs';
-import { CheckCircle2, Download, FileCheck2, GraduationCap, RotateCcw, Save, Search, Send } from 'lucide-react';
+import { CheckCircle2, Clock3, Download, FileCheck2, GraduationCap, RotateCcw, Save, Search, Send } from 'lucide-react';
 import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
@@ -20,6 +20,7 @@ type RosterRow = {
   enrollment_id?: number | null; grade_entry?: GradeEntry | null; official_clinical_score?: number | null;
 };
 type Draft = { osce: string; written: string; notes: string };
+type SheetApprovalStatus = { status:string; current_step_order:number; current_step_name_ar?:string|null; current_step_name_en?:string|null; current_role_codes:string[]; acted_by_me:boolean; can_act:boolean };
 
 const levels: { key: Level; ar: string; en: string }[] = [
   { key: 'fourth', ar: 'السنة الرابعة', en: 'Fourth year' },
@@ -59,6 +60,11 @@ export function GradesPage() {
     enabled: Boolean(yearId && courseId),
   });
   const roster = rosterQuery.data ?? [];
+  const approvalStatusQuery = useQuery({
+    queryKey: ['grade-sheet-approval-status', yearId, courseId],
+    queryFn: () => apiFetch<SheetApprovalStatus | null>(`/grade-entries/approval-status?academic_year_id=${yearId}&course_id=${courseId}`),
+    enabled: Boolean(yearId && courseId),
+  });
   useEffect(() => {
     const next: Record<number, Draft> = {};
     roster.forEach(row => { next[row.student.id] = { osce: row.grade_entry?.osce_score == null ? '' : String(row.grade_entry.osce_score), written: row.grade_entry?.written_score == null ? '' : String(row.grade_entry.written_score), notes: row.grade_entry?.notes ?? '' }; });
@@ -83,7 +89,7 @@ export function GradesPage() {
 
   const mutation = useMutation({
     mutationFn: ({ path, body }: { path: string; body: unknown }) => apiFetch(path, { method: 'POST', body }),
-    onSuccess: async () => { setNotice({ ok: true, text: ar ? 'تمت العملية بنجاح.' : 'Operation completed successfully.' }); await queryClient.invalidateQueries({ queryKey: ['grade-roster', yearId, courseId] }); },
+    onSuccess: async () => { setNotice({ ok: true, text: ar ? 'تمت العملية بنجاح.' : 'Operation completed successfully.' }); await Promise.all([queryClient.invalidateQueries({ queryKey: ['grade-roster', yearId, courseId] }), queryClient.invalidateQueries({ queryKey: ['grade-sheet-approval-status', yearId, courseId] })]); },
     onError: error => setNotice({ ok: false, text: errorText(error, ar ? 'تعذر إتمام العملية.' : 'Operation failed.') }),
   });
   const save = () => {
@@ -97,6 +103,9 @@ export function GradesPage() {
     if (row.official_clinical_score == null || !item || item.osce === '' || item.written === '') return '—';
     return (Number(row.official_clinical_score) + Number(item.osce) + Number(item.written)).toFixed(2);
   };
+  const approvalStatus = approvalStatusQuery.data;
+  const currentApprovalStep = ar ? approvalStatus?.current_step_name_ar : approvalStatus?.current_step_name_en || approvalStatus?.current_step_name_ar;
+  const canDecideSheet = can('grades.approve') && hasSubmittedRows && !approvalStatusQuery.isLoading && (approvalStatus === null || approvalStatus?.can_act === true);
 
   const exportExcel = async () => {
     const workbook = new ExcelJS.Workbook(); workbook.creator = 'Hebron University - Clinical Department';
@@ -124,12 +133,15 @@ export function GradesPage() {
       <Selector label={ar?'المساق':'Course'} value={courseId} onChange={setCourseId}><option value="">{ar?'اختر المساق':'Select course'}</option>{courses.map(course=><option key={course.id} value={course.id}>{course.code} — {ar?course.name_ar:course.name_en||course.name_ar}</option>)}</Selector>
     </div></section>
     {notice && <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${notice.ok?'border-teal-200 bg-teal-50 text-teal-800':'border-red-200 bg-red-50 text-red-700'}`}>{notice.text}</div>}
+    {approvalStatus?.status==='pending'&&approvalStatus.acted_by_me&&<div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0"/><div><p className="text-sm font-black">{ar?'تم اعتماد مرحلة الكشف من قبلك':'You approved your stage of this sheet'}</p><p className="mt-1 text-xs font-bold">{ar?`لا يوجد إجراء مطلوب منك الآن. الكشف بانتظار: ${currentApprovalStep||'المرحلة التالية'}.`:`No further action is required from you. The sheet is awaiting: ${currentApprovalStep||'the next stage'}.`}</p></div></div>}
+    {approvalStatus?.status==='pending'&&!approvalStatus.acted_by_me&&!approvalStatus.can_act&&<div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800"><Clock3 className="mt-0.5 h-5 w-5 shrink-0"/><div><p className="text-sm font-black">{ar?'الكشف قيد الاعتماد':'Sheet approval is in progress'}</p><p className="mt-1 text-xs font-bold">{ar?`المرحلة الحالية: ${currentApprovalStep||'المرحلة التالية'}.`:`Current stage: ${currentApprovalStep||'next stage'}.`}</p></div></div>}
+    {approvalStatus?.status==='approved'&&<div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0"/><div><p className="text-sm font-black">{ar?'اكتمل اعتماد كشف العلامات':'Grade sheet approval completed'}</p><p className="mt-1 text-xs font-bold">{ar?'تم اعتماد جميع المراحل المطلوبة، بما فيها الاعتماد النهائي للعمادة.':'All required stages, including the dean’s final approval, are complete.'}</p></div></div>}
     <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><div className="rounded-2xl bg-teal-50 p-2.5 text-teal-700"><GraduationCap className="h-5 w-5" /></div><div><p className="font-black text-slate-900">{selectedCourse ? `${selectedCourse.code} — ${ar?selectedCourse.name_ar:selectedCourse.name_en||selectedCourse.name_ar}` : (ar?'اختر المساق':'Select a course')}</p><p className="text-xs text-slate-500">{roster.length} {ar?'طالبًا':'students'} · {statusLabel(sheetStatus, ar)}</p></div></div><div className="relative sm:w-72"><Search className="absolute start-3 top-2.5 h-4 w-4 text-slate-400"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder={ar?'بحث بالاسم أو الرقم...':'Search name or ID...'} className="w-full rounded-2xl border border-slate-200 py-2 ps-9 pe-3 text-sm"/></div></div>
       <GradeTable ar={ar} rows={filtered} drafts={drafts} setDrafts={setDrafts} totalFor={totalFor} rowEditable={rowEditable} loading={rosterQuery.isLoading} error={rosterQuery.error}/>
       <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/60 p-4 lg:flex-row lg:items-center lg:justify-between"><p className="text-xs text-slate-500">{ar?'العلامة السريرية تُحتسب تلقائيًا من تقييمات المشرفين المرسلة ولا يمكن تعديلها هنا. يمكن إضافة طالب جديد دون فتح علامات الطلبة المرسلة سابقًا.':'Clinical marks are calculated automatically from submitted supervisor assessments and cannot be edited here. Newly added students can be completed without reopening earlier rows.'}</p><div className="flex flex-wrap gap-2">
         {hasEditableRows&&<><Action onClick={save} disabled={mutation.isPending} icon={<Save className="h-4 w-4"/>}>{ar?'حفظ العلامات الجديدة':'Save new grades'}</Action><Action primary onClick={()=>mutation.mutate({path:'/grade-entries/batch-submit',body:sheetKey})} disabled={mutation.isPending} icon={<Send className="h-4 w-4"/>}>{ar?'إرسال العلامات الجديدة للاعتماد':'Submit new grades'}</Action></>}
-        {can('grades.approve')&&hasSubmittedRows&&<><Action primary onClick={()=>mutation.mutate({path:'/grade-entries/batch-approve',body:sheetKey})} disabled={mutation.isPending} icon={<FileCheck2 className="h-4 w-4"/>}>{ar?'اعتماد الكشف':'Approve sheet'}</Action><input value={returnReason} onChange={e=>setReturnReason(e.target.value)} placeholder={ar?'سبب الإعادة...':'Return reason...'} className="rounded-2xl border border-slate-200 px-3 py-2 text-xs"/><Action onClick={()=>returnReason.trim().length<3?setNotice({ok:false,text:ar?'اكتب سبب الإعادة بوضوح.':'Enter a clear return reason.'}):mutation.mutate({path:'/grade-entries/batch-return',body:{...sheetKey,reason:returnReason.trim()}})} icon={<RotateCcw className="h-4 w-4"/>}>{ar?'إعادة للتعديل':'Return'}</Action></>}
+        {canDecideSheet&&<><Action primary onClick={()=>mutation.mutate({path:'/grade-entries/batch-approve',body:sheetKey})} disabled={mutation.isPending} icon={<FileCheck2 className="h-4 w-4"/>}>{ar?'اعتماد مرحلتي':'Approve my stage'}</Action><input value={returnReason} onChange={e=>setReturnReason(e.target.value)} placeholder={ar?'سبب الإعادة...':'Return reason...'} className="rounded-2xl border border-slate-200 px-3 py-2 text-xs"/><Action onClick={()=>returnReason.trim().length<3?setNotice({ok:false,text:ar?'اكتب سبب الإعادة بوضوح.':'Enter a clear return reason.'}):mutation.mutate({path:'/grade-entries/batch-return',body:{...sheetKey,reason:returnReason.trim()}})} icon={<RotateCcw className="h-4 w-4"/>}>{ar?'إعادة للتعديل':'Return'}</Action></>}
       </div></div>
     </section>
   </div>;

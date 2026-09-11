@@ -11,6 +11,8 @@ use App\Models\Course;
 use App\Models\Student;
 use App\Models\AcademicYear;
 use App\Models\ClinicalAssessment;
+use App\Models\ApprovalRequest;
+use App\Models\ApprovalWorkflow;
 use App\Services\WorkflowTransitionService;
 use App\Services\Approvals\ApprovalWorkflowService;
 use App\Traits\ScopesByDepartmentAndLevel;
@@ -88,6 +90,44 @@ class GradeEntryController extends Controller
                 'official_clinical_score' => $clinical->get($student->id),
             ];
         })->values());
+    }
+
+    public function approvalStatus(Request $request, ApprovalWorkflowService $approvals): JsonResponse
+    {
+        $data = $request->validate([
+            'course_id' => ['required', 'integer', 'exists:courses,id'],
+            'academic_year_id' => ['required', 'integer', 'exists:academic_years,id'],
+        ]);
+        $course = Course::findOrFail($data['course_id']);
+        $this->authorizeCourseDepartmentAccess($course);
+
+        $workflow = ApprovalWorkflow::where('code', 'grade_sheet')->first();
+        $approval = $workflow ? ApprovalRequest::query()
+            ->where('approval_workflow_id', $workflow->id)
+            ->where('subject_type', 'grade_sheet')
+            ->where('subject_id', $course->id.':'.(int) $data['academic_year_id'])
+            ->with(['workflow.steps', 'actions'])
+            ->latest('id')->first() : null;
+
+        if (! $approval) {
+            return ApiResponse::success(null);
+        }
+
+        $currentStep = $approval->workflow->steps->firstWhere('step_order', (int) $approval->current_step_order);
+        $actedByMe = $approval->actions->contains(fn ($action) => $action->action === 'approved'
+            && (int) $action->actor_user_id === (int) $request->user()->id);
+
+        return ApiResponse::success([
+            'public_id' => $approval->public_id,
+            'status' => $approval->status,
+            'current_step_order' => (int) $approval->current_step_order,
+            'current_step_name_ar' => $currentStep?->name_ar,
+            'current_step_name_en' => $currentStep?->name_en,
+            'current_role_codes' => $currentStep?->role_codes ?? [],
+            'acted_by_me' => $actedByMe,
+            'can_act' => $approval->status === 'pending'
+                && $approvals->canApproveCurrentStep($approval, $request->user()),
+        ]);
     }
 
     public function index(Request $request): JsonResponse
