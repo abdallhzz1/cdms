@@ -106,6 +106,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   'rotations.update': 'تعديل إعدادات جدول المساق',
   'rotations.delete': 'حذف دورة سريرية',
   'attendance.view': 'عرض سجل الحضور والغياب',
+  'attendance.review': 'مراجعة سجل الحضور الشامل',
   'attendance.record': 'تسجيل حضور الطلبة',
   'attendance.excuse': 'توثيق أعذار الغياب',
   'attendance.notify': 'إرسال إنذارات الغياب',

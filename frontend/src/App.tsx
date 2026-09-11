@@ -185,7 +185,7 @@ export function App() {
                 <Route path="/departments/:id/roster" element={<Navigate to="/clinical/schedule" replace />} />
                 <Route path="/training-sites/:id/roster" element={<Navigate to="/clinical/schedule" replace />} />
                 <Route path="/clinical/dashboard" element={<ClinicalDashboard />} />
-                <Route path="/attendance" element={<AttendanceMasterPage />} />
+                <Route path="/attendance" element={<ProtectedRoute requiredPermission="attendance.review"><AttendanceMasterPage /></ProtectedRoute>} />
                 <Route path="/assessments" element={<ProtectedRoute requiredPermission="assessment.review"><AssessmentsMasterPage /></ProtectedRoute>} />
                 
                 {/* Correspondence & Tasks */}

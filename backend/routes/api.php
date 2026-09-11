@@ -287,12 +287,14 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('grade-entries/batch-approve', [GradeEntryController::class, 'batchApprove'])->middleware('permission.any:grades.approve,approvals.decide');
         Route::post('grade-entries/batch-return', [GradeEntryController::class, 'batchReturn'])->middleware('permission.any:grades.approve,approvals.decide');
         Route::post('grade-entries/batch-withdraw-approval', [GradeEntryController::class, 'withdrawBatchApproval'])->middleware('permission.any:grades.approve,approvals.decide');
-        Route::get('clinical-sessions', [ClinicalSessionController::class, 'index'])->middleware('permission:attendance.view');
+        Route::get('clinical-sessions', [ClinicalSessionController::class, 'index'])->middleware('permission:attendance.review');
+        Route::get('attendance-records/options', [AttendanceRecordController::class, 'options'])->middleware('permission:attendance.review');
+        Route::get('attendance-records/gaps', [AttendanceRecordController::class, 'gaps'])->middleware('permission:attendance.review');
         Route::post('clinical-sessions', [ClinicalSessionController::class, 'store'])->middleware('permission:attendance.record');
-        Route::get('attendance-records', [AttendanceRecordController::class, 'index'])->middleware('permission:attendance.view');
+        Route::get('attendance-records', [AttendanceRecordController::class, 'index'])->middleware('permission:attendance.review');
         Route::post('attendance-records', [AttendanceRecordController::class, 'store'])->middleware('permission:attendance.record');
-        Route::get('attendance-warnings', [AttendanceWarningController::class, 'index'])->middleware('permission:attendance.view');
-        Route::post('attendance-warnings/send', [AttendanceWarningController::class, 'send'])->middleware(['permission:attendance.view', 'permission:attendance.notify', 'throttle:attendance-notification']);
+        Route::get('attendance-warnings', [AttendanceWarningController::class, 'index'])->middleware('permission:attendance.review');
+        Route::post('attendance-warnings/send', [AttendanceWarningController::class, 'send'])->middleware(['permission:attendance.review', 'permission:attendance.notify', 'throttle:attendance-notification']);
         Route::get('dashboard/overview', [DashboardOverviewController::class, 'show'])->middleware('throttle:operational-read');
         Route::get('clinical-assessments', [ClinicalAssessmentController::class, 'index'])->middleware('permission:assessment.review');
         Route::get('clinical-assessments-summary', [ClinicalAssessmentController::class, 'summary'])->middleware('permission:assessment.review');

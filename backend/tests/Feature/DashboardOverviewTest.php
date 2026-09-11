@@ -29,7 +29,7 @@ class DashboardOverviewTest extends TestCase
     public function test_rta_dashboard_is_limited_to_the_assigned_cohort(): void
     {
         $role = Role::where('code', 'RTA')->firstOrFail();
-        foreach (Permission::whereIn('code', ['students.view', 'attendance.view'])->get() as $permission) {
+        foreach (Permission::whereIn('code', ['students.view', 'attendance.view', 'attendance.review'])->get() as $permission) {
             $role->permissions()->syncWithoutDetaching([
                 $permission->id => ['scope_type' => 'global'],
             ]);

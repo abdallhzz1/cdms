@@ -65,11 +65,11 @@ class AttendanceWarningController extends Controller
                 && (int) $item['rotation_id'] === (int) $data['rotation_id']);
 
         if (! $summary) {
-            return ApiResponse::error('لم يتم العثور على سجل حضور متاح ضمن نطاق صلاحياتك.', [], [], 404);
+            return ApiResponse::error($this->tr('لم يتم العثور على سجل حضور متاح ضمن نطاق صلاحياتك.', 'No attendance record was found within your access scope.'), [], [], 404);
         }
 
         if ((float) $summary['absence_percentage'] <= (int) $data['threshold_percent']) {
-            return ApiResponse::error('لا يمكن إرسال الإنذار لأن نسبة الغياب لم تتجاوز الحد المحدد.', [], [
+            return ApiResponse::error($this->tr('لا يمكن إرسال الإنذار لأن نسبة الغياب لم تتجاوز الحد المحدد.', 'The warning cannot be sent because the absence rate has not exceeded the selected threshold.'), [], [
                 'absence_percentage' => $summary['absence_percentage'],
                 'threshold_percent' => (int) $data['threshold_percent'],
             ], 422);
@@ -83,7 +83,7 @@ class AttendanceWarningController extends Controller
             ->exists();
 
         if ($alreadySent && ! ($data['resend'] ?? false)) {
-            return ApiResponse::error('سبق إرسال هذا الإنذار. اختر إعادة الإرسال فقط عند الحاجة.', [], [], 409);
+            return ApiResponse::error($this->tr('سبق إرسال هذا الإنذار. اختر إعادة الإرسال فقط عند الحاجة.', 'This warning was already sent. Use resend only when needed.'), [], [], 409);
         }
 
         $recipient = $summary['student']['email'];
@@ -124,7 +124,7 @@ class AttendanceWarningController extends Controller
                 'recipient_email' => $recipient,
                 'threshold_percent' => (int) $data['threshold_percent'],
                 'sent_at' => $notification->fresh()->sent_at?->toIso8601String(),
-            ], 'تم إرسال إنذار الغياب إلى البريد الجامعي للطالب.');
+            ], $this->tr('تم إرسال إنذار الغياب إلى البريد الجامعي للطالب.', 'The attendance warning was sent to the student university email.'));
         } catch (Throwable $exception) {
             report($exception);
             $notification->update([
@@ -134,7 +134,7 @@ class AttendanceWarningController extends Controller
             $this->audit($request, $notification, 'attendance_warning.failed');
 
             return ApiResponse::error(
-                'تعذر إرسال الإنذار عبر البريد الجامعي. لم يتم اعتبار الإنذار مرسلاً؛ تحقق من إعدادات البريد أو حاول لاحقاً.',
+                $this->tr('تعذر إرسال الإنذار عبر البريد الجامعي. لم يتم اعتبار الإنذار مرسلاً؛ تحقق من إعدادات البريد أو حاول لاحقاً.', 'The warning could not be delivered by email and was not marked as sent. Check the mail configuration or try again later.'),
                 [],
                 [],
                 502,
@@ -362,5 +362,10 @@ TEXT;
     {
         return $roles->contains('CLINICAL_SUPERVISOR')
             && ! $roles->intersect(['SYS_ADMIN', 'CLINICAL_DIRECTOR', 'DEPARTMENT_HEAD', 'DEAN', 'VICE_DEAN'])->count();
+    }
+
+    private function tr(string $arabic, string $english): string
+    {
+        return app()->getLocale() === 'ar' ? $arabic : $english;
     }
 }

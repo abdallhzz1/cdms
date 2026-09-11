@@ -104,7 +104,7 @@ export function StudentProfilePage() {
   const { data: attendanceRecords = [] } = useQuery({
     queryKey: ['student-attendance-records', studentId],
     queryFn: () => apiFetch<any[]>(`/attendance-records?student_id=${studentId}`),
-    enabled: Boolean(studentId) && can('attendance.view')
+    enabled: Boolean(studentId) && can('attendance.review')
   });
 
   // Upload Photo Mutation
@@ -265,7 +265,7 @@ export function StudentProfilePage() {
     { key: 'overview', label: locale === 'ar' ? 'البيانات الشخصية والإرشاد' : 'Overview & Info', icon: User },
     { key: 'academic', label: locale === 'ar' ? 'المساقات والعلامات' : 'Courses & Grades', icon: GraduationCap, count: enrollments.length },
     ...(can('distribution.view') ? [{ key: 'clinical', label: locale === 'ar' ? 'التدريب والمستشفيات' : 'Clinical Training', icon: Building2, count: clinicalItems.length }] : []),
-    ...(can('attendance.view') ? [{ key: 'attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance', icon: Clock, count: attendanceItems.length }] : []),
+    ...(can('attendance.review') ? [{ key: 'attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance', icon: Clock, count: attendanceItems.length }] : []),
     { key: 'documents', label: locale === 'ar' ? 'وثائق وملفات الطالب' : 'Documents', icon: FolderOpen, count: documents.length },
   ];
 

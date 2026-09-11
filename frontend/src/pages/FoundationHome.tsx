@@ -346,7 +346,7 @@ export function FoundationHome() {
   const quickActions = [
     can('students.view') && { route: '/directory', labelAr: 'دليل الطلبة', labelEn: 'Student directory', icon: Users },
     can('clinical_schedule.view') && { route: '/clinical/schedule', labelAr: 'الجدول السريري', labelEn: 'Clinical schedule', icon: CalendarDays },
-    can('attendance.view') && { route: '/attendance', labelAr: 'الحضور والغياب', labelEn: 'Attendance', icon: CheckCircle2 },
+    (can('attendance.review') || (hasRole('CLINICAL_SUPERVISOR') && can('attendance.record'))) && { route: can('attendance.review') ? '/attendance' : '/supervisor/attendance', labelAr: 'الحضور والغياب', labelEn: 'Attendance', icon: CheckCircle2 },
     can('grades.view') && { route: '/grades', labelAr: 'العلامات', labelEn: 'Grades', icon: BookOpen },
     (hasRole('CLINICAL_SUPERVISOR') ? can('assessment.view') : can('assessment.review')) && { route: hasRole('CLINICAL_SUPERVISOR') ? '/supervisor/portal' : '/assessments', labelAr: 'التقييمات', labelEn: 'Assessments', icon: ClipboardCheck },
     can('tasks.view') && { route: '/tasks', labelAr: 'المهام', labelEn: 'Tasks', icon: ListChecks },

@@ -38,7 +38,7 @@ class AttendanceWarningWorkflowTest extends TestCase
         $this->seed([PermissionSeeder::class, RoleSeeder::class]);
 
         $role = Role::where('code', 'RTA')->firstOrFail();
-        foreach (Permission::whereIn('code', ['attendance.view', 'attendance.notify'])->get() as $permission) {
+        foreach (Permission::whereIn('code', ['attendance.review', 'attendance.notify'])->get() as $permission) {
             $role->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
         }
 
@@ -221,7 +221,7 @@ class AttendanceWarningWorkflowTest extends TestCase
             'name_en' => 'Attendance viewer',
         ]);
         $viewerRole->permissions()->attach(
-            Permission::where('code', 'attendance.view')->firstOrFail()->id,
+            Permission::where('code', 'attendance.review')->firstOrFail()->id,
             ['scope_type' => 'global'],
         );
         $viewer = User::factory()->create();

@@ -46,6 +46,7 @@ class PermissionSeeder extends Seeder
             ['code' => 'distribution.delete', 'module' => 'Distribution', 'action' => 'DELETE', 'description_key' => 'permissions.distribution_delete.description'],
             ['code' => 'distribution.override', 'module' => 'Distribution', 'action' => 'OVERRIDE', 'description_key' => 'permissions.distribution_override.description'],
             ['code' => 'attendance.view', 'module' => 'Attendance', 'action' => 'VIEW', 'description_key' => 'permissions.attendance_view.description'],
+            ['code' => 'attendance.review', 'module' => 'Attendance', 'action' => 'REVIEW', 'description_key' => 'permissions.attendance_review.description'],
             ['code' => 'attendance.record', 'module' => 'Attendance', 'action' => 'RECORD', 'description_key' => 'permissions.attendance_record.description'],
             ['code' => 'attendance.excuse', 'module' => 'Attendance', 'action' => 'EXCUSE', 'description_key' => 'permissions.attendance_excuse.description'],
             ['code' => 'attendance.notify', 'module' => 'Attendance', 'action' => 'NOTIFY', 'description_key' => 'permissions.attendance_notify.description'],

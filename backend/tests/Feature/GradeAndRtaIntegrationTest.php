@@ -100,7 +100,7 @@ class GradeAndRtaIntegrationTest extends TestCase
         $department = Department::factory()->create();
         $site = TrainingSite::factory()->create();
         $rtaRole = Role::where('code', 'RTA')->firstOrFail();
-        foreach (Permission::whereIn('code', ['clinical_schedule.view', 'attendance.view'])->get() as $permission) {
+        foreach (Permission::whereIn('code', ['clinical_schedule.view', 'attendance.view', 'attendance.review'])->get() as $permission) {
             $rtaRole->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
         }
         $rta = User::factory()->create(['assigned_levels' => ['fourth']]);
@@ -183,6 +183,17 @@ class GradeAndRtaIntegrationTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $records['fourth']->id);
+
+        $this->actingAs($rta)->getJson('/api/v1/attendance-records?page_payload=1&per_page=10')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.items')
+            ->assertJsonPath('data.pagination.total', 1)
+            ->assertJsonPath('data.summary.present', 1);
+
+        $this->actingAs($rta)->getJson('/api/v1/attendance-records/options')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.academic_years')
+            ->assertJsonCount(1, 'data.sessions');
 
         $this->actingAs($rta)->getJson('/api/v1/clinical-sessions?per_page=100')
             ->assertOk()

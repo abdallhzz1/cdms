@@ -7,12 +7,15 @@ import {
   BookOpen,
   Building2,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle,
   ClipboardList,
   Clock,
   Filter,
   Mail,
   RotateCcw,
+  Search,
   Send,
   UserRound,
   X,
@@ -78,15 +81,41 @@ type AttendanceRecord = {
   recorder?: { name?: string } | null;
 };
 
+type AttendancePayload = {
+  items: AttendanceRecord[];
+  pagination: { current_page: number; last_page: number; per_page: number; total: number };
+  summary: Record<string, number>;
+};
+
+type AttendanceOptions = {
+  academic_years: Array<{ id: number; code: string; is_current?: boolean }>;
+  courses: Array<{ id: number; code: string; name_ar: string; name_en?: string | null }>;
+  clinical_periods: Array<{ id: number; code: string; name_ar: string; name_en?: string | null; sequence: number }>;
+  training_sites: Array<{ id: number; name_ar: string; name_en?: string | null }>;
+  sessions: Array<{ id: number; session_date: string; title: string; clinical_period_id?: number | null }>;
+};
+
+type AttendanceGap = {
+  date: string;
+  expected_students: number;
+  recorded_students: number;
+  missing_students: number;
+  group_name?: string | null;
+  course?: { code: string; name_ar: string; name_en?: string | null } | null;
+  training_site?: { name_ar: string; name_en?: string | null } | null;
+  supervisor?: { full_name_ar: string; full_name_en?: string | null } | null;
+};
+
 const STATUS_CONFIG: Record<string, {
   icon: LucideIcon;
   label_ar: string;
   label_en: string;
+  className: string;
 }> = {
-  present: { icon: CheckCircle, label_ar: 'حاضر', label_en: 'Present' },
-  absent: { icon: XCircle, label_ar: 'غائب', label_en: 'Absent' },
-  late: { icon: Clock, label_ar: 'متأخر', label_en: 'Late' },
-  excused: { icon: AlertCircle, label_ar: 'بعذر', label_en: 'Excused' },
+  present: { icon: CheckCircle, label_ar: 'حاضر', label_en: 'Present', className: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+  absent: { icon: XCircle, label_ar: 'غائب', label_en: 'Absent', className: 'border-rose-100 bg-rose-50 text-rose-700' },
+  late: { icon: Clock, label_ar: 'متأخر', label_en: 'Late', className: 'border-amber-100 bg-amber-50 text-amber-700' },
+  excused: { icon: AlertCircle, label_ar: 'بعذر', label_en: 'Excused', className: 'border-sky-100 bg-sky-50 text-sky-700' },
 };
 
 const inputClass =
@@ -100,10 +129,16 @@ function readableDate(value: string | null | undefined, locale: string, withTime
 
   return new Intl.DateTimeFormat(locale === 'ar' ? 'ar-PS' : 'en-GB', {
     year: 'numeric',
-    month: 'short',
+    month: '2-digit',
     day: 'numeric',
     ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}),
   }).format(parsed);
+}
+
+function weekday(value: string | null | undefined, locale: string): string {
+  if (!value) return '—';
+  const parsed = new Date(`${value.slice(0, 10)}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? '—' : new Intl.DateTimeFormat(locale === 'ar' ? 'ar-PS' : 'en-GB', { weekday: 'long' }).format(parsed);
 }
 
 function StatusBadge({ status, locale }: { status: string; locale: string }) {
@@ -111,7 +146,7 @@ function StatusBadge({ status, locale }: { status: string; locale: string }) {
   const Icon = config.icon;
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-100 bg-teal-50 px-2.5 py-1 text-[11px] font-black text-teal-700">
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-black ${config.className}`}>
       <Icon className="h-3.5 w-3.5" />
       {locale === 'ar' ? config.label_ar : config.label_en}
     </span>
@@ -127,33 +162,49 @@ export function AttendanceMasterPage() {
 
   const [sessionFilter, setSessionFilter] = useState('');
   const [periodFilter, setPeriodFilter] = useState('');
+  const [yearFilter, setYearFilter] = useState('');
+  const [courseFilter, setCourseFilter] = useState('');
+  const [siteFilter, setSiteFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
+  const [searchFilter, setSearchFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [activeTab, setActiveTab] = useState<'records' | 'alerts' | 'gaps'>('records');
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const recordQuery = useQuery({
-    queryKey: ['attendance-records', periodFilter, sessionFilter, statusFilter, dateFilter],
+    queryKey: ['attendance-records', periodFilter, yearFilter, courseFilter, siteFilter, sessionFilter, statusFilter, dateFilter, searchFilter, page],
     queryFn: () => {
-      const params = new URLSearchParams({ per_page: '100' });
+      const params = new URLSearchParams({ per_page: '25', page_payload: '1', page: String(page) });
       if (sessionFilter) params.set('clinical_session_id', sessionFilter);
       if (periodFilter) params.set('clinical_period_id', periodFilter);
+      if (yearFilter) params.set('academic_year_id', yearFilter);
+      if (courseFilter) params.set('course_id', courseFilter);
+      if (siteFilter) params.set('training_site_id', siteFilter);
       if (statusFilter) params.set('status', statusFilter);
       if (dateFilter) params.set('date', dateFilter);
-      return apiFetch<AttendanceRecord[]>(`/attendance-records?${params.toString()}`);
+      if (searchFilter.trim()) params.set('search', searchFilter.trim());
+      return apiFetch<AttendancePayload>(`/attendance-records?${params.toString()}`);
     },
-    enabled: can('attendance.view'),
+    enabled: can('attendance.review') && activeTab === 'records',
   });
 
-  const sessionQuery = useQuery({
-    queryKey: ['clinical-sessions-filter'],
-    queryFn: () => apiFetch<any[]>('/clinical-sessions?per_page=100'),
-    enabled: can('attendance.view'),
+  const optionsQuery = useQuery({
+    queryKey: ['attendance-record-options'],
+    queryFn: () => apiFetch<AttendanceOptions>('/attendance-records/options'),
+    enabled: can('attendance.review'),
   });
 
   const warningQuery = useQuery({
-    queryKey: ['attendance-warnings',periodFilter],
-    queryFn: () => apiFetch<AttendanceWarning[]>(`/attendance-warnings${periodFilter?`?clinical_period_id=${periodFilter}`:''}`),
-    enabled: can('attendance.view'),
+    queryKey: ['attendance-warnings',periodFilter,yearFilter,courseFilter],
+    queryFn: () => { const params=new URLSearchParams(); if(periodFilter)params.set('clinical_period_id',periodFilter);if(yearFilter)params.set('academic_year_id',yearFilter);if(courseFilter)params.set('course_id',courseFilter);return apiFetch<AttendanceWarning[]>(`/attendance-warnings${params.size?`?${params}`:''}`); },
+    enabled: can('attendance.review') && activeTab === 'alerts',
+  });
+
+  const gapQuery = useQuery({
+    queryKey: ['attendance-record-gaps', periodFilter, yearFilter, courseFilter],
+    queryFn: () => { const params=new URLSearchParams();if(periodFilter)params.set('clinical_period_id',periodFilter);if(yearFilter)params.set('academic_year_id',yearFilter);if(courseFilter)params.set('course_id',courseFilter);return apiFetch<AttendanceGap[]>(`/attendance-records/gaps${params.size?`?${params}`:''}`); },
+    enabled: can('attendance.review') && activeTab === 'gaps',
   });
 
   const sendWarning = useMutation({
@@ -176,29 +227,33 @@ export function AttendanceMasterPage() {
     },
   });
 
-  const records = Array.isArray(recordQuery.data) ? recordQuery.data : [];
-  const sessions = Array.isArray(sessionQuery.data) ? sessionQuery.data : [];
+  const records = recordQuery.data?.items ?? [];
+  const pagination = recordQuery.data?.pagination ?? { current_page: 1, last_page: 1, per_page: 25, total: 0 };
+  const options = optionsQuery.data ?? { academic_years: [], courses: [], clinical_periods: [], training_sites: [], sessions: [] };
+  const sessions = options.sessions;
   const warnings = Array.isArray(warningQuery.data) ? warningQuery.data : [];
-  const periods = useMemo(()=>Array.from(new Map(sessions.map((session:any)=>session.rotation_block?.rotation?.clinical_period).filter(Boolean).map((period:any)=>[period.id,period])).values()).sort((a:any,b:any)=>a.sequence-b.sequence),[sessions]);
-  const visibleSessions = useMemo(()=>sessions.filter((session:any)=>!periodFilter||String(session.rotation_block?.rotation?.clinical_period?.id)===periodFilter),[sessions,periodFilter]);
+  const periods = options.clinical_periods;
+  const visibleSessions = useMemo(()=>sessions.filter(session=>!periodFilter||String(session.clinical_period_id)===periodFilter),[sessions,periodFilter]);
 
   const stats = useMemo(
-    () => Object.keys(STATUS_CONFIG).reduce<Record<string, number>>((result, status) => {
-      result[status] = records.filter((record) => record.status === status).length;
-      return result;
-    }, {}),
-    [records],
+    () => recordQuery.data?.summary ?? {},
+    [recordQuery.data?.summary],
   );
 
-  const hasFilters = Boolean(periodFilter || sessionFilter || statusFilter || dateFilter);
+  const hasFilters = Boolean(periodFilter || yearFilter || courseFilter || siteFilter || sessionFilter || statusFilter || dateFilter || searchFilter);
   const initialWarnings = warnings.filter((warning) => warning.current_threshold === 10).length;
   const urgentWarnings = warnings.filter((warning) => warning.current_threshold === 20).length;
 
   const clearFilters = () => {
     setSessionFilter('');
     setPeriodFilter('');
+    setYearFilter('');
+    setCourseFilter('');
+    setSiteFilter('');
     setStatusFilter('');
     setDateFilter('');
+    setSearchFilter('');
+    setPage(1);
   };
 
   const handleSend = (warning: AttendanceWarning) => {
@@ -221,11 +276,11 @@ export function AttendanceMasterPage() {
     });
   };
 
-  if (!can('attendance.view')) {
+  if (!can('attendance.review')) {
     return <ErrorState title={tr('لا تملك صلاحية عرض سجل الحضور', 'Access denied')} />;
   }
-  if (recordQuery.isLoading) return <LoadingState />;
-  if (recordQuery.isError) return <ErrorState onRetry={() => recordQuery.refetch()} />;
+  if (activeTab === 'records' && recordQuery.isLoading) return <LoadingState />;
+  if (activeTab === 'records' && recordQuery.isError) return <ErrorState onRetry={() => recordQuery.refetch()} />;
 
   const statCards: Array<{ status: string; value: number }> = [
     { status: 'present', value: stats.present ?? 0 },
@@ -244,7 +299,25 @@ export function AttendanceMasterPage() {
         )}
       />
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <div className="grid grid-cols-3 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+        <button type="button" onClick={() => setActiveTab('records')} className={`rounded-xl px-4 py-2.5 text-xs font-black transition ${activeTab === 'records' ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+          {tr('سجل الحضور', 'Attendance records')}
+        </button>
+        <button type="button" onClick={() => setActiveTab('alerts')} className={`rounded-xl px-4 py-2.5 text-xs font-black transition ${activeTab === 'alerts' ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+          {tr('تنبيهات الغياب', 'Absence alerts')}
+        </button>
+        <button type="button" onClick={() => setActiveTab('gaps')} className={`rounded-xl px-4 py-2.5 text-xs font-black transition ${activeTab === 'gaps' ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+          {tr('نواقص الرصد', 'Recording gaps')}
+        </button>
+      </div>
+
+      {(activeTab === 'alerts' || activeTab === 'gaps') && <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-3">
+        <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('العام الأكاديمي','Academic year')}</span><select value={yearFilter} onChange={event=>setYearFilter(event.target.value)} className={inputClass}><option value="">{tr('جميع الأعوام','All years')}</option>{options.academic_years.map(year=><option key={year.id} value={year.id}>{year.code}</option>)}</select></label>
+        <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('المساق','Course')}</span><select value={courseFilter} onChange={event=>setCourseFilter(event.target.value)} className={inputClass}><option value="">{tr('جميع المساقات','All courses')}</option>{options.courses.map(course=><option key={course.id} value={course.id}>{course.code} — {ar?course.name_ar:course.name_en||course.name_ar}</option>)}</select></label>
+        <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('الفترة السريرية','Clinical period')}</span><select value={periodFilter} onChange={event=>setPeriodFilter(event.target.value)} className={inputClass}><option value="">{tr('جميع الفترات','All periods')}</option>{periods.map(period=><option key={period.id} value={period.id}>{period.code} — {ar?period.name_ar:period.name_en||period.name_ar}</option>)}</select></label>
+      </section>}
+
+      {activeTab === 'records' && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
@@ -258,7 +331,7 @@ export function AttendanceMasterPage() {
             </div>
           </div>
           <span className="w-fit rounded-full bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-500">
-            {tr(`${records.length} سجل معروض`, `${records.length} records shown`)}
+            {tr(`${pagination.total} سجل مطابق`, `${pagination.total} matching records`)}
           </span>
         </div>
 
@@ -279,9 +352,9 @@ export function AttendanceMasterPage() {
             );
           })}
         </div>
-      </section>
+      </section>}
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      {activeTab === 'alerts' && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <header className="flex flex-col gap-4 border-b border-slate-100 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
@@ -458,9 +531,27 @@ export function AttendanceMasterPage() {
             })}
           </div>
         )}
-      </section>
+      </section>}
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      {activeTab === 'gaps' && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <header className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-black text-slate-900">{tr('أيام التدريب التي لم يكتمل رصدها','Training days with incomplete recording')}</h2><p className="mt-1 text-[11px] text-slate-500">{tr('يعتمد الكشف على الجدول المنشور وأيام دوام المشرف حتى تاريخ اليوم.','Based on the published schedule and supervisor working days up to today.')}</p></header>
+        {gapQuery.isLoading ? <div className="p-8 text-center text-xs font-bold text-slate-500">{tr('جاري فحص اكتمال الرصد...','Checking recording completeness...')}</div>
+          : gapQuery.isError ? <div className="p-8 text-center text-xs font-bold text-rose-600">{tr('تعذر فحص نواقص الرصد.','Could not check recording gaps.')}</div>
+          : !(gapQuery.data?.length) ? <div className="p-6"><EmptyState message={tr('لا توجد أيام تدريب ناقصة ضمن الاختيار الحالي.','No incomplete training days match the current selection.')}/></div>
+          : <div className="divide-y divide-slate-100">{gapQuery.data.map((gap,index)=>{
+            const courseName=ar?gap.course?.name_ar:gap.course?.name_en||gap.course?.name_ar;
+            const siteName=ar?gap.training_site?.name_ar:gap.training_site?.name_en||gap.training_site?.name_ar;
+            const supervisorName=ar?gap.supervisor?.full_name_ar:gap.supervisor?.full_name_en||gap.supervisor?.full_name_ar;
+            return <article key={`${gap.date}-${gap.course?.code}-${gap.group_name}-${index}`} className="grid gap-3 px-5 py-4 md:grid-cols-[9rem_1fr_1fr_10rem] md:items-center">
+              <div><p className="text-xs font-black text-slate-800">{weekday(gap.date,locale)}</p><p dir="ltr" className="mt-1 text-start text-[11px] text-slate-500">{readableDate(gap.date,locale)}</p></div>
+              <div><p className="text-xs font-black text-slate-800">{courseName||'—'} {gap.course?.code?`· ${gap.course.code}`:''}</p><p className="mt-1 text-[11px] text-slate-500">{tr('المجموعة','Group')}: {gap.group_name||'—'} · {siteName||'—'}</p></div>
+              <p className="text-[11px] font-bold text-slate-600">{supervisorName||tr('مشرف غير محدد','Unassigned supervisor')}</p>
+              <div className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-center"><p className="text-sm font-black text-rose-700">{gap.missing_students}</p><p className="text-[10px] font-bold text-rose-600">{tr(`غير مرصود من ${gap.expected_students}`,`missing of ${gap.expected_students}`)}</p></div>
+            </article>;
+          })}</div>}
+      </section>}
+
+      {activeTab === 'records' && <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-teal-700" />
@@ -478,10 +569,13 @@ export function AttendanceMasterPage() {
         </div>
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('الفترة السريرية','Clinical period')}</span><select value={periodFilter} onChange={event=>{setPeriodFilter(event.target.value);setSessionFilter('')}} className={inputClass}><option value="">{tr('جميع الفترات','All periods')}</option>{periods.map((period:any)=><option key={period.id} value={period.id}>{period.code} — {ar?period.name_ar:period.name_en||period.name_ar}</option>)}</select></label>
+          <label className="relative xl:col-span-2"><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('البحث عن طالب','Search for a student')}</span><Search className="absolute bottom-3 start-3 h-4 w-4 text-slate-400"/><input value={searchFilter} onChange={event=>{setSearchFilter(event.target.value);setPage(1)}} placeholder={tr('الاسم أو الرقم الجامعي...','Name or university number...')} className={`${inputClass} ps-9`}/></label>
+          <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('العام الأكاديمي','Academic year')}</span><select value={yearFilter} onChange={event=>{setYearFilter(event.target.value);setPage(1)}} className={inputClass}><option value="">{tr('جميع الأعوام','All years')}</option>{options.academic_years.map(year=><option key={year.id} value={year.id}>{year.code}</option>)}</select></label>
+          <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('المساق','Course')}</span><select value={courseFilter} onChange={event=>{setCourseFilter(event.target.value);setPage(1)}} className={inputClass}><option value="">{tr('جميع المساقات','All courses')}</option>{options.courses.map(course=><option key={course.id} value={course.id}>{course.code} — {ar?course.name_ar:course.name_en||course.name_ar}</option>)}</select></label>
+          <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('الفترة السريرية','Clinical period')}</span><select value={periodFilter} onChange={event=>{setPeriodFilter(event.target.value);setSessionFilter('');setPage(1)}} className={inputClass}><option value="">{tr('جميع الفترات','All periods')}</option>{periods.map(period=><option key={period.id} value={period.id}>{period.code} — {ar?period.name_ar:period.name_en||period.name_ar}</option>)}</select></label>
           <label>
             <span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('الجلسة السريرية', 'Clinical session')}</span>
-            <select value={sessionFilter} onChange={(event) => setSessionFilter(event.target.value)} className={inputClass}>
+            <select value={sessionFilter} onChange={(event) => {setSessionFilter(event.target.value);setPage(1)}} className={inputClass}>
               <option value="">{tr('جميع الجلسات', 'All sessions')}</option>
               {visibleSessions.map((session: any) => (
                 <option key={session.id} value={session.id}>
@@ -490,9 +584,10 @@ export function AttendanceMasterPage() {
               ))}
             </select>
           </label>
+          <label><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('الموقع التدريبي','Training site')}</span><select value={siteFilter} onChange={event=>{setSiteFilter(event.target.value);setPage(1)}} className={inputClass}><option value="">{tr('جميع المواقع','All sites')}</option>{options.training_sites.map(site=><option key={site.id} value={site.id}>{ar?site.name_ar:site.name_en||site.name_ar}</option>)}</select></label>
           <label>
             <span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('حالة الحضور', 'Attendance status')}</span>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className={inputClass}>
+            <select value={statusFilter} onChange={(event) => {setStatusFilter(event.target.value);setPage(1)}} className={inputClass}>
               <option value="">{tr('جميع الحالات', 'All statuses')}</option>
               {Object.entries(STATUS_CONFIG).map(([value, config]) => (
                 <option key={value} value={value}>{ar ? config.label_ar : config.label_en}</option>
@@ -501,12 +596,12 @@ export function AttendanceMasterPage() {
           </label>
           <label>
             <span className="mb-1.5 block text-[11px] font-bold text-slate-600">{tr('تاريخ الجلسة', 'Session date')}</span>
-            <input dir="ltr" type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} className={inputClass} />
+            <input dir="ltr" type="date" value={dateFilter} onChange={(event) => {setDateFilter(event.target.value);setPage(1)}} className={inputClass} />
           </label>
         </div>
-      </section>
+      </section>}
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      {activeTab === 'records' && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
@@ -514,7 +609,7 @@ export function AttendanceMasterPage() {
             </span>
             <div>
               <h2 className="text-sm font-black text-slate-900">{tr('سجلات الطلبة', 'Student records')}</h2>
-              <p className="mt-0.5 text-[10px] text-slate-500">{tr(`${records.length} نتيجة ضمن الاختيار الحالي`, `${records.length} results in the current view`)}</p>
+              <p className="mt-0.5 text-[10px] text-slate-500">{tr(`${pagination.total} نتيجة ضمن الاختيار الحالي`, `${pagination.total} results in the current view`)}</p>
             </div>
           </div>
         </header>
@@ -528,7 +623,9 @@ export function AttendanceMasterPage() {
                 <thead>
                   <tr className="bg-slate-50/70 text-[11px] font-bold text-slate-500">
                     <th className="px-5 py-3.5 text-start">{tr('الطالب', 'Student')}</th>
-                    <th className="px-5 py-3.5 text-start">{tr('الجلسة والتاريخ', 'Session and date')}</th>
+                    <th className="px-5 py-3.5 text-start">{tr('الجلسة', 'Session')}</th>
+                    <th className="px-5 py-3.5 text-start">{tr('اليوم', 'Day')}</th>
+                    <th className="px-5 py-3.5 text-start">{tr('التاريخ', 'Date')}</th>
                     <th className="px-5 py-3.5 text-start">{tr('المساق والموقع', 'Course and site')}</th>
                     <th className="px-5 py-3.5 text-start">{tr('الحالة', 'Status')}</th>
                     <th className="px-5 py-3.5 text-start">{tr('التوثيق', 'Recorded by')}</th>
@@ -559,11 +656,9 @@ export function AttendanceMasterPage() {
                         </td>
                         <td className="px-5 py-4">
                           <p className="max-w-[18rem] truncate text-xs font-bold text-slate-700">{record.session?.title || '—'}</p>
-                          <p className="mt-1 inline-flex items-center gap-1 text-[10px] text-slate-500">
-                            <CalendarDays className="h-3 w-3 text-teal-600" />
-                            {readableDate(record.session?.session_date, locale)}
-                          </p>
                         </td>
+                        <td className="px-5 py-4 text-xs font-bold text-slate-600">{weekday(record.session?.session_date, locale)}</td>
+                        <td dir="ltr" className="px-5 py-4 text-start text-xs font-bold text-slate-600">{readableDate(record.session?.session_date, locale)}</td>
                         <td className="px-5 py-4">
                           <p className="text-xs font-bold text-slate-700">{courseName || '—'}{course?.code ? ` · ${course.code}` : ''}</p>
                           <p className="mt-1 inline-flex items-center gap-1 text-[10px] text-slate-500">
@@ -608,7 +703,7 @@ export function AttendanceMasterPage() {
                       <StatusBadge status={record.status} locale={locale} />
                     </div>
                     <div className="mt-3 space-y-2 rounded-2xl bg-slate-50 p-3 text-[11px] text-slate-600">
-                      <p className="flex items-start gap-2"><CalendarDays className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" /><span><b>{record.session?.title || '—'}</b><br />{readableDate(record.session?.session_date, locale)}</span></p>
+                      <p className="flex items-start gap-2"><CalendarDays className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" /><span><b>{record.session?.title || '—'}</b><br />{weekday(record.session?.session_date, locale)} · <span dir="ltr">{readableDate(record.session?.session_date, locale)}</span></span></p>
                       <p className="flex items-start gap-2"><BookOpen className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" /><span>{courseName || '—'}{course?.code ? ` · ${course.code}` : ''}</span></p>
                       <p className="flex items-start gap-2"><Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" /><span>{siteName || tr('الموقع غير محدد', 'Site not specified')}</span></p>
                     </div>
@@ -622,9 +717,16 @@ export function AttendanceMasterPage() {
                 );
               })}
             </div>
+            {pagination.last_page > 1 && <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-4 py-3">
+              <p className="text-[11px] font-bold text-slate-500">{tr(`صفحة ${pagination.current_page} من ${pagination.last_page}`, `Page ${pagination.current_page} of ${pagination.last_page}`)}</p>
+              <div className="flex gap-2">
+                <button type="button" disabled={pagination.current_page <= 1 || recordQuery.isFetching} onClick={() => setPage(current => Math.max(1, current - 1))} className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700 disabled:opacity-40"><ChevronRight className="h-3.5 w-3.5"/>{tr('السابق','Previous')}</button>
+                <button type="button" disabled={pagination.current_page >= pagination.last_page || recordQuery.isFetching} onClick={() => setPage(current => Math.min(pagination.last_page, current + 1))} className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700 disabled:opacity-40">{tr('التالي','Next')}<ChevronLeft className="h-3.5 w-3.5"/></button>
+              </div>
+            </div>}
           </>
         )}
-      </section>
+      </section>}
     </div>
   );
 }
