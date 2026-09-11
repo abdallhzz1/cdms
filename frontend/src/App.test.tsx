@@ -16,6 +16,16 @@ const AUTHENTICATED_USER = {
   meta: {},
 };
 const DASHBOARD = { profile: { name: 'Test Director', focus: 'clinical_leadership', roles: ['CLINICAL_DIRECTOR'], assigned_levels: [], scope_student_count: 0 }, metrics: [], charts: [], attention: [], activity: [], generated_at: '2026-09-11T10:00:00+03:00' };
+const SUPERVISOR_USER = {
+  success: true,
+  data: { id: 2, name: 'Test Supervisor', email: 'supervisor@cdms.local', roles: ['CLINICAL_SUPERVISOR'], permissions: [{ code: 'supervisor.workspace.view', scope: 'global' }] },
+  message: null,
+  meta: {},
+};
+const SUPERVISOR_WORKSPACE = {
+  supervisor: { person_id: 2, user_id: 2, full_name_ar: 'د. مشرف تجريبي', full_name_en: 'Dr Test Supervisor' },
+  assignments: [], attendance_records: [], assessments: [], student_notes: [], assessment_templates: [], schedule_configured: true,
+};
 
 function mockFetchByUrl(routes: Record<string, () => Response>) {
   vi.stubGlobal(
@@ -59,6 +69,19 @@ describe('App', () => {
       expect(screen.getByRole('heading', { name: /Welcome,/i })).toBeInTheDocument();
     });
 
+  });
+
+  it('redirects a supervisor-only account from the root route to the supervisor portal', async () => {
+    mockFetchByUrl({
+      '/auth/me': () => jsonResponse(SUPERVISOR_USER),
+      '/operational/my-supervisor-workspace': () => jsonResponse({ success: true, data: SUPERVISOR_WORKSPACE, message: null, meta: {} }),
+      '/health': () => jsonResponse(HEALTH_OK),
+    });
+
+    renderWithProviders(<App />, { route: '/' });
+
+    expect(await screen.findByRole('heading', { name: /Welcome Doctor, Dr Test Supervisor/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /My clinical schedule/i })).toBeInTheDocument();
   });
 
   it('renders the not-found page for an unknown route when authenticated', async () => {

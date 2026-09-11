@@ -4,6 +4,7 @@ import { FoundationHome } from '@/pages/FoundationHome';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFound } from '@/pages/NotFound';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
+import { useAuth } from '@/auth/AuthContext';
 
 import { ClinicalDashboard } from '@/pages/ClinicalDashboard';
 import { ReportsDashboard } from '@/pages/ReportsDashboard';
@@ -72,6 +73,16 @@ import { PublicStudentRegistrationPage } from '@/pages/PublicStudentRegistration
 import { PublicQualitySurveyPage } from '@/pages/public/PublicQualitySurveyPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
 
+function DefaultAuthenticatedHome() {
+  const { user } = useAuth();
+  const roles = user?.roles ?? [];
+  const isSupervisorOnly = roles.length === 1 && roles.includes('CLINICAL_SUPERVISOR');
+
+  return isSupervisorOnly
+    ? <Navigate to="/supervisor/portal" replace />
+    : <FoundationHome />;
+}
+
 export function App() {
   return (
     <Routes>
@@ -89,7 +100,7 @@ export function App() {
           <ProtectedRoute>
             <MainLayout>
               <Routes>
-                <Route path="/" element={<FoundationHome />} />
+                <Route path="/" element={<DefaultAuthenticatedHome />} />
                 
                 {/* Academic Affairs & Plans */}
                 <Route path="/courses" element={<CoursesPage />} />
