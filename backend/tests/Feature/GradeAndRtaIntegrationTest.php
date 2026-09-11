@@ -12,6 +12,7 @@ use App\Models\GradeEntry;
 use App\Models\StudentCourseEnrollment;
 use App\Models\AttendanceRecord;
 use App\Models\ClinicalSession;
+use App\Models\ClinicalAssessment;
 use App\Models\Department;
 use App\Models\DistributionVersion;
 use App\Models\Rotation;
@@ -207,6 +208,53 @@ class GradeAndRtaIntegrationTest extends TestCase
         ]);
     }
 
+    public function test_grade_submission_explains_missing_supervisor_scores_in_request_language_and_refreshes_them(): void
+    {
+        $year = AcademicYear::factory()->create();
+        $course = Course::factory()->create(['academic_level' => 'fourth']);
+        $student = Student::factory()->create(['academic_level' => 'fourth', 'registration_status' => 'active']);
+        $enrollment = StudentCourseEnrollment::create([
+            'student_id' => $student->id, 'course_id' => $course->id,
+            'academic_year_id' => $year->id, 'semester' => 'FIRST', 'status' => 'enrolled',
+        ]);
+        $role = Role::create(['code' => 'GRADE_SUBMISSION_EDITOR', 'name_key' => 'grade.submission.editor', 'name_ar' => 'راصد', 'name_en' => 'Editor']);
+        $role->permissions()->attach(Permission::where('code', 'grades.create')->firstOrFail()->id, ['scope_type' => 'global']);
+        $editor = User::factory()->create();
+        $editor->roles()->attach($role);
+        GradeEntry::create([
+            'student_course_enrollment_id' => $enrollment->id, 'clinical_score' => null,
+            'osce_score' => 35, 'written_score' => 35, 'score' => null, 'max_score' => 100,
+            'status' => 'draft', 'prepared_by_user_id' => $editor->id,
+        ]);
+        $payload = ['course_code' => $course->code, 'academic_year_id' => $year->id];
+
+        $this->actingAs($editor)->withHeader('Accept-Language', 'ar')
+            ->postJson('/api/v1/grade-entries/batch-submit', $payload)
+            ->assertUnprocessable()->assertJsonPath('errors.grades.0', fn ($message) => str_contains($message, 'التقييم السريري'));
+        $this->actingAs($editor)->withHeader('Accept-Language', 'en')
+            ->postJson('/api/v1/grade-entries/batch-submit', $payload)
+            ->assertUnprocessable()->assertJsonPath('errors.grades.0', fn ($message) => str_contains($message, 'clinical assessment'));
+
+        $rotation = Rotation::factory()->create([
+            'course_id' => $course->id, 'academic_year_id' => $year->id, 'academic_level' => 'fourth',
+        ]);
+        $block = RotationBlock::factory()->create(['rotation_id' => $rotation->id]);
+        $session = ClinicalSession::create([
+            'rotation_block_id' => $block->id, 'session_date' => '2026-09-10', 'title' => 'Clinical assessment',
+        ]);
+        ClinicalAssessment::create([
+            'student_id' => $student->id, 'clinical_session_id' => $session->id,
+            'score' => 9, 'max_score' => 10, 'status' => 'approved',
+        ]);
+
+        $this->actingAs($editor)->withHeader('Accept-Language', 'ar')
+            ->postJson('/api/v1/grade-entries/batch-submit', $payload)->assertOk();
+        $this->assertDatabaseHas('grade_entries', [
+            'student_course_enrollment_id' => $enrollment->id,
+            'clinical_score' => 18, 'score' => 88, 'status' => 'submitted',
+        ]);
+    }
+
     public function test_complete_grade_sheet_requires_separate_preparer_and_approver(): void
     {
         $year = AcademicYear::factory()->create();
@@ -225,6 +273,17 @@ class GradeAndRtaIntegrationTest extends TestCase
             'student_course_enrollment_id' => $enrollment->id, 'clinical_score' => 18,
             'osce_score' => 35, 'written_score' => 37, 'score' => 90, 'max_score' => 100,
             'status' => 'draft', 'prepared_by_user_id' => $editor->id,
+        ]);
+        $rotation = Rotation::factory()->create([
+            'course_id' => $course->id, 'academic_year_id' => $year->id, 'academic_level' => 'fourth',
+        ]);
+        $block = RotationBlock::factory()->create(['rotation_id' => $rotation->id]);
+        $session = ClinicalSession::create([
+            'rotation_block_id' => $block->id, 'session_date' => '2026-09-10', 'title' => 'Clinical assessment',
+        ]);
+        ClinicalAssessment::create([
+            'student_id' => $student->id, 'clinical_session_id' => $session->id,
+            'score' => 9, 'max_score' => 10, 'status' => 'approved',
         ]);
         $payload = ['course_code' => $course->code, 'academic_year_id' => $year->id];
         $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch-submit', $payload)->assertOk();

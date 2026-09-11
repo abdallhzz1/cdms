@@ -293,15 +293,38 @@ class GradeEntryController extends Controller
         DB::transaction(function () use ($course, $academicYearId, $workflow) {
             $enrollments = StudentCourseEnrollment::where('course_id', $course->id)
                 ->where('academic_year_id', $academicYearId)
-                ->pluck('id');
+                ->get(['id', 'student_id'])
+                ->keyBy('id');
 
-            $grades = GradeEntry::whereIn('student_course_enrollment_id', $enrollments)
+            $grades = GradeEntry::whereIn('student_course_enrollment_id', $enrollments->keys())
                 ->whereIn('status', ['draft', 'returned'])->lockForUpdate()->get();
             if ($grades->isEmpty()) {
-                throw \Illuminate\Validation\ValidationException::withMessages(['grades' => ['There are no editable grades to submit.']]);
+                throw \Illuminate\Validation\ValidationException::withMessages(['grades' => [$this->tr(
+                    'لا توجد علامات محفوظة قابلة للإرسال ضمن هذا الكشف.',
+                    'There are no saved editable grades to submit in this sheet.',
+                )]]);
             }
-            if ($grades->contains(fn (GradeEntry $grade) => $grade->clinical_score === null || $grade->osce_score === null || $grade->written_score === null || $grade->score === null)) {
-                throw \Illuminate\Validation\ValidationException::withMessages(['grades' => ['Complete the clinical, OSCE, and written components for every student before submission.']]);
+
+            // Clinical marks are owned by the approved supervisor assessments.
+            // Refresh them here so a sheet saved before the supervisors finished
+            // does not retain stale null values when it is later submitted.
+            $officialClinical = $this->clinicalScores($enrollments->pluck('student_id')->all(), $course->id, $academicYearId);
+            foreach ($grades as $grade) {
+                $studentId = $enrollments->get($grade->student_course_enrollment_id)?->student_id;
+                $clinicalScore = $studentId ? $officialClinical->get($studentId) : null;
+                $grade->forceFill([
+                    'clinical_score' => $clinicalScore,
+                    'score' => $this->totalScore($clinicalScore, $grade->osce_score, $grade->written_score),
+                ])->save();
+            }
+
+            $missingClinical = $grades->whereNull('clinical_score')->count();
+            $missingOsce = $grades->whereNull('osce_score')->count();
+            $missingWritten = $grades->whereNull('written_score')->count();
+            if ($missingClinical || $missingOsce || $missingWritten) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['grades' => [
+                    $this->incompleteGradeSheetMessage($missingClinical, $missingOsce, $missingWritten),
+                ]]);
             }
             foreach ($grades as $grade) {
                 $workflow->transition($grade, 'submitted');
@@ -419,8 +442,22 @@ class GradeEntryController extends Controller
     public function submit(GradeEntry $gradeEntry, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
     {
         $this->authorizeGradeEntryAccess($gradeEntry);
+        $gradeEntry->loadMissing('enrollment.course');
+        $enrollment = $gradeEntry->enrollment;
+        $officialClinical = $this->clinicalScores([$enrollment->student_id], $enrollment->course_id, $enrollment->academic_year_id)
+            ->get($enrollment->student_id);
+        $gradeEntry->forceFill([
+            'clinical_score' => $officialClinical,
+            'score' => $this->totalScore($officialClinical, $gradeEntry->osce_score, $gradeEntry->written_score),
+        ])->save();
         if ($gradeEntry->clinical_score === null || $gradeEntry->osce_score === null || $gradeEntry->written_score === null || $gradeEntry->score === null) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['grade' => ['Complete every grade component before submission.']]);
+            throw \Illuminate\Validation\ValidationException::withMessages(['grade' => [
+                $this->incompleteGradeSheetMessage(
+                    $gradeEntry->clinical_score === null ? 1 : 0,
+                    $gradeEntry->osce_score === null ? 1 : 0,
+                    $gradeEntry->written_score === null ? 1 : 0,
+                ),
+            ]]);
         }
         $workflow->transition($gradeEntry, 'submitted');
         $gradeEntry->newQuery()->whereKey($gradeEntry->id)->update(['submitted_at' => now(), 'return_reason' => null]);
@@ -515,5 +552,30 @@ class GradeEntryController extends Controller
             return null;
         }
         return round((float) $clinical + (float) $osce + (float) $written, 2);
+    }
+
+    private function incompleteGradeSheetMessage(int $clinical, int $osce, int $written): string
+    {
+        $parts = [];
+        if ($clinical > 0) {
+            $parts[] = $this->tr(
+                "التقييم السريري غير مكتمل أو غير معتمد لـ {$clinical} طالب؛ يجب أن يستكمل المشرفون السريريون تقييماتهم وتعتمد أولاً",
+                "the clinical assessment is missing or not approved for {$clinical} student(s); supervisors must complete their assessments and have them approved first",
+            );
+        }
+        if ($osce > 0) {
+            $parts[] = $this->tr("علامة OSCE ناقصة لـ {$osce} طالب", "the OSCE score is missing for {$osce} student(s)");
+        }
+        if ($written > 0) {
+            $parts[] = $this->tr("علامة الامتحان النظري ناقصة لـ {$written} طالب", "the written score is missing for {$written} student(s)");
+        }
+
+        $separator = app()->getLocale() === 'ar' ? '؛ ' : '; ';
+        return $this->tr('لا يمكن إرسال كشف العلامات: ', 'The grade sheet cannot be submitted: ').implode($separator, $parts).'.';
+    }
+
+    private function tr(string $ar, string $en): string
+    {
+        return app()->getLocale() === 'ar' ? $ar : $en;
     }
 }
