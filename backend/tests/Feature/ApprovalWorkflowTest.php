@@ -53,10 +53,10 @@ class ApprovalWorkflowTest extends TestCase
     {
         $director = $this->userWithRoleAndPermissions('CLINICAL_DIRECTOR', ['approvals.decide']);
         $service = app(ApprovalWorkflowService::class);
-        $service->submit('clinical_assessment', 'clinical_assessment', 55, $director, 'تقييم', 'Assessment');
+        $service->submit('meeting_minutes', 'meeting_minutes', 55, $director, 'محضر', 'Minutes');
 
         $this->expectException(ValidationException::class);
-        $service->approve('clinical_assessment', 'clinical_assessment', 55, $director);
+        $service->approve('meeting_minutes', 'meeting_minutes', 55, $director);
     }
 
     public function test_admin_can_change_stages_and_approval_inbox_is_role_scoped(): void
@@ -66,8 +66,8 @@ class ApprovalWorkflowTest extends TestCase
         $dean = $this->userWithRoleAndPermissions('DEAN', ['approvals.view', 'approvals.decide']);
         $requester = User::factory()->create();
 
-        $workflow = ApprovalWorkflow::where('code', 'clinical_assessment')->firstOrFail();
-        $this->actingAs($admin)->putJson('/api/v1/approval-workflows/clinical_assessment', [
+        $workflow = ApprovalWorkflow::where('code', 'meeting_minutes')->firstOrFail();
+        $this->actingAs($admin)->putJson('/api/v1/approval-workflows/meeting_minutes', [
             'is_active' => true, 'prevent_requester_approval' => true, 'require_distinct_approvers' => false,
             'steps' => [['name_ar' => 'اعتماد العمادة', 'name_en' => 'Dean approval', 'role_codes' => ['DEAN']]],
         ])->assertOk()->assertJsonPath('data.steps.0.role_codes.0', 'DEAN');
@@ -78,7 +78,7 @@ class ApprovalWorkflowTest extends TestCase
             'entity_id' => $workflow->id,
         ]);
 
-        app(ApprovalWorkflowService::class)->submit('clinical_assessment', 'clinical_assessment', 77, $requester, 'تقييم طالب', 'Student assessment', '/assessments');
+        app(ApprovalWorkflowService::class)->submit('meeting_minutes', 'meeting_minutes', 77, $requester, 'محضر اجتماع', 'Meeting minutes', '/meetings');
         $this->actingAs($director)->getJson('/api/v1/approvals')->assertOk()->assertJsonCount(0, 'data');
         $this->actingAs($dean)->getJson('/api/v1/approvals')->assertOk()->assertJsonCount(1, 'data');
         $this->assertSame(['DEAN'], $workflow->fresh('steps')->steps->first()->role_codes);
@@ -91,16 +91,16 @@ class ApprovalWorkflowTest extends TestCase
         $requester = User::factory()->create();
         $service = app(ApprovalWorkflowService::class);
 
-        $first = $service->submit('clinical_assessment', 'clinical_assessment', 91, $requester, 'تقييم', 'Assessment');
-        $this->actingAs($admin)->putJson('/api/v1/approval-workflows/clinical_assessment', [
+        $first = $service->submit('meeting_minutes', 'meeting_minutes', 91, $requester, 'محضر', 'Minutes');
+        $this->actingAs($admin)->putJson('/api/v1/approval-workflows/meeting_minutes', [
             'is_active' => true, 'prevent_requester_approval' => true, 'require_distinct_approvers' => false,
             'steps' => [['name_ar' => 'اعتماد الدائرة', 'name_en' => 'Department approval', 'role_codes' => ['CLINICAL_DIRECTOR']]],
         ])->assertUnprocessable()->assertJsonValidationErrors('workflow');
 
-        $service->returnForRevision('clinical_assessment', 'clinical_assessment', 91, $director, 'استكمال البيانات');
+        $service->returnForRevision('meeting_minutes', 'meeting_minutes', 91, $director, 'استكمال البيانات');
         $this->assertSame('returned', $first->fresh()->status);
 
-        $second = $service->submit('clinical_assessment', 'clinical_assessment', 91, $requester, 'تقييم', 'Assessment');
+        $second = $service->submit('meeting_minutes', 'meeting_minutes', 91, $requester, 'محضر', 'Minutes');
         $this->assertNotSame($first->id, $second->id);
         $this->assertSame('pending', $second->status);
     }

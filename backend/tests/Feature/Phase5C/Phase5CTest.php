@@ -435,7 +435,7 @@ class Phase5CTest extends TestCase
         $this->supervisor1->update(['user_id' => $this->admin->id]);
         $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
         $supervisorRole->permissions()->syncWithoutDetaching(
-            Permission::whereIn('code', ['attendance.record', 'assessment.create', 'assessment.approve', 'grades.view'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+            Permission::whereIn('code', ['attendance.record', 'assessment.create', 'grades.view'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
         );
         $this->admin->roles()->attach($supervisorRole);
         $template = ClinicalAssessmentTemplate::where('is_active', true)->firstOrFail();
@@ -483,46 +483,9 @@ class Phase5CTest extends TestCase
 
         $assessmentId = \App\Models\ClinicalAssessment::where('student_id', $this->student1->id)->value('id');
         $this->actingAs($this->admin)
-            ->postJson("/api/v1/clinical-assessments/{$assessmentId}/approve")
-            ->assertForbidden();
-
-        $reviewerRole = Role::where('code', 'CLINICAL_DIRECTOR')->firstOrFail();
-        $reviewerRole->permissions()->syncWithoutDetaching(
-            Permission::whereIn('code', ['assessment.view', 'assessment.approve', 'grades.view'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
-        );
-        $reviewer = User::factory()->create();
-        $reviewer->roles()->attach($reviewerRole);
-
-        $this->actingAs($reviewer)
-            ->postJson("/api/v1/clinical-assessments/{$assessmentId}/return", ['reason' => 'Please document the clinical findings.'])
-            ->assertOk()
-            ->assertJsonPath('data.status', 'returned');
-
-        $this->actingAs($this->admin)
-            ->getJson(route('api.v1.operational.my-supervisor-workspace'))
-            ->assertOk()
-            ->assertJsonPath('data.assessments.0.status', 'returned')
-            ->assertJsonPath('data.assessments.0.return_reason', 'Please document the clinical findings.');
-
-        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
-            'assessment_id' => $assessmentId,
-            'assignment_id' => $this->assignment1->id,
-            'student_id' => $this->student1->id,
-            'evaluation_week' => 1,
-            'template_id' => $template->id,
-            'score' => 9.5,
-            'notes' => 'Clinical findings documented.',
-        ])->assertOk()->assertJsonPath('data.status', 'submitted');
-
-        $this->actingAs($reviewer)
-            ->postJson("/api/v1/clinical-assessments/{$assessmentId}/approve")
-            ->assertOk()
-            ->assertJsonPath('data.status', 'approved');
-
-        $this->actingAs($reviewer)
             ->getJson('/api/v1/grade-entries/clinical-assessment-summary?course_id='.$this->course->id.'&academic_year_id='.$this->rotation->academic_year_id)
             ->assertOk()
-            ->assertJsonPath("data.{$this->student1->id}.clinical_score", 19);
+            ->assertJsonPath("data.{$this->student1->id}.clinical_score", 18.5);
 
         $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
             'assessment_id' => $assessmentId,
@@ -589,13 +552,13 @@ class Phase5CTest extends TestCase
         $this->assertDatabaseCount('attendance_records', 0);
     }
 
-    public function test_supervisor_can_submit_and_reviewer_can_approve_a_complete_group_batch(): void
+    public function test_supervisor_batch_is_immediately_available_without_separate_approval(): void
     {
         $this->supervisor1->update(['user_id' => $this->admin->id]);
         $this->assignment2->update(['supervisor_id' => $this->supervisor1->id]);
         $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
         $supervisorRole->permissions()->syncWithoutDetaching(
-            Permission::whereIn('code', ['assessment.create'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+            Permission::whereIn('code', ['assessment.create', 'grades.view'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
         );
         $this->admin->roles()->attach($supervisorRole);
         $template = ClinicalAssessmentTemplate::where('is_active', true)->firstOrFail();
@@ -621,15 +584,12 @@ class Phase5CTest extends TestCase
         $this->assertDatabaseCount('clinical_assessments', 2);
         $this->assertSame(2, \App\Models\ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->where('status', 'submitted')->count());
 
-        $reviewerRole = Role::where('code', 'CLINICAL_DIRECTOR')->firstOrFail();
-        $reviewerRole->permissions()->syncWithoutDetaching(
-            Permission::whereIn('code', ['assessment.approve', 'approvals.decide'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
-        );
-        $reviewer = User::factory()->create();
-        $reviewer->roles()->attach($reviewerRole);
-        $this->actingAs($reviewer)->postJson("/api/v1/clinical-assessment-batches/{$batchUuid}/approve")
-            ->assertOk()->assertJsonPath('data.count', 2);
-        $this->assertSame(2, \App\Models\ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->where('status', 'approved')->count());
+        $this->assertDatabaseCount('approval_requests', 0);
+        $this->actingAs($this->admin)
+            ->getJson('/api/v1/grade-entries/clinical-assessment-summary?course_id='.$this->course->id.'&academic_year_id='.$this->rotation->academic_year_id)
+            ->assertOk()
+            ->assertJsonPath("data.{$this->student1->id}.clinical_score", 17)
+            ->assertJsonPath("data.{$this->student2->id}.clinical_score", 18);
 
         $newStudent = Student::factory()->create([
             'academic_year_id' => $this->rotation->academic_year_id,
@@ -659,7 +619,7 @@ class Phase5CTest extends TestCase
             'status' => 'submitted',
             'score' => 8,
         ]);
-        $this->assertSame(2, \App\Models\ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->where('status', 'approved')->count());
+        $this->assertSame(2, \App\Models\ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->where('status', 'submitted')->count());
     }
 
     // =========================================================================

@@ -537,7 +537,10 @@ class GradeEntryController extends Controller
     private function clinicalScores(array $studentIds, ?int $courseId = null, ?int $academicYearId = null, bool $withMetadata = false)
     {
         return ClinicalAssessment::query()
-            ->where('status', 'approved')->where('max_score', '>', 0)->whereIn('student_id', $studentIds)
+            // A supervisor's submitted weekly assessment is the official
+            // clinical input. Administrative approval applies to the final
+            // grade sheet, not to each weekly clinical assessment.
+            ->whereIn('status', ['submitted', 'approved'])->where('max_score', '>', 0)->whereIn('student_id', $studentIds)
             ->when($courseId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $courseId)))
             ->when($academicYearId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $academicYearId)))
             ->selectRaw('student_id, ROUND(AVG((score * 20.0) / max_score), 2) as clinical_score, COUNT(*) as assessments_count')
@@ -559,8 +562,8 @@ class GradeEntryController extends Controller
         $parts = [];
         if ($clinical > 0) {
             $parts[] = $this->tr(
-                "التقييم السريري غير مكتمل أو غير معتمد لـ {$clinical} طالب؛ يجب أن يستكمل المشرفون السريريون تقييماتهم وتعتمد أولاً",
-                "the clinical assessment is missing or not approved for {$clinical} student(s); supervisors must complete their assessments and have them approved first",
+                "التقييم السريري غير مكتمل لـ {$clinical} طالب؛ يجب أن يستكمل المشرفون السريريون تقييماتهم أولاً",
+                "the clinical assessment is missing for {$clinical} student(s); supervisors must complete their assessments first",
             );
         }
         if ($osce > 0) {

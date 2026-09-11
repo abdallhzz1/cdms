@@ -15,7 +15,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { formatDate, groupName, groupSupervisorAssignments, studentName, supervisorErrorMessage, templateForGroup, today, workspaceQueryKey, type Assessment, type AssessmentTemplate, type SupervisorGroup, type Workspace } from './supervisorWorkspace';
 
 const labels: Record<string, { ar: string; en: string }> = {
-  draft: { ar: 'غير مرسل', en: 'Not submitted' }, submitted: { ar: 'بانتظار الاعتماد', en: 'Awaiting approval' },
+  draft: { ar: 'غير مرسل', en: 'Not submitted' }, submitted: { ar: 'مرسل لمساعد البحث والتدريس', en: 'Sent to the research and teaching assistant' },
   approved: { ar: 'معتمد', en: 'Approved' }, returned: { ar: 'معاد للتعديل', en: 'Returned' },
 };
 

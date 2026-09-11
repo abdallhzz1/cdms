@@ -106,7 +106,6 @@ return new class extends Migration
 
         $defaults = [
             'grade_sheet' => ['اعتماد كشوف العلامات', 'Grade sheet approval', true, true, [['مراجعة مدير الدائرة', 'Clinical Director review', ['CLINICAL_DIRECTOR']], ['الاعتماد النهائي للعمادة', 'Dean final approval', ['DEAN', 'VICE_DEAN']]]],
-            'clinical_assessment' => ['اعتماد التقييمات السريرية الأسبوعية', 'Weekly clinical assessment approval', true, false, [['مراجعة واعتماد الدائرة', 'Clinical department review', ['CLINICAL_DIRECTOR']]]],
             'clinical_distribution' => ['اعتماد التوزيع السريري', 'Clinical distribution approval', false, true, [['مراجعة مدير الدائرة', 'Clinical Director review', ['CLINICAL_DIRECTOR']], ['اعتماد العمادة', 'Dean approval', ['DEAN', 'VICE_DEAN']]]],
             'course_report' => ['اعتماد تقارير المساقات', 'Course report approval', true, true, [['مراجعة مدير الدائرة', 'Clinical Director review', ['CLINICAL_DIRECTOR']], ['اعتماد العمادة', 'Dean approval', ['DEAN', 'VICE_DEAN']]]],
             'department_head_evaluation' => ['اعتماد تقييم رئيس القسم', 'Department head evaluation approval', true, false, [['اعتماد العمادة', 'Dean approval', ['DEAN', 'VICE_DEAN']]]],

@@ -188,9 +188,6 @@ class DashboardOverviewService
         $charts->push($this->chart('assessment_workflow', 'donut', 'حالة التقييمات السريرية', 'Clinical assessment status', $counts->map(
             fn ($value, $status) => $this->chartItem($this->workflowAr((string) $status), ucfirst((string) $status), (int) $value),
         )->values()->all()));
-        if ($permissions->contains('assessment.approve')) {
-            $attention->push($this->attention('assessments_pending', 'تقييمات بانتظار الاعتماد', 'Assessments awaiting approval', (int) ($counts['submitted'] ?? 0), '/assessments', 'review'));
-        }
     }
 
     private function addDistributionSection(Collection $studentIds, Collection $metrics, Collection $charts, Collection $attention): void

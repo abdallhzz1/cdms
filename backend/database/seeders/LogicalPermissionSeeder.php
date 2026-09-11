@@ -15,7 +15,7 @@ class LogicalPermissionSeeder extends Seeder
                 'approval_workflows.view', 'approvals.view', 'approvals.decide',
                 'academic_years.view', 'academic_years.manage',
                 'advising.view', 'advising.export_pdf',
-                'assessment.view', 'assessment.approve',
+                'assessment.view',
                 'attendance.view', 'attendance.excuse',
                 'correspondence.view', 'correspondence.create', 'correspondence.submit', 'correspondence.forward', 'correspondence.approve', 'correspondence.close',
                 'course_report.manage', 'course_report.approve',
@@ -73,7 +73,7 @@ class LogicalPermissionSeeder extends Seeder
             'DEPARTMENT_HEAD' => [
                 'approvals.view', 'approvals.decide',
                 'academic_years.view',
-                'assessment.view', 'assessment.approve',
+                'assessment.view',
                 'attendance.view',
                 'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward', 'correspondence.approve', 'correspondence.close',
                 'courses.view',

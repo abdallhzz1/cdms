@@ -112,7 +112,6 @@ const PERMISSION_LABELS: Record<string, string> = {
   'assessment.view': 'عرض بوابة التقييم السريري',
   'assessment.create': 'إدخال تقييم سريري',
   'assessment.submit': 'تسليم التقييم السريري',
-  'assessment.approve': 'اعتماد التقييمات السريرية',
   'assessment.criteria.manage': 'إدارة معايير نموذج التقييم',
   'supervisor.workspace.view': 'عرض مساحة عمل المشرف السريري',
   'courses.view': 'عرض المساقات',

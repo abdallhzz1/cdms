@@ -296,9 +296,6 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('clinical-assessments-summary', [ClinicalAssessmentController::class, 'summary'])->middleware('permission:assessment.view');
         Route::post('clinical-assessments', [ClinicalAssessmentController::class, 'store'])->middleware('permission:assessment.create');
         Route::post('clinical-assessments/{clinicalAssessment}/submit', [ClinicalAssessmentController::class, 'submit'])->middleware('permission:assessment.submit');
-        Route::post('clinical-assessments/{clinicalAssessment}/approve', [ClinicalAssessmentController::class, 'approve'])->middleware('permission.any:assessment.approve,approvals.decide');
-        Route::post('clinical-assessment-batches/{batchUuid}/approve', [ClinicalAssessmentController::class, 'approveBatch'])->middleware('permission.any:assessment.approve,approvals.decide');
-        Route::post('clinical-assessment-batches/{batchUuid}/return', [ClinicalAssessmentController::class, 'returnBatch'])->middleware('permission.any:assessment.approve,approvals.decide');
         Route::get('clinical-assessment-templates', [ClinicalAssessmentTemplateController::class, 'index'])->middleware('permission:assessment.criteria.manage');
         Route::post('clinical-assessment-templates', [ClinicalAssessmentTemplateController::class, 'store'])->middleware('permission:assessment.criteria.manage');
         Route::get('advising-overview', [AdvisingRecordController::class, 'overview'])->middleware('permission:advising.view');
@@ -470,7 +467,6 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('grade-entries/{gradeEntry}/submit', [GradeEntryController::class, 'submit'])->middleware('permission:grades.create');
         Route::post('grade-entries/{gradeEntry}/return', [GradeEntryController::class, 'returnGrade'])->middleware('permission.any:grades.approve,approvals.decide');
         Route::post('grade-entries/{gradeEntry}/approve', [GradeEntryController::class, 'approve'])->middleware('permission.any:grades.approve,approvals.decide');
-        Route::post('clinical-assessments/{clinicalAssessment}/return', [ClinicalAssessmentController::class, 'returnAssessment'])->middleware('permission.any:assessment.approve,approvals.decide');
         Route::post('quality-improvement-plans/{plan}/transition', [QualityImprovementController::class, 'transition'])->middleware('permission:quality.manage');
 
         // Annual Report
