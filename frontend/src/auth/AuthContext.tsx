@@ -67,6 +67,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, expireSession);
   }, [queryClient]);
 
+  useEffect(() => {
+    if (!user) return;
+
+    const refreshPermissions = () => {
+      void fetchCurrentUser()
+        .then((current) => setUser(current))
+        .catch(() => undefined);
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshPermissions();
+    };
+
+    window.addEventListener('focus', refreshPermissions);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.removeEventListener('focus', refreshPermissions);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [user?.id]);
+
   const login = useCallback(async (email: string, password: string) => {
     await loginRequest(email, password);
     const authenticated = await fetchCurrentUser();
