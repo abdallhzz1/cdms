@@ -467,6 +467,52 @@ class GroupSelfRegistrationTest extends TestCase
         ])->assertUnprocessable()->assertJsonValidationErrors('letters.1');
     }
 
+    public function test_administrator_can_edit_an_empty_registration_cycle(): void
+    {
+        $role=Role::create(['code'=>'TEST_GROUP_CYCLE_EDITOR','name_key'=>'test.group.cycle.editor']);
+        $role->permissions()->sync(Permission::where('code','group_registration.manage_groups')->pluck('id')->mapWithKeys(fn($id)=>[$id=>['scope_type'=>'global']])->all());
+        $user=User::factory()->create();
+        $user->roles()->attach($role);
+        $sourceYear=AcademicYear::factory()->create();
+        $targetYear=AcademicYear::factory()->create();
+        $cycle=GroupRegistrationCycle::create([
+            'academic_year_id'=>$sourceYear->id,'academic_level'=>'sixth','public_id'=>(string)Str::uuid(),
+            'status'=>'draft','default_capacity'=>6,'main_group_codes'=>['Q','R','S'],
+        ]);
+        foreach (['Q','R','S'] as $letter) StudentGroup::create(['academic_year_id'=>$sourceYear->id,'academic_level'=>'sixth','name'=>$letter,'group_type'=>'self_registration']);
+
+        $this->actingAs($user)->putJson("/api/v1/group-registration-cycles/{$cycle->id}/details",[
+            'academic_year_id'=>$targetYear->id,
+            'academic_level'=>'fifth',
+            'letters'=>['D','E','F'],
+            'default_capacity'=>8,
+        ])->assertOk()
+            ->assertJsonPath('data.academic_year_id',$targetYear->id)
+            ->assertJsonPath('data.academic_level','fifth')
+            ->assertJsonPath('data.main_group_codes.1','E')
+            ->assertJsonPath('data.default_capacity',8);
+
+        $this->assertDatabaseMissing('student_groups',['academic_year_id'=>$sourceYear->id,'academic_level'=>'sixth','name'=>'Q']);
+        $this->assertDatabaseHas('student_groups',['academic_year_id'=>$targetYear->id,'academic_level'=>'fifth','name'=>'F']);
+    }
+
+    public function test_cycle_structure_cannot_be_edited_after_operational_data_exists(): void
+    {
+        $permission=Permission::where('code','group_registration.manage_groups')->firstOrFail();
+        $role=Role::create(['code'=>'TEST_GROUP_CYCLE_LOCK','name_key'=>'test.group.cycle.lock']);
+        $role->permissions()->attach($permission->id,['scope_type'=>'global']);
+        $user=User::factory()->create();
+        $user->roles()->attach($role);
+
+        $this->actingAs($user)->putJson("/api/v1/group-registration-cycles/{$this->cycle->id}/details",[
+            'letters'=>['X','Y','Z'],
+        ])->assertUnprocessable()->assertJsonValidationErrors('letters');
+
+        $this->actingAs($user)->putJson("/api/v1/group-registration-cycles/{$this->cycle->id}/details",[
+            'default_capacity'=>9,
+        ])->assertOk()->assertJsonPath('data.default_capacity',9);
+    }
+
     public function test_authorized_administrator_can_move_and_remove_a_rostered_student_with_audited_reason(): void
     {
         $permission=Permission::where('code','group_registration.override')->firstOrFail();

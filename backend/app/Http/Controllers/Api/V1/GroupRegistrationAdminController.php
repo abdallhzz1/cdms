@@ -201,9 +201,104 @@ class GroupRegistrationAdminController extends Controller
         $cycle->update($data);
         if (isset($data['default_capacity'])) {
             StudentSubgroup::whereHas('group', fn ($q) => $q->where('academic_year_id', $cycle->academic_year_id)->where('academic_level', $cycle->academic_level)->where('group_type', 'self_registration')->whereIn('name', $cycle->mainGroupCodes()))
+                ->whereDoesntHave('assignments', fn ($query) => $query->whereNull('valid_until'))
                 ->update(['max_size' => $data['default_capacity'], 'capacity' => $data['default_capacity']]);
         }
         $this->audit($request, 'group_registration.cycle_updated', $cycle->id, $data);
+        return ApiResponse::success($this->cycleData($cycle->fresh('academicYear')), 'تم تحديث دورة التسجيل.');
+    }
+
+    public function updateDetails(Request $request, GroupRegistrationCycle $cycle): JsonResponse
+    {
+        $this->ensureCycleInUserScope($cycle);
+        $data = $request->validate([
+            'academic_year_id' => ['sometimes', 'integer', 'exists:academic_years,id'],
+            'academic_level' => ['sometimes', 'in:fourth,fifth,sixth'],
+            'letters' => ['sometimes', 'array', 'size:3'],
+            'letters.*' => ['required', 'string', 'max:2', 'regex:/^[A-Za-z]+$/', 'distinct:ignore_case'],
+            'default_capacity' => ['sometimes', 'integer', 'min:1', 'max:30'],
+        ]);
+        $targetYearId = (int) ($data['academic_year_id'] ?? $cycle->academic_year_id);
+        $targetLevel = $data['academic_level'] ?? $cycle->academic_level;
+        $targetLetters = array_values(array_map(
+            fn ($value) => strtoupper(trim($value)),
+            $data['letters'] ?? $cycle->mainGroupCodes(),
+        ));
+        $structureChanged = $targetYearId !== (int) $cycle->academic_year_id
+            || $targetLevel !== $cycle->academic_level
+            || $targetLetters !== $cycle->mainGroupCodes();
+
+        if ($structureChanged) {
+            $this->ensureAcademicLevelInUserScope($targetLevel);
+            $currentGroups = StudentGroup::query()
+                ->where('academic_year_id', $cycle->academic_year_id)
+                ->where('academic_level', $cycle->academic_level)
+                ->where('group_type', 'self_registration')
+                ->whereIn('name', $cycle->mainGroupCodes())
+                ->orderBy('name')
+                ->get();
+            $hasOperationalData = $cycle->rosters()->exists()
+                || $currentGroups->contains(fn (StudentGroup $group) => $group->subgroups()->exists() || $group->assignments()->exists());
+
+            if ($hasOperationalData) {
+                throw ValidationException::withMessages([
+                    'letters' => ['لا يمكن تعديل العام أو الدفعة أو أحرف المجموعات بعد ربط الطلبة أو إنشاء مجموعات فرعية. يمكنك تعديل السعة الافتراضية فقط.'],
+                ]);
+            }
+            if (GroupRegistrationCycle::query()->where('academic_year_id', $targetYearId)->where('academic_level', $targetLevel)->where('id', '!=', $cycle->id)->exists()) {
+                throw ValidationException::withMessages([
+                    'academic_level' => ['توجد دورة تسجيل أخرى لهذا العام وهذه الدفعة.'],
+                ]);
+            }
+            if (StudentGroup::query()->where('academic_year_id', $targetYearId)->where('academic_level', $targetLevel)->whereIn('name', $targetLetters)->whereNotIn('id', $currentGroups->pluck('id'))->exists()) {
+                throw ValidationException::withMessages([
+                    'letters' => ['أحد أحرف المجموعات مستخدم مسبقاً في العام والدفعة المحددين.'],
+                ]);
+            }
+        }
+        DB::transaction(function () use ($cycle, $data, $targetYearId, $targetLevel, $targetLetters, $structureChanged) {
+            if ($structureChanged) {
+                $groups = StudentGroup::query()
+                    ->where('academic_year_id', $cycle->academic_year_id)
+                    ->where('academic_level', $cycle->academic_level)
+                    ->where('group_type', 'self_registration')
+                    ->whereIn('name', $cycle->mainGroupCodes())
+                    ->orderBy('name')
+                    ->get()
+                    ->values();
+
+                foreach ($groups as $index => $group) {
+                    $group->update(['name' => "TMP{$cycle->id}_{$index}"]);
+                }
+                foreach ($targetLetters as $index => $letter) {
+                    $group = $groups->get($index) ?: new StudentGroup();
+                    $group->fill([
+                        'academic_year_id' => $targetYearId,
+                        'academic_level' => $targetLevel,
+                        'name' => $letter,
+                        'group_type' => 'self_registration',
+                    ])->save();
+                }
+                $groups->slice(count($targetLetters))->each->delete();
+            }
+
+            $cycle->update([
+                ...$data,
+                'letters' => null,
+                'academic_year_id' => $targetYearId,
+                'academic_level' => $targetLevel,
+                'main_group_codes' => $targetLetters,
+            ]);
+        });
+        if (isset($data['default_capacity'])) {
+            StudentSubgroup::whereHas('group', fn ($q) => $q->where('academic_year_id', $cycle->academic_year_id)->where('academic_level', $cycle->academic_level)->where('group_type', 'self_registration')->whereIn('name', $cycle->mainGroupCodes()))
+                ->whereDoesntHave('assignments', fn ($query) => $query->whereNull('valid_until'))
+                ->update(['max_size' => $data['default_capacity'], 'capacity' => $data['default_capacity']]);
+        }
+        $this->audit($request, 'group_registration.cycle_updated', $cycle->id, [
+            ...$data,
+            'letters' => $targetLetters,
+        ]);
         return ApiResponse::success($this->cycleData($cycle->fresh('academicYear')), 'تم تحديث دورة التسجيل.');
     }
 

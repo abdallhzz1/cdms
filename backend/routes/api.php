@@ -158,6 +158,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::post('/', [GroupRegistrationAdminController::class, 'store'])->middleware('permission:group_registration.manage_groups');
             Route::get('/{cycle}', [GroupRegistrationAdminController::class, 'show'])->middleware('permission:group_registration.view');
             Route::put('/{cycle}', [GroupRegistrationAdminController::class, 'update'])->middleware('permission:group_registration.open_close');
+            Route::put('/{cycle}/details', [GroupRegistrationAdminController::class, 'updateDetails'])->middleware('permission:group_registration.manage_groups');
             Route::delete('/{cycle}', [GroupRegistrationAdminController::class, 'destroy'])->middleware('permission:group_registration.manage_groups');
             Route::post('/{cycle}/roster', [GroupRegistrationAdminController::class, 'importRoster'])->middleware('permission:group_registration.manage_roster');
             Route::post('/{cycle}/generate-subgroups', [GroupRegistrationAdminController::class, 'generateSubgroups'])->middleware('permission:group_registration.manage_groups');
