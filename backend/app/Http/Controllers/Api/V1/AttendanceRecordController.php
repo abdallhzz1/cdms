@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AttendanceRecord;
 use App\Models\ClinicalSession;
-use App\Models\RotationBlock;
 use App\Models\StudentClinicalAssignment;
 use App\Models\Student;
 use App\Traits\ScopesByDepartmentAndLevel;
@@ -217,11 +216,11 @@ class AttendanceRecordController extends Controller
             ->get();
         $students = $assignments->pluck('student')->filter()->unique('id')->values();
         $rotation = $reference->rotationBlock?->rotation;
-        $totalWeeks = max(
-            (int) ($rotation?->duration_weeks ?? 0),
-            (int) RotationBlock::query()->where('rotation_id', $rotation?->id)->max('to_week'),
-        );
-        $availableWeeks = collect($totalWeeks > 0 ? range(1, $totalWeeks) : []);
+        $availableWeeks = $assignments->pluck('rotationBlock')->filter()
+            ->flatMap(fn ($block) => ($block->from_week && $block->to_week)
+                ? range((int) $block->from_week, (int) $block->to_week)
+                : [])
+            ->unique()->sort()->values();
         $currentWeek = $rotation?->start_date ? Carbon::parse($rotation->start_date)->diffInWeeks(today(), false) + 1 : null;
         $defaultWeek = $currentWeek === null ? $availableWeeks->first() : $availableWeeks->sortBy(fn ($week) => abs($week - $currentWeek))->first();
         $selectedWeek = $request->filled('week') ? $request->integer('week') : $defaultWeek;
