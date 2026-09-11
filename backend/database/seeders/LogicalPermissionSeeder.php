@@ -15,7 +15,7 @@ class LogicalPermissionSeeder extends Seeder
                 'approval_workflows.view', 'approvals.view', 'approvals.decide',
                 'academic_years.view', 'academic_years.manage',
                 'advising.view', 'advising.export_pdf',
-                'assessment.view',
+                'assessment.view', 'assessment.review',
                 'attendance.view', 'attendance.excuse',
                 'correspondence.view', 'correspondence.create', 'correspondence.submit', 'correspondence.forward', 'correspondence.approve', 'correspondence.close',
                 'course_report.manage', 'course_report.approve',
@@ -41,7 +41,7 @@ class LogicalPermissionSeeder extends Seeder
             'ADMIN_ASSISTANT' => [
                 'academic_years.view',
                 'advising.view',
-                'assessment.view',
+                'assessment.view', 'assessment.review',
                 'attendance.view', 'attendance.record',
                 'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward', 'correspondence.close',
                 'courses.view',
@@ -73,7 +73,7 @@ class LogicalPermissionSeeder extends Seeder
             'DEPARTMENT_HEAD' => [
                 'approvals.view', 'approvals.decide',
                 'academic_years.view',
-                'assessment.view',
+                'assessment.view', 'assessment.review',
                 'attendance.view',
                 'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward', 'correspondence.approve', 'correspondence.close',
                 'courses.view',
@@ -91,7 +91,7 @@ class LogicalPermissionSeeder extends Seeder
             ],
             'ACADEMIC_ADVISOR' => [
                 'advising.view', 'advising.manage', 'advising.export_pdf',
-                'assessment.view',
+                'assessment.view', 'assessment.review',
                 'attendance.view',
                 'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward',
                 'courses.view',

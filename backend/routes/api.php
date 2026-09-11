@@ -294,8 +294,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('attendance-warnings', [AttendanceWarningController::class, 'index'])->middleware('permission:attendance.view');
         Route::post('attendance-warnings/send', [AttendanceWarningController::class, 'send'])->middleware(['permission:attendance.view', 'permission:attendance.notify', 'throttle:attendance-notification']);
         Route::get('dashboard/overview', [DashboardOverviewController::class, 'show'])->middleware('throttle:operational-read');
-        Route::get('clinical-assessments', [ClinicalAssessmentController::class, 'index'])->middleware('permission:assessment.view');
-        Route::get('clinical-assessments-summary', [ClinicalAssessmentController::class, 'summary'])->middleware('permission:assessment.view');
+        Route::get('clinical-assessments', [ClinicalAssessmentController::class, 'index'])->middleware('permission:assessment.review');
+        Route::get('clinical-assessments-summary', [ClinicalAssessmentController::class, 'summary'])->middleware('permission:assessment.review');
         Route::post('clinical-assessments', [ClinicalAssessmentController::class, 'store'])->middleware('permission:assessment.create');
         Route::post('clinical-assessments/{clinicalAssessment}/submit', [ClinicalAssessmentController::class, 'submit'])->middleware('permission:assessment.submit');
         Route::get('clinical-assessment-templates', [ClinicalAssessmentTemplateController::class, 'index'])->middleware('permission:assessment.criteria.manage');

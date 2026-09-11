@@ -34,9 +34,9 @@ export function AssessmentsMasterPage() {
     if (deferredSearch) value.set('search', deferredSearch);
     return value.toString();
   }, [status, level, periodId, deferredSearch, page]);
-  const list = useQuery({ queryKey: ['clinical-assessments', params], queryFn: () => apiFetch<Payload>(`/clinical-assessments?${params}`), enabled: can('assessment.view') });
-  const summary = useQuery({ queryKey: ['clinical-assessments-summary',params], queryFn: () => apiFetch<Summary>(`/clinical-assessments-summary?${params}`), enabled: can('assessment.view') });
-  if (!can('assessment.view')) return <ErrorState title={tr('لا تملك صلاحية مشاهدة التقييمات', 'You do not have permission to view assessments')} />;
+  const list = useQuery({ queryKey: ['clinical-assessments', params], queryFn: () => apiFetch<Payload>(`/clinical-assessments?${params}`), enabled: can('assessment.review') });
+  const summary = useQuery({ queryKey: ['clinical-assessments-summary',params], queryFn: () => apiFetch<Summary>(`/clinical-assessments-summary?${params}`), enabled: can('assessment.review') });
+  if (!can('assessment.review')) return <ErrorState title={tr('لا تملك صلاحية مراجعة التقييمات', 'You do not have permission to review assessments')} />;
   if (list.isLoading || summary.isLoading) return <LoadingState />;
   if (list.isError || summary.isError) return <ErrorState onRetry={() => { list.refetch(); summary.refetch(); }} />;
   const rawData = list.data as Payload | Assessment[] | undefined;

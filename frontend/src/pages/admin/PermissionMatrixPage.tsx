@@ -110,6 +110,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   'attendance.excuse': 'توثيق أعذار الغياب',
   'attendance.notify': 'إرسال إنذارات الغياب',
   'assessment.view': 'عرض بوابة التقييم السريري',
+  'assessment.review': 'عرض شاشة مراجعة التقييمات السريرية',
   'assessment.create': 'إدخال تقييم سريري',
   'assessment.submit': 'تسليم التقييم السريري',
   'assessment.criteria.manage': 'إدارة معايير نموذج التقييم',

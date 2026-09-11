@@ -50,6 +50,7 @@ class PermissionSeeder extends Seeder
             ['code' => 'attendance.excuse', 'module' => 'Attendance', 'action' => 'EXCUSE', 'description_key' => 'permissions.attendance_excuse.description'],
             ['code' => 'attendance.notify', 'module' => 'Attendance', 'action' => 'NOTIFY', 'description_key' => 'permissions.attendance_notify.description'],
             ['code' => 'assessment.view', 'module' => 'Assessment', 'action' => 'VIEW', 'description_key' => 'permissions.assessment_view.description'],
+            ['code' => 'assessment.review', 'module' => 'Assessment', 'action' => 'REVIEW', 'description_key' => 'permissions.assessment_review.description'],
             ['code' => 'assessment.create', 'module' => 'Assessment', 'action' => 'CREATE', 'description_key' => 'permissions.assessment_create.description'],
             ['code' => 'assessment.submit', 'module' => 'Assessment', 'action' => 'SUBMIT', 'description_key' => 'permissions.assessment_submit.description'],
             ['code' => 'assessment.criteria.manage', 'module' => 'Assessment', 'action' => 'MANAGE_CRITERIA', 'description_key' => 'permissions.assessment_criteria_manage.description'],

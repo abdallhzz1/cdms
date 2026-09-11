@@ -37,7 +37,7 @@ class DashboardOverviewService
         if ($permissions->contains('grades.view')) {
             $this->addGradesSection($studentIds, $metrics, $charts, $attention, $permissions);
         }
-        if ($permissions->contains('assessment.view')) {
+        if ($permissions->contains('assessment.review')) {
             $this->addAssessmentSection($studentIds, $metrics, $charts, $attention, $permissions);
         }
         if ($permissions->intersect(['distribution.view', 'clinical_schedule.view'])->isNotEmpty()) {

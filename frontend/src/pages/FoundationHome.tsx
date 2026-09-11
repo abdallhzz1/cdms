@@ -348,7 +348,7 @@ export function FoundationHome() {
     can('clinical_schedule.view') && { route: '/clinical/schedule', labelAr: 'الجدول السريري', labelEn: 'Clinical schedule', icon: CalendarDays },
     can('attendance.view') && { route: '/attendance', labelAr: 'الحضور والغياب', labelEn: 'Attendance', icon: CheckCircle2 },
     can('grades.view') && { route: '/grades', labelAr: 'العلامات', labelEn: 'Grades', icon: BookOpen },
-    can('assessment.view') && { route: hasRole('CLINICAL_SUPERVISOR') ? '/supervisor/portal' : '/assessments', labelAr: 'التقييمات', labelEn: 'Assessments', icon: ClipboardCheck },
+    (hasRole('CLINICAL_SUPERVISOR') ? can('assessment.view') : can('assessment.review')) && { route: hasRole('CLINICAL_SUPERVISOR') ? '/supervisor/portal' : '/assessments', labelAr: 'التقييمات', labelEn: 'Assessments', icon: ClipboardCheck },
     can('tasks.view') && { route: '/tasks', labelAr: 'المهام', labelEn: 'Tasks', icon: ListChecks },
     can('correspondence.view') && { route: '/inbox', labelAr: 'المراسلات', labelEn: 'Correspondence', icon: Inbox },
     can('reports.view') && { route: '/operational/reports', labelAr: 'مركز التقارير', labelEn: 'Report center', icon: BarChart3 },
