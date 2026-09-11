@@ -300,10 +300,10 @@ class SupervisorController extends Controller
         ]);
 
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
-        $this->ensureScheduledSession($person, $assignment, $data['session_date']);
         $allowedStudentIds = $this->assignmentGroupQuery($assignment)->pluck('student_id')->map(fn ($id) => (int) $id);
         $requestedStudentIds = collect($data['records'])->pluck('student_id')->map(fn ($id) => (int) $id);
         abort_if($requestedStudentIds->diff($allowedStudentIds)->isNotEmpty(), 403, 'You may only record attendance for students assigned to you.');
+        $this->ensureScheduledSession($person, $assignment, $data['session_date']);
 
         $session = DB::transaction(function () use ($assignment, $data) {
             $session = $this->resolveSession($assignment, $data['session_date']);
@@ -435,8 +435,13 @@ class SupervisorController extends Controller
         ];
 
         if ($assessment) {
-            $assessment->update($values);
+            // Keep the current workflow state until the transition service has
+            // recorded the returned/draft -> submitted transition. Updating
+            // status first makes the service see submitted -> submitted and
+            // rejects legitimate resubmissions.
+            $assessment->update(collect($values)->except(['status', 'submitted_at'])->all());
             $workflow->transition($assessment->fresh(), 'submitted');
+            $assessment->newQuery()->whereKey($assessment->id)->update(['submitted_at' => now()]);
             return $assessment->fresh();
         }
 

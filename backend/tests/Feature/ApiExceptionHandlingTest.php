@@ -21,7 +21,7 @@ class ApiExceptionHandlingTest extends TestCase
     {
         config()->set('app.debug', true);
 
-        $response = $this->getJson('/api/__test/internal-error')
+        $response = $this->withHeader('Accept-Language', 'ar')->getJson('/api/__test/internal-error')
             ->assertStatus(500)
             ->assertJsonPath('success', false)
             ->assertJsonPath('message', 'حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى لاحقاً.')

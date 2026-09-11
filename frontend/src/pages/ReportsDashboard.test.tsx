@@ -34,8 +34,8 @@ describe('ReportsDashboard',()=>{
     const fetchSpy=mockApi();
     renderWithProviders(<ReportsDashboard/>);
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input])=>String(input).includes('summary?academic_year_id=1'))).toBe(true));
-    await waitFor(()=>expect(screen.getByText('الطلبة المسجلون أكاديمياً')).toBeVisible());
-    expect(screen.getAllByText('نواقص البيانات والتشغيل').length).toBeGreaterThanOrEqual(1);
+    await waitFor(()=>expect(screen.getByText('Academically registered students')).toBeVisible());
+    expect(screen.getAllByText('Data and operational gaps').length).toBeGreaterThanOrEqual(1);
     await waitFor(()=>expect(screen.getByText('طالب تجريبي')).toBeVisible());
     expect(screen.getByRole('button',{name:/Excel/i})).toBeInTheDocument();
     expect(screen.getByRole('button',{name:/PDF/i})).toBeInTheDocument();

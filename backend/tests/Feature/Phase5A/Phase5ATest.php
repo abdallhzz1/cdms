@@ -3,6 +3,8 @@
 namespace Tests\Feature\Phase5A;
 
 use App\Models\AuditLog;
+use App\Models\CourseScheduleCell;
+use App\Models\CourseScheduleRow;
 use App\Models\Department;
 use App\Models\DistributionVersion;
 use App\Models\Person;
@@ -122,6 +124,19 @@ class Phase5ATest extends TestCase
             'rotation_id' => $this->rotation->id,
             'status' => 'suggested',
             'is_current' => false,
+        ]);
+
+        $scheduleRow = CourseScheduleRow::create([
+            'distribution_version_id' => $version->id,
+            'row_type' => 'vacancy',
+            'training_site_id' => $this->site1->id,
+            'label' => 'Test schedule row',
+        ]);
+        CourseScheduleCell::create([
+            'distribution_version_id' => $version->id,
+            'course_schedule_row_id' => $scheduleRow->id,
+            'rotation_block_id' => $this->block1->id,
+            'student_subgroup_id' => $this->subgroup->id,
         ]);
 
         StudentClinicalAssignment::create([

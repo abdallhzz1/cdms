@@ -32,7 +32,6 @@ class TrainingSiteTest extends TestCase
     public function test_can_list_and_create_training_sites()
     {
         $payload = [
-            'site_code' => 'H-99',
             'name_ar' => 'مستشفى القدس',
             'site_type' => 'hospital_public',
             'city' => 'القدس',
@@ -43,8 +42,8 @@ class TrainingSiteTest extends TestCase
         $response = $this->actingAs($this->admin)->postJson('/api/v1/training-sites', $payload);
 
         $response->assertStatus(201)
-            ->assertJsonPath('data.site_code', 'H-99');
+            ->assertJsonPath('data.site_code', 'SITE-001');
 
-        $this->assertDatabaseHas('training_sites', ['site_code' => 'H-99', 'bed_count' => 120]);
+        $this->assertDatabaseHas('training_sites', ['site_code' => 'SITE-001', 'bed_count' => 120]);
     }
 }

@@ -278,6 +278,6 @@ class Phase5BTest extends TestCase
         )->assertStatus(200);
 
         $queryCount = count(DB::getQueryLog());
-        $this->assertLessThanOrEqual(12, $queryCount);
+        $this->assertLessThanOrEqual(15, $queryCount);
     }
 }

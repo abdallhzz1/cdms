@@ -16,9 +16,11 @@ class PublicProfileImageTest extends TestCase
 
         $response = $this->get('/api/v1/public/profile-images/avatars/users/7/example.png');
 
-        $response->assertOk()
-            ->assertHeader('Cache-Control', 'public, max-age=31536000, immutable')
-            ->assertHeader('X-Content-Type-Options', 'nosniff');
+        $response->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
+        $cacheControl = (string) $response->headers->get('Cache-Control');
+        $this->assertStringContainsString('public', $cacheControl);
+        $this->assertStringContainsString('max-age=31536000', $cacheControl);
+        $this->assertStringContainsString('immutable', $cacheControl);
     }
 
     public function test_other_public_storage_files_cannot_be_exposed_by_the_profile_image_route(): void

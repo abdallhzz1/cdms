@@ -57,7 +57,7 @@ class Phase6ATest extends TestCase
         Config::set('app.debug', false);
 
         // Force a non-existent API route to trigger 404 exception envelope
-        $response = $this->getJson('/api/v1/non-existent-endpoint');
+        $response = $this->withHeader('Accept-Language', 'ar')->getJson('/api/v1/non-existent-endpoint');
 
         $response->assertStatus(404)
             ->assertJson([

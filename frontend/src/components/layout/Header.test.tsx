@@ -9,6 +9,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 const HEALTH_OK = { success: true, data: { application: 'ok', database: 'ok' }, message: null, meta: {} };
+const DASHBOARD = { profile: { name: 'Test Director', focus: 'clinical_leadership', roles: ['CLINICAL_DIRECTOR'], assigned_levels: [], scope_student_count: 0 }, metrics: [], charts: [], attention: [], activity: [], generated_at: '2026-09-11T10:00:00+03:00' };
 
 function authenticatedUser(permissions: Array<{ code: string; scope: string }>) {
   return {
@@ -40,6 +41,7 @@ describe('Header (authenticated app shell)', () => {
           meCallCount += 1;
           return jsonResponse(authenticatedUser([]));
         }
+        if (url.includes('/dashboard/overview')) return jsonResponse({ success: true, data: DASHBOARD, message: null, meta: {} });
         if (url.includes('/health')) return jsonResponse(HEALTH_OK);
         throw new Error(`Unmocked fetch call to ${url}`);
       }),
@@ -48,7 +50,7 @@ describe('Header (authenticated app shell)', () => {
     renderWithProviders(<App />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /أهلاً بك/ })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Welcome,/i })).toBeInTheDocument();
     });
     expect(meCallCount).toBe(1);
 
@@ -68,6 +70,7 @@ describe('Header (authenticated app shell)', () => {
         if (url.includes('/auth/me')) {
           return jsonResponse(authenticatedUser([{ code: 'users.manage', scope: 'global' }]));
         }
+        if (url.includes('/dashboard/overview')) return jsonResponse({ success: true, data: DASHBOARD, message: null, meta: {} });
         if (url.includes('/health')) return jsonResponse(HEALTH_OK);
         throw new Error(`Unmocked fetch call to ${url}`);
       }),
@@ -86,6 +89,7 @@ describe('Header (authenticated app shell)', () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = typeof input === 'string' ? input : input.toString();
         if (url.includes('/auth/me')) return jsonResponse(authenticatedUser([]));
+        if (url.includes('/dashboard/overview')) return jsonResponse({ success: true, data: DASHBOARD, message: null, meta: {} });
         if (url.includes('/health')) return jsonResponse(HEALTH_OK);
         throw new Error(`Unmocked fetch call to ${url}`);
       }),
@@ -94,7 +98,7 @@ describe('Header (authenticated app shell)', () => {
     renderWithProviders(<App />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /أهلاً بك/ })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Welcome,/i })).toBeInTheDocument();
     });
     expect(screen.queryByRole('link', { name: /Users & Roles/i })).not.toBeInTheDocument();
   });

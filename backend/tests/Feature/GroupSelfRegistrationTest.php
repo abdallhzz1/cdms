@@ -79,7 +79,7 @@ class GroupSelfRegistrationTest extends TestCase
             ])->assertOk();
         }
 
-        $this->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/request-otp", [
+        $this->withHeader('Accept-Language', 'ar')->postJson("/api/v1/public/group-registration/{$this->cycle->public_id}/request-otp", [
             'university_number' => '22210466',
         ])->assertStatus(429)
             ->assertJsonPath('message', 'تم إرسال طلبات كثيرة خلال وقت قصير. انتظر قليلاً ثم حاول مرة أخرى.');

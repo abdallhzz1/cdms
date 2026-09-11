@@ -13,6 +13,8 @@ use App\Models\StudentSubgroup;
 use App\Models\TrainingSite;
 use App\Models\User;
 use App\Models\ApprovalRequest;
+use App\Models\CourseScheduleCell;
+use App\Models\CourseScheduleRow;
 use App\Models\Permission;
 use App\Models\Role;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -85,6 +87,19 @@ class DistributionApprovalTest extends TestCase
         $this->version = DistributionVersion::create([
             'rotation_id' => $rotation->id,
             'status' => 'suggested'
+        ]);
+
+        $scheduleRow = CourseScheduleRow::create([
+            'distribution_version_id' => $this->version->id,
+            'row_type' => 'vacancy',
+            'training_site_id' => $this->site1->id,
+            'label' => 'Test schedule row',
+        ]);
+        CourseScheduleCell::create([
+            'distribution_version_id' => $this->version->id,
+            'course_schedule_row_id' => $scheduleRow->id,
+            'rotation_block_id' => $this->block1->id,
+            'student_subgroup_id' => $subgroup->id,
         ]);
 
         StudentClinicalAssignment::create([

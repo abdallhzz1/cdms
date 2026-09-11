@@ -12,9 +12,12 @@ class SetRequestLocale
     {
         $requestedLocale = strtolower(substr((string) $request->header('Accept-Language'), 0, 2));
 
-        if (in_array($requestedLocale, ['ar', 'en'], true)) {
-            app()->setLocale($requestedLocale);
-        }
+        // Long-running workers and the test process reuse the application
+        // instance between requests. Always reset the locale so a request
+        // without a language header cannot inherit the previous user's locale.
+        app()->setLocale(in_array($requestedLocale, ['ar', 'en'], true)
+            ? $requestedLocale
+            : (string) config('app.locale', 'en'));
 
         return $next($request);
     }

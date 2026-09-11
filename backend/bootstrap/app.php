@@ -62,7 +62,14 @@ return Application::configure(basePath: dirname(__DIR__))
                 return null; // let Laravel's default (non-API) handling take over
             }
 
-            $ar = app()->getLocale() === 'ar';
+            // Route matching can fail before the API middleware runs (for
+            // example a genuine 404), so exception localization must also
+            // honor the request header directly instead of relying only on
+            // the locale previously set by middleware.
+            $requestedLocale = strtolower(substr((string) $request->header('Accept-Language'), 0, 2));
+            $ar = in_array($requestedLocale, ['ar', 'en'], true)
+                ? $requestedLocale === 'ar'
+                : config('app.locale', 'en') === 'ar';
             $text = static fn (string $arabic, string $english): string => $ar ? $arabic : $english;
             $httpMessage = static fn (int $status): string => match ($status) {
                 400 => $text('تعذر معالجة الطلب. يرجى التحقق من البيانات والمحاولة مرة أخرى.', 'The request could not be processed. Check the submitted data and try again.'),

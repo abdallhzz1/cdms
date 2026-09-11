@@ -9,7 +9,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 
 const envelope=(data:unknown,status=200)=>new Response(JSON.stringify({success:status<400,data:status<400?data:null,message:status<400?null:'Forbidden',errors:{},meta:{}}),{status,headers:{'Content-Type':'application/json'}});
 const permissions=['supervisor.workspace.view','attendance.view','attendance.record','assessment.view','assessment.create'].map(code=>({code,scope:'global'}));
-const workspace={supervisor:{person_id:9,user_id:1,full_name_ar:'د. أحمد المشرف',full_name_en:'Dr Ahmad Supervisor'},assignments:[{id:21,distribution_version_id:3,rotation_block_id:4,training_site_id:5,student_subgroup_id:6,session_start_date:'2026-08-24',session_end_date:'2026-09-06',student:{id:7,university_number:'22010001',full_name_ar:'طالب سريري',full_name_en:'Clinical Student'},student_subgroup:{id:6,name:'L1',group:{id:2,name:'L'}},rotation_block:{id:4,block_code:'W1',from_week:1,to_week:2,rotation:{name:'Surgery',start_date:'2026-08-23T21:00:00.000000Z',course:{name_ar:'الجراحة العامة',name_en:'General Surgery'},academic_year:{code:'2026-2027'}}},training_site:{id:5,name_ar:'المستشفى الأهلي',name_en:'Al Ahli Hospital'},department:{id:8,name_ar:'قسم الجراحة',name_en:'Surgery Department'}}],attendance_records:[],assessments:[]};
+const workspace={supervisor:{person_id:9,user_id:1,full_name_ar:'د. أحمد المشرف',full_name_en:'Dr Ahmad Supervisor'},assignments:[{id:21,distribution_version_id:3,rotation_block_id:4,training_site_id:5,student_subgroup_id:6,session_start_date:'2026-08-24',session_end_date:'2026-09-06',scheduled_dates:['2026-08-27','2026-09-03'],evaluation_weeks:[{number:1,start_date:'2026-08-24',end_date:'2026-08-30'},{number:2,start_date:'2026-08-31',end_date:'2026-09-06'}],student:{id:7,university_number:'22010001',full_name_ar:'طالب سريري',full_name_en:'Clinical Student',batch_year:2026},student_subgroup:{id:6,name:'L1',group:{id:2,name:'L'}},rotation_block:{id:4,block_code:'W1',from_week:1,to_week:2,rotation:{name:'Surgery',start_date:'2026-08-23T21:00:00.000000Z',course:{id:10,name_ar:'الجراحة العامة',name_en:'General Surgery'},academic_year:{code:'2026-2027'}}},training_site:{id:5,name_ar:'المستشفى الأهلي',name_en:'Al Ahli Hospital'},department:{id:8,name_ar:'قسم الجراحة',name_en:'Surgery Department'}}],attendance_records:[],assessments:[],student_notes:[],assessment_templates:[{id:31,name_ar:'التقييم الأسبوعي',name_en:'Weekly assessment',course_id:10,batch_year:2026,total_score:10,is_active:true,criteria:[{id:1,name_ar:'المهنية',name_en:'Professionalism',max_score:10}]}],schedule_configured:true};
 const user={id:1,name:'Supervisor',email:'doctor@hebron.edu',roles:['CLINICAL_SUPERVISOR'],permissions};
 afterEach(()=>{vi.restoreAllMocks();document.cookie='XSRF-TOKEN=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'});
 
@@ -33,21 +33,19 @@ describe('clinical supervisor workspace',()=>{
   it('keeps concise statistics and prominent work buttons on the supervisor dashboard',async()=>{
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope(workspace));
     renderWithProviders(<SupervisorPortalPage/>);
-    expect(await screen.findByText('Current groups')).toBeVisible();
-    expect(screen.getByText('Attendance')).toBeVisible();
-    expect(screen.getByText('Assessments and marks')).toBeVisible();
-    expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')==='/supervisor/attendance')).toBe(true);
-    expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')==='/supervisor/assessments')).toBe(true);
+    expect(await screen.findByText('My clinical schedule')).toBeVisible();
+    expect(screen.getAllByText('Attendance').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Assessment').length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith('/supervisor/attendance?'))).toBe(true);
+    expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith('/supervisor/assessments?'))).toBe(true);
   });
 
   it('records a whole group from the separate attendance table',async()=>{
     document.cookie='XSRF-TOKEN=test; path=/';
     const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(workspace);if(url.includes('/my-supervisor-attendance'))return envelope({session_id:12});throw new Error(`Unmocked ${url} ${init?.method}`)});
     renderWithProviders(<SupervisorAttendancePage/>,{route:'/supervisor/attendance'});
-    await screen.findByText('General Surgery — Annual schedule — L (L1)');
-    const sessionDate=document.querySelector('input[type="date"]') as HTMLInputElement;
-    expect(sessionDate).toBeVisible();
-    expect(sessionDate.value>='2026-08-24'&&sessionDate.value<='2026-09-06').toBe(true);
+    await screen.findByRole('heading',{name:'General Surgery — L (L1)'});
+    expect(screen.getAllByText(/Thursday —/).length).toBeGreaterThan(0);
     await userEvent.click(screen.getByRole('button',{name:'Absent'}));
     await userEvent.click(screen.getByRole('button',{name:'Save group'}));
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-attendance')&&String(init?.body).includes('"status":"absent"'))).toBe(true));
@@ -55,11 +53,11 @@ describe('clinical supervisor workspace',()=>{
 
   it('submits one student assessment independently from its separate screen',async()=>{
     document.cookie='XSRF-TOKEN=test; path=/';
-    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(workspace);if(url.includes('/my-supervisor-assessments'))return envelope({id:1,status:'submitted'});throw new Error(`Unmocked ${url} ${init?.method}`)});
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(workspace);if(url.includes('/my-supervisor-assessment-batches'))return envelope({batch_uuid:'test',assessments:[{id:1,status:'submitted'}]});throw new Error(`Unmocked ${url} ${init?.method}`)});
     renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments'});
-    const score=await screen.findByRole('spinbutton');await userEvent.type(score,'18');
-    await userEvent.click(screen.getByRole('button',{name:'Save student'}));
-    await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessments')&&String(init?.body).includes('"student_id":7')&&String(init?.body).includes('"score":18'))).toBe(true));
+    const score=await screen.findByRole('spinbutton');await userEvent.type(score,'9');
+    await userEvent.click(screen.getByRole('button',{name:'Submit group assessment'}));
+    await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessment-batches')&&String(init?.body).includes('"student_id":7')&&String(init?.body).includes('"score":9'))).toBe(true));
   });
 
   it('does not treat a director role alone as a clinical supervisor',async()=>{

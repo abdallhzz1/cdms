@@ -16,6 +16,7 @@ const AUTHENTICATED_USER = {
   message: null,
   meta: {},
 };
+const DASHBOARD = { profile: { name: 'Test Director', focus: 'clinical_leadership', roles: ['CLINICAL_DIRECTOR'], assigned_levels: [], scope_student_count: 0 }, metrics: [], charts: [], attention: [], activity: [], generated_at: '2026-09-11T10:00:00+03:00' };
 const LOGIN_INVALID = {
   success: false,
   data: null,
@@ -49,6 +50,7 @@ describe('LoginPage', () => {
           return response;
         }
         if (url.includes('/auth/me')) return authenticated ? jsonResponse(AUTHENTICATED_USER) : jsonResponse(UNAUTHENTICATED, 401);
+        if (url.includes('/dashboard/overview')) return jsonResponse({ success: true, data: DASHBOARD, message: null, meta: {} });
         if (url.includes('/health')) return jsonResponse(HEALTH_OK);
         throw new Error(`Unmocked fetch call to ${url}`);
       }),
@@ -78,7 +80,7 @@ describe('LoginPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /أهلاً بك/ })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Welcome,/i })).toBeInTheDocument();
     });
   });
 

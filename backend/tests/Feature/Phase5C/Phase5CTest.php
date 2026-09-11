@@ -5,6 +5,7 @@ namespace Tests\Feature\Phase5C;
 use App\Models\AuditLog;
 use App\Models\Department;
 use App\Models\Course;
+use App\Models\ClinicalAssessmentTemplate;
 use App\Models\DistributionVersion;
 use App\Models\Permission;
 use App\Models\Person;
@@ -15,6 +16,7 @@ use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroup;
 use App\Models\StudentSubgroup;
+use App\Models\SupervisorAvailability;
 use App\Models\TrainingSite;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -139,6 +141,16 @@ class Phase5CTest extends TestCase
             'primary_site_id' => $this->site1->id,
             'is_active'      => true,
             'max_students'   => 1,
+        ]);
+
+        SupervisorAvailability::create([
+            'person_id' => $this->supervisor1->id,
+            'training_site_id' => $this->site1->id,
+            'department_id' => $this->department1->id,
+            'day' => 'thursday',
+            'available_from' => '2026-09-01',
+            'available_until' => '2026-10-30',
+            'status' => 'work',
         ]);
 
         $this->publishedVersion = DistributionVersion::create([
@@ -426,6 +438,7 @@ class Phase5CTest extends TestCase
             Permission::whereIn('code', ['attendance.record', 'assessment.create', 'assessment.approve', 'grades.view'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
         );
         $this->admin->roles()->attach($supervisorRole);
+        $template = ClinicalAssessmentTemplate::where('is_active', true)->firstOrFail();
 
         $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
             'assignment_id' => $this->assignment1->id,
@@ -436,8 +449,9 @@ class Phase5CTest extends TestCase
         $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
             'assignment_id' => $this->assignment1->id,
             'student_id' => $this->student2->id,
-            'session_date' => '2026-09-10',
-            'score' => 18,
+            'evaluation_week' => 1,
+            'template_id' => $template->id,
+            'score' => 9,
         ])->assertForbidden();
 
         $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
@@ -449,8 +463,9 @@ class Phase5CTest extends TestCase
         $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
             'assignment_id' => $this->assignment1->id,
             'student_id' => $this->student1->id,
-            'session_date' => '2026-09-10',
-            'score' => 18.5,
+            'evaluation_week' => 1,
+            'template_id' => $template->id,
+            'score' => 9.25,
             'notes' => 'Good clinical progress.',
         ])->assertOk();
 
@@ -460,8 +475,8 @@ class Phase5CTest extends TestCase
         $this->assertDatabaseHas('clinical_assessments', [
             'student_id' => $this->student1->id,
             'evaluator_person_id' => $this->supervisor1->id,
-            'score' => 18.5,
-            'max_score' => 20,
+            'score' => 9.25,
+            'max_score' => 10,
             'notes' => 'Good clinical progress.',
             'status' => 'submitted',
         ]);
@@ -471,7 +486,7 @@ class Phase5CTest extends TestCase
             ->postJson("/api/v1/clinical-assessments/{$assessmentId}/approve")
             ->assertForbidden();
 
-        $reviewerRole = Role::where('code', 'TEST_ADMIN_5C')->firstOrFail();
+        $reviewerRole = Role::where('code', 'CLINICAL_DIRECTOR')->firstOrFail();
         $reviewerRole->permissions()->syncWithoutDetaching(
             Permission::whereIn('code', ['assessment.view', 'assessment.approve', 'grades.view'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
         );
@@ -493,8 +508,9 @@ class Phase5CTest extends TestCase
             'assessment_id' => $assessmentId,
             'assignment_id' => $this->assignment1->id,
             'student_id' => $this->student1->id,
-            'session_date' => '2026-09-10',
-            'score' => 19,
+            'evaluation_week' => 1,
+            'template_id' => $template->id,
+            'score' => 9.5,
             'notes' => 'Clinical findings documented.',
         ])->assertOk()->assertJsonPath('data.status', 'submitted');
 
@@ -582,19 +598,22 @@ class Phase5CTest extends TestCase
             Permission::whereIn('code', ['assessment.create'])->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
         );
         $this->admin->roles()->attach($supervisorRole);
+        $template = ClinicalAssessmentTemplate::where('is_active', true)->firstOrFail();
 
         $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessment-batches'), [
             'assignment_id' => $this->assignment1->id,
-            'session_date' => '2026-09-15',
-            'assessments' => [['student_id' => $this->student1->id, 'score' => 17]],
-        ])->assertUnprocessable()->assertJsonValidationErrors('assessments');
+            'evaluation_week' => 1,
+            'template_id' => $template->id,
+            'assessments' => [['student_id' => $this->student1->id, 'score' => 11]],
+        ])->assertUnprocessable()->assertJsonValidationErrors('assessments.0.score');
 
         $response = $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessment-batches'), [
             'assignment_id' => $this->assignment1->id,
-            'session_date' => '2026-09-15',
+            'evaluation_week' => 1,
+            'template_id' => $template->id,
             'assessments' => [
-                ['student_id' => $this->student1->id, 'score' => 17, 'notes' => 'Good'],
-                ['student_id' => $this->student2->id, 'score' => 18, 'notes' => 'Very good'],
+                ['student_id' => $this->student1->id, 'score' => 8.5, 'notes' => 'Good'],
+                ['student_id' => $this->student2->id, 'score' => 9, 'notes' => 'Very good'],
             ],
         ])->assertOk()->assertJsonCount(2, 'data.assessments');
 

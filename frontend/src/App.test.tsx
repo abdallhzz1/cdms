@@ -15,6 +15,7 @@ const AUTHENTICATED_USER = {
   message: null,
   meta: {},
 };
+const DASHBOARD = { profile: { name: 'Test Director', focus: 'clinical_leadership', roles: ['CLINICAL_DIRECTOR'], assigned_levels: [], scope_student_count: 0 }, metrics: [], charts: [], attention: [], activity: [], generated_at: '2026-09-11T10:00:00+03:00' };
 
 function mockFetchByUrl(routes: Record<string, () => Response>) {
   vi.stubGlobal(
@@ -48,13 +49,14 @@ describe('App', () => {
   it('loads and renders the Foundation page at the root route for an authenticated user', async () => {
     mockFetchByUrl({
       '/auth/me': () => jsonResponse(AUTHENTICATED_USER),
+      '/dashboard/overview': () => jsonResponse({ success: true, data: DASHBOARD, message: null, meta: {} }),
       '/health': () => jsonResponse(HEALTH_OK),
     });
 
     renderWithProviders(<App />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /أهلاً بك/ })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Welcome,/i })).toBeInTheDocument();
     });
 
   });
