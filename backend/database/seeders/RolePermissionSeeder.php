@@ -94,14 +94,14 @@ class RolePermissionSeeder extends Seeder
             ]);
         }
 
-        $approvalGrants = [
+        $defaultGrants = [
             'SYS_ADMIN' => ['approval_workflows.view', 'approval_workflows.manage', 'approvals.view'],
-            'CLINICAL_DIRECTOR' => ['approval_workflows.view', 'approvals.view', 'approvals.decide'],
+            'CLINICAL_DIRECTOR' => ['approval_workflows.view', 'approvals.view', 'approvals.decide', 'attendance.review'],
             'DEAN' => ['approval_workflows.view', 'approvals.view', 'approvals.decide'],
             'VICE_DEAN' => ['approvals.view', 'approvals.decide'],
             'DEPARTMENT_HEAD' => ['approvals.view', 'approvals.decide'],
         ];
-        foreach ($approvalGrants as $roleCode => $codes) {
+        foreach ($defaultGrants as $roleCode => $codes) {
             $role = Role::where('code', $roleCode)->first();
             if (! $role) continue;
             foreach (Permission::whereIn('code', $codes)->get() as $permission) {
