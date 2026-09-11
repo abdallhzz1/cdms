@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   Building2,
   CalendarDays,
+  ClipboardCheck,
   Mail,
   Pencil,
   Plus,
@@ -693,39 +694,40 @@ export function ClinicalSupervisorsDirectoryPage() {
                       </div>
                     </div>
                   </button>
-                  <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                  <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3">
                     <Button
                       size="sm"
                       onClick={() =>
                         navigate(`/clinical-supervisors/${doctor.user_id}`)
                       }
                     >
-                      <ShieldCheck className="ml-1 h-4 w-4" />
-                      فتح الملف
+                      <ShieldCheck className="me-1 h-4 w-4" />
+                      {tr("فتح الملف", "Open profile")}
                     </Button>
                     {can("clinical_supervisor_evaluations.create") && (
                       <Link
                         to={`/clinical-supervisor-evaluations?supervisor=${doctor.user_id}`}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
+                        title={tr("التقييم الرسمي", "Official evaluation")}
+                        aria-label={tr("التقييم الرسمي", "Official evaluation")}
                       >
-                        <Button size="sm" variant="outline">
-                          تقييم رسمي
-                        </Button>
+                        <ClipboardCheck className="h-4 w-4" />
                       </Link>
                     )}
                     {can("people.manage") && (
                       <>
-                        <Button size="sm" variant="outline" onClick={() => openEmployment(doctor)}>
-                          <Pencil className="me-1 h-4 w-4" />
-                          {tr("البيانات الوظيفية", "Employment data")}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
+                        <button type="button" onClick={() => openEmployment(doctor)} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700" title={tr("البيانات الوظيفية", "Employment data")} aria-label={tr("البيانات الوظيفية", "Employment data")}>
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => openWorkSchedules(doctor)}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
+                          title={tr("أماكن وأيام العمل", "Workplaces and days")}
+                          aria-label={tr("أماكن وأيام العمل", "Workplaces and days")}
                         >
-                          <CalendarDays className="me-1 h-4 w-4" />
-                          {tr("أماكن وأيام العمل", "Workplaces and days")}
-                        </Button>
+                          <CalendarDays className="h-4 w-4" />
+                        </button>
                       </>
                     )}
                   </div>
@@ -736,14 +738,21 @@ export function ClinicalSupervisorsDirectoryPage() {
 
           <section className="hidden overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm md:block">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-right text-xs">
+              <table className="w-full min-w-[960px] table-fixed text-right text-sm">
+                <colgroup>
+                  <col className="w-[23%]" />
+                  <col className="w-[18%]" />
+                  <col className="w-[17%]" />
+                  <col className="w-[18%]" />
+                  <col className="w-[24%]" />
+                </colgroup>
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
-                    <th className="px-5 py-4">المشرف السريري</th>
-                    <th className="px-5 py-4">المستشفى أو الموقع</th>
-                    <th className="px-5 py-4">التخصص والدرجة</th>
-                    <th className="px-5 py-4">بيانات التواصل</th>
-                    <th className="px-5 py-4 text-center">الإجراء</th>
+                    <th className="px-4 py-3">{tr("المشرف السريري", "Clinical supervisor")}</th>
+                    <th className="px-4 py-3">{tr("المستشفى أو الموقع", "Hospital or site")}</th>
+                    <th className="px-4 py-3">{tr("التخصص والدرجة", "Specialty and degree")}</th>
+                    <th className="px-4 py-3">{tr("بيانات التواصل", "Contact")}</th>
+                    <th className="px-4 py-3 text-center">{tr("الإجراءات", "Actions")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -757,7 +766,7 @@ export function ClinicalSupervisorsDirectoryPage() {
                     );
                     return (
                       <tr key={doctor.user_id} className="hover:bg-teal-50/40">
-                        <td className="px-5 py-4">
+                        <td className="px-4 py-3">
                           <button
                             type="button"
                             onClick={() =>
@@ -785,7 +794,7 @@ export function ClinicalSupervisorsDirectoryPage() {
                               {doctor.full_name_en && (
                                 <span
                                   dir="ltr"
-                                  className="mt-1 block text-left text-[10px] text-slate-400"
+                                   className="mt-0.5 block truncate text-left text-xs text-slate-400"
                                 >
                                   {doctor.full_name_en}
                                 </span>
@@ -793,7 +802,7 @@ export function ClinicalSupervisorsDirectoryPage() {
                             </span>
                           </button>
                         </td>
-                        <td className="px-5 py-4">
+                        <td className="px-4 py-3">
                           {doctorHospitals.length ? (
                             <div className="flex flex-wrap gap-1.5">
                               {doctorHospitals.map((hospital) => (
@@ -812,30 +821,30 @@ export function ClinicalSupervisorsDirectoryPage() {
                             </span>
                           )}
                         </td>
-                        <td className="px-5 py-4">
+                        <td className="px-4 py-3">
                           <p className="font-bold text-slate-700">
                             {doctor.specialty ||
                               profile?.specialty ||
                               "غير محدد"}
                           </p>
-                          <p className="mt-1 text-[10px] text-slate-500">
+                          <p className="mt-0.5 truncate text-xs text-slate-500">
                             {profile?.title ||
                               profile?.contract_type ||
                               "الدرجة غير محددة"}
                           </p>
                         </td>
-                        <td className="px-5 py-4">
+                        <td className="px-4 py-3">
                           <a
                             href={`mailto:${doctor.email}`}
                             dir="ltr"
-                            className="inline-flex items-center gap-1.5 text-left font-mono text-[10px] text-slate-500 hover:text-teal-700"
+                            className="flex min-w-0 items-center gap-1.5 text-left text-xs text-slate-500 hover:text-teal-700"
                           >
                             <Mail className="h-3.5 w-3.5" />
-                            {doctor.email}
+                            <span className="truncate">{doctor.email}</span>
                           </a>
                         </td>
-                        <td className="px-5 py-4">
-                          <div className="flex flex-wrap justify-center gap-2">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
                             <Button
                               size="sm"
                               onClick={() =>
@@ -844,32 +853,33 @@ export function ClinicalSupervisorsDirectoryPage() {
                                 )
                               }
                             >
-                              <ShieldCheck className="ml-1 h-4 w-4" />
-                              فتح الملف
+                              <ShieldCheck className="me-1 h-4 w-4" />
+                              {tr("فتح الملف", "Open profile")}
                             </Button>
                             {can("clinical_supervisor_evaluations.create") && (
                               <Link
                                 to={`/clinical-supervisor-evaluations?supervisor=${doctor.user_id}`}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
+                                title={tr("التقييم الرسمي", "Official evaluation")}
+                                aria-label={tr("التقييم الرسمي", "Official evaluation")}
                               >
-                                <Button size="sm" variant="outline">
-                                  تقييم رسمي
-                                </Button>
+                                <ClipboardCheck className="h-4 w-4" />
                               </Link>
                             )}
                             {can("people.manage") && (
                               <>
-                                <Button size="sm" variant="outline" onClick={() => openEmployment(doctor)}>
-                                  <Pencil className="me-1 h-4 w-4" />
-                                  {tr("البيانات الوظيفية", "Employment data")}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
+                                <button type="button" onClick={() => openEmployment(doctor)} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700" title={tr("البيانات الوظيفية", "Employment data")} aria-label={tr("البيانات الوظيفية", "Employment data")}>
+                                  <Pencil className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => openWorkSchedules(doctor)}
+                                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
+                                  title={tr("أماكن وأيام العمل", "Workplaces and days")}
+                                  aria-label={tr("أماكن وأيام العمل", "Workplaces and days")}
                                 >
-                                  <CalendarDays className="me-1 h-4 w-4" />
-                                  {tr("أماكن وأيام العمل", "Workplaces and days")}
-                                </Button>
+                                  <CalendarDays className="h-4 w-4" />
+                                </button>
                               </>
                             )}
                           </div>
