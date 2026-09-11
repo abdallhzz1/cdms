@@ -630,6 +630,36 @@ class Phase5CTest extends TestCase
         $this->actingAs($reviewer)->postJson("/api/v1/clinical-assessment-batches/{$batchUuid}/approve")
             ->assertOk()->assertJsonPath('data.count', 2);
         $this->assertSame(2, \App\Models\ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->where('status', 'approved')->count());
+
+        $newStudent = Student::factory()->create([
+            'academic_year_id' => $this->rotation->academic_year_id,
+            'batch_year' => $this->student1->batch_year,
+            'registration_status' => 'active',
+        ]);
+        $newAssignment = StudentClinicalAssignment::create([
+            'distribution_version_id' => $this->publishedVersion->id,
+            'student_id' => $newStudent->id,
+            'student_subgroup_id' => $this->subgroup->id,
+            'rotation_block_id' => $this->block1->id,
+            'training_site_id' => $this->site1->id,
+            'department_id' => $this->department1->id,
+            'supervisor_id' => $this->supervisor1->id,
+        ]);
+
+        $newBatch = $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessment-batches'), [
+            'assignment_id' => $this->assignment1->id,
+            'evaluation_week' => 1,
+            'template_id' => $template->id,
+            'assessments' => [['student_id' => $newStudent->id, 'score' => 8, 'notes' => 'Joined later']],
+        ])->assertOk()->assertJsonCount(1, 'data.assessments');
+
+        $this->assertNotSame($batchUuid, $newBatch->json('data.batch_uuid'));
+        $this->assertDatabaseHas('clinical_assessments', [
+            'student_clinical_assignment_id' => $newAssignment->id,
+            'status' => 'submitted',
+            'score' => 8,
+        ]);
+        $this->assertSame(2, \App\Models\ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->where('status', 'approved')->count());
     }
 
     // =========================================================================

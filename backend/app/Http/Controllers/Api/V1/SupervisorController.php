@@ -363,10 +363,20 @@ class SupervisorController extends Controller
 
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
         $groupAssignments = $this->assignmentGroupQuery($assignment)->get()->keyBy('student_id');
-        $allowedIds = $groupAssignments->keys()->map(fn ($id) => (int) $id)->sort()->values();
+        $lockedAssignmentIds = ClinicalAssessment::query()
+            ->where('evaluator_person_id', $person->id)
+            ->where('evaluation_week', (int) $data['evaluation_week'])
+            ->whereIn('student_clinical_assignment_id', $groupAssignments->pluck('id'))
+            ->whereIn('status', ['submitted', 'approved'])
+            ->pluck('student_clinical_assignment_id');
+        $allowedIds = $groupAssignments
+            ->reject(fn (StudentClinicalAssignment $item) => $lockedAssignmentIds->contains($item->id))
+            ->keys()->map(fn ($id) => (int) $id)->sort()->values();
         $submittedIds = collect($data['assessments'])->pluck('student_id')->map(fn ($id) => (int) $id)->sort()->values();
         if ($allowedIds->all() !== $submittedIds->all()) {
-            throw ValidationException::withMessages(['assessments' => ['Every student in the selected group must be evaluated exactly once.']]);
+            throw ValidationException::withMessages(['assessments' => [app()->getLocale() === 'ar'
+                ? 'يجب تقييم كل طالب غير مرسل في المجموعة مرة واحدة، دون إعادة إرسال التقييمات المرسلة أو المعتمدة.'
+                : 'Every pending student in the group must be evaluated exactly once; submitted or approved assessments must not be resent.']]);
         }
 
         [$weekStart, $weekEnd] = $this->assignmentWeek($assignment, (int) $data['evaluation_week']);

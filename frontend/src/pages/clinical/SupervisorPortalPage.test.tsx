@@ -60,6 +60,22 @@ describe('clinical supervisor workspace',()=>{
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessment-batches')&&String(init?.body).includes('"student_id":7')&&String(init?.body).includes('"score":9'))).toBe(true));
   });
 
+  it('submits only a student added after the rest of the group was approved',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    const secondAssignment={...workspace.assignments[0],id:22,student:{id:8,university_number:'22010002',full_name_ar:'طالب جديد',full_name_en:'New Student',batch_year:2026}};
+    const mixedWorkspace={...workspace,assignments:[workspace.assignments[0],secondAssignment],assessments:[{id:41,student_id:7,student_clinical_assignment_id:21,evaluation_week:1,score:10,max_score:10,status:'approved',created_at:'2026-08-30'}]};
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(mixedWorkspace);if(url.includes('/my-supervisor-assessment-batches'))return envelope({batch_uuid:'new-batch',assessments:[{id:42,status:'submitted'}]});throw new Error(`Unmocked ${url} ${init?.method}`)});
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=1'});
+    const submitButton=await screen.findByRole('button',{name:'Submit 1 new assessment'});
+    expect(submitButton).toBeDisabled();
+    const scoreInputs=screen.getAllByRole('spinbutton');
+    expect(scoreInputs[0]).toBeDisabled();
+    await userEvent.type(scoreInputs[1],'8');
+    expect(submitButton).toBeEnabled();
+    await userEvent.click(submitButton);
+    await waitFor(()=>{const call=fetchSpy.mock.calls.find(([input])=>String(input).includes('/my-supervisor-assessment-batches'));const body=String(call?.[1]?.body);expect(body).toContain('"student_id":8');expect(body).not.toContain('"student_id":7');});
+  });
+
   it('does not treat a director role alone as a clinical supervisor',async()=>{
     const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope({...user,roles:['CLINICAL_DIRECTOR']}):envelope(workspace));
     renderWithProviders(<SupervisorPortalPage/>);
