@@ -655,6 +655,12 @@ class CourseDistributionController extends Controller
             'password' => ['required', 'string', Password::min(12)->mixedCase()->numbers()->symbols()],
             'primary_site_id' => ['required', 'integer', 'exists:training_sites,id'],
             'specialty' => ['nullable', 'string', 'max:255'],
+            'staff_code' => ['nullable', 'string', 'max:20', 'unique:people,staff_code'],
+            'academic_degree' => ['nullable', 'string', 'max:255'],
+            'license_number' => ['nullable', 'string', 'max:50'],
+            'contract_type' => ['nullable', 'in:full_time,part_time,visiting,honorary'],
+            'contract_start' => ['nullable', 'date'],
+            'contract_end' => ['nullable', 'date', 'after_or_equal:contract_start'],
         ]);
 
         $person = DB::transaction(function () use ($data) {
@@ -672,6 +678,12 @@ class CourseDistributionController extends Controller
                 'email' => strtolower($data['email']),
                 'primary_site_id' => $data['primary_site_id'],
                 'specialty' => $data['specialty'] ?? null,
+                'staff_code' => $data['staff_code'] ?? null,
+                'academic_degree' => $data['academic_degree'] ?? null,
+                'license_number' => $data['license_number'] ?? null,
+                'contract_type' => $data['contract_type'] ?? null,
+                'contract_start' => $data['contract_start'] ?? null,
+                'contract_end' => $data['contract_end'] ?? null,
                 'is_active' => true,
                 'user_id' => $user->id,
             ]);

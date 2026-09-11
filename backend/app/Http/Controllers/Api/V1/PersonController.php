@@ -8,8 +8,10 @@ use App\Http\Requests\V1\UpdatePersonRequest;
 use App\Http\Resources\V1\PersonResource;
 use App\Http\Responses\ApiResponse;
 use App\Models\Person;
+use App\Models\UserProfile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PersonController extends Controller
 {
@@ -97,8 +99,46 @@ class PersonController extends Controller
      */
     public function update(UpdatePersonRequest $request, Person $person): JsonResponse
     {
-        $person->update($request->validated());
+        $data = $request->validated();
 
-        return ApiResponse::success(new PersonResource($person->fresh()->load('department')));
+        DB::transaction(function () use ($person, $data): void {
+            $person->update($data);
+
+            if (array_key_exists('primary_site_id', $data)) {
+                $person->trainingSites()->updateExistingPivot(
+                    $person->trainingSites()->pluck('training_sites.id')->all(),
+                    ['is_primary' => false]
+                );
+                if ($data['primary_site_id']) {
+                    $person->trainingSites()->syncWithoutDetaching([
+                        $data['primary_site_id'] => ['is_primary' => true],
+                    ]);
+                }
+            }
+
+            if (! $person->user_id) {
+                return;
+            }
+
+            $sharedFields = array_filter([
+                'specialty' => $data['specialty'] ?? null,
+                'academic_degree' => $data['academic_degree'] ?? null,
+            ], fn ($value, $key) => array_key_exists($key, $data), ARRAY_FILTER_USE_BOTH);
+            if ($sharedFields !== []) {
+                UserProfile::updateOrCreate(['user_id' => $person->user_id], $sharedFields);
+            }
+
+            $roleFields = array_filter([
+                'specialty' => $data['specialty'] ?? null,
+                'academic_title' => $data['academic_degree'] ?? null,
+                'contract_type' => $data['contract_type'] ?? null,
+            ], fn ($value, $key) => in_array($key === 'academic_title' ? 'academic_degree' : $key, array_keys($data), true), ARRAY_FILTER_USE_BOTH);
+            if ($roleFields !== []) {
+                $person->user?->clinicalSupervisorProfile?->update($roleFields);
+                $person->user?->departmentHeadProfile?->update($roleFields);
+            }
+        });
+
+        return ApiResponse::success(new PersonResource($person->fresh()->load(['department', 'primarySite'])));
     }
 }

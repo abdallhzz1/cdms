@@ -238,8 +238,10 @@ class UserProfileController extends Controller
             ?: $supervisorProfile?->avatar_url
             ?: $departmentHeadProfile?->avatar_url;
         $phone = $profile?->phone ?: $person?->phone ?: $supervisorProfile?->phone ?: $departmentHeadProfile?->phone;
-        $specialty = $profile?->specialty ?: $person?->specialty ?: $supervisorProfile?->specialty ?: $departmentHeadProfile?->specialty;
-        $degree = $profile?->academic_degree ?: $person?->academic_degree ?: $supervisorProfile?->academic_title ?: $departmentHeadProfile?->academic_title;
+        // Official employment fields belong to the personnel record. Legacy
+        // profile values are fallbacks only for accounts without a Person row.
+        $specialty = $person?->specialty ?: $profile?->specialty ?: $supervisorProfile?->specialty ?: $departmentHeadProfile?->specialty;
+        $degree = $person?->academic_degree ?: $profile?->academic_degree ?: $supervisorProfile?->academic_title ?: $departmentHeadProfile?->academic_title;
         $roles = $user->roles->pluck('code')->values();
         $professional = $this->supportsProfessionalProfile($user);
         $requirements = [

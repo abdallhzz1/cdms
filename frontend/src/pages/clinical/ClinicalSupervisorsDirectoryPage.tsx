@@ -68,6 +68,38 @@ type Profile = {
   department_name?: string | null;
   contract_type?: string | null;
 };
+type EmploymentRecord = {
+  id: number;
+  staff_code?: string | null;
+  primary_site_id?: number | null;
+  specialty?: string | null;
+  academic_degree?: string | null;
+  license_number?: string | null;
+  contract_type?: "full_time" | "part_time" | "visiting" | "honorary" | null;
+  contract_start?: string | null;
+  contract_end?: string | null;
+};
+type EmploymentForm = {
+  staff_code: string;
+  primary_site_id: string;
+  specialty: string;
+  academic_degree: string;
+  license_number: string;
+  contract_type: string;
+  contract_start: string;
+  contract_end: string;
+};
+
+const emptyEmploymentForm = (): EmploymentForm => ({
+  staff_code: "",
+  primary_site_id: "",
+  specialty: "",
+  academic_degree: "",
+  license_number: "",
+  contract_type: "",
+  contract_start: "",
+  contract_end: "",
+});
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100";
@@ -138,6 +170,9 @@ export function ClinicalSupervisorsDirectoryPage() {
     null,
   );
   const [scheduling, setScheduling] = useState<Doctor | null>(null);
+  const [employmentDoctor, setEmploymentDoctor] = useState<Doctor | null>(null);
+  const [employmentLoading, setEmploymentLoading] = useState(false);
+  const [employmentForm, setEmploymentForm] = useState<EmploymentForm>(emptyEmploymentForm);
   const [scheduleForm, setScheduleForm] = useState<WorkSchedule[]>([]);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [doctorForm, setDoctorForm] = useState({
@@ -147,6 +182,12 @@ export function ClinicalSupervisorsDirectoryPage() {
     password: "",
     primary_site_id: "",
     specialty: "",
+    staff_code: "",
+    academic_degree: "",
+    license_number: "",
+    contract_type: "",
+    contract_start: "",
+    contract_end: "",
   });
   const [hospitalForm, setHospitalForm] = useState({
     name_ar: "",
@@ -245,6 +286,12 @@ export function ClinicalSupervisorsDirectoryPage() {
         password: "",
         primary_site_id: "",
         specialty: "",
+        staff_code: "",
+        academic_degree: "",
+        license_number: "",
+        contract_type: "",
+        contract_start: "",
+        contract_end: "",
       });
       await refresh();
       setNotice({
@@ -261,6 +308,80 @@ export function ClinicalSupervisorsDirectoryPage() {
         text: errorMessage(
           error,
           tr("تعذر إضافة الطبيب.", "Could not add the physician."),
+        ),
+      }),
+  });
+  const openEmployment = async (doctor: Doctor) => {
+    if (!doctor.id) {
+      setNotice({
+        type: "error",
+        text: tr(
+          "لا يوجد سجل كادر مرتبط بهذا الحساب. أعد إنشاء الربط أولًا.",
+          "This account has no linked personnel record. Restore the link first.",
+        ),
+      });
+      return;
+    }
+    setEmploymentDoctor(doctor);
+    setEmploymentLoading(true);
+    try {
+      const record = await apiFetch<EmploymentRecord>(`/people/${doctor.id}`);
+      setEmploymentForm({
+        staff_code: record.staff_code ?? "",
+        primary_site_id: record.primary_site_id ? String(record.primary_site_id) : "",
+        specialty: record.specialty ?? "",
+        academic_degree: record.academic_degree ?? "",
+        license_number: record.license_number ?? "",
+        contract_type: record.contract_type ?? "",
+        contract_start: record.contract_start ?? "",
+        contract_end: record.contract_end ?? "",
+      });
+    } catch (error) {
+      setEmploymentDoctor(null);
+      setNotice({
+        type: "error",
+        text: errorMessage(
+          error,
+          tr("تعذر تحميل البيانات الوظيفية.", "Could not load employment information."),
+        ),
+      });
+    } finally {
+      setEmploymentLoading(false);
+    }
+  };
+  const saveEmployment = useMutation({
+    mutationFn: () =>
+      apiFetch(`/people/${employmentDoctor!.id}`, {
+        method: "PUT",
+        body: {
+          staff_code: employmentForm.staff_code || null,
+          primary_site_id: employmentForm.primary_site_id ? Number(employmentForm.primary_site_id) : null,
+          specialty: employmentForm.specialty || null,
+          academic_degree: employmentForm.academic_degree || null,
+          license_number: employmentForm.license_number || null,
+          contract_type: employmentForm.contract_type || null,
+          contract_start: employmentForm.contract_start || null,
+          contract_end: employmentForm.contract_end || null,
+        },
+      }),
+    onSuccess: async () => {
+      setEmploymentDoctor(null);
+      setEmploymentForm(emptyEmploymentForm());
+      await refresh();
+      setNotice({
+        type: "success",
+        text: tr(
+          "تم حفظ البيانات الوظيفية وتحديث ملف المستخدم.",
+          "Employment information was saved and the user profile was updated.",
+        ),
+      });
+    },
+    onError: (error) =>
+      setNotice({
+        type: "error",
+        text: errorMessage(
+          error,
+          tr("تعذر حفظ البيانات الوظيفية.", "Could not save employment information."),
         ),
       }),
   });
@@ -592,14 +713,20 @@ export function ClinicalSupervisorsDirectoryPage() {
                       </Link>
                     )}
                     {can("people.manage") && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openWorkSchedules(doctor)}
-                      >
-                        <CalendarDays className="ml-1 h-4 w-4" />
-                        أماكن وأيام العمل
-                      </Button>
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => openEmployment(doctor)}>
+                          <Pencil className="me-1 h-4 w-4" />
+                          {tr("البيانات الوظيفية", "Employment data")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openWorkSchedules(doctor)}
+                        >
+                          <CalendarDays className="me-1 h-4 w-4" />
+                          {tr("أماكن وأيام العمل", "Workplaces and days")}
+                        </Button>
+                      </>
                     )}
                   </div>
                 </article>
@@ -730,14 +857,20 @@ export function ClinicalSupervisorsDirectoryPage() {
                               </Link>
                             )}
                             {can("people.manage") && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => openWorkSchedules(doctor)}
-                              >
-                                <CalendarDays className="ml-1 h-4 w-4" />
-                                أماكن وأيام العمل
-                              </Button>
+                              <>
+                                <Button size="sm" variant="outline" onClick={() => openEmployment(doctor)}>
+                                  <Pencil className="me-1 h-4 w-4" />
+                                  {tr("البيانات الوظيفية", "Employment data")}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openWorkSchedules(doctor)}
+                                >
+                                  <CalendarDays className="me-1 h-4 w-4" />
+                                  {tr("أماكن وأيام العمل", "Workplaces and days")}
+                                </Button>
+                              </>
                             )}
                           </div>
                         </td>
@@ -832,6 +965,81 @@ export function ClinicalSupervisorsDirectoryPage() {
       )}
 
       <Modal
+        isOpen={Boolean(employmentDoctor)}
+        onClose={() => {
+          if (saveEmployment.isPending) return;
+          setEmploymentDoctor(null);
+          setEmploymentForm(emptyEmploymentForm());
+        }}
+        title={employmentDoctor ? `${tr("البيانات الوظيفية", "Employment information")} — ${doctorName(employmentDoctor)}` : ""}
+        maxWidth="xl"
+      >
+        {employmentLoading ? <LoadingState /> : (
+          <form
+            className="space-y-5"
+            onSubmit={(event: FormEvent) => {
+              event.preventDefault();
+              saveEmployment.mutate();
+            }}
+          >
+            <p className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs font-bold leading-6 text-amber-800">
+              {tr(
+                "هذه بيانات كادر رسمية وتظهر في ملف المستخدم للعرض فقط. الدور الإداري يُدار من شاشة المستخدمين ولا يُكتب كدرجة أكاديمية.",
+                "These are official personnel fields and appear read-only on the user profile. Administrative roles are managed from Users and must not be entered as an academic degree.",
+              )}
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="text-sm font-bold text-slate-700">
+                {tr("الرقم الوظيفي", "Staff code")}
+                <input dir="ltr" className={inputClass} value={employmentForm.staff_code} onChange={(event) => setEmploymentForm(current => ({ ...current, staff_code: event.target.value }))} />
+              </label>
+              <label className="text-sm font-bold text-slate-700">
+                {tr("الموقع التدريبي الأساسي", "Primary training site")}
+                <select className={inputClass} value={employmentForm.primary_site_id} onChange={(event) => setEmploymentForm(current => ({ ...current, primary_site_id: event.target.value }))}>
+                  <option value="">{tr("غير محدد", "Not specified")}</option>
+                  {hospitals.map(hospital => <option key={hospital.id} value={hospital.id}>{hospitalName(hospital)}</option>)}
+                </select>
+              </label>
+              <label className="text-sm font-bold text-slate-700">
+                {tr("التخصص الطبي", "Medical specialty")}
+                <input className={inputClass} value={employmentForm.specialty} onChange={(event) => setEmploymentForm(current => ({ ...current, specialty: event.target.value }))} placeholder={tr("مثال: الطب الباطني", "Example: Internal Medicine")} />
+              </label>
+              <label className="text-sm font-bold text-slate-700">
+                {tr("الدرجة الأكاديمية", "Academic degree")}
+                <input className={inputClass} value={employmentForm.academic_degree} onChange={(event) => setEmploymentForm(current => ({ ...current, academic_degree: event.target.value }))} placeholder={tr("مثال: أستاذ مساعد", "Example: Assistant Professor")} />
+              </label>
+              <label className="text-sm font-bold text-slate-700">
+                {tr("رقم الترخيص", "License number")}
+                <input dir="ltr" className={inputClass} value={employmentForm.license_number} onChange={(event) => setEmploymentForm(current => ({ ...current, license_number: event.target.value }))} />
+              </label>
+              <label className="text-sm font-bold text-slate-700">
+                {tr("نوع العقد", "Contract type")}
+                <select className={inputClass} value={employmentForm.contract_type} onChange={(event) => setEmploymentForm(current => ({ ...current, contract_type: event.target.value }))}>
+                  <option value="">{tr("غير محدد", "Not specified")}</option>
+                  <option value="full_time">{tr("دوام كامل", "Full time")}</option>
+                  <option value="part_time">{tr("دوام جزئي", "Part time")}</option>
+                  <option value="visiting">{tr("زائر", "Visiting")}</option>
+                  <option value="honorary">{tr("فخري", "Honorary")}</option>
+                </select>
+              </label>
+              <label className="text-sm font-bold text-slate-700">
+                {tr("بداية العقد", "Contract start")}
+                <input type="date" className={inputClass} value={employmentForm.contract_start} onChange={(event) => setEmploymentForm(current => ({ ...current, contract_start: event.target.value }))} />
+              </label>
+              <label className="text-sm font-bold text-slate-700">
+                {tr("نهاية العقد", "Contract end")}
+                <input type="date" min={employmentForm.contract_start || undefined} className={inputClass} value={employmentForm.contract_end} onChange={(event) => setEmploymentForm(current => ({ ...current, contract_end: event.target.value }))} />
+              </label>
+            </div>
+            {saveEmployment.isError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{errorMessage(saveEmployment.error, tr("تعذر حفظ البيانات الوظيفية.", "Could not save employment information."))}</p>}
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+              <Button type="button" variant="outline" onClick={() => { setEmploymentDoctor(null); setEmploymentForm(emptyEmploymentForm()); }} disabled={saveEmployment.isPending}>{tr("إلغاء", "Cancel")}</Button>
+              <Button type="submit" isLoading={saveEmployment.isPending}>{tr("حفظ البيانات الوظيفية", "Save employment information")}</Button>
+            </div>
+          </form>
+        )}
+      </Modal>
+      <Modal
         isOpen={doctorModal}
         onClose={() => setDoctorModal(false)}
         title={tr(
@@ -909,6 +1117,36 @@ export function ClinicalSupervisorsDirectoryPage() {
                   setDoctorForm({ ...doctorForm, specialty: e.target.value })
                 }
               />
+            </label>
+            <label>
+              <span className="mb-1 block text-xs font-bold">{tr("الدرجة الأكاديمية", "Academic degree")}</span>
+              <input className={inputClass} value={doctorForm.academic_degree} onChange={(e) => setDoctorForm({ ...doctorForm, academic_degree: e.target.value })} placeholder={tr("مثال: أستاذ مساعد", "Example: Assistant Professor")} />
+            </label>
+            <label>
+              <span className="mb-1 block text-xs font-bold">{tr("الرقم الوظيفي", "Staff code")}</span>
+              <input dir="ltr" className={inputClass} value={doctorForm.staff_code} onChange={(e) => setDoctorForm({ ...doctorForm, staff_code: e.target.value })} />
+            </label>
+            <label>
+              <span className="mb-1 block text-xs font-bold">{tr("رقم الترخيص", "License number")}</span>
+              <input dir="ltr" className={inputClass} value={doctorForm.license_number} onChange={(e) => setDoctorForm({ ...doctorForm, license_number: e.target.value })} />
+            </label>
+            <label>
+              <span className="mb-1 block text-xs font-bold">{tr("نوع العقد", "Contract type")}</span>
+              <select className={inputClass} value={doctorForm.contract_type} onChange={(e) => setDoctorForm({ ...doctorForm, contract_type: e.target.value })}>
+                <option value="">{tr("غير محدد", "Not specified")}</option>
+                <option value="full_time">{tr("دوام كامل", "Full time")}</option>
+                <option value="part_time">{tr("دوام جزئي", "Part time")}</option>
+                <option value="visiting">{tr("زائر", "Visiting")}</option>
+                <option value="honorary">{tr("فخري", "Honorary")}</option>
+              </select>
+            </label>
+            <label>
+              <span className="mb-1 block text-xs font-bold">{tr("بداية العقد", "Contract start")}</span>
+              <input type="date" className={inputClass} value={doctorForm.contract_start} onChange={(e) => setDoctorForm({ ...doctorForm, contract_start: e.target.value })} />
+            </label>
+            <label>
+              <span className="mb-1 block text-xs font-bold">{tr("نهاية العقد", "Contract end")}</span>
+              <input type="date" min={doctorForm.contract_start || undefined} className={inputClass} value={doctorForm.contract_end} onChange={(e) => setDoctorForm({ ...doctorForm, contract_end: e.target.value })} />
             </label>
             <label>
               <span className="mb-1 block text-xs font-bold">

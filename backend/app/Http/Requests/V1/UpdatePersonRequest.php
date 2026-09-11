@@ -29,7 +29,7 @@ class UpdatePersonRequest extends FormRequest
             'license_number'           => ['nullable', 'string', 'max:50'],
             'contract_type'            => ['nullable', 'in:full_time,part_time,visiting,honorary'],
             'contract_start'           => ['nullable', 'date'],
-            'contract_end'             => ['nullable', 'date'],
+            'contract_end'             => ['nullable', 'date', 'after_or_equal:contract_start'],
             'teaching_hours_per_week'  => ['nullable', 'integer', 'min:0', 'max:40'],
             'available_days'           => ['nullable', 'string', 'max:255'],
             'max_students'             => ['nullable', 'integer', 'min:1', 'max:50'],

@@ -3,8 +3,11 @@
 namespace Tests\Feature\Phase3A;
 
 use App\Models\Department;
+use App\Models\Permission;
 use App\Models\Person;
+use App\Models\Role;
 use App\Models\User;
+use App\Models\UserProfile;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\Phase3PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -77,5 +80,52 @@ class PersonTest extends TestCase
 
         $response->assertStatus(422)
             ->assertJsonValidationErrors('user_id');
+    }
+
+    public function test_manager_can_update_official_employment_fields_used_by_profile(): void
+    {
+        $manager = User::factory()->create();
+        $managerRole = Role::where('code', 'RTA')->firstOrFail();
+        $managerRole->permissions()->sync(
+            Permission::whereIn('code', ['people.view', 'people.manage'])
+                ->pluck('id')
+                ->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])
+                ->all()
+        );
+        $manager->roles()->attach($managerRole);
+        $user = User::factory()->create();
+        $person = Person::factory()->create([
+            'user_id' => $user->id,
+            'specialty' => null,
+            'academic_degree' => null,
+        ]);
+        UserProfile::create([
+            'user_id' => $user->id,
+            'specialty' => 'قيمة قديمة',
+            'academic_degree' => 'دور إداري قديم',
+        ]);
+
+        $this->actingAs($manager)->putJson("/api/v1/people/{$person->id}", [
+            'staff_code' => 'EMP-101',
+            'specialty' => 'الطب الباطني',
+            'academic_degree' => 'أستاذ مساعد',
+            'license_number' => 'MED-7788',
+            'contract_type' => 'part_time',
+            'contract_start' => '2026-09-01',
+            'contract_end' => '2027-08-31',
+        ])->assertOk()
+            ->assertJsonPath('data.academic_degree', 'أستاذ مساعد')
+            ->assertJsonPath('data.license_number', 'MED-7788');
+
+        $this->actingAs($user)->getJson('/api/v1/profile/me')
+            ->assertOk()
+            ->assertJsonPath('data.specialty', 'الطب الباطني')
+            ->assertJsonPath('data.academic_degree', 'أستاذ مساعد')
+            ->assertJsonPath('data.employment.contract_type', 'part_time');
+
+        $this->assertDatabaseHas('user_profiles', [
+            'user_id' => $user->id,
+            'academic_degree' => 'أستاذ مساعد',
+        ]);
     }
 }

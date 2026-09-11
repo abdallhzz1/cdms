@@ -206,7 +206,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('/{person}', [PersonController::class, 'show'])
                 ->middleware('permission:people.view')->name('show');
             Route::put('/{person}', [PersonController::class, 'update'])
-                ->middleware('permission:users.manage')->name('update');
+                ->middleware('permission:people.manage')->name('update');
         });
 
         // Students
