@@ -100,28 +100,25 @@ export function AttendanceMasterPage() {
       </section>
 
       {summaryQuery.isLoading ? <LoadingState /> : summaryQuery.isError || !summary ? <ErrorState onRetry={() => summaryQuery.refetch()} /> : <>
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-black text-slate-900">{summary.group.subgroup_name || summary.group.group_name || '—'}</h2>
-                <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-black text-teal-700">{summary.group.student_count} {tr('طالب','students')}</span>
-              </div>
-              <p className="mt-1 text-xs font-bold text-slate-600">{name(summary.group.course) || '—'}{summary.group.course?.code ? ` · ${summary.group.course.code}` : ''}</p>
+        <section className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5">
+          <div className="flex flex-wrap items-center justify-between gap-x-5 gap-y-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+              <h2 className="text-sm font-black text-slate-900">{summary.group.subgroup_name || summary.group.group_name || '—'}</h2>
+              <span className="rounded-full bg-teal-50 px-2 py-1 text-[9px] font-black text-teal-700">{summary.group.student_count} {tr('طالب','students')}</span>
+              <span className="text-[11px] font-bold text-slate-600">{name(summary.group.course) || '—'}{summary.group.course?.code ? ` · ${summary.group.course.code}` : ''}</span>
             </div>
-            <Info icon={CalendarDays} label={tr('الأسبوع المختار','Selected week')} value={`${tr('الأسبوع','Week')} ${summary.selected_week.number} · ${dateLabel(summary.selected_week.start_date,ar)}–${dateLabel(summary.selected_week.end_date,ar)}`}/>
+            <div className="flex shrink-0 items-center gap-2 text-[10px] font-black text-slate-700">
+              <CalendarDays className="h-4 w-4 text-teal-700"/>
+              <span>{tr('الأسبوع','Week')} {summary.selected_week.number}</span>
+              <span dir="ltr" className="font-mono text-slate-500">{dateLabel(summary.selected_week.start_date,ar)}–{dateLabel(summary.selected_week.end_date,ar)}</span>
+            </div>
           </div>
-        </section>
 
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <header className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-black text-slate-900">{tr('برنامج المجموعة في الأسبوع المختار','Group schedule for the selected week')}</h2><p className="mt-1 text-[10px] text-slate-500">{tr('مستخرج مباشرة من جدول التوزيع وأيام دوام المشرف السريري.','Derived directly from the distribution schedule and the clinical supervisor’s work days.')}</p></header>
-          {!summary.schedule.length ? <Notice>{tr('لا يوجد تكليف أو دوام سريري لهذه المجموعة في الأسبوع المختار.','This group has no clinical assignment or duty in the selected week.')}</Notice> : <div className="grid gap-3 p-4 md:grid-cols-2">{summary.schedule.map(item => <article key={`${item.rotation_block_id}-${item.supervisor?.id ?? 0}-${item.training_site?.id ?? 0}`} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
-            <div className="grid gap-2 text-[11px] sm:grid-cols-2">
-              <Info icon={UserRound} label={tr('المشرف السريري','Clinical supervisor')} value={supervisorName(item.supervisor) || tr('غير محدد','Not assigned')}/>
-              <Info icon={MapPin} label={tr('الموقع التدريبي','Training site')} value={name(item.training_site) || tr('غير محدد','Not assigned')}/>
-            </div>
-            {item.scheduled_dates.length ? <div className="mt-3 flex flex-wrap gap-2">{item.scheduled_dates.map(date => <span key={date} className="rounded-lg border border-teal-100 bg-white px-2.5 py-1.5 text-[10px] font-bold text-teal-800">{new Intl.DateTimeFormat(ar?'ar-PS':'en-GB',{weekday:'long'}).format(new Date(`${date}T12:00:00`))} · <span dir="ltr">{dateLabel(date,ar)}</span></span>)}</div> : <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-800">{item.supervisor ? tr('لا توجد أيام دوام مطابقة لهذا المشرف في هذا الأسبوع.','No matching supervisor work days in this week.') : tr('لم يتم تعيين مشرف سريري لهذا التكليف.','No clinical supervisor is assigned to this allocation.')}</p>}
-          </article>)}</div>}
+          {!summary.schedule.length ? <div className="mt-2 border-t border-slate-100 pt-2 text-[10px] font-bold text-amber-700">{tr('لا يوجد تكليف أو دوام سريري لهذه المجموعة في الأسبوع المختار.','This group has no clinical assignment or duty in the selected week.')}</div> : <div className="mt-2 divide-y divide-slate-100 border-t border-slate-100">{summary.schedule.map(item => <div key={`${item.rotation_block_id}-${item.supervisor?.id ?? 0}-${item.training_site?.id ?? 0}`} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2 text-[10px]">
+            <span className="inline-flex items-center gap-1.5 font-bold text-slate-700"><UserRound className="h-3.5 w-3.5 text-teal-700"/>{supervisorName(item.supervisor) || tr('مشرف غير محدد','Supervisor not assigned')}</span>
+            <span className="inline-flex items-center gap-1.5 font-bold text-slate-600"><MapPin className="h-3.5 w-3.5 text-teal-700"/>{name(item.training_site) || tr('موقع غير محدد','Site not assigned')}</span>
+            {item.scheduled_dates.length ? <div className="flex flex-wrap gap-1.5">{item.scheduled_dates.map(date => <span key={date} className="rounded-md bg-slate-50 px-2 py-1 font-bold text-teal-800">{new Intl.DateTimeFormat(ar?'ar-PS':'en-GB',{weekday:'long'}).format(new Date(`${date}T12:00:00`))} <span dir="ltr" className="text-slate-500">{dateLabel(date,ar)}</span></span>)}</div> : <span className="font-bold text-amber-700">{item.supervisor ? tr('لا توجد أيام دوام مطابقة','No matching work days') : tr('لم يعين مشرف','No supervisor assigned')}</span>}
+          </div>)}</div>}
         </section>
 
         <div className="grid grid-cols-2 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
@@ -136,10 +133,6 @@ export function AttendanceMasterPage() {
   </div>;
 }
 
-function Info({ icon: Icon, label, value }: { icon: typeof UserRound; label: string; value: string }) {
-  return <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2.5"><Icon className="h-4 w-4 shrink-0 text-teal-700"/><div><span className="block text-[9px] font-bold text-slate-400">{label}</span><b className="text-slate-700">{value}</b></div></div>;
-}
-function Notice({ children }: { children: string }) { return <div className="border-t border-amber-100 bg-amber-50 px-5 py-3 text-xs font-bold text-amber-800">{children}</div>; }
 function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) { return <button type="button" onClick={onClick} className={`rounded-xl px-4 py-2.5 text-xs font-black transition ${active ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>{children}</button>; }
 
 function WeeklyRegister({ summary, ar, tr }: { summary: GroupSummary; ar: boolean; tr: (a: string, e: string) => string }) {
