@@ -208,16 +208,31 @@ class GradeAndRtaIntegrationTest extends TestCase
             'available_until' => '2026-09-30',
             'status' => 'work',
         ]);
+        $secondBlock = RotationBlock::factory()->create([
+            'rotation_id' => $assignments['fourth']->rotationBlock->rotation_id,
+            'department_id' => $department->id,
+            'from_week' => 2,
+            'to_week' => 2,
+        ]);
+        StudentClinicalAssignment::create([
+            'distribution_version_id' => $assignments['fourth']->distribution_version_id,
+            'student_id' => $assignments['fourth']->student_id,
+            'rotation_block_id' => $secondBlock->id,
+            'training_site_id' => $site->id,
+            'department_id' => $department->id,
+            'supervisor_id' => $supervisor->id,
+        ]);
         $this->actingAs($rta)->getJson('/api/v1/attendance-records/groups')
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.assignment_id', $assignments['fourth']->id)
             ->assertJsonPath('data.0.student_count', 1);
-        $this->actingAs($rta)->getJson('/api/v1/attendance-records/group-summary?assignment_id='.$assignments['fourth']->id)
+        $this->actingAs($rta)->getJson('/api/v1/attendance-records/group-summary?assignment_id='.$assignments['fourth']->id.'&week=1')
             ->assertOk()
-            ->assertJsonPath('data.group.supervisor.id', $supervisor->id)
-            ->assertJsonPath('data.students.0.weeks.0.present', 1)
-            ->assertJsonPath('data.students.0.weeks.0.absent', 0)
+            ->assertJsonPath('data.schedule.0.supervisor.id', $supervisor->id)
+            ->assertJsonPath('data.selected_week.number', 1)
+            ->assertJsonPath('data.students.0.totals.present', 1)
+            ->assertJsonPath('data.students.0.totals.absent', 0)
             ->assertJsonPath('data.students.0.totals.recorded_days', 1);
         $this->actingAs($rta)->getJson('/api/v1/attendance-records/gaps?date=2026-09-01&include_complete=1')
             ->assertOk()

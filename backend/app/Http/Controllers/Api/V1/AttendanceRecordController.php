@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AttendanceRecord;
 use App\Models\ClinicalSession;
+use App\Models\RotationBlock;
 use App\Models\StudentClinicalAssignment;
 use App\Models\Student;
 use App\Traits\ScopesByDepartmentAndLevel;
@@ -191,6 +192,7 @@ class AttendanceRecordController extends Controller
     {
         $data = $request->validate([
             'assignment_id' => ['required', 'integer', 'exists:student_clinical_assignments,id'],
+            'week' => ['nullable', 'integer', 'min:1', 'max:60'],
         ]);
 
         /** @var StudentClinicalAssignment $reference */
@@ -205,73 +207,81 @@ class AttendanceRecordController extends Controller
                 'supervisor.availabilities',
             ])->findOrFail($data['assignment_id']);
 
-        $assignments = $this->sameGroupAssignments($reference)
-            ->with('student:id,university_number,full_name_ar,full_name_en,photo_url,batch_year')
+        $assignments = $this->sameAttendanceGroupAssignments($reference)
+            ->with([
+                'student:id,university_number,full_name_ar,full_name_en,photo_url,batch_year',
+                'rotationBlock.rotation',
+                'trainingSite:id,name_ar,name_en',
+                'supervisor.availabilities',
+            ])
             ->get();
         $students = $assignments->pluck('student')->filter()->unique('id')->values();
-        $studentIds = $students->pluck('id');
         $rotation = $reference->rotationBlock?->rotation;
-        $block = $reference->rotationBlock;
+        $totalWeeks = max(
+            (int) ($rotation?->duration_weeks ?? 0),
+            (int) RotationBlock::query()->where('rotation_id', $rotation?->id)->max('to_week'),
+        );
+        $availableWeeks = collect($totalWeeks > 0 ? range(1, $totalWeeks) : []);
+        $currentWeek = $rotation?->start_date ? Carbon::parse($rotation->start_date)->diffInWeeks(today(), false) + 1 : null;
+        $defaultWeek = $currentWeek === null ? $availableWeeks->first() : $availableWeeks->sortBy(fn ($week) => abs($week - $currentWeek))->first();
+        $selectedWeek = $request->filled('week') ? $request->integer('week') : $defaultWeek;
+        abort_unless($selectedWeek && $availableWeeks->contains($selectedWeek), 422, 'The selected week is outside this group schedule.');
 
+        $weekStart = Carbon::parse($rotation->start_date)->addWeeks($selectedWeek - 1)->startOfDay();
+        $weekEnd = $weekStart->copy()->addDays(6)->endOfDay();
+        $weekAssignments = $assignments->filter(fn (StudentClinicalAssignment $assignment) =>
+            $assignment->rotationBlock
+            && (int) $assignment->rotationBlock->from_week <= $selectedWeek
+            && (int) $assignment->rotationBlock->to_week >= $selectedWeek);
+
+        $schedule = $weekAssignments->groupBy(fn (StudentClinicalAssignment $assignment) => implode('|', [
+            $assignment->rotation_block_id, $assignment->training_site_id ?: 0, $assignment->supervisor_id ?: 0,
+        ]))->map(function ($items) use ($weekStart, $weekEnd) {
+            /** @var StudentClinicalAssignment $first */
+            $first = $items->first();
+            $dates = $this->scheduledDates($first, $weekStart, $weekEnd);
+            return [
+                'rotation_block_id' => $first->rotation_block_id,
+                'block_code' => $first->rotationBlock?->block_code,
+                'training_site' => $first->trainingSite,
+                'supervisor' => $first->supervisor,
+                'scheduled_dates' => $dates,
+                'student_count' => $items->pluck('student_id')->unique()->count(),
+            ];
+        })->values();
+
+        $blockIds = $weekAssignments->pluck('rotation_block_id')->filter()->unique();
         $records = AttendanceRecord::query()
             ->with('session:id,rotation_block_id,training_site_id,session_date')
-            ->whereIn('student_id', $studentIds)
-            ->whereHas('session', fn ($session) => $session
-                ->where('rotation_block_id', $reference->rotation_block_id)
-                ->where('training_site_id', $reference->training_site_id))
+            ->whereIn('student_id', $students->pluck('id'))
+            ->whereHas('session', fn ($session) => $session->whereIn('rotation_block_id', $blockIds)->whereBetween('session_date', [$weekStart, $weekEnd]))
             ->get();
 
-        $weeks = collect();
-        if ($rotation?->start_date && $block?->from_week && $block?->to_week) {
-            foreach (range((int) $block->from_week, (int) $block->to_week) as $weekNumber) {
-                $start = Carbon::parse($rotation->start_date)->addWeeks($weekNumber - 1)->startOfDay();
-                $end = $start->copy()->addDays(6)->endOfDay();
-                $scheduledDates = $this->scheduledDates($reference, $start, $end);
-                $weeks->push([
-                    'number' => $weekNumber,
-                    'start_date' => $start->toDateString(),
-                    'end_date' => $end->toDateString(),
-                    'scheduled_dates' => $scheduledDates,
-                    'elapsed_scheduled_days' => collect($scheduledDates)->filter(fn ($date) => Carbon::parse($date)->lte(today()))->count(),
-                ]);
-            }
-        }
-
-        $studentRows = $students->map(function (Student $student) use ($records, $weeks) {
-            $studentRecords = $records->where('student_id', $student->id);
-            $weekRows = $weeks->map(function (array $week) use ($studentRecords) {
-                $weekRecords = $studentRecords->filter(fn (AttendanceRecord $record) =>
-                    $record->session?->session_date
-                    && in_array($record->session->session_date->toDateString(), $week['scheduled_dates'], true));
-
-                return [
-                    'number' => $week['number'],
-                    'start_date' => $week['start_date'],
-                    'end_date' => $week['end_date'],
-                    'scheduled_days' => count($week['scheduled_dates']),
-                    'elapsed_scheduled_days' => $week['elapsed_scheduled_days'],
-                    'recorded_days' => $weekRecords->pluck('session.session_date')->filter()->unique()->count(),
-                    'present' => $weekRecords->where('status', 'present')->count(),
-                    'absent' => $weekRecords->where('status', 'absent')->count(),
-                    'late' => $weekRecords->where('status', 'late')->count(),
-                    'excused' => $weekRecords->where('status', 'excused')->count(),
-                ];
-            })->values();
-            $elapsedRequired = $weekRows->sum('elapsed_scheduled_days');
-            $absent = $weekRows->sum('absent');
+        $studentRows = $students->map(function (Student $student) use ($records, $weekAssignments, $weekStart, $weekEnd, $selectedWeek) {
+            $studentAssignments = $weekAssignments->where('student_id', $student->id);
+            $plan = $studentAssignments->flatMap(function (StudentClinicalAssignment $assignment) use ($weekStart, $weekEnd) {
+                return collect($this->scheduledDates($assignment, $weekStart, $weekEnd))->map(fn ($date) => implode('|', [
+                    $assignment->rotation_block_id, $assignment->training_site_id ?: 0, $date,
+                ]));
+            })->unique()->values();
+            $weekRecords = $records->where('student_id', $student->id)->filter(function (AttendanceRecord $record) use ($plan) {
+                if (! $record->session?->session_date) return false;
+                $key = implode('|', [$record->session->rotation_block_id, $record->session->training_site_id ?: 0, $record->session->session_date->toDateString()]);
+                return $plan->contains($key);
+            });
+            $elapsedRequired = $plan->filter(fn ($key) => Carbon::parse(substr(strrchr($key, '|'), 1))->lte(today()))->count();
+            $absent = $weekRecords->where('status', 'absent')->count();
             $absencePercentage = $elapsedRequired > 0 ? round(($absent / $elapsedRequired) * 100, 2) : 0;
-
             return [
                 'student' => $student,
-                'weeks' => $weekRows,
                 'totals' => [
-                    'scheduled_days' => $weekRows->sum('scheduled_days'),
+                    'scheduled_days' => $plan->count(),
                     'elapsed_scheduled_days' => $elapsedRequired,
-                    'recorded_days' => $weekRows->sum('recorded_days'),
-                    'present' => $weekRows->sum('present'),
+                    'recorded_days' => $weekRecords->pluck('session.session_date')->filter()->unique()->count(),
+                    'present' => $weekRecords->where('status', 'present')->count(),
                     'absent' => $absent,
-                    'late' => $weekRows->sum('late'),
-                    'excused' => $weekRows->sum('excused'),
+                    'late' => $weekRecords->where('status', 'late')->count(),
+                    'excused' => $weekRecords->where('status', 'excused')->count(),
                     'absence_percentage' => $absencePercentage,
                     'warning_level' => $absencePercentage > 20 ? 20 : ($absencePercentage > 10 ? 10 : null),
                 ],
@@ -284,15 +294,18 @@ class AttendanceRecordController extends Controller
                 'academic_year' => $rotation?->academicYear,
                 'course' => $rotation?->course,
                 'clinical_period' => $rotation?->clinicalPeriod,
-                'block' => ['code' => $block?->block_code, 'from_week' => $block?->from_week, 'to_week' => $block?->to_week],
                 'group_name' => $reference->studentSubgroup?->group?->name,
                 'subgroup_name' => $reference->studentSubgroup?->name,
                 'batch_year' => $reference->student?->batch_year,
-                'training_site' => $reference->trainingSite,
-                'supervisor' => $reference->supervisor,
                 'student_count' => $students->count(),
             ],
-            'weeks' => $weeks->values(),
+            'weeks' => $availableWeeks->map(fn ($week) => [
+                'number' => $week,
+                'start_date' => Carbon::parse($rotation->start_date)->addWeeks($week - 1)->toDateString(),
+                'end_date' => Carbon::parse($rotation->start_date)->addWeeks($week - 1)->addDays(6)->toDateString(),
+            ]),
+            'selected_week' => ['number' => $selectedWeek, 'start_date' => $weekStart->toDateString(), 'end_date' => $weekEnd->toDateString()],
+            'schedule' => $schedule,
             'students' => $studentRows,
         ]);
     }
@@ -360,6 +373,7 @@ class AttendanceRecordController extends Controller
                 $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
                 $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->min(today())->endOfDay();
                 if ($targetDate) {
+                    if ($targetDate->lt($start) || $targetDate->gt($end)) return [];
                     $start = $targetDate->copy();
                     $end = $targetDate->copy()->endOfDay();
                 }
@@ -477,15 +491,12 @@ class AttendanceRecordController extends Controller
         return $query;
     }
 
-    private function sameGroupAssignments(StudentClinicalAssignment $reference)
+    private function sameAttendanceGroupAssignments(StudentClinicalAssignment $reference)
     {
         $reference->loadMissing('student:id,batch_year');
 
         return $this->scopedCurrentAssignments()
             ->where('distribution_version_id', $reference->distribution_version_id)
-            ->where('rotation_block_id', $reference->rotation_block_id)
-            ->where('training_site_id', $reference->training_site_id)
-            ->where('supervisor_id', $reference->supervisor_id)
             ->where('student_subgroup_id', $reference->student_subgroup_id)
             ->whereHas('student', fn ($student) => $student->where('batch_year', $reference->student?->batch_year));
     }
@@ -494,9 +505,6 @@ class AttendanceRecordController extends Controller
     {
         return implode('|', [
             $assignment->distribution_version_id,
-            $assignment->rotation_block_id ?: 0,
-            $assignment->training_site_id ?: 0,
-            $assignment->supervisor_id ?: 0,
             $assignment->student_subgroup_id ?: 0,
             $assignment->student?->batch_year ?: 0,
         ]);

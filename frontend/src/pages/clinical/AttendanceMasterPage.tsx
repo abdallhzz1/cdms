@@ -23,13 +23,15 @@ type WeekSummary = {
 };
 type StudentSummary = {
   student: { id: number; university_number: string; full_name_ar: string; full_name_en?: string | null; photo_url?: string | null };
-  weeks: WeekSummary[];
   totals: Omit<WeekSummary, 'number' | 'start_date' | 'end_date'> & { absence_percentage: number; warning_level?: 10 | 20 | null };
 };
-type GroupWeek = Omit<WeekSummary, 'recorded_days' | 'present' | 'absent' | 'late' | 'excused'> & { scheduled_dates: string[] };
+type WeekOption = { number: number; start_date: string; end_date: string };
+type ScheduleItem = { rotation_block_id: number; block_code?: string | null; training_site?: Named | null; supervisor?: Supervisor; scheduled_dates: string[]; student_count: number };
 type GroupSummary = {
   group: AttendanceGroup;
-  weeks: GroupWeek[];
+  weeks: WeekOption[];
+  selected_week: WeekOption;
+  schedule: ScheduleItem[];
   students: StudentSummary[];
 };
 
@@ -43,6 +45,7 @@ export function AttendanceMasterPage() {
   const ar = locale === 'ar';
   const tr = (arabic: string, english: string) => ar ? arabic : english;
   const [selectedAssignment, setSelectedAssignment] = useState('');
+  const [selectedWeek, setSelectedWeek] = useState('');
   const [activeTab, setActiveTab] = useState<'register' | 'alerts'>('register');
 
   const groupsQuery = useQuery({
@@ -57,8 +60,8 @@ export function AttendanceMasterPage() {
   }, [groups]);
 
   const summaryQuery = useQuery({
-    queryKey: ['attendance-group-summary', selectedAssignment],
-    queryFn: () => apiFetch<GroupSummary>(`/attendance-records/group-summary?assignment_id=${selectedAssignment}`),
+    queryKey: ['attendance-group-summary', selectedAssignment, selectedWeek],
+    queryFn: () => apiFetch<GroupSummary>(`/attendance-records/group-summary?assignment_id=${selectedAssignment}${selectedWeek ? `&week=${selectedWeek}` : ''}`),
     enabled: can('attendance.review') && Boolean(selectedAssignment),
   });
   const summary = summaryQuery.data;
@@ -81,11 +84,17 @@ export function AttendanceMasterPage() {
     )}/>
 
     {!groups.length ? <EmptyState message={tr('لا توجد مجموعات في توزيع سريري منشور ضمن نطاق صلاحياتك.','No groups exist in a published clinical distribution within your access scope.')} /> : <>
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 md:grid-cols-[minmax(0,1fr)_240px]">
         <label className="block">
           <span className="mb-2 block text-[11px] font-black text-slate-600">{tr('المجموعة الفرعية','Subgroup')}</span>
-          <select value={selectedAssignment} onChange={event => setSelectedAssignment(event.target.value)} className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-800 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100">
+          <select value={selectedAssignment} onChange={event => { setSelectedAssignment(event.target.value); setSelectedWeek(''); }} className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-800 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100">
             {groups.map(group => <option key={group.assignment_id} value={group.assignment_id}>{groupLabel(group)}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-2 block text-[11px] font-black text-slate-600">{tr('الأسبوع','Week')}</span>
+          <select value={selectedWeek || String(summary?.selected_week?.number ?? '')} disabled={!summary?.weeks.length} onChange={event => setSelectedWeek(event.target.value)} className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-800 outline-none disabled:bg-slate-50 focus:border-teal-400">
+            {(summary?.weeks ?? []).map(week => <option key={week.number} value={week.number}>{tr(`الأسبوع ${week.number}`,`Week ${week.number}`)} — {dateLabel(week.start_date,ar)}–{dateLabel(week.end_date,ar)}</option>)}
           </select>
         </label>
       </section>
@@ -100,14 +109,19 @@ export function AttendanceMasterPage() {
               </div>
               <p className="mt-1 text-xs font-bold text-slate-600">{name(summary.group.course) || '—'}{summary.group.course?.code ? ` · ${summary.group.course.code}` : ''}</p>
             </div>
-            <div className="grid gap-2 text-[11px] sm:grid-cols-3 lg:min-w-[620px]">
-              <Info icon={UserRound} label={tr('المشرف السريري','Clinical supervisor')} value={supervisorName(summary.group.supervisor) || tr('غير محدد','Not assigned')}/>
-              <Info icon={MapPin} label={tr('الموقع التدريبي','Training site')} value={name(summary.group.training_site) || tr('غير محدد','Not assigned')}/>
-              <Info icon={CalendarDays} label={tr('فترة التكليف','Assignment period')} value={`${tr('الأسبوع','Week')} ${summary.group.block?.from_week ?? '—'}–${summary.group.block?.to_week ?? '—'}`}/>
-            </div>
+            <Info icon={CalendarDays} label={tr('الأسبوع المختار','Selected week')} value={`${tr('الأسبوع','Week')} ${summary.selected_week.number} · ${dateLabel(summary.selected_week.start_date,ar)}–${dateLabel(summary.selected_week.end_date,ar)}`}/>
           </div>
-          {!summary.group.supervisor && <Notice>{tr('لا يمكن احتساب أيام الحضور المتوقعة قبل تعيين مشرف سريري للمجموعة.','Expected attendance days cannot be calculated until a clinical supervisor is assigned.')}</Notice>}
-          {summary.group.supervisor && summary.weeks.every(week => week.scheduled_dates.length === 0) && <Notice>{tr('المشرف معين، لكن لا توجد أيام دوام مطابقة للموقع وفترة هذه المجموعة. راجع أيام عمل المشرف.','A supervisor is assigned, but no work days match this group’s site and period. Review the supervisor work schedule.')}</Notice>}
+        </section>
+
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <header className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-black text-slate-900">{tr('برنامج المجموعة في الأسبوع المختار','Group schedule for the selected week')}</h2><p className="mt-1 text-[10px] text-slate-500">{tr('مستخرج مباشرة من جدول التوزيع وأيام دوام المشرف السريري.','Derived directly from the distribution schedule and the clinical supervisor’s work days.')}</p></header>
+          {!summary.schedule.length ? <Notice>{tr('لا يوجد تكليف أو دوام سريري لهذه المجموعة في الأسبوع المختار.','This group has no clinical assignment or duty in the selected week.')}</Notice> : <div className="grid gap-3 p-4 md:grid-cols-2">{summary.schedule.map(item => <article key={`${item.rotation_block_id}-${item.supervisor?.id ?? 0}-${item.training_site?.id ?? 0}`} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+            <div className="grid gap-2 text-[11px] sm:grid-cols-2">
+              <Info icon={UserRound} label={tr('المشرف السريري','Clinical supervisor')} value={supervisorName(item.supervisor) || tr('غير محدد','Not assigned')}/>
+              <Info icon={MapPin} label={tr('الموقع التدريبي','Training site')} value={name(item.training_site) || tr('غير محدد','Not assigned')}/>
+            </div>
+            {item.scheduled_dates.length ? <div className="mt-3 flex flex-wrap gap-2">{item.scheduled_dates.map(date => <span key={date} className="rounded-lg border border-teal-100 bg-white px-2.5 py-1.5 text-[10px] font-bold text-teal-800">{new Intl.DateTimeFormat(ar?'ar-PS':'en-GB',{weekday:'long'}).format(new Date(`${date}T12:00:00`))} · <span dir="ltr">{dateLabel(date,ar)}</span></span>)}</div> : <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-800">{item.supervisor ? tr('لا توجد أيام دوام مطابقة لهذا المشرف في هذا الأسبوع.','No matching supervisor work days in this week.') : tr('لم يتم تعيين مشرف سريري لهذا التكليف.','No clinical supervisor is assigned to this allocation.')}</p>}
+          </article>)}</div>}
         </section>
 
         <div className="grid grid-cols-2 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
@@ -130,13 +144,14 @@ function Tab({ active, onClick, children }: { active: boolean; onClick: () => vo
 
 function WeeklyRegister({ summary, ar, tr }: { summary: GroupSummary; ar: boolean; tr: (a: string, e: string) => string }) {
   return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-    <header className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-black text-slate-900">{tr('الحضور الأسبوعي لطلبة المجموعة','Weekly attendance by student')}</h2><p className="mt-1 text-[10px] text-slate-500">{tr('ح = حاضر، غ = غائب. يظهر التأخير والعذر عند وجودهما.','P = present, A = absent. Late and excused counts appear when applicable.')}</p></header>
+    <header className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-black text-slate-900">{tr(`حضور الأسبوع ${summary.selected_week.number}`,`Week ${summary.selected_week.number} attendance`)}</h2><p className="mt-1 text-[10px] text-slate-500">{tr('يعرض حضور وغياب طلبة المجموعة في الأسبوع المختار فقط.','Shows attendance for the selected group and week only.')}</p></header>
     {!summary.students.length ? <div className="p-6"><EmptyState message={tr('لا يوجد طلبة في هذه المجموعة.','This group has no students.')} /></div> : <div className="overflow-x-auto">
       <table className="w-full min-w-max border-collapse text-start">
         <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-500">
-          <th className="sticky start-0 z-10 min-w-[220px] bg-slate-50 px-4 py-3 text-start">{tr('الطالب','Student')}</th>
-          {summary.weeks.map(week => <th key={week.number} className="min-w-[112px] border-s border-slate-100 px-3 py-3 text-center"><span className="block">{tr(`الأسبوع ${week.number}`,`Week ${week.number}`)}</span><span dir="ltr" className="mt-1 block font-normal text-slate-400">{dateLabel(week.start_date,ar)}–{dateLabel(week.end_date,ar)}</span></th>)}
-          <th className="min-w-[170px] border-s border-slate-100 px-4 py-3 text-center">{tr('الإجمالي','Total')}</th>
+          <th className="min-w-[240px] px-4 py-3 text-start">{tr('الطالب','Student')}</th>
+          <th className="px-4 py-3 text-center">{tr('حاضر','Present')}</th><th className="px-4 py-3 text-center">{tr('غائب','Absent')}</th>
+          <th className="px-4 py-3 text-center">{tr('متأخر','Late')}</th><th className="px-4 py-3 text-center">{tr('بعذر','Excused')}</th>
+          <th className="min-w-[150px] px-4 py-3 text-center">{tr('اكتمال الرصد','Recording')}</th><th className="px-4 py-3 text-center">{tr('نسبة الغياب','Absence rate')}</th>
         </tr></thead>
         <tbody className="divide-y divide-slate-100">{summary.students.map(row => <StudentRow key={row.student.id} row={row} ar={ar} tr={tr}/>)}</tbody>
       </table>
@@ -147,20 +162,18 @@ function WeeklyRegister({ summary, ar, tr }: { summary: GroupSummary; ar: boolea
 function StudentRow({ row, ar, tr }: { row: StudentSummary; ar: boolean; tr: (a: string, e: string) => string }) {
   const studentName = ar ? row.student.full_name_ar : row.student.full_name_en || row.student.full_name_ar;
   return <tr className="text-[11px] hover:bg-slate-50/50">
-    <td className="sticky start-0 z-10 bg-white px-4 py-3"><div className="flex items-center gap-2.5"><span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl bg-teal-50 font-black text-teal-700">{row.student.photo_url ? <img src={row.student.photo_url} alt="" className="h-full w-full object-cover"/> : studentName.trim().charAt(0)}</span><div><b className="block max-w-[170px] truncate text-slate-800">{studentName}</b><span dir="ltr" className="font-mono text-[9px] text-slate-400">{row.student.university_number}</span></div></div></td>
-    {row.weeks.map(week => <td key={week.number} className="border-s border-slate-100 px-3 py-3 text-center"><WeekCell week={week} tr={tr}/></td>)}
-    <td className="border-s border-slate-100 px-4 py-3"><div className="flex items-center justify-center gap-3 font-black"><span className="text-emerald-700">{tr('ح','P')} {row.totals.present}</span><span className={row.totals.absent ? 'text-rose-700' : 'text-slate-400'}>{tr('غ','A')} {row.totals.absent}</span></div><p className="mt-1 text-center text-[9px] text-slate-400">{row.totals.recorded_days}/{row.totals.elapsed_scheduled_days} {tr('يوم مستحق','due days')}</p></td>
+    <td className="px-4 py-3"><div className="flex items-center gap-2.5"><span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl bg-teal-50 font-black text-teal-700">{row.student.photo_url ? <img src={row.student.photo_url} alt="" className="h-full w-full object-cover"/> : studentName.trim().charAt(0)}</span><div><b className="block max-w-[180px] truncate text-slate-800">{studentName}</b><span dir="ltr" className="font-mono text-[9px] text-slate-400">{row.student.university_number}</span></div></div></td>
+    <Count value={row.totals.present} tone="emerald"/><Count value={row.totals.absent} tone="rose"/><Count value={row.totals.late} tone="amber"/><Count value={row.totals.excused} tone="sky"/>
+    <td className="px-4 py-3 text-center"><b className="text-slate-700">{row.totals.recorded_days}/{row.totals.elapsed_scheduled_days}</b><p className="mt-1 text-[9px] text-slate-400">{tr('يوم مرصود/مستحق','recorded/due')}</p></td>
+    <td className="px-4 py-3 text-center"><b className={row.totals.warning_level ? 'text-rose-700' : 'text-slate-700'}>{Number(row.totals.absence_percentage).toFixed(1)}%</b></td>
   </tr>;
 }
 
-function WeekCell({ week, tr }: { week: WeekSummary; tr: (a: string, e: string) => string }) {
-  if (week.elapsed_scheduled_days === 0) return <span className="text-slate-300">—</span>;
-  return <div><div className="flex items-center justify-center gap-2 font-black"><span className="text-emerald-700">{tr('ح','P')} {week.present}</span><span className={week.absent ? 'text-rose-700' : 'text-slate-400'}>{tr('غ','A')} {week.absent}</span></div>{(week.late > 0 || week.excused > 0) && <p className="mt-1 text-[9px] text-slate-500">{tr('ت','L')} {week.late} · {tr('ع','E')} {week.excused}</p>}<p className="mt-1 text-[9px] text-slate-400">{week.recorded_days}/{week.elapsed_scheduled_days} {tr('مرصود','recorded')}</p></div>;
-}
+function Count({ value, tone }: { value: number; tone: 'emerald' | 'rose' | 'amber' | 'sky' }) { const colors={emerald:'text-emerald-700',rose:'text-rose-700',amber:'text-amber-700',sky:'text-sky-700'}; return <td className={`px-4 py-3 text-center text-sm font-black ${value?colors[tone]:'text-slate-300'}`}>{value}</td>; }
 
 function Alerts({ students, ar, tr }: { students: StudentSummary[]; ar: boolean; tr: (a: string, e: string) => string }) {
   return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-    <header className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-black text-slate-900">{tr('تنبيهات غياب المجموعة','Group absence alerts')}</h2><p className="mt-1 text-[10px] text-slate-500">{tr('النسبة = أيام الغياب المسجلة ÷ أيام دوام المشرف المستحقة للمجموعة حتى اليوم.','Rate = recorded absences divided by supervisor work days due for this group through today.')}</p></header>
+    <header className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-black text-slate-900">{tr('تنبيهات غياب الأسبوع المختار','Selected week absence alerts')}</h2><p className="mt-1 text-[10px] text-slate-500">{tr('النسبة = غياب الطالب ÷ أيام دوام المشرف المستحقة في هذا الأسبوع حتى اليوم.','Rate = student absences divided by supervisor work days due in this week through today.')}</p></header>
     {!students.length ? <div className="flex flex-col items-center gap-2 p-8 text-center"><CheckCircle2 className="h-8 w-8 text-emerald-600"/><b className="text-sm text-slate-800">{tr('لا توجد تنبيهات غياب لهذه المجموعة','No absence alerts for this group')}</b></div> : <div className="divide-y divide-slate-100">{students.map(row => {
       const studentName = ar ? row.student.full_name_ar : row.student.full_name_en || row.student.full_name_ar;
       const urgent = row.totals.warning_level === 20;

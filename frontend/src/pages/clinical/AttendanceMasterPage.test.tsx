@@ -14,9 +14,11 @@ describe('AttendanceMasterPage', () => {
       if (url.includes('/auth/me')) return envelope({ id: 1, name: 'RTA', email: 'rta@hebron.edu', roles: ['RTA'], permissions: [{ code: 'attendance.review', scope: 'global' }] });
       if (url.includes('/attendance-records/groups')) return envelope([{ assignment_id: 9, academic_year: { code: '2026-2027' }, course: { code: 'MED401', name_ar: 'الجراحة', name_en: 'Surgery' }, subgroup_name: 'L5', student_count: 1 }]);
       if (url.includes('/attendance-records/group-summary')) return envelope({
-        group: { assignment_id: 9, course: { code: 'MED401', name_ar: 'الجراحة', name_en: 'Surgery' }, subgroup_name: 'L5', student_count: 1, supervisor: { full_name_ar: 'د. أحمد', full_name_en: 'Dr Ahmad' }, training_site: { name_ar: 'المستشفى الأهلي', name_en: 'Ahli Hospital' }, block: { from_week: 1, to_week: 2 } },
-        weeks: [{ number: 1, start_date: '2026-09-01', end_date: '2026-09-07', scheduled_dates: ['2026-09-01'], scheduled_days: 1, elapsed_scheduled_days: 1 }],
-        students: [{ student: { id: 4, university_number: '22310001', full_name_ar: 'طالب سريري', full_name_en: 'Clinical Student' }, weeks: [{ number: 1, start_date: '2026-09-01', end_date: '2026-09-07', scheduled_days: 1, elapsed_scheduled_days: 1, recorded_days: 1, present: 0, absent: 1, late: 0, excused: 0 }], totals: { scheduled_days: 1, elapsed_scheduled_days: 1, recorded_days: 1, present: 0, absent: 1, late: 0, excused: 0, absence_percentage: 100, warning_level: 20 } }],
+        group: { assignment_id: 9, course: { code: 'MED401', name_ar: 'الجراحة', name_en: 'Surgery' }, subgroup_name: 'L5', student_count: 1 },
+        weeks: [{ number: 1, start_date: '2026-09-01', end_date: '2026-09-07' }],
+        selected_week: { number: 1, start_date: '2026-09-01', end_date: '2026-09-07' },
+        schedule: [{ rotation_block_id: 7, supervisor: { id: 8, full_name_ar: 'د. أحمد', full_name_en: 'Dr Ahmad' }, training_site: { id: 2, name_ar: 'المستشفى الأهلي', name_en: 'Ahli Hospital' }, scheduled_dates: ['2026-09-01'], student_count: 1 }],
+        students: [{ student: { id: 4, university_number: '22310001', full_name_ar: 'طالب سريري', full_name_en: 'Clinical Student' }, totals: { scheduled_days: 1, elapsed_scheduled_days: 1, recorded_days: 1, present: 0, absent: 1, late: 0, excused: 0, absence_percentage: 100, warning_level: 20 } }],
       });
       throw new Error(`Unmocked request: ${url}`);
     });
@@ -24,7 +26,7 @@ describe('AttendanceMasterPage', () => {
     renderWithProviders(<AttendanceMasterPage />, { route: '/attendance' });
     expect(await screen.findByText('Dr Ahmad')).toBeVisible();
     expect(screen.getByText('Clinical Student')).toBeVisible();
-    expect(screen.getByText('Week 1')).toBeVisible();
+    expect(screen.getAllByText(/Week 1/).length).toBeGreaterThan(0);
     await userEvent.click(screen.getByRole('button', { name: 'Absence alerts (1)' }));
     expect(await screen.findByText('Formal warning')).toBeVisible();
   });
