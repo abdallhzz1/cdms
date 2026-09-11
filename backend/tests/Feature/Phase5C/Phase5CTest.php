@@ -411,7 +411,7 @@ class Phase5CTest extends TestCase
             ->assertJsonCount(1, 'data.assignments');
     }
 
-    public function test_transferred_multi_role_supervisor_keeps_portal_sessions_before_work_days_are_configured(): void
+    public function test_supervisor_sessions_stay_hidden_until_work_places_and_days_are_configured(): void
     {
         $this->supervisor1->update(['user_id' => $this->admin->id]);
         $this->supervisor1->availabilities()->delete();
@@ -420,9 +420,8 @@ class Phase5CTest extends TestCase
         $this->actingAs($this->admin)
             ->getJson(route('api.v1.operational.my-supervisor-workspace'))
             ->assertOk()
-            ->assertJsonPath('data.supervisor.person_id', $this->supervisor1->id)
             ->assertJsonCount(1, 'data.assignments')
-            ->assertJsonCount(28, 'data.assignments.0.scheduled_dates')
+            ->assertJsonCount(0, 'data.assignments.0.scheduled_dates')
             ->assertJsonPath('data.schedule_configured', false);
     }
 
