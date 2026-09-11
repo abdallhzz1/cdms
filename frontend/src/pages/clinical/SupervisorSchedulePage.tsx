@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MapPin, Users } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nContext';
@@ -12,9 +12,19 @@ function target(group:SupervisorGroup,date:string,screen:'attendance'|'assessmen
   return `/supervisor/${screen}?${values}`;
 }
 
+export function sortAgendaByNextSession<T extends {date:string}>(items:T[],currentDate=today()):T[]{
+  return [...items].sort((a,b)=>{
+    const aIsPast=a.date<currentDate,bIsPast=b.date<currentDate;
+    if(aIsPast!==bIsPast)return aIsPast?1:-1;
+    return aIsPast?b.date.localeCompare(a.date):a.date.localeCompare(b.date);
+  });
+}
+
 export function SupervisorScheduleAgenda({workspace}:{workspace:Workspace}){
   const {locale}=useI18n();const ar=locale==='ar';const tr=(a:string,e:string)=>ar?a:e;
-  const agenda=useMemo(()=>groupSupervisorAssignments(workspace.assignments??[]).flatMap(group=>group.scheduledDates.map(date=>({date,group}))).sort((a,b)=>a.date.localeCompare(b.date)),[workspace.assignments]);
+  const [currentDate,setCurrentDate]=useState(today);
+  useEffect(()=>{const timer=window.setInterval(()=>setCurrentDate(value=>{const next=today();return next===value?value:next;}),60_000);return()=>window.clearInterval(timer);},[]);
+  const agenda=useMemo(()=>sortAgendaByNextSession(groupSupervisorAssignments(workspace.assignments??[]).flatMap(group=>group.scheduledDates.map(date=>({date,group}))),currentDate),[workspace.assignments,currentDate]);
   return <section className="space-y-4">
     <div><h2 className="text-xl font-black text-slate-900">{tr('جدولي السريري','My clinical schedule')}</h2><p className="mt-1 text-xs text-slate-500">{tr('اختر الحضور أو التقييم من الجلسة للانتقال إلى مجموعتها مباشرة.','Open attendance or assessment from a session to select its group automatically.')}</p></div>
     {!agenda.length?<EmptyState message={tr('لا توجد جلسات ظاهرة. راجع التكليف المنشور وأيام العمل المحددة لك.','No sessions are available. Review the published assignment and your configured work days.')}/>:<div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
