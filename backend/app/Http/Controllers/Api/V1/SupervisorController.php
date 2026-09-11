@@ -14,6 +14,7 @@ use App\Models\StudentClinicalAssignment;
 use App\Models\SupervisorStudentNote;
 use App\Models\WorkflowTransitionLog;
 use App\Services\Distribution\SupervisorReassignmentService;
+use App\Services\SupervisorWorkScheduleService;
 use App\Services\WorkflowTransitionService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -43,6 +44,7 @@ class SupervisorController extends Controller
 {
     public function __construct(
         private SupervisorReassignmentService $reassignmentService,
+        private SupervisorWorkScheduleService $workSchedules,
     ) {}
 
     /**
@@ -506,7 +508,29 @@ class SupervisorController extends Controller
     private function scheduledDates(Person $person, StudentClinicalAssignment $assignment): array
     {
         [$start, $end] = $this->assignmentDateRange($assignment);
-        if (! $start || ! $end || ! $assignment->training_site_id || $person->availabilities->isEmpty()) return [];
+        if (! $start || ! $end || ! $assignment->training_site_id) return [];
+
+        // Older and newly transferred installations may already have valid
+        // published assignments before detailed work-day records were added.
+        // Apply the same compatibility policy used by schedule validation so
+        // those supervisors do not lose their entire portal agenda.
+        if ($person->availabilities->isEmpty()) {
+            $workingDays = $this->workSchedules->workingDays(
+                $person,
+                (int) $assignment->training_site_id,
+                $start,
+                $end,
+            );
+            $dates = [];
+            for ($date = $start->copy()->startOfDay(); $date->lte($end); $date->addDay()) {
+                if (in_array(strtolower($date->format('l')), $workingDays, true)) {
+                    $dates[] = $date->toDateString();
+                }
+            }
+
+            return $dates;
+        }
+
         $records = $person->availabilities->filter(fn ($row) =>
             (int) $row->training_site_id === (int) $assignment->training_site_id
             && ($row->status ?: 'work') === 'work'

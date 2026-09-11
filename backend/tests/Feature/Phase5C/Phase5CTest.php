@@ -411,6 +411,21 @@ class Phase5CTest extends TestCase
             ->assertJsonCount(1, 'data.assignments');
     }
 
+    public function test_transferred_multi_role_supervisor_keeps_portal_sessions_before_work_days_are_configured(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $this->supervisor1->availabilities()->delete();
+        $this->admin->roles()->attach(Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail());
+
+        $this->actingAs($this->admin)
+            ->getJson(route('api.v1.operational.my-supervisor-workspace'))
+            ->assertOk()
+            ->assertJsonPath('data.supervisor.person_id', $this->supervisor1->id)
+            ->assertJsonCount(1, 'data.assignments')
+            ->assertJsonCount(28, 'data.assignments.0.scheduled_dates')
+            ->assertJsonPath('data.schedule_configured', false);
+    }
+
     public function test_supervisor_workspace_does_not_require_administrative_distribution_access(): void
     {
         $supervisorUser = User::factory()->create();
