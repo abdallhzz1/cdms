@@ -257,8 +257,16 @@ class DashboardOverviewService
     {
         $query = $this->visibleCorrespondence($user);
         $counts = (clone $query)->select('status', DB::raw('COUNT(DISTINCT correspondence.id) as total'))->groupBy('status')->pluck('total', 'status');
-        $unread = (clone $query)->where('correspondence.assigned_to', $user->id)->whereNull('correspondence.read_at')->distinct()->count('correspondence.id');
-        $metrics->push($this->metric('correspondence_active', 'المراسلات النشطة', 'Active correspondence', (int) $counts->except(['closed', 'archived'])->sum(), null, '/inbox'));
+        $unread = DB::table('correspondence_participants')
+            ->join('correspondence', 'correspondence.id', '=', 'correspondence_participants.correspondence_id')
+            ->where('correspondence_participants.user_id', $user->id)
+            ->where('correspondence_participants.participant_role', '!=', 'sender')
+            ->whereNull('correspondence_participants.deleted_at')
+            ->whereNull('correspondence_participants.archived_at')
+            ->where('correspondence.status', 'sent')
+            ->where(fn (Builder $query) => $query->whereNull('correspondence_participants.read_at')->orWhereColumn('correspondence_participants.read_at', '<', 'correspondence.last_message_at'))
+            ->distinct()->count('correspondence.id');
+        $metrics->push($this->metric('correspondence_active', 'رسائل غير مقروءة', 'Unread mail', $unread, null, '/inbox'));
         $charts->push($this->chart('correspondence_status', 'donut', 'حالة المراسلات', 'Correspondence status', $counts->map(
             fn ($value, $status) => $this->chartItem($this->workflowAr((string) $status), ucfirst((string) $status), (int) $value),
         )->values()->all()));
@@ -283,7 +291,9 @@ class DashboardOverviewService
             $join->on('approval_workflow_steps.approval_workflow_id', '=', 'approval_requests.approval_workflow_id')
                 ->on('approval_workflow_steps.step_order', '=', 'approval_requests.current_step_order');
         })->where('approval_requests.status', 'pending')->where(function ($q) use ($roles) {
-            foreach ($roles as $role) $q->orWhereJsonContains('approval_workflow_steps.role_codes', $role);
+            foreach ($roles as $role) {
+                $q->orWhereJsonContains('approval_workflow_steps.role_codes', $role);
+            }
         });
         $count = $query->count();
         $metrics->push($this->metric('approval_queue', 'طلبات الاعتماد بانتظارك', 'Approval requests awaiting you', $count, null, '/approvals'));

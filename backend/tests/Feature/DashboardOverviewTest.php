@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Correspondence;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Student;
@@ -77,6 +78,30 @@ class DashboardOverviewTest extends TestCase
         $this->assertTrue($metricKeys->contains('system_users'));
         $this->assertTrue($metricKeys->contains('system_sessions'));
         $this->assertTrue($chartKeys->contains('users_by_role'));
+    }
+
+    public function test_mail_metric_uses_the_current_users_participant_read_state(): void
+    {
+        $role = Role::where('code', 'RTA')->firstOrFail();
+        $permission = Permission::where('code', 'correspondence.view')->firstOrFail();
+        $role->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
+        $recipient = User::factory()->create(['assigned_levels' => ['fourth']]);
+        $recipient->roles()->attach($role, ['scope_type' => 'global']);
+        $sender = User::factory()->create();
+        $mail = Correspondence::create([
+            'reference_number' => 'MAIL-DASHBOARD-1', 'direction' => 'internal', 'subject' => 'Unread message',
+            'correspondence_date' => now()->toDateString(), 'status' => 'sent', 'sender_id' => $sender->id,
+            'submitted_at' => now(), 'last_message_at' => now(),
+        ]);
+        $mail->participants()->create(['user_id' => $sender->id, 'participant_role' => 'sender', 'read_at' => now()]);
+        $participant = $mail->participants()->create(['user_id' => $recipient->id, 'participant_role' => 'to']);
+
+        $response = $this->actingAs($recipient)->getJson('/api/v1/dashboard/overview')->assertOk();
+        $this->assertSame(1, collect($response->json('data.metrics'))->firstWhere('key', 'correspondence_active')['value']);
+
+        $participant->update(['read_at' => now()->addSecond()]);
+        $response = $this->getJson('/api/v1/dashboard/overview')->assertOk();
+        $this->assertSame(0, collect($response->json('data.metrics'))->firstWhere('key', 'correspondence_active')['value']);
     }
 
     public function test_every_standard_role_can_load_its_dashboard_with_full_permissions(): void
