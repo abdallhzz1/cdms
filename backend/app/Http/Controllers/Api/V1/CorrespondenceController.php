@@ -7,10 +7,10 @@ use App\Http\Responses\ApiResponse;
 use App\Models\AuditLog;
 use App\Models\Correspondence;
 use App\Models\CorrespondenceAttachment;
-use App\Models\CorrespondenceTemplate;
 use App\Models\OperationalTask;
 use App\Notifications\AdministrativeWorkAssignedNotification;
 use App\Services\CorrespondenceRecipientService;
+use App\Support\SafeMailHtml;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
@@ -38,7 +38,7 @@ class CorrespondenceController extends Controller
         $user = $request->user();
         $filter = $data['filter'] ?? 'inbox';
         $membership = fn ($q) => $q->where('user_id', $user->id)->whereNull('deleted_at');
-        $query = Correspondence::query()->with(['sender.person', 'latestMessage.sender.person', 'participants' => $membership, 'participants.user.person']);
+        $query = Correspondence::query()->with(['sender.person', 'latestMessage.sender.person', 'participants' => $membership, 'participants.user.person'])->withCount('attachments');
 
         if ($filter === 'outbox') {
             $query->where('sender_id', $user->id)->where('status', 'sent');
@@ -84,7 +84,11 @@ class CorrespondenceController extends Controller
             $state = $item->participants->firstWhere('user_id', $user->id);
             $item->setAttribute('viewer_state', $state);
             $item->setAttribute('mail_unread', $this->isUnread($item, $state, $user->id));
-            $item->setAttribute('recipient_names', $item->participants()->with('user.person')->where('participant_role', '!=', 'sender')->get()->map(fn ($p) => $p->user?->person?->full_name_ar ?: $p->user?->name)->filter()->values());
+            $recipientQuery = $item->participants()->with('user.person')->where('participant_role', '!=', 'sender');
+            if ($item->sender_id !== $user->id) {
+                $recipientQuery->where(fn ($q) => $q->where('participant_role', '!=', 'fyi')->orWhere('user_id', $user->id));
+            }
+            $item->setAttribute('recipient_names', $recipientQuery->get()->map(fn ($p) => $p->user?->person?->full_name_ar ?: $p->user?->name)->filter()->values());
         });
 
         return ApiResponse::success($items->items(), null, $this->mailboxMeta($user->id) + [
@@ -100,7 +104,7 @@ class CorrespondenceController extends Controller
             $this->audit($request, $correspondence, 'correspondence.read');
         }
 
-        return ApiResponse::success($this->mail($correspondence));
+        return ApiResponse::success($this->mail($correspondence, $request->user()->id));
     }
 
     public function store(Request $request): JsonResponse
@@ -120,7 +124,7 @@ class CorrespondenceController extends Controller
                 'reference_number' => 'MAIL-'.now()->format('Ymd').'-'.Str::upper(Str::random(6)), 'direction' => 'internal',
                 'category' => $data['category'] ?? 'general', 'message_type' => $data['message_type'] ?? 'message',
                 'confidentiality' => $data['confidentiality'] ?? 'normal', 'tags' => $data['tags'] ?? null,
-                'subject' => trim($data['subject']), 'summary' => $data['body'] ?? $data['summary'] ?? null, 'correspondence_date' => $data['correspondence_date'] ?? now()->toDateString(),
+                'subject' => trim($data['subject']), 'summary' => SafeMailHtml::clean($data['body'] ?? $data['summary'] ?? null), 'correspondence_date' => $data['correspondence_date'] ?? now()->toDateString(),
                 'response_due_date' => $data['response_due_date'] ?? null, 'priority' => $data['priority'] ?? 'normal',
                 'sender_id' => $request->user()->id, 'assigned_to' => $recipients['to'][0] ?? null,
                 'status' => $sendNow ? 'sent' : 'draft', 'submitted_at' => $sendNow ? now() : null, 'last_message_at' => now(),
@@ -142,7 +146,7 @@ class CorrespondenceController extends Controller
         $this->ensureDraftOwner($request, $correspondence);
         $data = $request->validate($this->rules());
         $recipients = $this->recipientMap($request, $request->user()->id, false);
-        $correspondence->update(['category' => $data['category'] ?? 'general', 'message_type' => $data['message_type'] ?? 'message', 'confidentiality' => $data['confidentiality'] ?? 'normal', 'tags' => $data['tags'] ?? null, 'subject' => trim($data['subject']), 'summary' => $data['body'] ?? null, 'priority' => $data['priority'] ?? 'normal', 'response_due_date' => $data['response_due_date'] ?? null, 'assigned_to' => $recipients['to'][0] ?? null]);
+        $correspondence->update(['category' => $data['category'] ?? 'general', 'message_type' => $data['message_type'] ?? 'message', 'confidentiality' => $data['confidentiality'] ?? 'normal', 'tags' => $data['tags'] ?? null, 'subject' => trim($data['subject']), 'summary' => SafeMailHtml::clean($data['body'] ?? null), 'priority' => $data['priority'] ?? 'normal', 'response_due_date' => $data['response_due_date'] ?? null, 'assigned_to' => $recipients['to'][0] ?? null]);
         $this->syncParticipants($correspondence, $request->user()->id, $recipients, false);
         $this->audit($request, $correspondence, 'correspondence.draft_updated');
 
@@ -154,7 +158,7 @@ class CorrespondenceController extends Controller
         $this->ensureDraftOwner($request, $correspondence);
         $data = $request->validate($this->rules());
         $recipients = $this->recipientMap($request, $request->user()->id, true);
-        $correspondence->update(['subject' => trim($data['subject']), 'summary' => $data['body'] ?? null, 'priority' => $data['priority'] ?? 'normal', 'message_type' => $data['message_type'] ?? 'message', 'response_due_date' => $data['response_due_date'] ?? null, 'assigned_to' => $recipients['to'][0], 'status' => 'sent', 'submitted_at' => now(), 'last_message_at' => now()]);
+        $correspondence->update(['subject' => trim($data['subject']), 'summary' => SafeMailHtml::clean($data['body'] ?? null), 'priority' => $data['priority'] ?? 'normal', 'message_type' => $data['message_type'] ?? 'message', 'response_due_date' => $data['response_due_date'] ?? null, 'assigned_to' => $recipients['to'][0], 'status' => 'sent', 'submitted_at' => now(), 'last_message_at' => now()]);
         $this->syncParticipants($correspondence, $request->user()->id, $recipients, true);
         $this->audit($request, $correspondence, 'correspondence.sent', ['recipients' => $recipients]);
         $this->notifyRecipients($correspondence, 'correspondence');
@@ -173,7 +177,7 @@ class CorrespondenceController extends Controller
             $recipientId = $request->user()->id === $correspondence->sender_id
                 ? $correspondence->participants()->where('participant_role', 'to')->value('user_id')
                 : $correspondence->sender_id;
-            $message = $correspondence->messages()->create(['sender_id' => $request->user()->id, 'recipient_id' => $recipientId, 'body' => trim($data['body'])]);
+            $message = $correspondence->messages()->create(['sender_id' => $request->user()->id, 'recipient_id' => $recipientId, 'body' => SafeMailHtml::clean($data['body'])]);
             $now = now();
             $correspondence->update(['last_message_at' => $now]);
             $correspondence->participants()->where('user_id', '!=', $request->user()->id)->update(['read_at' => null, 'archived_at' => null]);
@@ -199,7 +203,7 @@ class CorrespondenceController extends Controller
                 }
             }
             if ($body !== '') {
-                $correspondence->messages()->create(['sender_id' => $request->user()->id, 'body' => $body]);
+                $correspondence->messages()->create(['sender_id' => $request->user()->id, 'body' => SafeMailHtml::clean($body)]);
             }
             $correspondence->update(['last_message_at' => now()]);
             $this->audit($request, $correspondence, 'correspondence.forwarded', ['recipients' => $recipients]);
@@ -273,46 +277,10 @@ class CorrespondenceController extends Controller
         return ApiResponse::success($task->load(['assignee.person', 'creator.person']), $this->tr('تم إنشاء المهمة.', 'Task created.'), [], 201);
     }
 
-    public function templates(Request $request): JsonResponse
-    {
-        return ApiResponse::success(CorrespondenceTemplate::where('created_by', $request->user()->id)->orderBy('name')->get());
-    }
-
-    public function storeTemplate(Request $request): JsonResponse
-    {
-        $data = $request->validate(['name' => ['required', 'string', 'max:120'], 'subject' => ['nullable', 'string', 'max:500'], 'body' => ['required', 'string', 'max:20000'], 'message_type' => ['required', Rule::in(['message', 'action', 'announcement'])], 'priority' => ['required', Rule::in(['low', 'normal', 'urgent', 'critical'])]]);
-
-        return ApiResponse::success(CorrespondenceTemplate::create($data + ['created_by' => $request->user()->id]), $this->tr('تم حفظ القالب.', 'Template saved.'), [], 201);
-    }
-
-    public function destroyTemplate(Request $request, CorrespondenceTemplate $template): JsonResponse
-    {
-        if ($template->created_by !== $request->user()->id) {
-            throw new AuthorizationException($this->tr('غير مصرح بهذا الإجراء.', 'This action is unauthorized.'));
-        }
-        $template->delete();
-
-        return ApiResponse::success(null, $this->tr('تم حذف القالب.', 'Template deleted.'));
-    }
-
-    public function report(Request $request): JsonResponse
-    {
-        $userId = $request->user()->id;
-        $visible = fn () => Correspondence::whereHas('participants', fn ($q) => $q->where('user_id', $userId)->whereNull('deleted_at'));
-        $monthly = $visible()->where('created_at', '>=', now()->subMonths(5)->startOfMonth())->get(['created_at'])->groupBy(fn ($item) => $item->created_at->format('Y-m'))->map(fn ($items, $month) => ['month' => $month, 'total' => $items->count()])->values();
-        $responseHours = $visible()->whereHas('messages')->with('messages:id,correspondence_id,created_at')->get(['id', 'submitted_at'])->map(function ($item) {
-            $first = $item->messages->first();
-
-            return $item->submitted_at && $first ? $item->submitted_at->diffInMinutes($first->created_at) / 60 : null;
-        })->filter(fn ($value) => $value !== null);
-
-        return ApiResponse::success(['total' => $visible()->count(), 'sent' => $visible()->where('sender_id', $userId)->where('status', 'sent')->count(), 'received' => $visible()->where('sender_id', '!=', $userId)->where('status', 'sent')->count(), 'unread' => $this->mailboxMeta($userId)['unread'], 'overdue' => $visible()->where('message_type', 'action')->whereDate('response_due_date', '<', now()->toDateString())->count(), 'urgent' => $visible()->whereIn('priority', ['urgent', 'critical'])->count(), 'average_response_hours' => $responseHours->isEmpty() ? null : round($responseHours->average(), 1), 'monthly' => $monthly]);
-    }
-
     public function printPdf(Request $request, Correspondence $correspondence)
     {
         $this->participant($correspondence, $request->user()->id);
-        $item = $this->mail($correspondence);
+        $item = $this->mail($correspondence, $request->user()->id);
 
         return Pdf::loadView('reports.correspondence', ['item' => $item, 'locale' => app()->getLocale()])->setPaper('a4')->download('correspondence-'.$item->reference_number.'.pdf');
     }
@@ -402,9 +370,16 @@ class CorrespondenceController extends Controller
         }
     }
 
-    private function mail(Correspondence $item): Correspondence
+    private function mail(Correspondence $item, ?int $viewerId = null): Correspondence
     {
         $item = $item->fresh()->load(['sender.person', 'participants.user.person', 'attachments.uploader.person', 'messages.sender.person']);
+        $item->setAttribute('summary', SafeMailHtml::clean($item->summary));
+        $item->messages->each(fn ($message) => $message->setAttribute('body', SafeMailHtml::clean($message->body)));
+        if ($viewerId !== null && $viewerId !== $item->sender_id) {
+            $item->setRelation('participants', $item->participants->filter(
+                fn ($participant) => $participant->participant_role !== 'fyi' || $participant->user_id === $viewerId
+            )->values());
+        }
         $item->setAttribute('activity', AuditLog::with('user.person')->where('entity_type', Correspondence::class)->where('entity_id', $item->id)->oldest()->get());
 
         return $item;

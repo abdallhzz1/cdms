@@ -325,10 +325,6 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('correspondence/{correspondence}/messages', [CorrespondenceController::class, 'storeMessage'])->middleware('permission:correspondence.view');
         Route::get('correspondence/{correspondence}/attachments/{attachment}/download', [CorrespondenceController::class, 'downloadAttachment'])->middleware('permission:correspondence.view');
         Route::delete('correspondence/{correspondence}/attachments/{attachment}', [CorrespondenceController::class, 'destroyAttachment'])->middleware('permission:correspondence.view');
-        Route::get('correspondence-templates', [CorrespondenceController::class, 'templates'])->middleware('permission:correspondence.view');
-        Route::post('correspondence-templates', [CorrespondenceController::class, 'storeTemplate'])->middleware('permission:correspondence.create');
-        Route::delete('correspondence-templates/{template}', [CorrespondenceController::class, 'destroyTemplate'])->middleware('permission:correspondence.create');
-        Route::get('correspondence-report', [CorrespondenceController::class, 'report'])->middleware('permission:correspondence.view');
         Route::get('correspondence/{correspondence}/print', [CorrespondenceController::class, 'printPdf'])->middleware('permission:correspondence.view');
         Route::get('operational-tasks', [OperationalTaskController::class, 'index'])->middleware('permission:tasks.view');
         Route::post('operational-tasks', [OperationalTaskController::class, 'store'])->middleware('permission:tasks.manage');

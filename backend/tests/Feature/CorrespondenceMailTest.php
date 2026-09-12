@@ -57,13 +57,33 @@ class CorrespondenceMailTest extends TestCase
         $this->as($sender)->getJson('/api/v1/correspondence?filter=outbox')->assertJsonPath('data.0.id', $id);
     }
 
-    public function test_personal_templates_and_mail_report_are_available(): void
+    public function test_mail_html_is_sanitized_and_removed_template_routes_are_unavailable(): void
     {
-        $user = $this->user(['correspondence.view', 'correspondence.create']);
-        $template = $this->as($user)->postJson('/api/v1/correspondence-templates', ['name' => 'Reminder', 'subject' => 'Reminder', 'body' => 'Please follow up.', 'message_type' => 'action', 'priority' => 'normal'])->assertCreated();
-        $this->getJson('/api/v1/correspondence-templates')->assertOk()->assertJsonPath('data.0.name', 'Reminder');
-        $this->getJson('/api/v1/correspondence-report')->assertOk()->assertJsonStructure(['data' => ['total', 'sent', 'received', 'unread', 'overdue', 'urgent', 'average_response_hours', 'monthly']]);
-        $this->deleteJson('/api/v1/correspondence-templates/'.$template->json('data.id'))->assertOk();
+        $sender = $this->user(['correspondence.view', 'correspondence.create', 'correspondence.submit']);
+        $recipient = $this->user(['correspondence.view']);
+        $response = $this->as($sender)->postJson('/api/v1/correspondence', [
+            'subject' => 'Formatted message', 'to' => [$recipient->id], 'send_now' => true,
+            'body' => '<strong>Hello</strong><script>alert(1)</script><a href="javascript:alert(2)" onclick="alert(3)">bad</a>',
+        ])->assertCreated();
+        $body = $response->json('data.summary');
+        $this->assertStringContainsString('<strong>Hello</strong>', $body);
+        $this->assertStringNotContainsString('<script', $body);
+        $this->assertStringNotContainsString('javascript:', $body);
+        $this->assertStringNotContainsString('onclick', $body);
+        $this->getJson('/api/v1/correspondence-templates')->assertNotFound();
+        $this->getJson('/api/v1/correspondence-report')->assertNotFound();
+    }
+
+    public function test_bcc_recipients_are_hidden_from_other_recipients(): void
+    {
+        $sender = $this->user(['correspondence.view', 'correspondence.create', 'correspondence.submit']);
+        $recipient = $this->user(['correspondence.view']);
+        $bcc = $this->user(['correspondence.view']);
+        $id = $this->as($sender)->postJson('/api/v1/correspondence', ['subject' => 'Private copy', 'to' => [$recipient->id], 'fyi' => [$bcc->id], 'send_now' => true])->assertCreated()->json('data.id');
+        $participants = $this->as($recipient)->getJson("/api/v1/correspondence/{$id}")->assertOk()->json('data.participants');
+        $this->assertFalse(collect($participants)->contains('user_id', $bcc->id));
+        $bccParticipants = $this->as($bcc)->getJson("/api/v1/correspondence/{$id}")->assertOk()->json('data.participants');
+        $this->assertTrue(collect($bccParticipants)->contains('user_id', $bcc->id));
     }
 
     public function test_legacy_approval_actions_are_not_routes_and_workflow_is_hidden(): void
