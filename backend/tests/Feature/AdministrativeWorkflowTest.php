@@ -128,8 +128,77 @@ class AdministrativeWorkflowTest extends TestCase
 
         $notification = $creator->notifications()->firstOrFail();
         $this->assertSame('task.status_changed', $notification->data['event_key']);
-        $this->assertSame('/tasks', $notification->data['action_url']);
+        $this->assertSame("/tasks?task={$id}", $notification->data['action_url']);
         $this->assertSame('بدأ تنفيذ المهمة', $notification->data['title_ar']);
+    }
+
+    public function test_manual_task_requires_an_assignee_and_only_creator_can_reopen_it(): void
+    {
+        $creator = $this->userWithPermissions(['tasks.view', 'tasks.manage']);
+        $assignee = $this->userWithPermissions(['tasks.view']);
+
+        $this->asUser($creator)->postJson('/api/v1/operational-tasks', [
+            'title' => 'Unassigned task', 'priority' => 'normal',
+        ])->assertUnprocessable()->assertJsonValidationErrors('assigned_to');
+
+        $id = $this->postJson('/api/v1/operational-tasks', [
+            'title' => 'Prepare report', 'assigned_to' => $assignee->id, 'priority' => 'normal',
+        ])->assertCreated()->json('data.id');
+
+        $this->asUser($assignee)->putJson("/api/v1/operational-tasks/{$id}", [
+            'status' => 'completed', 'completion_notes' => 'Done.',
+        ])->assertOk();
+        $this->putJson("/api/v1/operational-tasks/{$id}", ['status' => 'open'])->assertForbidden();
+        $this->asUser($creator)->putJson("/api/v1/operational-tasks/{$id}", ['status' => 'open'])
+            ->assertOk()->assertJsonPath('data.status', 'open');
+    }
+
+    public function test_task_participants_can_comment_and_open_a_complete_activity_view(): void
+    {
+        $creator = $this->userWithPermissions(['tasks.view', 'tasks.manage']);
+        $assignee = $this->userWithPermissions(['tasks.view']);
+        $outsider = $this->userWithPermissions(['tasks.view']);
+        $id = $this->asUser($creator)->postJson('/api/v1/operational-tasks', [
+            'title' => 'Review schedule', 'assigned_to' => $assignee->id, 'priority' => 'high',
+        ])->assertCreated()->json('data.id');
+
+        $this->asUser($assignee)->postJson("/api/v1/operational-tasks/{$id}/comments", [
+            'body' => 'The first draft is ready.',
+        ])->assertCreated()->assertJsonPath('data.body', 'The first draft is ready.');
+        $this->asUser($outsider)->postJson("/api/v1/operational-tasks/{$id}/comments", [
+            'body' => 'Not allowed.',
+        ])->assertForbidden();
+
+        $this->asUser($creator)->getJson("/api/v1/operational-tasks/{$id}")
+            ->assertOk()
+            ->assertJsonPath('data.comments.0.body', 'The first draft is ready.')
+            ->assertJsonPath('data.can_manage', true)
+            ->assertJsonStructure(['data' => ['activity']]);
+        $this->asUser($outsider)->getJson("/api/v1/operational-tasks/{$id}")->assertForbidden();
+
+        $notification = $creator->notifications()->where('data->event_key', 'task.comment')->firstOrFail();
+        $this->assertSame("/tasks?task={$id}", $notification->data['action_url']);
+    }
+
+    public function test_task_index_returns_workflow_summary_and_overdue_view(): void
+    {
+        $creator = $this->userWithPermissions(['tasks.view', 'tasks.manage']);
+        $assignee = $this->userWithPermissions(['tasks.view']);
+        $this->asUser($creator)->postJson('/api/v1/operational-tasks', [
+            'title' => 'Late item', 'assigned_to' => $assignee->id, 'priority' => 'high',
+            'due_date' => now()->subDay()->toDateString(),
+        ])->assertCreated();
+        $this->postJson('/api/v1/operational-tasks', [
+            'title' => 'Future item', 'assigned_to' => $assignee->id, 'priority' => 'normal',
+            'due_date' => now()->addWeek()->toDateString(),
+        ])->assertCreated();
+
+        $this->getJson('/api/v1/operational-tasks?view=overdue')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.title', 'Late item')
+            ->assertJsonPath('meta.summary.overdue', 1)
+            ->assertJsonPath('meta.summary.created', 2);
     }
 
     public function test_correspondence_attachments_are_private_and_limited_to_participants(): void

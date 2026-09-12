@@ -30,7 +30,7 @@ class AdministrativeWorkAssignedNotification extends Notification
             'title_en' => $isTask ? 'New task' : ($isReply ? 'New correspondence reply' : ($isReturned ? 'Correspondence returned' : 'New correspondence')),
             'message_ar' => ($isTask ? 'تم تكليفك بالمهمة: ' : ($isReply ? 'وصل رد جديد على: ' : ($isReturned ? 'أعيدت إليك المراسلة: ' : 'وصلتك مراسلة جديدة: '))).$this->title,
             'message_en' => ($isTask ? 'You were assigned the task: ' : ($isReply ? 'A new reply was added to: ' : ($isReturned ? 'The correspondence was returned to you: ' : 'You received a new message: '))).$this->title,
-            'action_url' => $isTask ? '/tasks' : '/correspondence/'.$this->workId,
+            'action_url' => $isTask ? '/tasks?task='.$this->workId : '/correspondence/'.$this->workId,
             'entity_type' => $this->workType,
             'entity_id' => $this->workId,
         ];
