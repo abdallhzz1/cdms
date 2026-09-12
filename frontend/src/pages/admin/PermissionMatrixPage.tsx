@@ -21,6 +21,7 @@ import { apiFetch } from '@/api/client';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { useI18n } from '@/i18n/I18nContext';
 
 type Icon = ComponentType<{ className?: string }>;
 type Role = { id: number; code: string; name: string; users_count: number };
@@ -28,51 +29,52 @@ type Permission = { id: number; code: string; module: string; action: string };
 type MatrixPermission = { permission_id: number; granted: boolean };
 type MatrixRole = { role_id: number; permissions: MatrixPermission[] };
 type MatrixResponse = { roles: Role[]; permissions: Permission[]; matrix: MatrixRole[] };
+type LocalizedLabel = { ar: string; en: string };
 
-const ROLE_LABELS: Record<string, { label: string; icon: Icon }> = {
-  SYS_ADMIN: { label: 'مدير النظام التقني', icon: Monitor },
-  CLINICAL_DIRECTOR: { label: 'مدير الدائرة السريرية', icon: ShieldCheck },
-  DEPARTMENT_HEAD: { label: 'رئيس القسم الأكاديمي', icon: GraduationCap },
-  CLINICAL_SUPERVISOR: { label: 'المشرف السريري', icon: Users },
-  DEAN: { label: 'عميد الكلية', icon: Shield },
-  VICE_DEAN: { label: 'نائب العميد', icon: Shield },
-  RTA: { label: 'مساعد البحث والتدريس', icon: ClipboardCheck },
-  ACADEMIC_ADVISOR: { label: 'المرشد الأكاديمي', icon: BookOpen },
-  QUALITY: { label: 'مسؤول الجودة والاعتماد', icon: BarChart3 },
-  ADMIN_ASSISTANT: { label: 'المساعد الإداري', icon: FolderGit2 },
+const ROLE_LABELS: Record<string, { label: LocalizedLabel; icon: Icon }> = {
+  SYS_ADMIN: { label: { ar: 'مدير النظام التقني', en: 'System Administrator' }, icon: Monitor },
+  CLINICAL_DIRECTOR: { label: { ar: 'مدير الدائرة السريرية', en: 'Clinical Director' }, icon: ShieldCheck },
+  DEPARTMENT_HEAD: { label: { ar: 'رئيس القسم الأكاديمي', en: 'Academic Department Head' }, icon: GraduationCap },
+  CLINICAL_SUPERVISOR: { label: { ar: 'المشرف السريري', en: 'Clinical Supervisor' }, icon: Users },
+  DEAN: { label: { ar: 'عميد الكلية', en: 'Dean' }, icon: Shield },
+  VICE_DEAN: { label: { ar: 'نائب العميد', en: 'Vice Dean' }, icon: Shield },
+  RTA: { label: { ar: 'مساعد البحث والتدريس', en: 'Research and Teaching Assistant' }, icon: ClipboardCheck },
+  ACADEMIC_ADVISOR: { label: { ar: 'المرشد الأكاديمي', en: 'Academic Advisor' }, icon: BookOpen },
+  QUALITY: { label: { ar: 'مسؤول الجودة والاعتماد', en: 'Quality and Accreditation Officer' }, icon: BarChart3 },
+  ADMIN_ASSISTANT: { label: { ar: 'المساعد الإداري', en: 'Administrative Assistant' }, icon: FolderGit2 },
 };
 
-const MODULES: Record<string, { label: string; icon: Icon }> = {
-  People: { label: 'الكادر والمشرفون', icon: Users },
-  Students: { label: 'شؤون الطلبة', icon: GraduationCap },
-  Grades: { label: 'العلامات الأكاديمية', icon: ClipboardCheck },
-  Distribution: { label: 'التوزيع والجدول السريري', icon: CalendarDays },
-  Rotations: { label: 'التوزيع والجدول السريري', icon: CalendarDays },
-  Courses: { label: 'المساقات والخطط الدراسية', icon: BookOpen },
-  'Course Reports': { label: 'تقارير المساقات السريرية', icon: BookOpen },
-  Attendance: { label: 'الحضور والغياب', icon: ClipboardCheck },
-  Assessment: { label: 'التقييم والإشراف السريري', icon: ShieldCheck },
-  'Clinical Supervisor Evaluations': { label: 'تقييم المشرفين السريريين', icon: ClipboardCheck },
-  'Department Head Evaluations': { label: 'تقييم رؤساء الأقسام', icon: ClipboardCheck },
-  Correspondence: { label: 'المراسلات', icon: FolderGit2 },
-  Meetings: { label: 'الاجتماعات', icon: CalendarDays },
-  Tasks: { label: 'المهام والتكليفات', icon: FolderGit2 },
-  Reports: { label: 'التقارير والإحصائيات', icon: BarChart3 },
-  Quality: { label: 'الجودة والاعتماد', icon: BarChart3 },
-  KPIs: { label: 'مؤشرات الأداء', icon: BarChart3 },
-  Performance: { label: 'تقارير الأداء', icon: BarChart3 },
-  Advising: { label: 'الإرشاد الأكاديمي', icon: BookOpen },
-  Security: { label: 'المستخدمون والصلاحيات', icon: Shield },
-  System: { label: 'إعدادات النظام', icon: Monitor },
-  'Approval Workflows': { label: 'إعداد مسارات الاعتماد', icon: ShieldCheck },
-  Approvals: { label: 'مركز الاعتمادات', icon: ShieldCheck },
-  'Academic Years': { label: 'الأعوام الأكاديمية', icon: CalendarDays },
-  AcademicYears: { label: 'الأعوام الأكاديمية', icon: CalendarDays },
-  Departments: { label: 'الأقسام الأكاديمية', icon: LayoutGrid },
-  Groups: { label: 'المجموعات الطلابية', icon: Users },
-  'Training Sites': { label: 'المستشفيات ومواقع التدريب', icon: ShieldCheck },
-  Partnerships: { label: 'الشراكات السريرية', icon: ShieldCheck },
-  GroupRegistration: { label: 'تسجيل مجموعات الطلبة', icon: GraduationCap },
+const MODULES: Record<string, { label: LocalizedLabel; icon: Icon }> = {
+  People: { label: { ar: 'الكادر والمشرفون', en: 'Staff and Supervisors' }, icon: Users },
+  Students: { label: { ar: 'شؤون الطلبة', en: 'Student Affairs' }, icon: GraduationCap },
+  Grades: { label: { ar: 'العلامات الأكاديمية', en: 'Academic Grades' }, icon: ClipboardCheck },
+  Distribution: { label: { ar: 'التوزيع والجدول السريري', en: 'Clinical Distribution and Schedule' }, icon: CalendarDays },
+  Rotations: { label: { ar: 'التوزيع والجدول السريري', en: 'Clinical Distribution and Schedule' }, icon: CalendarDays },
+  Courses: { label: { ar: 'المساقات والخطط الدراسية', en: 'Courses and Study Plans' }, icon: BookOpen },
+  'Course Reports': { label: { ar: 'تقارير المساقات السريرية', en: 'Clinical Course Reports' }, icon: BookOpen },
+  Attendance: { label: { ar: 'الحضور والغياب', en: 'Attendance' }, icon: ClipboardCheck },
+  Assessment: { label: { ar: 'التقييم والإشراف السريري', en: 'Clinical Assessment and Supervision' }, icon: ShieldCheck },
+  'Clinical Supervisor Evaluations': { label: { ar: 'تقييم المشرفين السريريين', en: 'Clinical Supervisor Evaluations' }, icon: ClipboardCheck },
+  'Department Head Evaluations': { label: { ar: 'تقييم رؤساء الأقسام', en: 'Department Head Evaluations' }, icon: ClipboardCheck },
+  Correspondence: { label: { ar: 'المراسلات', en: 'Correspondence' }, icon: FolderGit2 },
+  Meetings: { label: { ar: 'الاجتماعات', en: 'Meetings' }, icon: CalendarDays },
+  Tasks: { label: { ar: 'المهام والتكليفات', en: 'Tasks and Assignments' }, icon: FolderGit2 },
+  Reports: { label: { ar: 'التقارير والإحصائيات', en: 'Reports and Statistics' }, icon: BarChart3 },
+  Quality: { label: { ar: 'الجودة والاعتماد', en: 'Quality and Accreditation' }, icon: BarChart3 },
+  KPIs: { label: { ar: 'مؤشرات الأداء', en: 'Performance Indicators' }, icon: BarChart3 },
+  Performance: { label: { ar: 'تقارير الأداء', en: 'Performance Reports' }, icon: BarChart3 },
+  Advising: { label: { ar: 'الإرشاد الأكاديمي', en: 'Academic Advising' }, icon: BookOpen },
+  Security: { label: { ar: 'المستخدمون والصلاحيات', en: 'Users and Permissions' }, icon: Shield },
+  System: { label: { ar: 'إعدادات النظام', en: 'System Settings' }, icon: Monitor },
+  'Approval Workflows': { label: { ar: 'إعداد مسارات الاعتماد', en: 'Approval Workflow Setup' }, icon: ShieldCheck },
+  Approvals: { label: { ar: 'مركز الاعتمادات', en: 'Approval Center' }, icon: ShieldCheck },
+  'Academic Years': { label: { ar: 'الأعوام الأكاديمية', en: 'Academic Years' }, icon: CalendarDays },
+  AcademicYears: { label: { ar: 'الأعوام الأكاديمية', en: 'Academic Years' }, icon: CalendarDays },
+  Departments: { label: { ar: 'الأقسام الأكاديمية', en: 'Academic Departments' }, icon: LayoutGrid },
+  Groups: { label: { ar: 'المجموعات الطلابية', en: 'Student Groups' }, icon: Users },
+  'Training Sites': { label: { ar: 'المستشفيات ومواقع التدريب', en: 'Hospitals and Training Sites' }, icon: ShieldCheck },
+  Partnerships: { label: { ar: 'الشراكات السريرية', en: 'Clinical Partnerships' }, icon: ShieldCheck },
+  GroupRegistration: { label: { ar: 'تسجيل مجموعات الطلبة', en: 'Student Group Registration' }, icon: GraduationCap },
 };
 
 const PERMISSION_LABELS: Record<string, string> = {
@@ -189,16 +191,30 @@ function normalizedModule(module: string) {
 }
 
 function moduleInfo(module: string) {
-  return MODULES[module] ?? { label: 'صلاحيات إضافية', icon: LayoutGrid };
+  return MODULES[module] ?? { label: { ar: 'صلاحيات إضافية', en: 'Additional Permissions' }, icon: LayoutGrid };
 }
 
-function permissionLabel(permission: Permission) {
-  if (PERMISSION_LABELS[permission.code]) return PERMISSION_LABELS[permission.code];
-  const action = ACTION_LABELS[permission.action] ?? 'استخدام';
-  return `${action} ${moduleInfo(normalizedModule(permission.module)).label}`;
+function humanizePermission(permission: Permission) {
+  const tokens = permission.code.split('.');
+  const action = tokens.pop() || permission.action;
+  const actionLabels: Record<string, string> = {
+    view: 'View', create: 'Create', update: 'Update', delete: 'Delete', manage: 'Manage', approve: 'Approve', export: 'Export',
+    publish: 'Publish', submit: 'Submit', lock: 'Lock', generate: 'Generate', validate: 'Validate', override: 'Override', record: 'Record',
+    notify: 'Send notifications', decide: 'Make decisions', revise: 'Revise', unpublish: 'Unpublish', assign: 'Assign', close: 'Close', forward: 'Forward',
+  };
+  const subject = tokens.join(' ').replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+  return `${actionLabels[action] || action.replace(/_/g, ' ')} ${subject}`.trim();
 }
 
 export function PermissionMatrixPage() {
+  const { locale, t } = useI18n();
+  const ar = locale === 'ar';
+  const tr = (arabic: string, english: string) => ar ? arabic : english;
+  const roleLabel = (code?: string) => code && ROLE_LABELS[code] ? ROLE_LABELS[code].label[locale] : tr('دور مستخدم', 'User Role');
+  const moduleLabel = (module: string) => moduleInfo(module).label[locale];
+  const localizedPermissionLabel = (permission: Permission) => ar
+    ? (PERMISSION_LABELS[permission.code] || `${ACTION_LABELS[permission.action] ?? 'استخدام'} ${moduleLabel(normalizedModule(permission.module))}`)
+    : t(`permissions.${permission.code.replace(/\./g, '_')}.description`, humanizePermission(permission));
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
   const [matrix, setMatrix] = useState<MatrixRole[]>([]);
   const [search, setSearch] = useState('');
@@ -236,7 +252,7 @@ export function PermissionMatrixPage() {
         next.delete(`${result.role_id}:${result.permission_id}`);
         return next;
       });
-      setNotice({ text: 'تم حفظ التغيير' });
+      setNotice({ text: tr('تم حفظ التغيير', 'Permission updated') });
       window.setTimeout(() => setNotice(null), 1800);
     },
     onError: (_error, variables) => {
@@ -245,7 +261,7 @@ export function PermissionMatrixPage() {
         next.delete(`${variables.role_id}:${variables.permission_id}`);
         return next;
       });
-      setNotice({ text: 'تعذر حفظ التغيير، أُعيدت الحالة السابقة', error: true });
+      setNotice({ text: tr('تعذر حفظ التغيير، أُعيدت الحالة السابقة', 'Could not save the change; the previous setting was restored'), error: true });
       void refetch();
       window.setTimeout(() => setNotice(null), 3500);
     },
@@ -259,16 +275,16 @@ export function PermissionMatrixPage() {
 
   const moduleOptions = useMemo(() => Array.from(new Set(permissions.map((permission) => normalizedModule(permission.module)))), [permissions]);
   const groupedPermissions = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase('ar');
+    const query = search.trim().toLocaleLowerCase(locale);
     const groups = new Map<string, Permission[]>();
     permissions.forEach((permission) => {
       const module = normalizedModule(permission.module);
       if (selectedModule !== 'ALL' && module !== selectedModule) return;
-      if (query && !permissionLabel(permission).toLocaleLowerCase('ar').includes(query)) return;
+      if (query && !localizedPermissionLabel(permission).toLocaleLowerCase(locale).includes(query)) return;
       groups.set(module, [...(groups.get(module) ?? []), permission]);
     });
     return Array.from(groups.entries());
-  }, [permissions, search, selectedModule]);
+  }, [permissions, search, selectedModule, locale]);
 
   useEffect(() => {
     if (expandedModules.size === 0 && moduleOptions[0]) setExpandedModules(new Set([moduleOptions[0]]));
@@ -280,7 +296,7 @@ export function PermissionMatrixPage() {
     if (pending.has(key)) return;
     const currentlyGranted = grantedIds.has(permission.id);
     if (selectedRole.code === 'SYS_ADMIN' && permission.code === 'roles.manage' && currentlyGranted) {
-      setNotice({ text: 'هذه صلاحية أساسية لمدير النظام ولا يمكن تعطيلها', error: true });
+      setNotice({ text: tr('هذه صلاحية أساسية لمدير النظام ولا يمكن تعطيلها', 'This core permission cannot be disabled for the system administrator'), error: true });
       window.setTimeout(() => setNotice(null), 3000);
       return;
     }
@@ -297,12 +313,12 @@ export function PermissionMatrixPage() {
   if (isLoading) return <LoadingState />;
   if (isError) return <ErrorState onRetry={() => refetch()} />;
 
-  const selectedRoleInfo = ROLE_LABELS[selectedRole?.code] ?? { label: 'دور مستخدم', icon: Users };
+  const selectedRoleInfo = ROLE_LABELS[selectedRole?.code] ?? { label: { ar: 'دور مستخدم', en: 'User Role' }, icon: Users };
   const SelectedRoleIcon = selectedRoleInfo.icon;
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 pb-16">
-      <PageHeader title="إدارة صلاحيات الأدوار" description="اختر الدور، ثم فعّل فقط الشاشات والعمليات التي يحتاجها." />
+      <PageHeader title={tr('إدارة صلاحيات الأدوار', 'Role Permissions')} description={tr('اختر الدور، ثم فعّل فقط الشاشات والعمليات التي يحتاجها.', 'Select a role, then enable only the screens and operations it needs.')} />
 
       {notice && (
         <div className={`fixed bottom-5 left-5 z-50 flex items-center gap-2 rounded-2xl px-4 py-3 text-xs font-bold text-white shadow-xl ${notice.error ? 'bg-rose-600' : 'bg-slate-900'}`}>
@@ -312,29 +328,29 @@ export function PermissionMatrixPage() {
       )}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
-        <label className="mb-2 block text-xs font-black text-slate-700 sm:hidden" htmlFor="permission-role">الدور الوظيفي</label>
+        <label className="mb-2 block text-xs font-black text-slate-700 sm:hidden" htmlFor="permission-role">{tr('الدور الوظيفي', 'Role')}</label>
         <select
           id="permission-role"
           value={selectedRole?.id ?? ''}
           onChange={(event) => setSelectedRoleId(Number(event.target.value))}
           className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-800 outline-none focus:border-teal-500 sm:hidden"
         >
-          {roles.map((role) => <option key={role.id} value={role.id}>{ROLE_LABELS[role.code]?.label ?? 'دور مستخدم'}</option>)}
+          {roles.map((role) => <option key={role.id} value={role.id}>{roleLabel(role.code)}</option>)}
         </select>
 
         <div className="hidden gap-2 sm:grid sm:grid-cols-2 lg:grid-cols-5">
           {roles.map((role) => {
-            const info = ROLE_LABELS[role.code] ?? { label: 'دور مستخدم', icon: Users };
+            const info = ROLE_LABELS[role.code] ?? { label: { ar: 'دور مستخدم', en: 'User Role' }, icon: Users };
             const RoleIcon = info.icon;
             const active = role.id === selectedRole?.id;
             const count = matrix.find((item) => item.role_id === role.id)?.permissions.filter((item) => item.granted).length ?? 0;
             return (
-              <button key={role.id} type="button" onClick={() => setSelectedRoleId(role.id)} className={`min-h-20 rounded-2xl border p-3 text-right transition ${active ? 'border-teal-600 bg-teal-600 text-white shadow-md shadow-teal-700/15' : 'border-slate-200 bg-white text-slate-700 hover:border-teal-200 hover:bg-teal-50/40'}`}>
+              <button key={role.id} type="button" onClick={() => setSelectedRoleId(role.id)} className={`min-h-20 rounded-2xl border p-3 text-start transition ${active ? 'border-teal-600 bg-teal-600 text-white shadow-md shadow-teal-700/15' : 'border-slate-200 bg-white text-slate-700 hover:border-teal-200 hover:bg-teal-50/40'}`}>
                 <span className="flex items-start justify-between gap-2">
                   <RoleIcon className="h-4 w-4 shrink-0" />
-                  <span className="text-xs font-black leading-5">{info.label}</span>
+                  <span className="text-xs font-black leading-5">{info.label[locale]}</span>
                 </span>
-                <span className={`mt-2 block text-[10px] font-bold ${active ? 'text-white/80' : 'text-slate-400'}`}>{count} صلاحية · {role.users_count} مستخدم</span>
+                <span className={`mt-2 block text-[10px] font-bold ${active ? 'text-white/80' : 'text-slate-400'}`}>{tr(`${count} صلاحية · ${role.users_count} مستخدم`, `${count} permissions · ${role.users_count} users`)}</span>
               </button>
             );
           })}
@@ -346,8 +362,8 @@ export function PermissionMatrixPage() {
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-teal-50 text-teal-700"><SelectedRoleIcon className="h-5 w-5" /></span>
             <div className="min-w-0 flex-1">
-              <h2 className="truncate text-sm font-black text-slate-900">{selectedRoleInfo.label}</h2>
-              <p className="mt-0.5 text-[11px] font-medium text-slate-500">{grantedIds.size} من {permissions.length} صلاحية مفعّلة</p>
+              <h2 className="truncate text-sm font-black text-slate-900">{selectedRoleInfo.label[locale]}</h2>
+              <p className="mt-0.5 text-[11px] font-medium text-slate-500">{tr(`${grantedIds.size} من ${permissions.length} صلاحية مفعّلة`, `${grantedIds.size} of ${permissions.length} permissions enabled`)}</p>
             </div>
             <div className="hidden h-2 w-32 overflow-hidden rounded-full bg-slate-100 sm:block">
               <div className="h-full rounded-full bg-teal-600" style={{ width: `${permissions.length ? (grantedIds.size / permissions.length) * 100 : 0}%` }} />
@@ -356,18 +372,18 @@ export function PermissionMatrixPage() {
 
           <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_260px]">
             <label className="relative block">
-              <Search className="absolute right-3.5 top-3.5 h-4 w-4 text-slate-400" />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث باسم الشاشة أو العملية..." className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pr-10 pl-3 text-xs font-bold text-slate-800 outline-none focus:border-teal-500 focus:bg-white" />
+              <Search className="absolute start-3.5 top-3.5 h-4 w-4 text-slate-400" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tr('ابحث باسم الشاشة أو العملية...', 'Search by screen or operation...')} className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 ps-10 pe-3 text-xs font-bold text-slate-800 outline-none focus:border-teal-500 focus:bg-white" />
             </label>
             <select value={selectedModule} onChange={(event) => setSelectedModule(event.target.value)} className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-700 outline-none focus:border-teal-500">
-              <option value="ALL">كل أقسام النظام</option>
-              {moduleOptions.map((module) => <option key={module} value={module}>{moduleInfo(module).label}</option>)}
+              <option value="ALL">{tr('كل أقسام النظام', 'All system sections')}</option>
+              {moduleOptions.map((module) => <option key={module} value={module}>{moduleLabel(module)}</option>)}
             </select>
           </div>
         </div>
 
         <div className="space-y-2 bg-slate-50/60 p-2 sm:p-4">
-          {groupedPermissions.length === 0 && <div className="py-14 text-center text-sm font-bold text-slate-400">لا توجد صلاحيات مطابقة للبحث.</div>}
+          {groupedPermissions.length === 0 && <div className="py-14 text-center text-sm font-bold text-slate-400">{tr('لا توجد صلاحيات مطابقة للبحث.', 'No permissions match your search.')}</div>}
           {groupedPermissions.map(([module, items]) => {
             const info = moduleInfo(module);
             const ModuleIcon = info.icon;
@@ -375,11 +391,11 @@ export function PermissionMatrixPage() {
             const expanded = search.trim() !== '' || selectedModule !== 'ALL' || expandedModules.has(module);
             return (
               <article key={module} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                <button type="button" onClick={() => setExpandedModules((current) => { const next = new Set(current); next.has(module) ? next.delete(module) : next.add(module); return next; })} className="flex w-full items-center gap-3 p-3.5 text-right sm:p-4">
+                <button type="button" onClick={() => setExpandedModules((current) => { const next = new Set(current); next.has(module) ? next.delete(module) : next.add(module); return next; })} className="flex w-full items-center gap-3 p-3.5 text-start sm:p-4">
                   <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-teal-50 text-teal-700"><ModuleIcon className="h-4 w-4" /></span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-black text-slate-900">{info.label}</span>
-                    <span className="mt-0.5 block text-[10px] font-bold text-slate-400">{grantedCount} من {items.length} مفعّلة</span>
+                    <span className="block text-xs font-black text-slate-900">{info.label[locale]}</span>
+                    <span className="mt-0.5 block text-[10px] font-bold text-slate-400">{tr(`${grantedCount} من ${items.length} مفعّلة`, `${grantedCount} of ${items.length} enabled`)}</span>
                   </span>
                   <ChevronDown className={`h-4 w-4 text-slate-400 transition ${expanded ? 'rotate-180' : ''}`} />
                 </button>
@@ -392,11 +408,11 @@ export function PermissionMatrixPage() {
                       const saving = pending.has(key);
                       const locked = selectedRole?.code === 'SYS_ADMIN' && permission.code === 'roles.manage';
                       return (
-                        <button key={permission.id} type="button" disabled={saving} onClick={() => togglePermission(permission)} className="flex w-full items-center gap-3 px-4 py-3 text-right transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70 sm:px-5">
-                          <span className="min-w-0 flex-1 text-xs font-bold text-slate-700">{permissionLabel(permission)}{locked && <span className="mr-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500">أساسية</span>}</span>
+                        <button key={permission.id} type="button" disabled={saving} onClick={() => togglePermission(permission)} className="flex w-full items-center gap-3 px-4 py-3 text-start transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70 sm:px-5">
+                          <span className="min-w-0 flex-1 text-xs font-bold text-slate-700">{localizedPermissionLabel(permission)}{locked && <span className="ms-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500">{tr('أساسية', 'Core')}</span>}</span>
                           {saving && <Loader2 className="h-4 w-4 animate-spin text-teal-600" />}
                           <span role="switch" aria-checked={granted} className={`relative h-6 w-11 shrink-0 rounded-full transition ${granted ? 'bg-teal-600' : 'bg-slate-200'}`}>
-                            <span className={`absolute top-1 grid h-4 w-4 place-items-center rounded-full bg-white shadow-sm transition-all ${granted ? 'right-6' : 'right-1'}`}>{granted && <Check className="h-2.5 w-2.5 text-teal-700" />}</span>
+                            <span className={`absolute top-1 grid h-4 w-4 place-items-center rounded-full bg-white shadow-sm transition-all ${granted ? 'start-6' : 'start-1'}`}>{granted && <Check className="h-2.5 w-2.5 text-teal-700" />}</span>
                           </span>
                         </button>
                       );
