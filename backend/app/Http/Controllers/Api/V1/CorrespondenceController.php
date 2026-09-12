@@ -281,8 +281,9 @@ class CorrespondenceController extends Controller
     {
         $this->participant($correspondence, $request->user()->id);
         $item = $this->mail($correspondence, $request->user()->id);
+        $locale = in_array($request->query('locale'), ['ar', 'en'], true) ? $request->query('locale') : app()->getLocale();
 
-        return Pdf::loadView('reports.correspondence', ['item' => $item, 'locale' => app()->getLocale()])->setPaper('a4')->download('correspondence-'.$item->reference_number.'.pdf');
+        return Pdf::loadView('reports.correspondence', ['item' => $item, 'locale' => $locale])->setPaper('a4')->download('correspondence-'.$item->reference_number.'.pdf');
     }
 
     private function rules(): array

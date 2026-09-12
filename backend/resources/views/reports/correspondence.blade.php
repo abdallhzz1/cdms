@@ -5,13 +5,16 @@
 </style></head><body>
 @php
 $name = fn($u) => $locale === 'ar' ? ($u?->person?->full_name_ar ?: $u?->name) : ($u?->person?->full_name_en ?: $u?->name);
+$text = fn($value) => $locale === 'ar' ? \App\Support\ArabicPdfText::visual($value) : $value;
+$html = fn($value) => $locale === 'ar' ? \App\Support\ArabicPdfText::html($value) : $value;
 $to = $item->participants->where('participant_role','to')->map(fn($p) => $name($p->user))->filter()->join('، ');
-$cc = $item->participants->whereIn('participant_role',['cc','fyi'])->map(fn($p) => $name($p->user))->filter()->join('، ');
+$cc = $item->participants->where('participant_role','cc')->map(fn($p) => $name($p->user))->filter()->join('، ');
+$bcc = $item->participants->where('participant_role','fyi')->map(fn($p) => $name($p->user))->filter()->join('، ');
 @endphp
-<div class="head"><div class="ref">{{ $item->reference_number }}</div><div class="brand">{{ $locale === 'ar' ? 'جامعة الخليل — نظام المراسلات الداخلي' : 'Hebron University — Internal Mail' }}</div><div class="sub">{{ $locale === 'ar' ? 'كلية الطب · الدائرة السريرية' : 'Faculty of Medicine · Clinical Department' }}</div></div>
-<div class="subject">{{ $item->subject }}</div>
-<table class="meta"><tr><td class="label">{{ $locale === 'ar' ? 'من' : 'From' }}</td><td>{{ $name($item->sender) }}</td></tr><tr><td class="label">{{ $locale === 'ar' ? 'إلى' : 'To' }}</td><td>{{ $to ?: '—' }}</td></tr>@if($cc)<tr><td class="label">{{ $locale === 'ar' ? 'نسخة / للعلم' : 'CC / FYI' }}</td><td>{{ $cc }}</td></tr>@endif<tr><td class="label">{{ $locale === 'ar' ? 'التاريخ' : 'Date' }}</td><td dir="ltr">{{ optional($item->submitted_at)->format('Y/m/d H:i') }}</td></tr>@if($item->response_due_date)<tr><td class="label">{{ $locale === 'ar' ? 'الموعد المطلوب' : 'Due date' }}</td><td dir="ltr">{{ $item->response_due_date->format('Y/m/d') }}</td></tr>@endif</table>
-<div class="body">{!! $item->summary ?: '—' !!}</div>
-@foreach($item->messages as $message)<div class="message"><strong>{{ $name($message->sender) }}</strong> · <span dir="ltr">{{ $message->created_at->format('Y/m/d H:i') }}</span><br><br>{!! $message->body !!}</div>@endforeach
-<div class="footer"><span>{{ $locale === 'ar' ? 'وثيقة مولدة من النظام — رمز التحقق:' : 'System-generated document — verification code:' }} {{ strtoupper(substr(hash('sha256', $item->reference_number.'|'.$item->created_at), 0, 12)) }}</span><span style="float:{{ $locale === 'ar' ? 'left' : 'right' }}">{{ $locale === 'ar' ? 'صفحة' : 'Page' }} <span class="page"></span></span></div>
+<div class="head"><div class="ref">{{ $item->reference_number }}</div><div class="brand">{{ $text($locale === 'ar' ? 'جامعة الخليل — البريد الداخلي' : 'Hebron University — Internal Mail') }}</div><div class="sub">{{ $text($locale === 'ar' ? 'كلية الطب · الدائرة السريرية' : 'Faculty of Medicine · Clinical Department') }}</div></div>
+<div class="subject">{{ $text($item->subject) }}</div>
+<table class="meta"><tr><td class="label">{{ $text($locale === 'ar' ? 'من' : 'From') }}</td><td>{{ $text($name($item->sender)) }}</td></tr><tr><td class="label">{{ $text($locale === 'ar' ? 'إلى' : 'To') }}</td><td>{{ $text($to ?: '—') }}</td></tr>@if($cc)<tr><td class="label">CC</td><td>{{ $text($cc) }}</td></tr>@endif @if($bcc)<tr><td class="label">BCC</td><td>{{ $text($bcc) }}</td></tr>@endif<tr><td class="label">{{ $text($locale === 'ar' ? 'التاريخ' : 'Date') }}</td><td dir="ltr">{{ optional($item->submitted_at)->format('Y/m/d H:i') }}</td></tr></table>
+<div class="body">{!! $html($item->summary ?: '—') !!}</div>
+@foreach($item->messages as $message)<div class="message"><strong>{{ $text($name($message->sender)) }}</strong> · <span dir="ltr">{{ $message->created_at->format('Y/m/d H:i') }}</span><br><br>{!! $html($message->body) !!}</div>@endforeach
+<div class="footer"><span>{{ $text($locale === 'ar' ? 'وثيقة مولدة من النظام — رمز التحقق:' : 'System-generated document — verification code:') }} {{ strtoupper(substr(hash('sha256', $item->reference_number.'|'.$item->created_at), 0, 12)) }}</span><span style="float:{{ $locale === 'ar' ? 'left' : 'right' }}">{{ $text($locale === 'ar' ? 'صفحة' : 'Page') }} <span class="page"></span></span></div>
 </body></html>

@@ -24,7 +24,7 @@ class ArabicPdfText
     public static function visual(mixed $value): string
     {
         $text = (string) $value;
-        if ($text === '' || !preg_match('/\p{Arabic}/u', $text)) {
+        if ($text === '' || ! preg_match('/\p{Arabic}/u', $text)) {
             return $text;
         }
 
@@ -33,14 +33,16 @@ class ArabicPdfText
         $text = preg_replace_callback('/[A-Za-z0-9][A-Za-z0-9_:\.\/%+\-]*/u', function (array $match) use (&$protected): string {
             $placeholder = mb_chr(0xE000 + count($protected));
             $protected[$placeholder] = $match[0];
+
             return $placeholder;
         }, $text) ?? $text;
 
         $characters = mb_str_split($text);
         $shaped = [];
         foreach ($characters as $index => $character) {
-            if (!isset(self::FORMS[$character])) {
+            if (! isset(self::FORMS[$character])) {
                 $shaped[] = $character;
+
                 continue;
             }
 
@@ -61,6 +63,18 @@ class ArabicPdfText
         }
 
         $visual = implode('', array_reverse($shaped));
+
         return strtr($visual, $protected);
+    }
+
+    /** Shape only the text nodes while preserving the safe HTML used by mail bodies. */
+    public static function html(?string $html): string
+    {
+        $parts = preg_split('/(<[^>]+>)/u', (string) $html, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [];
+
+        return implode('', array_map(
+            fn (string $part): string => str_starts_with($part, '<') ? $part : self::visual($part),
+            $parts
+        ));
     }
 }

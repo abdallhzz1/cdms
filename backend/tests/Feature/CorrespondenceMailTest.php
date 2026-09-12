@@ -86,6 +86,20 @@ class CorrespondenceMailTest extends TestCase
         $this->assertTrue(collect($bccParticipants)->contains('user_id', $bcc->id));
     }
 
+    public function test_arabic_mail_pdf_can_be_generated_in_the_requested_language(): void
+    {
+        $sender = $this->user(['correspondence.view', 'correspondence.create', 'correspondence.submit']);
+        $recipient = $this->user(['correspondence.view']);
+        $id = $this->as($sender)->postJson('/api/v1/correspondence', [
+            'subject' => 'تحديث التدريب السريري', 'body' => '<strong>مرحباً بكم</strong>',
+            'to' => [$recipient->id], 'send_now' => true,
+        ])->assertCreated()->json('data.id');
+
+        $this->get("/api/v1/correspondence/{$id}/print?locale=ar")
+            ->assertOk()
+            ->assertHeader('content-type', 'application/pdf');
+    }
+
     public function test_legacy_approval_actions_are_not_routes_and_workflow_is_hidden(): void
     {
         $user = $this->user(['correspondence.view', 'approval_workflows.view']);
