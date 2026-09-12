@@ -99,14 +99,14 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
     queryKey: ['notifications', 'header'],
     queryFn: () => apiFetch<LocalNotification[]>('/notifications?per_page=8'),
     enabled: Boolean(user),
-    refetchInterval: 60_000,
+    refetchInterval: 8_000,
     refetchOnWindowFocus: true,
   });
   const { data: unread = { count: 0 } } = useQuery({
     queryKey: ['notifications-unread-count'],
     queryFn: () => apiFetch<{ count: number }>('/notifications/unread-count'),
     enabled: Boolean(user),
-    refetchInterval: 45_000,
+    refetchInterval: 8_000,
     refetchOnWindowFocus: true,
   });
   const refreshNotifications = async () => {

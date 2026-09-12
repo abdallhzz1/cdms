@@ -36,6 +36,10 @@ class CorrespondenceMailTest extends TestCase
         $this->assertDatabaseHas('correspondence_participants', ['correspondence_id' => $id, 'user_id' => $cc->id, 'participant_role' => 'cc']);
         $this->assertDatabaseHas('correspondence_participants', ['correspondence_id' => $id, 'user_id' => $fyi->id, 'participant_role' => 'fyi']);
         $this->assertDatabaseMissing('approval_requests', ['subject_type' => 'correspondence', 'subject_id' => (string) $id]);
+        $this->assertSame(1, $to->notifications()->count());
+        $this->assertSame('/correspondence/'.$id, $to->notifications()->first()?->data['action_url']);
+        $this->assertSame(1, $cc->notifications()->count());
+        $this->assertSame(1, $fyi->notifications()->count());
         $this->as($to)->getJson('/api/v1/correspondence?filter=action')->assertOk()->assertJsonPath('meta.unread', 1)->assertJsonPath('data.0.id', $id);
     }
 

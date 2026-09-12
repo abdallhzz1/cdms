@@ -21,7 +21,7 @@ export function NotificationsPage() {
   const { data = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['notifications', 'all'],
     queryFn: () => apiFetch<LocalNotification[]>('/notifications?per_page=50'),
-    refetchInterval: 60_000,
+    refetchInterval: 8_000,
     refetchOnWindowFocus: true,
   });
   const refresh = async () => {
