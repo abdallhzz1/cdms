@@ -15,4 +15,5 @@ class OperationalTask extends Model
     public function assignee() { return $this->belongsTo(User::class, 'assigned_to'); }
     public function meetingActionItem() { return $this->hasOne(MeetingActionItem::class); }
     public function comments() { return $this->hasMany(OperationalTaskComment::class); }
+    public function attachments() { return $this->hasMany(OperationalTaskAttachment::class); }
 }

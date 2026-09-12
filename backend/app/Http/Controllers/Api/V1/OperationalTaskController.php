@@ -6,12 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AuditLog;
 use App\Models\OperationalTask;
+use App\Models\OperationalTaskAttachment;
 use App\Notifications\AdministrativeWorkAssignedNotification;
 use App\Notifications\LocalSystemNotification;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -130,6 +133,13 @@ class OperationalTaskController extends Controller
         if (array_key_exists('completion_notes', $data) && ! $isAssignee) {
             throw new AuthorizationException('Only the assigned user may document task completion.');
         }
+        if (($data['status'] ?? null) === 'completed'
+            && blank($data['completion_notes'] ?? $operationalTask->completion_notes)
+            && ! $operationalTask->attachments()->exists()) {
+            throw ValidationException::withMessages([
+                'completion_notes' => [$this->tr('أضف ملخص إنجاز أو ملفًا واحدًا على الأقل قبل تسليم المهمة.', 'Add a completion summary or at least one file before submitting the task.')],
+            ]);
+        }
         $oldAssignee = $operationalTask->assigned_to;
         $oldStatus = $operationalTask->status;
         $oldValues = $operationalTask->only(['title', 'description', 'assigned_to', 'due_date', 'priority', 'status']);
@@ -189,6 +199,63 @@ class OperationalTaskController extends Controller
         return ApiResponse::success($comment->load('user.person'), $this->tr('تمت إضافة التعليق.', 'Comment added.'), [], 201);
     }
 
+    public function storeAttachments(Request $request, OperationalTask $operationalTask): JsonResponse
+    {
+        $this->authorizeParticipant($request, $operationalTask);
+        if ($operationalTask->assigned_to !== $request->user()->id) {
+            throw new AuthorizationException($this->tr('يمكن للمكلّف بالمهمة فقط رفع ملفات التسليم.', 'Only the task assignee may upload delivery files.'));
+        }
+        if (in_array($operationalTask->status, ['completed', 'cancelled'], true)) {
+            throw ValidationException::withMessages(['files' => [$this->tr('أعد فتح المهمة قبل تعديل ملفات التسليم.', 'Reopen the task before changing delivery files.')]]);
+        }
+        $request->validate([
+            'files' => ['required', 'array', 'min:1', 'max:5'],
+            'files.*' => ['required', 'file', 'max:10240', 'mimes:pdf,doc,docx,xls,xlsx,png,jpg,jpeg,webp,zip'],
+        ]);
+        $files = $request->file('files', []);
+        if ($operationalTask->attachments()->count() + count($files) > 5) {
+            throw ValidationException::withMessages(['files' => [$this->tr('الحد الأعلى خمسة ملفات تسليم للمهمة.', 'A task may have at most five delivery files.')]]);
+        }
+        $created = [];
+        foreach ($files as $file) {
+            $extension = strtolower($file->getClientOriginalExtension());
+            $path = $file->storeAs("operational-tasks/{$operationalTask->id}", Str::uuid().'.'.$extension, 'local');
+            $created[] = $operationalTask->attachments()->create([
+                'uploaded_by' => $request->user()->id, 'original_name' => $file->getClientOriginalName(),
+                'stored_path' => $path, 'mime_type' => $file->getMimeType(), 'file_size' => $file->getSize(),
+            ])->load('uploader.person');
+        }
+        $this->audit($request, $operationalTask, 'task.attachments_added', ['count' => count($created)]);
+
+        return ApiResponse::success($created, $this->tr('تم رفع ملفات التسليم.', 'Delivery files uploaded.'), [], 201);
+    }
+
+    public function downloadAttachment(Request $request, OperationalTask $operationalTask, OperationalTaskAttachment $attachment)
+    {
+        $this->authorizeParticipant($request, $operationalTask);
+        abort_unless($attachment->operational_task_id === $operationalTask->id && Storage::disk('local')->exists($attachment->stored_path), 404);
+
+        return Storage::disk('local')->download($attachment->stored_path, $attachment->original_name);
+    }
+
+    public function destroyAttachment(Request $request, OperationalTask $operationalTask, OperationalTaskAttachment $attachment): JsonResponse
+    {
+        $this->authorizeParticipant($request, $operationalTask);
+        abort_unless($attachment->operational_task_id === $operationalTask->id, 404);
+        if ($operationalTask->assigned_to !== $request->user()->id || $attachment->uploaded_by !== $request->user()->id) {
+            throw new AuthorizationException($this->tr('غير مصرح بحذف هذا الملف.', 'You are not allowed to delete this file.'));
+        }
+        if (in_array($operationalTask->status, ['completed', 'cancelled'], true)) {
+            throw ValidationException::withMessages(['attachment' => [$this->tr('أعد فتح المهمة قبل حذف ملف التسليم.', 'Reopen the task before deleting a delivery file.')]]);
+        }
+        Storage::disk('local')->delete($attachment->stored_path);
+        $attachmentId = $attachment->id;
+        $attachment->delete();
+        $this->audit($request, $operationalTask, 'task.attachment_deleted', ['attachment_id' => $attachmentId]);
+
+        return ApiResponse::success(null, $this->tr('تم حذف ملف التسليم.', 'Delivery file deleted.'));
+    }
+
     public function destroy(Request $request, OperationalTask $operationalTask): JsonResponse
     {
         if ($operationalTask->created_by !== $request->user()->id) {
@@ -198,6 +265,7 @@ class OperationalTaskController extends Controller
             throw ValidationException::withMessages(['task' => ['A meeting task must be deleted from its meeting minutes.']]);
         }
         $this->audit($request, $operationalTask, 'task.deleted');
+        Storage::disk('local')->deleteDirectory("operational-tasks/{$operationalTask->id}");
         $operationalTask->delete();
 
         return ApiResponse::success(null, 'Task deleted.');
@@ -236,6 +304,13 @@ class OperationalTaskController extends Controller
             'cancelled' => ['ar' => 'تم إلغاء المهمة', 'en' => 'Task cancelled'],
         ];
         $label = $labels[$task->status] ?? $labels['open'];
+        $attachmentCount = $task->status === 'completed' ? $task->attachments()->count() : 0;
+        $messageAr = $label['ar'].': '.$task->title;
+        $messageEn = $label['en'].': '.$task->title;
+        if ($attachmentCount > 0) {
+            $messageAr .= " — تم تسليم {$attachmentCount} ملف";
+            $messageEn .= " — {$attachmentCount} delivery file(s) submitted";
+        }
 
         $recipient->notify(new LocalSystemNotification([
             'event_key' => 'task.status_changed',
@@ -243,8 +318,8 @@ class OperationalTaskController extends Controller
             'severity' => in_array($task->status, ['completed', 'cancelled'], true) ? 'action' : 'info',
             'title_ar' => $label['ar'],
             'title_en' => $label['en'],
-            'message_ar' => $label['ar'].': '.$task->title,
-            'message_en' => $label['en'].': '.$task->title,
+            'message_ar' => $messageAr,
+            'message_en' => $messageEn,
             'action_url' => '/tasks?task='.$task->id,
             'entity_type' => 'task',
             'entity_id' => $task->id,
@@ -286,7 +361,7 @@ class OperationalTaskController extends Controller
 
     private function detail(OperationalTask $task, Request $request): OperationalTask
     {
-        $task = $task->fresh()->load(['creator.person', 'assignee.person', 'meetingActionItem.meeting', 'comments.user.person']);
+        $task = $task->fresh()->load(['creator.person', 'assignee.person', 'meetingActionItem.meeting', 'comments.user.person', 'attachments.uploader.person']);
         $task->setAttribute('activity', AuditLog::with('user.person')->where('entity_type', OperationalTask::class)->where('entity_id', $task->id)->oldest()->get());
 
         return $this->summaryTask($task, $request);

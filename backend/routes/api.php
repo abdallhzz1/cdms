@@ -330,6 +330,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('operational-tasks/{operationalTask}', [OperationalTaskController::class, 'show'])->middleware('permission:tasks.view');
         Route::post('operational-tasks', [OperationalTaskController::class, 'store'])->middleware('permission:tasks.manage');
         Route::post('operational-tasks/{operationalTask}/comments', [OperationalTaskController::class, 'storeComment'])->middleware('permission:tasks.view');
+        Route::post('operational-tasks/{operationalTask}/attachments', [OperationalTaskController::class, 'storeAttachments'])->middleware('permission:tasks.view');
+        Route::get('operational-tasks/{operationalTask}/attachments/{attachment}/download', [OperationalTaskController::class, 'downloadAttachment'])->middleware('permission:tasks.view');
+        Route::delete('operational-tasks/{operationalTask}/attachments/{attachment}', [OperationalTaskController::class, 'destroyAttachment'])->middleware('permission:tasks.view');
         Route::put('operational-tasks/{operationalTask}', [OperationalTaskController::class, 'update'])->middleware('permission.any:tasks.view,tasks.manage');
         Route::delete('operational-tasks/{operationalTask}', [OperationalTaskController::class, 'destroy'])->middleware('permission:tasks.manage');
         Route::get('quality-surveys', [QualitySurveyController::class, 'index'])->middleware('permission:quality.view');

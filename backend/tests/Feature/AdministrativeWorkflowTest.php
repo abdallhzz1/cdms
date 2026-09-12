@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\ApprovalWorkflow;
 use App\Models\CorrespondenceAttachment;
 use App\Models\Meeting;
+use App\Models\OperationalTaskAttachment;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -199,6 +200,68 @@ class AdministrativeWorkflowTest extends TestCase
             ->assertJsonPath('data.0.title', 'Late item')
             ->assertJsonPath('meta.summary.overdue', 1)
             ->assertJsonPath('meta.summary.created', 2);
+    }
+
+    public function test_task_completion_requires_a_note_or_private_attachment(): void
+    {
+        Storage::fake('local');
+        $creator = $this->userWithPermissions(['tasks.view', 'tasks.manage']);
+        $assignee = $this->userWithPermissions(['tasks.view']);
+        $outsider = $this->userWithPermissions(['tasks.view']);
+        $id = $this->asUser($creator)->postJson('/api/v1/operational-tasks', [
+            'title' => 'Deliver the approved roster', 'assigned_to' => $assignee->id, 'priority' => 'high',
+        ])->assertCreated()->json('data.id');
+
+        $this->asUser($assignee)->putJson("/api/v1/operational-tasks/{$id}", [
+            'status' => 'completed', 'completion_notes' => '',
+        ])->assertUnprocessable()->assertJsonValidationErrors('completion_notes');
+
+        $uploaded = $this->post("/api/v1/operational-tasks/{$id}/attachments", [
+            'files' => [UploadedFile::fake()->create('final-roster.pdf', 120, 'application/pdf')],
+        ], ['Accept' => 'application/json'])->assertCreated();
+        $attachmentId = $uploaded->json('data.0.id');
+        $this->assertDatabaseHas('operational_task_attachments', [
+            'id' => $attachmentId, 'operational_task_id' => $id, 'uploaded_by' => $assignee->id,
+        ]);
+
+        $this->putJson("/api/v1/operational-tasks/{$id}", ['status' => 'completed', 'completion_notes' => ''])
+            ->assertOk()->assertJsonPath('data.status', 'completed');
+        $completionNotification = $creator->notifications()->where('data->event_key', 'task.status_changed')->firstOrFail();
+        $this->assertStringContainsString('ملف', $completionNotification->data['message_ar']);
+        $this->asUser($outsider)->get("/api/v1/operational-tasks/{$id}/attachments/{$attachmentId}/download")->assertForbidden();
+        $this->asUser($assignee)->deleteJson("/api/v1/operational-tasks/{$id}/attachments/{$attachmentId}")
+            ->assertUnprocessable();
+        $this->asUser($creator)->putJson("/api/v1/operational-tasks/{$id}", ['status' => 'open'])->assertOk();
+        $this->asUser($assignee)->deleteJson("/api/v1/operational-tasks/{$id}/attachments/{$attachmentId}")->assertOk();
+    }
+
+    public function test_only_the_assignee_can_upload_task_delivery_files(): void
+    {
+        Storage::fake('local');
+        $creator = $this->userWithPermissions(['tasks.view', 'tasks.manage']);
+        $assignee = $this->userWithPermissions(['tasks.view']);
+        $id = $this->asUser($creator)->postJson('/api/v1/operational-tasks', [
+            'title' => 'Prepare evidence', 'assigned_to' => $assignee->id, 'priority' => 'normal',
+        ])->assertCreated()->json('data.id');
+        $payload = ['files' => [UploadedFile::fake()->create('evidence.pdf', 30, 'application/pdf')]];
+
+        $this->post("/api/v1/operational-tasks/{$id}/attachments", $payload, ['Accept' => 'application/json'])->assertForbidden();
+        $this->asUser($assignee)->post("/api/v1/operational-tasks/{$id}/attachments", $payload, ['Accept' => 'application/json'])
+            ->assertCreated();
+        $this->post("/api/v1/operational-tasks/{$id}/attachments", ['files' => [
+            UploadedFile::fake()->create('evidence-2.pdf', 30, 'application/pdf'),
+            UploadedFile::fake()->create('evidence-3.pdf', 30, 'application/pdf'),
+            UploadedFile::fake()->create('evidence-4.pdf', 30, 'application/pdf'),
+            UploadedFile::fake()->create('evidence-5.pdf', 30, 'application/pdf'),
+        ]], ['Accept' => 'application/json'])->assertCreated();
+        $this->post("/api/v1/operational-tasks/{$id}/attachments", [
+            'files' => [UploadedFile::fake()->create('evidence-6.pdf', 30, 'application/pdf')],
+        ], ['Accept' => 'application/json'])->assertUnprocessable()->assertJsonValidationErrors('files');
+        $this->getJson("/api/v1/operational-tasks/{$id}")->assertJsonCount(5, 'data.attachments');
+        $storedPath = OperationalTaskAttachment::firstOrFail()->stored_path;
+        Storage::disk('local')->assertExists($storedPath);
+        $this->asUser($creator)->deleteJson("/api/v1/operational-tasks/{$id}")->assertOk();
+        Storage::disk('local')->assertMissing($storedPath);
     }
 
     public function test_correspondence_attachments_are_private_and_limited_to_participants(): void
