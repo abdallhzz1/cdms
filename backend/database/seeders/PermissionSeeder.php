@@ -81,8 +81,6 @@ class PermissionSeeder extends Seeder
             ['code' => 'correspondence.update', 'module' => 'Correspondence', 'action' => 'UPDATE', 'description_key' => 'permissions.correspondence_update.description'],
             ['code' => 'correspondence.submit', 'module' => 'Correspondence', 'action' => 'SUBMIT', 'description_key' => 'permissions.correspondence_submit.description'],
             ['code' => 'correspondence.forward', 'module' => 'Correspondence', 'action' => 'FORWARD', 'description_key' => 'permissions.correspondence_forward.description'],
-            ['code' => 'correspondence.approve', 'module' => 'Correspondence', 'action' => 'APPROVE', 'description_key' => 'permissions.correspondence_approve.description'],
-            ['code' => 'correspondence.close', 'module' => 'Correspondence', 'action' => 'CLOSE', 'description_key' => 'permissions.correspondence_close.description'],
             ['code' => 'meetings.manage', 'module' => 'Meetings', 'action' => 'MANAGE', 'description_key' => 'permissions.meetings_manage.description'],
             ['code' => 'meetings.approve_minutes', 'module' => 'Meetings', 'action' => 'APPROVE', 'description_key' => 'permissions.meetings_approve_minutes.description'],
             ['code' => 'tasks.view', 'module' => 'Tasks', 'action' => 'VIEW', 'description_key' => 'permissions.tasks_view.description'],

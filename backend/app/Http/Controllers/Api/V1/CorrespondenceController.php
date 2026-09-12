@@ -4,14 +4,14 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
+use App\Models\AuditLog;
 use App\Models\Correspondence;
 use App\Models\CorrespondenceAttachment;
+use App\Models\CorrespondenceTemplate;
 use App\Models\OperationalTask;
 use App\Notifications\AdministrativeWorkAssignedNotification;
-use App\Notifications\LocalSystemNotification;
 use App\Services\CorrespondenceRecipientService;
-use App\Services\WorkflowTransitionService;
-use App\Services\Approvals\ApprovalWorkflowService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,352 +26,397 @@ class CorrespondenceController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $data = $request->validate([
+            'filter' => ['nullable', Rule::in(['inbox', 'outbox', 'drafts', 'archive', 'starred', 'action'])],
+            'search' => ['nullable', 'string', 'max:120'],
+            'priority' => ['nullable', Rule::in(['low', 'normal', 'urgent', 'critical'])],
+            'message_type' => ['nullable', Rule::in(['message', 'action', 'announcement'])],
+            'date_from' => ['nullable', 'date'], 'date_to' => ['nullable', 'date'],
+            'sort' => ['nullable', Rule::in(['newest', 'oldest', 'due'])],
+            'page' => ['nullable', 'integer', 'min:1'], 'per_page' => ['nullable', 'integer', 'min:10', 'max:100'],
+        ]);
         $user = $request->user();
-        $query = Correspondence::query()->with(['sender.person', 'assignee.person', 'latestMessage.sender.person', 'latestMessage.recipient.person']);
-        $filter = $request->string('filter')->toString();
+        $filter = $data['filter'] ?? 'inbox';
+        $membership = fn ($q) => $q->where('user_id', $user->id)->whereNull('deleted_at');
+        $query = Correspondence::query()->with(['sender.person', 'latestMessage.sender.person', 'participants' => $membership, 'participants.user.person']);
 
-        if ($filter === 'inbox') {
-            $query->whereNotIn('status', ['draft', 'closed'])->where(function ($q) use ($user) {
-                $q->where('assigned_to', $user->id)
-                    ->orWhereHas('messages', fn ($message) => $message->where('recipient_id', $user->id));
-            });
-        } elseif ($filter === 'outbox') {
-            $query->where('status', '!=', 'draft')->where(function ($q) use ($user) {
-                $q->where('sender_id', $user->id)
-                    ->orWhereHas('messages', fn ($message) => $message->where('sender_id', $user->id));
-            });
+        if ($filter === 'outbox') {
+            $query->where('sender_id', $user->id)->where('status', 'sent');
         } elseif ($filter === 'drafts') {
             $query->where('sender_id', $user->id)->where('status', 'draft');
         } elseif ($filter === 'archive') {
-            $query->where('status', 'closed');
-            if (! $this->canManageAll($user)) {
-                $query->whereHas('participants', fn ($q) => $q->where('user_id', $user->id));
+            $query->whereHas('participants', fn ($q) => $membership($q)->whereNotNull('archived_at'));
+        } elseif ($filter === 'starred') {
+            $query->where('status', 'sent')->whereHas('participants', fn ($q) => $membership($q)->whereNotNull('starred_at')->whereNull('archived_at'));
+        } else {
+            $query->where('status', 'sent')->whereHas('participants', fn ($q) => $membership($q)->whereNull('archived_at'))
+                ->where(function ($q) use ($user) {
+                    $q->whereHas('participants', fn ($p) => $p->where('user_id', $user->id)->where('participant_role', '!=', 'sender'))
+                        ->orWhereHas('messages', fn ($m) => $m->where('sender_id', '!=', $user->id));
+                });
+            if ($filter === 'action') {
+                $query->where('message_type', 'action');
             }
-        } elseif (! $this->canManageAll($user)) {
-            $query->whereHas('participants', fn ($q) => $q->where('user_id', $user->id));
         }
 
-        $query
-            ->when($request->filled('search'), function ($q) use ($request) {
-                $search = trim($request->string('search')->toString());
-                $q->where(fn ($x) => $x->where('reference_number', 'like', "%{$search}%")
-                    ->orWhere('subject', 'like', "%{$search}%")
-                    ->orWhere('counterparty', 'like', "%{$search}%"));
-            })
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->when($request->filled('priority'), fn ($q) => $q->where('priority', $request->string('priority')))
-            ->when($request->filled('direction'), fn ($q) => $q->where('direction', $request->string('direction')));
+        $query->when(isset($data['search']), function ($q) use ($data) {
+            $search = trim($data['search']);
+            $q->where(function ($x) use ($search) {
+                $x->where('reference_number', 'like', "%{$search}%")->orWhere('subject', 'like', "%{$search}%")
+                    ->orWhere('summary', 'like', "%{$search}%")
+                    ->orWhereHas('sender', fn ($u) => $u->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"))
+                    ->orWhereHas('participants.user', fn ($u) => $u->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"))
+                    ->orWhereHas('participants.user.person', fn ($p) => $p->where('full_name_ar', 'like', "%{$search}%")->orWhere('full_name_en', 'like', "%{$search}%"));
+            });
+        })->when(isset($data['priority']), fn ($q) => $q->where('priority', $data['priority']))
+            ->when(isset($data['message_type']), fn ($q) => $q->where('message_type', $data['message_type']))
+            ->when(isset($data['date_from']), fn ($q) => $q->whereDate('correspondence_date', '>=', $data['date_from']))
+            ->when(isset($data['date_to']), fn ($q) => $q->whereDate('correspondence_date', '<=', $data['date_to']));
 
-        $items = $query->orderByDesc('correspondence_date')->orderByDesc('id')
-            ->paginate(min($request->integer('per_page', 25), 100));
+        match ($data['sort'] ?? 'newest') {
+            'oldest' => $query->orderBy('last_message_at')->orderBy('id'),
+            'due' => $query->orderByRaw('response_due_date IS NULL')->orderBy('response_due_date')->orderByDesc('last_message_at'),
+            default => $query->orderByDesc('last_message_at')->orderByDesc('id'),
+        };
 
+        $items = $query->paginate($data['per_page'] ?? 25);
         $items->getCollection()->each(function (Correspondence $item) use ($user) {
-            $hasUnreadReply = $item->messages()->where('recipient_id', $user->id)->whereNull('read_at')->exists();
-            $item->setAttribute('mail_unread', $hasUnreadReply || ($item->assigned_to === $user->id && ! $item->read_at));
+            $state = $item->participants->firstWhere('user_id', $user->id);
+            $item->setAttribute('viewer_state', $state);
+            $item->setAttribute('mail_unread', $this->isUnread($item, $state, $user->id));
+            $item->setAttribute('recipient_names', $item->participants()->with('user.person')->where('participant_role', '!=', 'sender')->get()->map(fn ($p) => $p->user?->person?->full_name_ar ?: $p->user?->name)->filter()->values());
         });
 
-        return ApiResponse::success($items->items(), null, [
-            'current_page' => $items->currentPage(), 'last_page' => $items->lastPage(), 'total' => $items->total(),
-            'unread' => Correspondence::where('assigned_to', $user->id)->whereNull('read_at')->whereNotIn('status', ['draft', 'closed'])->count(),
+        return ApiResponse::success($items->items(), null, $this->mailboxMeta($user->id) + [
+            'current_page' => $items->currentPage(), 'last_page' => $items->lastPage(), 'per_page' => $items->perPage(), 'total' => $items->total(),
         ]);
     }
 
     public function show(Request $request, Correspondence $correspondence): JsonResponse
     {
-        $this->ensureVisible($request, $correspondence);
-        if ($correspondence->assigned_to === $request->user()->id && ! $correspondence->read_at) {
-            $correspondence->update(['read_at' => now()]);
+        $participant = $this->participant($correspondence, $request->user()->id);
+        if ($this->isUnread($correspondence, $participant, $request->user()->id)) {
+            $participant->update(['read_at' => now()]);
+            $this->audit($request, $correspondence, 'correspondence.read');
         }
-        $correspondence->messages()->where('recipient_id', $request->user()->id)->whereNull('read_at')->update(['read_at' => now()]);
 
-        return ApiResponse::success($correspondence->fresh()->load([
-            'sender.person', 'assignee.person', 'closer.person', 'transitions.user.person', 'attachments.uploader.person',
-            'messages.sender.person',
-        ]));
+        return ApiResponse::success($this->mail($correspondence));
     }
 
-    public function store(Request $request, WorkflowTransitionService $workflow): JsonResponse
+    public function store(Request $request): JsonResponse
     {
         $data = $request->validate($this->rules());
-        $data['reference_number'] ??= 'COR-'.now()->format('Ymd').'-'.Str::upper(Str::random(6));
-        $data['sender_id'] = $request->user()->id;
-        $assignedTo = $data['assigned_to'] ?? null;
-        if ($assignedTo && ! Gate::forUser($request->user())->allows('permission', ['correspondence.submit'])) {
-            throw new AuthorizationException('You may create drafts but do not have permission to send correspondence.');
+        $recipients = $this->recipientMap($request, $request->user()->id, false);
+        $sendNow = (bool) ($data['send_now'] ?? $request->filled('assigned_to'));
+        if ($sendNow && ! Gate::forUser($request->user())->allows('permission', ['correspondence.submit'])) {
+            throw new AuthorizationException($this->tr('يمكنك حفظ المسودة، لكن لا تملك صلاحية إرسال المراسلات.', 'You may save drafts but cannot send mail.'));
         }
-        if ($assignedTo) {
-            app(CorrespondenceRecipientService::class)->validate($request->user(), (int) $assignedTo);
+        if ($sendNow && empty($recipients['to'])) {
+            throw ValidationException::withMessages(['to' => [$this->tr('يجب اختيار مستلم واحد على الأقل.', 'Choose at least one recipient.')]]);
         }
-        unset($data['assigned_to']);
 
-        $correspondence = DB::transaction(function () use ($data, $assignedTo, $workflow) {
-            $item = Correspondence::create($data);
-            $this->addParticipant($item, (int) $data['sender_id'], 'sender');
-            if ($assignedTo) {
-                $item->update(['assigned_to' => $assignedTo, 'submitted_at' => now()]);
-                $this->addParticipant($item, (int) $assignedTo, 'recipient');
-                $item = $workflow->transition($item->fresh(), 'submitted', 'Initial dispatch');
-            }
+        $item = DB::transaction(function () use ($request, $data, $recipients, $sendNow) {
+            $item = Correspondence::create([
+                'reference_number' => 'MAIL-'.now()->format('Ymd').'-'.Str::upper(Str::random(6)), 'direction' => 'internal',
+                'category' => $data['category'] ?? 'general', 'message_type' => $data['message_type'] ?? 'message',
+                'confidentiality' => $data['confidentiality'] ?? 'normal', 'tags' => $data['tags'] ?? null,
+                'subject' => trim($data['subject']), 'summary' => $data['body'] ?? $data['summary'] ?? null, 'correspondence_date' => $data['correspondence_date'] ?? now()->toDateString(),
+                'response_due_date' => $data['response_due_date'] ?? null, 'priority' => $data['priority'] ?? 'normal',
+                'sender_id' => $request->user()->id, 'assigned_to' => $recipients['to'][0] ?? null,
+                'status' => $sendNow ? 'sent' : 'draft', 'submitted_at' => $sendNow ? now() : null, 'last_message_at' => now(),
+            ]);
+            $this->syncParticipants($item, $request->user()->id, $recipients, $sendNow);
+            $this->audit($request, $item, $sendNow ? 'correspondence.sent' : 'correspondence.draft_created', ['recipients' => $recipients]);
 
             return $item;
         });
-        $this->notifyAssignee($correspondence, 'correspondence');
+        if ($sendNow) {
+            $this->notifyRecipients($item, 'correspondence');
+        }
 
-        return ApiResponse::success($correspondence->load(['sender.person', 'assignee.person']), 'Correspondence created.', [], 201);
+        return ApiResponse::success($this->mail($item), $this->tr($sendNow ? 'تم إرسال الرسالة.' : 'تم حفظ المسودة.', $sendNow ? 'Message sent.' : 'Draft saved.'), [], 201);
     }
 
     public function update(Request $request, Correspondence $correspondence): JsonResponse
     {
-        if ($correspondence->sender_id !== $request->user()->id || ! in_array($correspondence->status, ['draft', 'returned'], true)) {
-            throw new AuthorizationException('Only the sender may edit a draft or returned correspondence.');
-        }
-        $correspondence->update($request->validate($this->rules($correspondence)));
+        $this->ensureDraftOwner($request, $correspondence);
+        $data = $request->validate($this->rules());
+        $recipients = $this->recipientMap($request, $request->user()->id, false);
+        $correspondence->update(['category' => $data['category'] ?? 'general', 'message_type' => $data['message_type'] ?? 'message', 'confidentiality' => $data['confidentiality'] ?? 'normal', 'tags' => $data['tags'] ?? null, 'subject' => trim($data['subject']), 'summary' => $data['body'] ?? null, 'priority' => $data['priority'] ?? 'normal', 'response_due_date' => $data['response_due_date'] ?? null, 'assigned_to' => $recipients['to'][0] ?? null]);
+        $this->syncParticipants($correspondence, $request->user()->id, $recipients, false);
+        $this->audit($request, $correspondence, 'correspondence.draft_updated');
 
-        return ApiResponse::success($correspondence->fresh(), 'Correspondence updated.');
+        return ApiResponse::success($this->mail($correspondence), $this->tr('تم تحديث المسودة.', 'Draft updated.'));
     }
 
-    public function submit(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
+    public function submit(Request $request, Correspondence $correspondence): JsonResponse
     {
-        if ($correspondence->sender_id !== $request->user()->id) {
-            throw new AuthorizationException('Only the sender may submit this correspondence.');
-        }
-        $data = $request->validate(['assigned_to' => ['required', 'exists:users,id'], 'notes' => ['nullable', 'string', 'max:2000']]);
-        app(CorrespondenceRecipientService::class)->validate($request->user(), (int) $data['assigned_to']);
-        $correspondence->update(['assigned_to' => $data['assigned_to'], 'submitted_at' => now(), 'read_at' => null]);
-        $this->addParticipant($correspondence, (int) $data['assigned_to'], 'recipient');
-        $correspondence = $workflow->transition($correspondence->fresh(), 'submitted', $data['notes'] ?? null);
-        $this->notifyAssignee($correspondence, 'correspondence');
-        $approvals->submit('correspondence', 'correspondence', $correspondence->id, $request->user(),
-            'معاملة: '.$correspondence->subject, 'Correspondence: '.$correspondence->subject, '/correspondence/'.$correspondence->id);
+        $this->ensureDraftOwner($request, $correspondence);
+        $data = $request->validate($this->rules());
+        $recipients = $this->recipientMap($request, $request->user()->id, true);
+        $correspondence->update(['subject' => trim($data['subject']), 'summary' => $data['body'] ?? null, 'priority' => $data['priority'] ?? 'normal', 'message_type' => $data['message_type'] ?? 'message', 'response_due_date' => $data['response_due_date'] ?? null, 'assigned_to' => $recipients['to'][0], 'status' => 'sent', 'submitted_at' => now(), 'last_message_at' => now()]);
+        $this->syncParticipants($correspondence, $request->user()->id, $recipients, true);
+        $this->audit($request, $correspondence, 'correspondence.sent', ['recipients' => $recipients]);
+        $this->notifyRecipients($correspondence, 'correspondence');
 
-        return ApiResponse::success($correspondence->fresh(), 'Correspondence submitted.');
-    }
-
-    public function forward(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
-    {
-        $this->ensureAssignedOrSender($request, $correspondence);
-        $data = $request->validate(['assigned_to' => ['required', 'exists:users,id'], 'notes' => ['nullable', 'string', 'max:2000']]);
-        app(CorrespondenceRecipientService::class)->validate($request->user(), (int) $data['assigned_to']);
-        if (in_array($correspondence->status, ['draft', 'returned'], true)) {
-            return $this->submit($request, $correspondence, $workflow, $approvals);
-        }
-        if (! in_array($correspondence->status, ['submitted', 'under_review'], true)) {
-            throw ValidationException::withMessages(['status' => ['This correspondence cannot be forwarded in its current state.']]);
-        }
-        if ($correspondence->status === 'submitted') {
-            $correspondence = $workflow->transition($correspondence, 'under_review', $data['notes'] ?? 'Forwarded');
-        }
-        $correspondence->update(['assigned_to' => $data['assigned_to'], 'read_at' => null]);
-        $this->addParticipant($correspondence, (int) $data['assigned_to'], 'recipient');
-        $this->notifyAssignee($correspondence, 'correspondence');
-
-        return ApiResponse::success($correspondence->fresh()->load('assignee.person'), 'Correspondence forwarded.');
-    }
-
-    public function returnCorrespondence(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
-    {
-        $this->ensureAssignedOrManager($request, $correspondence);
-        $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
-        if (! $approvals->pending('correspondence', 'correspondence', $correspondence->id)) {
-            $approvals->submit('correspondence', 'correspondence', $correspondence->id, $correspondence->sender,
-                'معاملة: '.$correspondence->subject, 'Correspondence: '.$correspondence->subject, '/correspondence/'.$correspondence->id);
-        }
-        $approvals->returnForRevision('correspondence', 'correspondence', $correspondence->id, $request->user(), $data['reason']);
-        $correspondence = $workflow->transition($correspondence, 'returned', $data['reason']);
-        $correspondence->update(['assigned_to' => $correspondence->sender_id, 'returned_at' => now(), 'read_at' => null]);
-        $this->addParticipant($correspondence, (int) $correspondence->sender_id, 'sender');
-        $this->notifyAssignee($correspondence, 'correspondence_returned');
-
-        return ApiResponse::success($correspondence->fresh(), 'Correspondence returned.');
-    }
-
-    public function approve(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow, ApprovalWorkflowService $approvals): JsonResponse
-    {
-        $this->ensureAssignedOrManager($request, $correspondence);
-        if (! $approvals->pending('correspondence', 'correspondence', $correspondence->id)) {
-            $approvals->submit('correspondence', 'correspondence', $correspondence->id, $correspondence->sender,
-                'معاملة: '.$correspondence->subject, 'Correspondence: '.$correspondence->subject, '/correspondence/'.$correspondence->id);
-        }
-        $decision = $approvals->approve('correspondence', 'correspondence', $correspondence->id, $request->user());
-        if (! $decision['completed']) return ApiResponse::success($correspondence->fresh(), app()->getLocale() === 'ar' ? 'تم اعتماد مرحلتك وإرسال المعاملة للمرحلة التالية.' : 'Your step was approved and sent to the next stage.');
-        $correspondence = $workflow->transition($correspondence, 'approved');
-        $correspondence->update(['approved_at' => now()]);
-        $this->notifySenderOfStatus($correspondence, 'approved', $request->user()->name);
-
-        return ApiResponse::success($correspondence->fresh(), 'Correspondence approved.');
-    }
-
-    public function close(Request $request, Correspondence $correspondence, WorkflowTransitionService $workflow): JsonResponse
-    {
-        $data = $request->validate(['notes' => ['nullable', 'string', 'max:2000']]);
-        if (! $this->canManageAll($request->user()) && $correspondence->sender_id !== $request->user()->id) {
-            throw new AuthorizationException('This action is unauthorized.');
-        }
-        $correspondence = $workflow->transition($correspondence, 'closed', $data['notes'] ?? null);
-        $correspondence->update(['closed_at' => now(), 'closed_by' => $request->user()->id, 'close_notes' => $data['notes'] ?? null]);
-        $this->notifySenderOfStatus($correspondence, 'closed', $request->user()->name);
-
-        return ApiResponse::success($correspondence->fresh(), 'Correspondence closed.');
-    }
-
-    public function createTask(Request $request, Correspondence $correspondence): JsonResponse
-    {
-        $this->ensureVisible($request, $correspondence);
-        $data = $request->validate([
-            'title' => ['required', 'string', 'max:255'], 'description' => ['nullable', 'string', 'max:5000'],
-            'assigned_to' => ['required', 'exists:users,id'], 'due_date' => ['nullable', 'date'],
-            'priority' => ['required', Rule::in(['low', 'normal', 'high'])],
-        ]);
-        $task = OperationalTask::create($data + [
-            'created_by' => $request->user()->id, 'source_type' => Correspondence::class, 'source_id' => $correspondence->id,
-        ]);
-        $task->assignee?->notify(new AdministrativeWorkAssignedNotification('task', $task->id, $task->title));
-
-        return ApiResponse::success($task->load(['assignee.person', 'creator.person']), 'Task created from correspondence.', [], 201);
+        return ApiResponse::success($this->mail($correspondence), $this->tr('تم إرسال الرسالة.', 'Message sent.'));
     }
 
     public function storeMessage(Request $request, Correspondence $correspondence): JsonResponse
     {
-        $this->ensureVisible($request, $correspondence);
-        if ($correspondence->status === 'closed') {
-            throw ValidationException::withMessages(['body' => ['Closed correspondence cannot accept replies.']]);
+        $viewer = $this->participant($correspondence, $request->user()->id);
+        if ($correspondence->status !== 'sent') {
+            throw ValidationException::withMessages(['body' => [$this->tr('لا يمكن الرد على هذه المسودة.', 'This draft cannot receive replies.')]]);
         }
+        $data = $request->validate(['body' => ['required', 'string', 'max:20000']]);
+        $message = DB::transaction(function () use ($request, $correspondence, $viewer, $data) {
+            $recipientId = $request->user()->id === $correspondence->sender_id
+                ? $correspondence->participants()->where('participant_role', 'to')->value('user_id')
+                : $correspondence->sender_id;
+            $message = $correspondence->messages()->create(['sender_id' => $request->user()->id, 'recipient_id' => $recipientId, 'body' => trim($data['body'])]);
+            $now = now();
+            $correspondence->update(['last_message_at' => $now]);
+            $correspondence->participants()->where('user_id', '!=', $request->user()->id)->update(['read_at' => null, 'archived_at' => null]);
+            $viewer->update(['read_at' => $now, 'archived_at' => null]);
+            $this->audit($request, $correspondence, 'correspondence.replied', ['message_id' => $message->id]);
 
-        $data = $request->validate(['body' => ['required', 'string', 'max:10000']]);
-        $message = $correspondence->messages()->create([
-            'sender_id' => $request->user()->id,
-            'recipient_id' => $request->user()->id === $correspondence->sender_id
-                ? $correspondence->assigned_to
-                : $correspondence->sender_id,
-            'body' => $data['body'],
-        ]);
+            return $message;
+        });
+        $this->notifyRecipients($correspondence, 'correspondence_reply', $request->user()->id);
 
-        $recipients = $correspondence->participants()->with('user')->get()
-            ->pluck('user')->filter(fn ($user) => $user && $user->id !== $request->user()->id)->unique('id');
-        foreach ($recipients as $recipient) {
-            $recipient->notify(new AdministrativeWorkAssignedNotification('correspondence_reply', $correspondence->id, $correspondence->subject));
+        return ApiResponse::success($message->load('sender.person'), $this->tr('تم إرسال الرد.', 'Reply sent.'), [], 201);
+    }
+
+    public function forward(Request $request, Correspondence $correspondence): JsonResponse
+    {
+        $this->participant($correspondence, $request->user()->id);
+        $recipients = $this->recipientMap($request, $request->user()->id, true);
+        $body = trim((string) $request->input('body', $request->input('notes', '')));
+        DB::transaction(function () use ($request, $correspondence, $recipients, $body) {
+            foreach ($recipients as $role => $ids) {
+                foreach ($ids as $id) {
+                    $correspondence->participants()->updateOrCreate(['user_id' => $id], ['participant_role' => $role, 'read_at' => null, 'archived_at' => null, 'deleted_at' => null]);
+                }
+            }
+            if ($body !== '') {
+                $correspondence->messages()->create(['sender_id' => $request->user()->id, 'body' => $body]);
+            }
+            $correspondence->update(['last_message_at' => now()]);
+            $this->audit($request, $correspondence, 'correspondence.forwarded', ['recipients' => $recipients]);
+        });
+        $this->notifyRecipients($correspondence, 'correspondence', $request->user()->id, collect($recipients)->flatten()->all());
+
+        return ApiResponse::success($this->mail($correspondence), $this->tr('تمت إعادة توجيه الرسالة.', 'Message forwarded.'));
+    }
+
+    public function setMailboxState(Request $request, Correspondence $correspondence, string $action): JsonResponse
+    {
+        $participant = $this->participant($correspondence, $request->user()->id);
+        if (! in_array($action, ['archive', 'restore', 'star', 'unstar', 'unread'], true)) {
+            abort(404);
         }
+        $participant->update(match ($action) {
+            'archive' => ['archived_at' => now()], 'restore' => ['archived_at' => null], 'star' => ['starred_at' => now()], 'unstar' => ['starred_at' => null], 'unread' => ['read_at' => null]
+        });
+        $this->audit($request, $correspondence, 'correspondence.'.$action);
 
-        return ApiResponse::success($message->load('sender.person'), 'Reply sent.', [], 201);
+        return ApiResponse::success($participant->fresh(), $this->tr('تم تحديث الرسالة.', 'Message updated.'));
     }
 
     public function storeAttachment(Request $request, Correspondence $correspondence): JsonResponse
     {
-        $this->ensureVisible($request, $correspondence);
-        if ($correspondence->status === 'closed') {
-            throw ValidationException::withMessages(['file' => ['Closed correspondence cannot accept new attachments.']]);
+        $this->participant($correspondence, $request->user()->id);
+        $request->validate(['files' => ['required_without:file', 'array', 'max:10'], 'files.*' => ['file', 'max:10240', 'mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,png,jpg,jpeg'], 'file' => ['required_without:files', 'file', 'max:10240', 'mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,png,jpg,jpeg']]);
+        $files = $request->file('files', []);
+        if ($request->file('file')) {
+            $files[] = $request->file('file');
+        } $created = [];
+        foreach ($files as $file) {
+            $path = $file->storeAs("correspondence/{$correspondence->id}", Str::uuid().'.'.strtolower($file->getClientOriginalExtension()), 'local');
+            $created[] = $correspondence->attachments()->create(['uploaded_by' => $request->user()->id, 'original_name' => $file->getClientOriginalName(), 'stored_path' => $path, 'mime_type' => $file->getMimeType(), 'file_size' => $file->getSize()])->load('uploader.person');
         }
-        $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,doc,docx,xls,xlsx,png,jpg,jpeg']]);
-        $file = $request->file('file');
-        $name = Str::uuid().'.'.strtolower($file->getClientOriginalExtension());
-        $path = $file->storeAs("correspondence/{$correspondence->id}", $name, 'local');
-        $attachment = $correspondence->attachments()->create([
-            'uploaded_by' => $request->user()->id, 'original_name' => $file->getClientOriginalName(),
-            'stored_path' => $path, 'mime_type' => $file->getMimeType(), 'file_size' => $file->getSize(),
-        ]);
+        $this->audit($request, $correspondence, 'correspondence.attachments_added', ['count' => count($created)]);
+        $payload = $request->file('file') && count($created) === 1 ? $created[0] : $created;
 
-        return ApiResponse::success($attachment->load('uploader.person'), 'Attachment uploaded.', [], 201);
+        return ApiResponse::success($payload, $this->tr('تم رفع المرفقات.', 'Attachments uploaded.'), [], 201);
     }
 
     public function downloadAttachment(Request $request, Correspondence $correspondence, CorrespondenceAttachment $attachment)
     {
-        $this->ensureVisible($request, $correspondence);
-        abort_unless($attachment->correspondence_id === $correspondence->id, 404);
-        abort_unless(Storage::disk('local')->exists($attachment->stored_path), 404);
+        $this->participant($correspondence, $request->user()->id);
+        abort_unless($attachment->correspondence_id === $correspondence->id && Storage::disk('local')->exists($attachment->stored_path), 404);
 
         return Storage::disk('local')->download($attachment->stored_path, $attachment->original_name);
     }
 
     public function destroyAttachment(Request $request, Correspondence $correspondence, CorrespondenceAttachment $attachment): JsonResponse
     {
-        $this->ensureVisible($request, $correspondence);
+        $this->participant($correspondence, $request->user()->id);
         abort_unless($attachment->correspondence_id === $correspondence->id, 404);
-        if ($attachment->uploaded_by !== $request->user()->id && ! $this->canManageAll($request->user())) {
-            throw new AuthorizationException('This action is unauthorized.');
+        if ($attachment->uploaded_by !== $request->user()->id && $correspondence->sender_id !== $request->user()->id) {
+            throw new AuthorizationException($this->tr('غير مصرح بهذا الإجراء.', 'This action is unauthorized.'));
         }
         Storage::disk('local')->delete($attachment->stored_path);
         $attachment->delete();
+        $this->audit($request, $correspondence, 'correspondence.attachment_deleted', ['attachment_id' => $attachment->id]);
 
-        return ApiResponse::success(null, 'Attachment deleted.');
+        return ApiResponse::success(null, $this->tr('تم حذف المرفق.', 'Attachment deleted.'));
     }
 
-    private function rules(?Correspondence $item = null): array
+    public function createTask(Request $request, Correspondence $correspondence): JsonResponse
     {
-        return [
-            'reference_number' => ['nullable', 'string', 'max:100', Rule::unique('correspondence', 'reference_number')->ignore($item?->id)],
-            'direction' => ['required', Rule::in(['incoming', 'outgoing', 'internal'])],
-            'category' => ['nullable', Rule::in(['general', 'request', 'decision', 'complaint', 'circular'])],
-            'subject' => ['required', 'string', 'max:500'], 'counterparty' => ['nullable', 'string', 'max:255'],
-            'correspondence_date' => ['required', 'date'], 'response_due_date' => ['nullable', 'date', 'after_or_equal:correspondence_date'],
-            'summary' => ['nullable', 'string', 'max:10000'],
-            'priority' => ['nullable', Rule::in(['low', 'normal', 'urgent', 'critical'])], 'assigned_to' => ['nullable', 'exists:users,id'],
-        ];
+        $this->participant($correspondence, $request->user()->id);
+        $data = $request->validate(['title' => ['required', 'string', 'max:255'], 'description' => ['nullable', 'string', 'max:5000'], 'assigned_to' => ['required', 'exists:users,id'], 'due_date' => ['nullable', 'date'], 'priority' => ['required', Rule::in(['low', 'normal', 'high'])]]);
+        $task = OperationalTask::create($data + ['created_by' => $request->user()->id, 'source_type' => Correspondence::class, 'source_id' => $correspondence->id]);
+        $task->assignee?->notify(new AdministrativeWorkAssignedNotification('task', $task->id, $task->title));
+
+        return ApiResponse::success($task->load(['assignee.person', 'creator.person']), $this->tr('تم إنشاء المهمة.', 'Task created.'), [], 201);
     }
 
-    private function ensureVisible(Request $request, Correspondence $item): void
+    public function templates(Request $request): JsonResponse
     {
-        if (! $this->isParticipant($item, $request->user()->id) && ! $this->canManageAll($request->user())) {
-            throw new AuthorizationException('This action is unauthorized.');
+        return ApiResponse::success(CorrespondenceTemplate::where('created_by', $request->user()->id)->orderBy('name')->get());
+    }
+
+    public function storeTemplate(Request $request): JsonResponse
+    {
+        $data = $request->validate(['name' => ['required', 'string', 'max:120'], 'subject' => ['nullable', 'string', 'max:500'], 'body' => ['required', 'string', 'max:20000'], 'message_type' => ['required', Rule::in(['message', 'action', 'announcement'])], 'priority' => ['required', Rule::in(['low', 'normal', 'urgent', 'critical'])]]);
+
+        return ApiResponse::success(CorrespondenceTemplate::create($data + ['created_by' => $request->user()->id]), $this->tr('تم حفظ القالب.', 'Template saved.'), [], 201);
+    }
+
+    public function destroyTemplate(Request $request, CorrespondenceTemplate $template): JsonResponse
+    {
+        if ($template->created_by !== $request->user()->id) {
+            throw new AuthorizationException($this->tr('غير مصرح بهذا الإجراء.', 'This action is unauthorized.'));
+        }
+        $template->delete();
+
+        return ApiResponse::success(null, $this->tr('تم حذف القالب.', 'Template deleted.'));
+    }
+
+    public function report(Request $request): JsonResponse
+    {
+        $userId = $request->user()->id;
+        $visible = fn () => Correspondence::whereHas('participants', fn ($q) => $q->where('user_id', $userId)->whereNull('deleted_at'));
+        $monthly = $visible()->where('created_at', '>=', now()->subMonths(5)->startOfMonth())->get(['created_at'])->groupBy(fn ($item) => $item->created_at->format('Y-m'))->map(fn ($items, $month) => ['month' => $month, 'total' => $items->count()])->values();
+        $responseHours = $visible()->whereHas('messages')->with('messages:id,correspondence_id,created_at')->get(['id', 'submitted_at'])->map(function ($item) {
+            $first = $item->messages->first();
+
+            return $item->submitted_at && $first ? $item->submitted_at->diffInMinutes($first->created_at) / 60 : null;
+        })->filter(fn ($value) => $value !== null);
+
+        return ApiResponse::success(['total' => $visible()->count(), 'sent' => $visible()->where('sender_id', $userId)->where('status', 'sent')->count(), 'received' => $visible()->where('sender_id', '!=', $userId)->where('status', 'sent')->count(), 'unread' => $this->mailboxMeta($userId)['unread'], 'overdue' => $visible()->where('message_type', 'action')->whereDate('response_due_date', '<', now()->toDateString())->count(), 'urgent' => $visible()->whereIn('priority', ['urgent', 'critical'])->count(), 'average_response_hours' => $responseHours->isEmpty() ? null : round($responseHours->average(), 1), 'monthly' => $monthly]);
+    }
+
+    public function printPdf(Request $request, Correspondence $correspondence)
+    {
+        $this->participant($correspondence, $request->user()->id);
+        $item = $this->mail($correspondence);
+
+        return Pdf::loadView('reports.correspondence', ['item' => $item, 'locale' => app()->getLocale()])->setPaper('a4')->download('correspondence-'.$item->reference_number.'.pdf');
+    }
+
+    private function rules(): array
+    {
+        return ['subject' => ['required', 'string', 'max:500'], 'body' => ['nullable', 'string', 'max:20000'], 'summary' => ['nullable', 'string', 'max:20000'], 'correspondence_date' => ['nullable', 'date'], 'direction' => ['nullable', Rule::in(['incoming', 'outgoing', 'internal'])], 'assigned_to' => ['nullable', 'integer', 'exists:users,id'], 'category' => ['nullable', Rule::in(['general', 'request', 'decision', 'complaint', 'circular'])], 'message_type' => ['nullable', Rule::in(['message', 'action', 'announcement'])], 'confidentiality' => ['nullable', Rule::in(['normal', 'confidential'])], 'tags' => ['nullable', 'array', 'max:10'], 'tags.*' => ['string', 'max:40'], 'priority' => ['nullable', Rule::in(['low', 'normal', 'urgent', 'critical'])], 'response_due_date' => ['nullable', 'date'], 'send_now' => ['nullable', 'boolean'], 'to' => ['nullable', 'array', 'max:250'], 'cc' => ['nullable', 'array', 'max:250'], 'fyi' => ['nullable', 'array', 'max:250'], 'to.*' => ['integer', 'exists:users,id'], 'cc.*' => ['integer', 'exists:users,id'], 'fyi.*' => ['integer', 'exists:users,id']];
+    }
+
+    private function recipientMap(Request $request, int $senderId, bool $toRequired): array
+    {
+        $to = $request->input('to', []);
+        if (empty($to) && $request->filled('assigned_to')) {
+            $to = [$request->integer('assigned_to')];
+        }
+        $map = ['to' => array_values(array_unique(array_map('intval', $to))), 'cc' => array_values(array_unique(array_map('intval', $request->input('cc', [])))), 'fyi' => array_values(array_unique(array_map('intval', $request->input('fyi', []))))];
+        $seen = [$senderId => true];
+        foreach ($map as &$ids) {
+            $ids = array_values(array_filter($ids, function ($id) use (&$seen, $request) {
+                if (isset($seen[$id])) {
+                    return false;
+                } app(CorrespondenceRecipientService::class)->validate($request->user(), $id);
+                $seen[$id] = true;
+
+                return true;
+            }));
+        }
+        if ($toRequired && empty($map['to'])) {
+            throw ValidationException::withMessages(['to' => [$this->tr('يجب اختيار مستلم واحد على الأقل.', 'Choose at least one recipient.')]]);
+        }
+
+        return $map;
+    }
+
+    private function syncParticipants(Correspondence $item, int $senderId, array $recipients, bool $sent): void
+    {
+        $item->participants()->delete();
+        $item->participants()->create(['user_id' => $senderId, 'participant_role' => 'sender', 'read_at' => now()]);
+        foreach ($recipients as $role => $ids) {
+            foreach ($ids as $id) {
+                $item->participants()->create(['user_id' => $id, 'participant_role' => $role, 'read_at' => $sent ? null : now()]);
+            }
         }
     }
 
-    private function ensureAssignedOrSender(Request $request, Correspondence $item): void
+    private function participant(Correspondence $item, int $userId)
     {
-        if (! $this->isParticipant($item, $request->user()->id) && ! $this->canManageAll($request->user())) {
-            throw new AuthorizationException('This action is unauthorized.');
+        $participant = $item->participants()->where('user_id', $userId)->whereNull('deleted_at')->first();
+        if (! $participant) {
+            throw new AuthorizationException($this->tr('لا يمكنك الوصول إلى هذه الرسالة.', 'You cannot access this message.'));
+        }
+
+        return $participant;
+    }
+
+    private function ensureDraftOwner(Request $request, Correspondence $item): void
+    {
+        if ($item->sender_id !== $request->user()->id || $item->status !== 'draft') {
+            throw new AuthorizationException($this->tr('يمكن للمرسل تعديل مسودته فقط.', 'Only the sender may edit a draft.'));
         }
     }
 
-    private function ensureAssignedOrManager(Request $request, Correspondence $item): void
+    private function isUnread(Correspondence $item, $state, int $userId): bool
     {
-        if ($item->assigned_to !== $request->user()->id && ! $this->canManageAll($request->user())) {
-            throw new AuthorizationException('This action is unauthorized.');
+        return $item->status === 'sent' && (! $state?->read_at || ($item->last_message_at && $item->last_message_at->gt($state->read_at)));
+    }
+
+    private function mailboxMeta(int $userId): array
+    {
+        $base = fn () => Correspondence::where('status', 'sent')
+            ->whereHas('participants', fn ($q) => $q->where('user_id', $userId)->whereNull('deleted_at')->whereNull('archived_at'))
+            ->where(function ($q) use ($userId) {
+                $q->whereHas('participants', fn ($p) => $p->where('user_id', $userId)->where('participant_role', '!=', 'sender'))->orWhereHas('messages', fn ($m) => $m->where('sender_id', '!=', $userId));
+            });
+        $unread = $base()->whereHas('participants', fn ($q) => $q->where('user_id', $userId)->where(fn ($r) => $r->whereNull('read_at')->orWhereColumn('read_at', '<', 'correspondence.last_message_at')))->count();
+
+        return ['unread' => $unread, 'inbox' => $base()->count(), 'action' => $base()->where('message_type', 'action')->count(), 'drafts' => Correspondence::where('sender_id', $userId)->where('status', 'draft')->count(), 'starred' => Correspondence::whereHas('participants', fn ($q) => $q->where('user_id', $userId)->whereNotNull('starred_at')->whereNull('archived_at')->whereNull('deleted_at'))->count()];
+    }
+
+    private function notifyRecipients(Correspondence $item, string $type, ?int $except = null, ?array $only = null): void
+    {
+        $users = $item->participants()->with('user')->where('participant_role', '!=', 'sender')->get()->pluck('user')->filter()->unique('id');
+        foreach ($users as $user) {
+            if ($user->id !== $except && ($only === null || in_array($user->id, $only, true))) {
+                $user->notify(new AdministrativeWorkAssignedNotification($type, $item->id, $item->subject));
+            }
         }
     }
 
-    private function canManageAll($user): bool
+    private function mail(Correspondence $item): Correspondence
     {
-        return Gate::forUser($user)->allows('permission', ['correspondence.approve'])
-            || Gate::forUser($user)->allows('permission', ['approvals.decide'])
-            || Gate::forUser($user)->allows('permission', ['correspondence.close']);
+        $item = $item->fresh()->load(['sender.person', 'participants.user.person', 'attachments.uploader.person', 'messages.sender.person']);
+        $item->setAttribute('activity', AuditLog::with('user.person')->where('entity_type', Correspondence::class)->where('entity_id', $item->id)->oldest()->get());
+
+        return $item;
     }
 
-    private function notifyAssignee(Correspondence $item, string $type): void
+    private function audit(Request $request, Correspondence $item, string $action, array $changes = []): void
     {
-        $item->loadMissing('assignee');
-        $item->assignee?->notify(new AdministrativeWorkAssignedNotification($type, $item->id, $item->subject));
+        AuditLog::create(['user_id' => $request->user()->id, 'action' => $action, 'entity_type' => Correspondence::class, 'entity_id' => $item->id, 'changes' => $changes]);
     }
 
-    private function isParticipant(Correspondence $item, int $userId): bool
+    private function tr(string $ar, string $en): string
     {
-        return $item->sender_id === $userId || $item->assigned_to === $userId
-            || $item->participants()->where('user_id', $userId)->exists();
-    }
-
-    private function addParticipant(Correspondence $item, int $userId, string $role): void
-    {
-        $item->participants()->firstOrCreate(['user_id' => $userId], ['participant_role' => $role]);
-    }
-
-    private function notifySenderOfStatus(Correspondence $item, string $status, string $actorName): void
-    {
-        if ((int) $item->sender_id === (int) auth()->id()) {
-            return;
-        }
-        $item->loadMissing('sender');
-        $labels = $status === 'approved'
-            ? ['ar' => 'تم اعتماد المراسلة', 'en' => 'Correspondence approved']
-            : ['ar' => 'تم إغلاق المراسلة', 'en' => 'Correspondence closed'];
-        $item->sender?->notify(new LocalSystemNotification([
-            'event_key' => 'correspondence.'.$status,
-            'category' => 'correspondence',
-            'severity' => 'info',
-            'title_ar' => $labels['ar'], 'title_en' => $labels['en'],
-            'message_ar' => $labels['ar'].': '.$item->subject,
-            'message_en' => $labels['en'].': '.$item->subject,
-            'action_url' => '/correspondence/'.$item->id,
-            'entity_type' => 'correspondence', 'entity_id' => $item->id,
-            'actor_name' => $actorName,
-        ]));
+        return app()->getLocale() === 'ar' ? $ar : $en;
     }
 }

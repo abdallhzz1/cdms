@@ -102,6 +102,11 @@ export interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
 }
 
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
+  return (await apiFetchEnvelope<T>(path, options)).data;
+}
+
+/** Use this variant for server-paginated screens that also need response metadata. */
+export async function apiFetchEnvelope<T>(path: string, options: ApiFetchOptions = {}): Promise<ApiSuccessEnvelope<T>> {
   const url = apiUrl(path);
   const method = options.method ?? 'GET';
 
@@ -146,5 +151,5 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
     throw new ApiError(message, response.status, errors);
   }
 
-  return envelope.data;
+  return envelope;
 }

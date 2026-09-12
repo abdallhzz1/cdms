@@ -111,7 +111,6 @@ return new class extends Migration
             'department_head_evaluation' => ['اعتماد تقييم رئيس القسم', 'Department head evaluation approval', true, false, [['اعتماد العمادة', 'Dean approval', ['DEAN', 'VICE_DEAN']]]],
             'clinical_supervisor_evaluation' => ['اعتماد تقييم المشرف السريري', 'Clinical supervisor evaluation approval', true, false, [['اعتماد العمادة', 'Dean approval', ['DEAN', 'VICE_DEAN']]]],
             'meeting_minutes' => ['اعتماد محاضر الاجتماعات', 'Meeting minutes approval', true, false, [['اعتماد رئيس الجلسة', 'Chair approval', ['CLINICAL_DIRECTOR', 'DEAN', 'VICE_DEAN']]]],
-            'correspondence' => ['اعتماد المعاملات والمراسلات', 'Correspondence approval', true, false, [['اعتماد الجهة المخولة', 'Authorized office approval', ['CLINICAL_DIRECTOR', 'DEAN', 'VICE_DEAN']]]],
         ];
         foreach ($defaults as $code => [$ar, $en, $preventSelf, $distinct, $steps]) {
             $workflowId = DB::table('approval_workflows')->insertGetId([

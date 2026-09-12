@@ -191,8 +191,8 @@ const en = {
   },
   correspondence: {
     inbox: 'Inbox',
-    outbox: 'Outbox',
-    new: 'New Request',
+    outbox: 'Sent mail',
+    new: 'New message',
     approve: 'Approve',
     forward: 'Forward',
     return: 'Return',

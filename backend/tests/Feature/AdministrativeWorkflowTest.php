@@ -2,12 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\ApprovalWorkflow;
 use App\Models\CorrespondenceAttachment;
 use App\Models\Meeting;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
-use App\Models\ApprovalWorkflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -34,13 +34,13 @@ class AdministrativeWorkflowTest extends TestCase
             'direction' => 'internal', 'category' => 'request', 'subject' => 'Clinical department request',
             'summary' => 'Please review.', 'correspondence_date' => now()->toDateString(),
             'priority' => 'urgent', 'assigned_to' => $recipient->id,
-        ])->assertCreated()->assertJsonPath('data.status', 'submitted');
+        ])->assertCreated()->assertJsonPath('data.status', 'sent');
 
         $id = $created->json('data.id');
         $this->asUser($recipient)->getJson('/api/v1/correspondence?filter=inbox')
             ->assertOk()->assertJsonPath('data.0.id', $id);
         $this->getJson("/api/v1/correspondence/{$id}")->assertOk();
-        $this->assertDatabaseHas('workflow_transition_logs', ['entity_id' => $id, 'to_state' => 'submitted']);
+        $this->assertDatabaseHas('audit_logs', ['entity_id' => $id, 'action' => 'correspondence.sent']);
         $this->assertDatabaseCount('notifications', 1);
 
         $this->postJson("/api/v1/correspondence/{$id}/forward", [
@@ -180,7 +180,7 @@ class AdministrativeWorkflowTest extends TestCase
             ->assertJsonPath('data.0.mail_unread', false);
     }
 
-    public function test_clinical_supervisors_cannot_correspond_with_each_other_but_can_contact_rta(): void
+    public function test_clinical_supervisors_can_use_internal_mail_with_each_other_and_rta(): void
     {
         $supervisorRole = Role::factory()->create(['code' => 'CLINICAL_SUPERVISOR']);
         $this->grantPermissions($supervisorRole, ['correspondence.view', 'correspondence.create', 'correspondence.submit']);
@@ -198,15 +198,14 @@ class AdministrativeWorkflowTest extends TestCase
             'direction' => 'internal', 'subject' => 'Coordination request',
             'correspondence_date' => now()->toDateString(),
         ];
-        $this->asUser($firstSupervisor)->postJson('/api/v1/correspondence', $payload + ['assigned_to' => $secondSupervisor->id])
-            ->assertUnprocessable()->assertJsonValidationErrors('assigned_to');
+        $this->asUser($firstSupervisor)->postJson('/api/v1/correspondence', $payload + ['assigned_to' => $secondSupervisor->id])->assertCreated();
         $this->postJson('/api/v1/correspondence', $payload + ['assigned_to' => $rta->id])->assertCreated();
 
         $lookup = $this->getJson('/api/v1/users/lookup?purpose=correspondence')->assertOk();
         $this->assertIsArray($lookup->json('data'));
         $this->assertTrue(array_is_list($lookup->json('data')));
         $ids = collect($lookup->json('data'))->pluck('id');
-        $this->assertFalse($ids->contains($secondSupervisor->id));
+        $this->assertTrue($ids->contains($secondSupervisor->id));
         $this->assertTrue($ids->contains($rta->id));
     }
 

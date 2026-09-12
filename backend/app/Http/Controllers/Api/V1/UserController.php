@@ -64,6 +64,10 @@ class UserController extends Controller
                 'id' => $u->id,
                 'name' => $u->name,
                 'email' => $u->email,
+                'person' => $u->person ? [
+                    'full_name_ar' => $u->person->full_name_ar,
+                    'full_name_en' => $u->person->full_name_en,
+                ] : null,
                 'roles' => $u->roles->map(fn ($r) => [
                     'id' => $r->id,
                     'code' => $r->code,

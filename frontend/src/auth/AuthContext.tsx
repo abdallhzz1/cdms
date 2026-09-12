@@ -30,7 +30,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const CONFIGURABLE_APPROVAL_PERMISSIONS = new Set([
   'grades.approve', 'distribution.approve', 'course_report.approve',
   'department_head_evaluations.approve', 'clinical_supervisor_evaluations.approve',
-  'meetings.approve_minutes', 'correspondence.approve',
+  'meetings.approve_minutes',
 ]);
 
 export function AuthProvider({ children }: { children: ReactNode }) {

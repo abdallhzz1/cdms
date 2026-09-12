@@ -180,11 +180,11 @@ const ar: typeof en = {
   },
   correspondence: {
     inbox: 'صندوق الوارد',
-    outbox: 'الطلبات الصادرة',
-    new: 'طلب جديد',
+    outbox: 'البريد المرسل',
+    new: 'رسالة جديدة',
     approve: 'اعتماد',
-    forward: 'تحويل',
-    return: 'إرجاع',
+    forward: 'إعادة توجيه',
+    return: 'رجوع',
   },
   grades: {
     title: 'العلامات',

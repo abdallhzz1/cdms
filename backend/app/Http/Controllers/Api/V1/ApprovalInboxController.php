@@ -14,11 +14,14 @@ class ApprovalInboxController extends Controller
     {
         $roles = $request->user()->roles()->pluck('code')->all();
         $items = ApprovalRequest::query()->with(['workflow.steps', 'requester:id,name', 'actions.actor:id,name', 'actions.step'])
+            ->whereHas('workflow', fn ($workflow) => $workflow->where('code', '!=', 'correspondence'))
             ->when($request->query('scope') === 'mine', fn ($q) => $q->where('requested_by', $request->user()->id), function ($q) use ($roles, $request) {
                 $q->where('status', 'pending')->whereHas('workflow.steps', fn ($step) => $step
                     ->whereColumn('approval_workflow_steps.step_order', 'approval_requests.current_step_order')
                     ->where(function ($rolesQuery) use ($roles) {
-                        foreach ($roles as $role) $rolesQuery->orWhereJsonContains('role_codes', $role);
+                        foreach ($roles as $role) {
+                            $rolesQuery->orWhereJsonContains('role_codes', $role);
+                        }
                     }))
                     ->where(function ($eligible) use ($request) {
                         $eligible->whereHas('workflow', fn ($workflow) => $workflow->where('prevent_requester_approval', false))

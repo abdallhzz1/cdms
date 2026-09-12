@@ -387,3 +387,13 @@ that instruction fails as written on a Windows + Herd setup.
 **Security:** SMTP delivery failure is fail-closed. OTP and access tokens are stored hashed, expire quickly, and are rate-limited. No student identity or group option is returned before OTP verification. Capacity is enforced inside a locking transaction.
 
 **Status:** Adopted 2026-08-24 by explicit Clinical Department direction.
+
+## ADR-025 — Correspondence is internal mail, not an approval workflow
+
+**Date:** 2026-09-12.
+
+**Decision:** By explicit system-owner direction, the correspondence module is a secure internal email replacement for all active system users. Correspondence never enters the configurable approval center and has no approve/return/final-approval action. Messages support To, CC, FYI, reply-all, forwarding, per-user read/star/archive state, drafts, templates, attachments, action deadlines, audit history, reporting, and printable official copies. Academic approvals remain unchanged in their own modules.
+
+**Migration impact:** Existing non-draft correspondence is normalized to `sent`; existing closed correspondence becomes archived for its participants. Existing participants and attachments are preserved. Pending legacy correspondence approval requests are cancelled and the correspondence approval workflow is disabled and hidden.
+
+**Status:** Adopted 2026-09-12 by explicit owner direction.

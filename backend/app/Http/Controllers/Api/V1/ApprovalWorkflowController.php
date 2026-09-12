@@ -18,7 +18,7 @@ class ApprovalWorkflowController extends Controller
     public function index(): JsonResponse
     {
         return ApiResponse::success([
-            'workflows' => ApprovalWorkflow::with('steps')->where('code', '!=', 'clinical_assessment')->orderBy('id')->get(),
+            'workflows' => ApprovalWorkflow::with('steps')->whereNotIn('code', ['clinical_assessment', 'correspondence'])->orderBy('id')->get(),
             'roles' => Role::orderBy('code')->get(['code', 'name_key']),
         ]);
     }
