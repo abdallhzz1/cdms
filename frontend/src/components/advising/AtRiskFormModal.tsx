@@ -24,6 +24,7 @@ interface AtRiskFormModalProps {
 
 export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtRiskFormModalProps) {
   const { locale } = useI18n();
+  const tr = (arabic: string, english: string) => locale === 'ar' ? arabic : english;
   const { user } = useAuth();
 
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -127,7 +128,7 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col" dir="rtl">
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
         
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
@@ -136,8 +137,8 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
               <AlertTriangle className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-sm text-slate-800">استمارة/نموذج الطلبة المتعثرين أكاديمياً</h3>
-              <p className="text-xs text-slate-400">تعبأ من قبل المرشد الأكاديمي فصلياً ومتابعتها مع لجنة الإرشاد</p>
+              <h3 className="font-bold text-sm text-slate-800">{tr('استمارة/نموذج الطلبة المتعثرين أكاديمياً', 'Academically At-Risk Students Form')}</h3>
+              <p className="text-xs text-slate-400">{tr('تعبأ من قبل المرشد الأكاديمي فصلياً ومتابعتها مع لجنة الإرشاد', 'Completed each term by the academic advisor and followed up with the Advising Committee')}</p>
             </div>
           </div>
 
@@ -154,7 +155,7 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="block font-bold text-slate-700">تاريخ إعداد الاستمارة *</label>
+              <label className="block font-bold text-slate-700">{tr('تاريخ إعداد الاستمارة *', 'Form date *')}</label>
               <input
                 required
                 type="date"
@@ -165,7 +166,7 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
             </div>
 
             <div className="space-y-1">
-              <label className="block font-bold text-slate-700">اسم المرشد الأكاديمي</label>
+              <label className="block font-bold text-slate-700">{tr('اسم المرشد الأكاديمي', 'Academic advisor name')}</label>
               <input
                 type="text"
                 value={advisorName}
@@ -178,7 +179,7 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
           {/* Table Header & Add Row Button */}
           <div className="flex items-center justify-between pt-2">
             <h4 className="font-bold text-slate-800 flex items-center gap-1.5">
-              <span>جدول رصد الطلبة المتعثرين (الإنذارات والمعدل أقل من 65%):</span>
+              <span>{tr('جدول رصد الطلبة المتعثرين (الإنذارات والمعدل أقل من 65%):', 'At-risk student tracking table (warnings and GPA below 65%):')}</span>
               <span className="bg-amber-100 text-amber-800 text-[11px] font-mono px-2 py-0.5 rounded-md font-bold">
                 {students.length}
               </span>
@@ -190,7 +191,7 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
               className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1 shadow-xs transition-all"
             >
               <Plus className="w-4 h-4" />
-              <span>إضافة طالب متعثر</span>
+              <span>{tr('إضافة طالب متعثر', 'Add at-risk student')}</span>
             </button>
           </div>
 
@@ -200,13 +201,13 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
               <thead>
                 <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
                   <th className="p-2 text-center w-8">#</th>
-                  <th className="p-2 text-start min-w-[160px]">اختيار / اسم الطالب</th>
-                  <th className="p-2 text-center w-28">الرقم الجامعي</th>
-                  <th className="p-2 text-center w-24">المستوى</th>
-                  <th className="p-2 text-center w-20">المعدل %</th>
-                  <th className="p-2 text-start min-w-[150px]">المشكلة الأكاديمية</th>
-                  <th className="p-2 text-center w-16">الإنذارات</th>
-                  <th className="p-2 text-start min-w-[140px]">المساقات غير المجتازة</th>
+                  <th className="p-2 text-start min-w-[160px]">{tr('اختيار / اسم الطالب', 'Select / Student name')}</th>
+                  <th className="p-2 text-center w-28">{tr('الرقم الجامعي', 'University ID')}</th>
+                  <th className="p-2 text-center w-24">{tr('المستوى', 'Level')}</th>
+                  <th className="p-2 text-center w-20">{tr('المعدل %', 'GPA %')}</th>
+                  <th className="p-2 text-start min-w-[150px]">{tr('المشكلة الأكاديمية', 'Academic issue')}</th>
+                  <th className="p-2 text-center w-16">{tr('الإنذارات', 'Warnings')}</th>
+                  <th className="p-2 text-start min-w-[140px]">{tr('المساقات غير المجتازة', 'Failed courses')}</th>
                   <th className="p-2 text-center w-10"></th>
                 </tr>
               </thead>
@@ -220,9 +221,9 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
                         onChange={(e) => handleSelectDropdownStudent(idx, e.target.value)}
                         className="w-full text-[11px] p-1 rounded-lg border border-slate-200 bg-slate-50 font-bold"
                       >
-                        <option value="">-- تفريغ / اختار طالباً --</option>
+                        <option value="">{tr('-- تفريغ / اختار طالباً --', '-- Clear / Select student --')}</option>
                         {availableStudents.map((s: any) => (
-                          <option key={s.id} value={s.id}>{s.full_name_ar} ({s.gpa}%)</option>
+                          <option key={s.id} value={s.id}>{locale === 'ar' ? s.full_name_ar : s.full_name_en || s.full_name_ar} ({s.gpa}%)</option>
                         ))}
                       </select>
                       <input
@@ -230,7 +231,7 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
                         type="text"
                         value={st.name}
                         onChange={(e) => handleUpdateRow(idx, 'name', e.target.value)}
-                        placeholder="اسم الطالب"
+                        placeholder={tr('اسم الطالب', 'Student name')}
                         className="w-full text-xs p-1.5 rounded-lg border border-slate-200 font-bold"
                       />
                     </td>
@@ -269,7 +270,7 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
                         type="text"
                         value={st.issue}
                         onChange={(e) => handleUpdateRow(idx, 'issue', e.target.value)}
-                        placeholder="سبب التعثر"
+                        placeholder={tr('سبب التعثر', 'Reason for academic difficulty')}
                         className="w-full text-xs p-1.5 rounded-lg border border-slate-200"
                       />
                     </td>
@@ -289,7 +290,7 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
                         type="text"
                         value={st.failed_courses}
                         onChange={(e) => handleUpdateRow(idx, 'failed_courses', e.target.value)}
-                        placeholder="رمز المساقات"
+                        placeholder={tr('رمز المساقات', 'Course codes')}
                         className="w-full text-xs p-1.5 rounded-lg border border-slate-200"
                       />
                     </td>
@@ -316,12 +317,12 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
             <div className="flex items-center justify-between">
               <label className="font-bold text-slate-800 flex items-center gap-1.5">
                 <Paperclip className="w-4 h-4 text-amber-600" />
-                <span>إرفاق خطط تحسين أداء أو ملفات داعمة للمتعثرين:</span>
+                <span>{tr('إرفاق خطط تحسين أداء أو ملفات داعمة للمتعثرين:', 'Attach improvement plans or supporting files:')}</span>
               </label>
 
               <label className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shadow-2xs">
                 <Upload className="w-3.5 h-3.5" />
-                <span>رفع ملف</span>
+                <span>{tr('رفع ملف', 'Upload file')}</span>
                 <input type="file" multiple onChange={handleFileUpload} className="hidden" />
               </label>
             </div>
@@ -349,7 +350,7 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
               className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-1.5 border border-slate-200"
             >
               <Printer className="w-4 h-4 text-amber-600" />
-              <span>معاينة للطباعة والـ PDF</span>
+              <span>{tr('معاينة للطباعة والـ PDF', 'Print / PDF preview')}</span>
             </button>
 
             <div className="flex items-center gap-2">
@@ -358,13 +359,13 @@ export function AtRiskFormModal({ isOpen, onClose, onSave, onPreviewPrint }: AtR
                 onClick={onClose}
                 className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
               >
-                إلغاء
+                {tr('إلغاء', 'Cancel')}
               </button>
               <button
                 type="submit"
                 className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md shadow-amber-600/20"
               >
-                حفظ استمارة المتعثرين
+                {tr('حفظ استمارة المتعثرين', 'Save at-risk form')}
               </button>
             </div>
           </div>

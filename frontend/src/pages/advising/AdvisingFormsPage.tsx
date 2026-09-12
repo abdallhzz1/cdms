@@ -15,6 +15,7 @@ import {
 
 export function AdvisingFormsPage() {
   const { locale } = useI18n();
+  const tr = (arabic: string, english: string) => locale === 'ar' ? arabic : english;
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<'individual' | 'group' | 'at_risk'>('individual');
@@ -97,13 +98,13 @@ export function AdvisingFormsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 leading-tight flex items-center gap-2.5">
-            <span>نماذج وسياسة الإرشاد الأكاديمي الرسمية</span>
+            <span>{tr('نماذج وسياسة الإرشاد الأكاديمي الرسمية', 'Official Academic Advising Forms and Policy')}</span>
             <span className="bg-teal-50 text-teal-800 text-xs font-mono font-bold px-2.5 py-1 rounded-xl border border-teal-200">
               AQC-8
             </span>
           </h1>
           <p className="text-xs text-slate-500 font-medium mt-1">
-            نماذج محاضر الاجتماعات الفردية والجماعية واستمارة المتعثرين مع ترويسة الكلية والطباعة المعتمدة
+            {tr('نماذج محاضر الاجتماعات الفردية والجماعية واستمارة المتعثرين مع ترويسة الكلية والطباعة المعتمدة', 'Individual and group meeting minutes and at-risk student forms with approved faculty branding and printing')}
           </p>
         </div>
 
@@ -113,7 +114,7 @@ export function AdvisingFormsPage() {
           className="px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-2 shadow-sm transition-all shrink-0 cursor-pointer"
         >
           <ShieldCheck className="w-4 h-4 text-teal-400" />
-          <span>سياسة ودليل الإرشاد (AQC-8)</span>
+          <span>{tr('سياسة ودليل الإرشاد (AQC-8)', 'Advising Policy and Guide (AQC-8)')}</span>
         </button>
       </div>
 
@@ -132,7 +133,7 @@ export function AdvisingFormsPage() {
             }`}
           >
             <FileText className="w-4 h-4 text-teal-600" />
-            <span>المحاضر الفردية</span>
+            <span>{tr('المحاضر الفردية', 'Individual records')}</span>
             <span className="bg-teal-50 text-teal-800 text-[10.5px] px-2 py-0.5 rounded-md font-mono">
               {formsRecords.filter(f => f.form_type === 'individual').length}
             </span>
@@ -146,7 +147,7 @@ export function AdvisingFormsPage() {
             }`}
           >
             <Users className="w-4 h-4 text-teal-600" />
-            <span>المحاضر الجماعية</span>
+            <span>{tr('المحاضر الجماعية', 'Group records')}</span>
             <span className="bg-teal-50 text-teal-800 text-[10.5px] px-2 py-0.5 rounded-md font-mono">
               {formsRecords.filter(f => f.form_type === 'group').length}
             </span>
@@ -160,7 +161,7 @@ export function AdvisingFormsPage() {
             }`}
           >
             <AlertTriangle className="w-4 h-4 text-amber-600" />
-            <span>استمارات المتعثرين</span>
+            <span>{tr('استمارات المتعثرين', 'At-risk forms')}</span>
             <span className="bg-amber-50 text-amber-800 text-[10.5px] px-2 py-0.5 rounded-md font-mono">
               {formsRecords.filter(f => f.form_type === 'at_risk').length}
             </span>
@@ -176,7 +177,7 @@ export function AdvisingFormsPage() {
               className="px-4 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-teal-600/20 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>تعبئة محضر فردي جديد</span>
+              <span>{tr('تعبئة محضر فردي جديد', 'Create individual record')}</span>
             </button>
           )}
 
@@ -187,7 +188,7 @@ export function AdvisingFormsPage() {
               className="px-4 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-teal-600/20 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>تعبئة محضر جماعي جديد</span>
+              <span>{tr('تعبئة محضر جماعي جديد', 'Create group record')}</span>
             </button>
           )}
 
@@ -198,7 +199,7 @@ export function AdvisingFormsPage() {
               className="px-4 py-2.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-600/20 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>تعبئة استمارة متعثرين جديدة</span>
+              <span>{tr('تعبئة استمارة متعثرين جديدة', 'Create at-risk form')}</span>
             </button>
           )}
         </div>
@@ -210,7 +211,7 @@ export function AdvisingFormsPage() {
         <Search className="w-4 h-4 text-slate-400 shrink-0 mr-2" />
         <input
           type="text"
-          placeholder="بحث في سجلات المحاضر بالاسم، الرقم الجامعي، أو المواضيع..."
+          placeholder={tr('بحث في سجلات المحاضر بالاسم، الرقم الجامعي، أو المواضيع...', 'Search records by name, university number, or topic...')}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full text-xs font-bold text-slate-800 bg-transparent border-none focus:outline-hidden"

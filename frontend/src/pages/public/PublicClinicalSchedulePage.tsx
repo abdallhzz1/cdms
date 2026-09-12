@@ -4,6 +4,7 @@ import { ApiError, apiFetch } from "@/api/client";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import hebronLogo from "@/assets/hebron.png";
+import { useI18n } from "@/i18n/I18nContext";
 import {
   AlertTriangle,
   CalendarDays,
@@ -94,31 +95,34 @@ type StudentSchedule = {
   schedule: ScheduleItem[];
 };
 
-const levelNames: Record<string, string> = {
-  fourth: "السنة الرابعة",
-  fifth: "السنة الخامسة",
-  sixth: "السنة السادسة",
+const levelNames: Record<string, { ar: string; en: string }> = {
+  fourth: { ar: "السنة الرابعة", en: "Fourth year" },
+  fifth: { ar: "السنة الخامسة", en: "Fifth year" },
+  sixth: { ar: "السنة السادسة", en: "Sixth year" },
 };
-const formatDate = (value: string | null) =>
+const formatDate = (value: string | null, locale: "ar" | "en") =>
   value
-    ? new Intl.DateTimeFormat("ar-PS", {
+    ? new Intl.DateTimeFormat(locale === "ar" ? "ar-PS" : "en-GB", {
         day: "numeric",
         month: "short",
         year: "numeric",
       }).format(new Date(`${value}T00:00:00`))
     : "—";
-const dayName = (day: string) =>
+const dayName = (day: string, locale: "ar" | "en") =>
   ({
-    saturday: "السبت",
-    sunday: "الأحد",
-    monday: "الاثنين",
-    tuesday: "الثلاثاء",
-    wednesday: "الأربعاء",
-    thursday: "الخميس",
-    friday: "الجمعة",
-  })[day] || day;
+    saturday: { ar: "السبت", en: "Saturday" },
+    sunday: { ar: "الأحد", en: "Sunday" },
+    monday: { ar: "الاثنين", en: "Monday" },
+    tuesday: { ar: "الثلاثاء", en: "Tuesday" },
+    wednesday: { ar: "الأربعاء", en: "Wednesday" },
+    thursday: { ar: "الخميس", en: "Thursday" },
+    friday: { ar: "الجمعة", en: "Friday" },
+  } as Record<string, { ar: string; en: string }>)[day]?.[locale] || day;
 
 export function PublicClinicalSchedulePage() {
+  const { locale } = useI18n();
+  const ar = locale === "ar";
+  const tr = (arabic: string, english: string) => ar ? arabic : english;
   const [number, setNumber] = useState("");
   const [challenge, setChallenge] = useState("");
   const [otp, setOtp] = useState("");
@@ -174,7 +178,7 @@ export function PublicClinicalSchedulePage() {
     setError(
       exception instanceof ApiError
         ? exception.message
-        : "تعذر إتمام العملية. يرجى المحاولة لاحقاً.",
+        : tr("تعذر إتمام العملية. يرجى المحاولة لاحقاً.", "The operation could not be completed. Please try again later."),
     );
   };
   const requestOtp = async (event?: FormEvent) => {
@@ -202,7 +206,7 @@ export function PublicClinicalSchedulePage() {
         );
         setData(schedule);
         setMessage(
-          "وضع الفحص المؤقت فعال: تم تحميل الجدول دون إرسال رمز بريدي.",
+          tr("وضع الفحص المؤقت فعال: تم تحميل الجدول دون إرسال رمز بريدي.", "Temporary test mode is active: the schedule was loaded without sending an email code."),
         );
         return;
       }
@@ -210,7 +214,7 @@ export function PublicClinicalSchedulePage() {
       setEmailHint(response.email_hint ?? "");
       setOtp("");
       setOtpSeconds(response.expires_in_seconds);
-      setMessage("تم إرسال رمز التحقق إلى بريدك الجامعي.");
+      setMessage(tr("تم إرسال رمز التحقق إلى بريدك الجامعي.", "A verification code was sent to your university email."));
     } catch (exception) {
       fail(exception);
     } finally {
@@ -233,7 +237,7 @@ export function PublicClinicalSchedulePage() {
         { method: "POST", body: { access_token: verified.access_token } },
       );
       setData(schedule);
-      setMessage("تم التحقق من هويتك وتحميل جدولك المنشور.");
+      setMessage(tr("تم التحقق من هويتك وتحميل جدولك المنشور.", "Your identity was verified and your published schedule was loaded."));
     } catch (exception) {
       fail(exception);
     } finally {
@@ -256,7 +260,6 @@ export function PublicClinicalSchedulePage() {
 
   return (
     <main
-      dir="rtl"
       className="min-h-screen bg-slate-50 px-3 py-4 text-slate-800 sm:px-6 sm:py-8"
     >
       <div className="mx-auto max-w-4xl space-y-3 sm:space-y-5">
@@ -266,17 +269,22 @@ export function PublicClinicalSchedulePage() {
             <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl border border-slate-100 bg-white p-1.5 shadow-sm sm:mb-3 sm:h-16 sm:w-16 sm:rounded-2xl sm:p-2 sm:shadow-md">
               <img
                 src={hebronLogo}
-                alt="جامعة الخليل"
+                alt={tr("جامعة الخليل", "Hebron University")}
                 className="h-full w-full object-contain"
               />
             </div>
             <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-bold text-teal-700 sm:mb-2 sm:px-3 sm:py-1.5 sm:text-[11px]">
               <ShieldCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              بوابة آمنة عبر البريد الجامعي
+              {tr("بوابة آمنة عبر البريد الجامعي", "Secure university email portal")}
             </div>
-            <h1 className="text-lg font-black sm:text-3xl">جدولي السريري</h1>
+            <h1 className="text-lg font-black sm:text-3xl">
+              {tr("جدولي السريري", "My Clinical Schedule")}
+            </h1>
             <p className="mx-auto mt-1 max-w-xl text-[11px] leading-5 text-slate-500 sm:mt-2 sm:text-sm sm:leading-6">
-              جدولك الأسبوعي المعتمد ومعلومات مجموعتك السريرية.
+              {tr(
+                "جدولك الأسبوعي المعتمد ومعلومات مجموعتك السريرية.",
+                "Your approved weekly schedule and clinical group details.",
+              )}
             </p>
           </div>
         </header>
@@ -304,12 +312,14 @@ export function PublicClinicalSchedulePage() {
                 <div className="mb-2 flex items-center gap-2">
                   <UserRound className="h-5 w-5 text-teal-600" />
                   <label className="text-sm font-black">
-                    أدخل رقمك الجامعي
+                    {tr("أدخل رقمك الجامعي", "Enter your university number")}
                   </label>
                 </div>
                 <p className="mb-3 text-xs leading-5 text-slate-500">
-                  لن تظهر أي بيانات قبل التحقق. سنرسل رمزًا من 6 أرقام إلى بريدك
-                  الجامعي.
+                  {tr(
+                    "لن تظهر أي بيانات قبل التحقق. سنرسل رمزًا من 6 أرقام إلى بريدك الجامعي.",
+                    "No data is displayed before verification. We will send a six-digit code to your university email.",
+                  )}
                 </p>
                 <input
                   required
@@ -321,15 +331,15 @@ export function PublicClinicalSchedulePage() {
                     setNumber(event.target.value.replace(/\D/g, ""))
                   }
                   className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-center font-mono text-xl font-bold tracking-wider outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
-                  placeholder="مثال: 22210466"
+                  placeholder={tr("مثال: 22210466", "Example: 22210466")}
                 />
               </div>
               <Button
                 className="h-13 w-full rounded-2xl bg-teal-600 text-base font-bold hover:bg-teal-700"
                 isLoading={busy}
               >
-                <Mail className="ml-2 h-5 w-5" />
-                إرسال رمز التحقق
+                <Mail className="me-2 h-5 w-5" />
+                {tr("إرسال رمز التحقق", "Send verification code")}
               </Button>
             </form>
           </Card>
@@ -342,9 +352,11 @@ export function PublicClinicalSchedulePage() {
                 <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
                   <Mail className="h-6 w-6" />
                 </div>
-                <h2 className="font-black">تحقق من بريدك الجامعي</h2>
+                <h2 className="font-black">
+                  {tr("تحقق من بريدك الجامعي", "Check your university email")}
+                </h2>
                 <p className="mt-2 text-xs leading-5 text-slate-500">
-                  أرسلنا الرمز إلى <b dir="ltr">{emailHint}</b>
+                  {tr("أرسلنا الرمز إلى", "We sent the code to")} <b dir="ltr">{emailHint}</b>
                 </p>
               </div>
               <input
@@ -364,15 +376,17 @@ export function PublicClinicalSchedulePage() {
                 className={`flex items-center justify-center gap-1.5 text-xs font-bold ${otpSeconds ? "text-slate-500" : "text-red-600"}`}
               >
                 <Clock3 className="h-4 w-4" />
-                {otpSeconds ? `صلاحية الرمز: ${timer}` : "انتهت صلاحية الرمز"}
+                {otpSeconds
+                  ? tr(`صلاحية الرمز: ${timer}`, `Code expires in: ${timer}`)
+                  : tr("انتهت صلاحية الرمز", "The verification code has expired")}
               </div>
               <Button
                 className="h-13 w-full rounded-2xl bg-teal-600 text-base font-bold"
                 isLoading={busy}
                 disabled={otp.length !== 6 || otpSeconds === 0}
               >
-                <LockKeyhole className="ml-2 h-5 w-5" />
-                التحقق وعرض الجدول
+                <LockKeyhole className="me-2 h-5 w-5" />
+                {tr("التحقق وعرض الجدول", "Verify and view schedule")}
               </Button>
               <div className="grid grid-cols-2 gap-2">
                 <Button
@@ -381,7 +395,7 @@ export function PublicClinicalSchedulePage() {
                   className="rounded-xl text-xs"
                   onClick={reset}
                 >
-                  تغيير الرقم
+                  {tr("تغيير الرقم", "Change number")}
                 </Button>
                 <Button
                   type="button"
@@ -390,8 +404,8 @@ export function PublicClinicalSchedulePage() {
                   onClick={() => requestOtp()}
                   disabled={busy || otpSeconds > 0}
                 >
-                  <RefreshCw className="ml-1 h-4 w-4" />
-                  إرسال رمز جديد
+                  <RefreshCw className="me-1 h-4 w-4" />
+                  {tr("إرسال رمز جديد", "Send a new code")}
                 </Button>
               </div>
             </form>
@@ -407,16 +421,16 @@ export function PublicClinicalSchedulePage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <h2 className="truncate text-sm font-black sm:text-base">
-                    {data.student.name}
+                    {ar ? data.student.name : data.student.name_en || data.student.name}
                   </h2>
                   <p className="mt-0.5 text-[10px] text-slate-500 sm:text-xs">
                     <span className="font-mono">
                       {data.student.university_number}
                     </span>{" "}
                     ·{" "}
-                    {levelNames[data.student.academic_level] ||
+                    {levelNames[data.student.academic_level]?.[locale] ||
                       data.student.academic_level}{" "}
-                    · المجموعة{" "}
+                    · {tr("المجموعة", "Group")}{" "}
                     <b className="text-teal-700">
                       {data.group?.name || "—"} / {data.subgroup?.name || "—"}
                     </b>
@@ -427,7 +441,7 @@ export function PublicClinicalSchedulePage() {
                   onClick={reset}
                   className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[10px] font-bold text-slate-600 hover:bg-slate-50"
                 >
-                  استعلام آخر
+                  {tr("استعلام آخر", "New lookup")}
                 </button>
               </div>
             </Card>
@@ -436,15 +450,15 @@ export function PublicClinicalSchedulePage() {
               <div className="flex items-center gap-2">
                 <CalendarDays className="h-4.5 w-4.5 text-teal-700" />
                 <h2 className="text-sm font-black sm:text-base">
-                  الجدول الأسبوعي
+                  {tr("الجدول الأسبوعي", "Weekly schedule")}
                 </h2>
                 <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-black text-teal-700">
-                  {displayedSchedule.length} أسابيع
+                  {displayedSchedule.length} {tr("أسابيع", "weeks")}
                 </span>
               </div>
               {periods.length > 0 && (
-                <label className="sm:mr-auto">
-                  <span className="sr-only">اختر الفترة السريرية</span>
+                <label className="sm:ms-auto">
+                  <span className="sr-only">{tr("اختر الفترة السريرية", "Select clinical period")}</span>
                   <select
                     value={periodId}
                     onChange={(event) => setPeriodId(event.target.value)}
@@ -452,7 +466,7 @@ export function PublicClinicalSchedulePage() {
                   >
                     {periods.map((period) => (
                       <option key={period.id} value={period.id}>
-                        {period.code} — {period.name_ar}
+                        {period.code} — {ar ? period.name_ar : period.name_en || period.name_ar}
                       </option>
                     ))}
                   </select>
@@ -463,16 +477,19 @@ export function PublicClinicalSchedulePage() {
               <Card className="rounded-2xl border border-dashed border-slate-300 p-6 text-center">
                 <CalendarDays className="mx-auto h-8 w-8 text-slate-300" />
                 <h3 className="mt-2 text-sm font-black">
-                  لا يوجد جدول منشور لك في هذه الفترة
+                  {tr("لا يوجد جدول منشور لك في هذه الفترة", "No published schedule is available for this period")}
                 </h3>
                 <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                  يرجى المراجعة لاحقاً أو التواصل مع إدارة الدائرة السريرية.
+                  {tr(
+                    "يرجى المراجعة لاحقاً أو التواصل مع إدارة الدائرة السريرية.",
+                    "Please check again later or contact the Clinical Department administration.",
+                  )}
                 </p>
               </Card>
             ) : (
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[690px] table-fixed border-collapse text-right text-[10px] sm:text-xs">
+                  <table className="w-full min-w-[690px] table-fixed border-collapse text-start text-[10px] sm:text-xs">
                     <colgroup>
                       <col className="w-[72px]" />
                       <col className="w-[145px]" />
@@ -482,11 +499,11 @@ export function PublicClinicalSchedulePage() {
                     </colgroup>
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
-                        <th className="p-2.5 font-black">الأسبوع</th>
-                        <th className="p-2.5 font-black">التاريخ</th>
-                        <th className="p-2.5 font-black">المساق / النشاط</th>
-                        <th className="p-2.5 font-black">المستشفى</th>
-                        <th className="p-2.5 font-black">المشرف</th>
+                        <th className="p-2.5 font-black">{tr("الأسبوع", "Week")}</th>
+                        <th className="p-2.5 font-black">{tr("التاريخ", "Date")}</th>
+                        <th className="p-2.5 font-black">{tr("المساق / النشاط", "Course / Activity")}</th>
+                        <th className="p-2.5 font-black">{tr("المستشفى", "Hospital")}</th>
+                        <th className="p-2.5 font-black">{tr("المشرف", "Supervisor")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -504,58 +521,70 @@ export function PublicClinicalSchedulePage() {
                           </td>
                           <td className="p-2.5 align-top leading-5 text-slate-500">
                             <span className="block">
-                              {formatDate(item.block?.start_date || null)}
+                              {formatDate(item.block?.start_date || null, locale)}
                             </span>
                             <span className="block text-[9px] text-slate-400">
-                              إلى {formatDate(item.block?.end_date || null)}
+                              {tr("إلى", "to")} {formatDate(item.block?.end_date || null, locale)}
                             </span>
                           </td>
                           <td className="p-2.5 align-top">
                             <span className="block text-[9px] font-bold text-slate-400">
-                              {item.course?.code || "مساق سريري"}
+                              {item.course?.code || tr("مساق سريري", "Clinical course")}
                             </span>
                             <span
                               className={`mt-0.5 block font-black ${item.item_type === "activity" ? "text-amber-800" : "text-slate-800"}`}
                             >
                               {item.item_type === "activity"
-                                ? item.activity?.label || "نشاط أكاديمي"
-                                : item.course?.name_ar ||
-                                  item.course?.name_en ||
-                                  "الدورة السريرية"}
+                                ? item.activity?.label || tr("نشاط أكاديمي", "Academic activity")
+                                : (ar ? item.course?.name_ar : item.course?.name_en) ||
+                                  item.course?.name_ar ||
+                                  tr("الدورة السريرية", "Clinical rotation")}
                             </span>
                           </td>
                           <td className="p-2.5 align-top font-bold text-slate-700">
                             {item.item_type === "activity" ? (
                               <span className="text-amber-700">
-                                لا يوجد دوام سريري
+                                {tr("لا يوجد دوام سريري", "No clinical duty")}
                               </span>
                             ) : item.supervisor?.work_locations?.length ? (
                               <div className="space-y-1">
-                                {item.supervisor.work_locations.map((location) => (
-                                  <div key={location.training_site?.id ?? "site"}>
-                                    <span className="block font-black">
-                                      {location.training_site?.name_ar || "—"}
-                                    </span>
-                                    <span className="block text-[9px] font-normal text-teal-700">
+                                {item.supervisor.work_locations.map(
+                                  (location) => (
+                                    <div
+                                      key={location.training_site?.id ?? "site"}
+                                    >
+                                      <span className="block font-black">
+                                        {(ar
+                                          ? location.training_site?.name_ar
+                                          : location.training_site?.name_en || location.training_site?.name_ar) || "—"}
+                                      </span>
+                                      <span className="block text-[9px] font-normal text-teal-700">
+                                        {location.days
+                                          .filter(
+                                            (day) => day.status === "work",
+                                          )
+                                          .map((day) => dayName(day.day, locale))
+                                          .join(ar ? "، " : ", ") || tr("لا يوجد دوام", "No duty")}
+                                      </span>
                                       {location.days
-                                        .filter((day) => day.status === "work")
-                                        .map((day) => dayName(day.day))
-                                        .join("، ") || "لا يوجد دوام"}
-                                    </span>
-                                    {location.days
-                                      .filter((day) => Boolean(day.note?.trim()))
-                                      .map((day) => (
-                                        <span
-                                          key={day.day}
-                                          className="block text-[9px] font-normal leading-4 text-amber-700"
-                                        >
-                                          {dayName(day.day)}: {day.note?.trim()}
-                                        </span>
-                                      ))}
-                                  </div>
-                                ))}
+                                        .filter((day) =>
+                                          Boolean(day.note?.trim()),
+                                        )
+                                        .map((day) => (
+                                          <span
+                                            key={day.day}
+                                            className="block text-[9px] font-normal leading-4 text-amber-700"
+                                          >
+                                            {dayName(day.day, locale)}:{" "}
+                                            {day.note?.trim()}
+                                          </span>
+                                        ))}
+                                    </div>
+                                  ),
+                                )}
                               </div>
                             ) : (
+                              (ar ? item.training_site?.name_ar : item.training_site?.name_en) ||
                               item.training_site?.name_ar ||
                               item.training_site?.name ||
                               "—"
@@ -565,7 +594,12 @@ export function PublicClinicalSchedulePage() {
                             {item.item_type === "activity" ? (
                               <span className="text-amber-700">—</span>
                             ) : (
-                              <span className="block">{item.supervisor?.full_name_ar || item.supervisor?.name || "شاغر"}</span>
+                              <span className="block">
+                                {(ar ? item.supervisor?.full_name_ar : item.supervisor?.full_name_en) ||
+                                  item.supervisor?.full_name_ar ||
+                                  item.supervisor?.name ||
+                                  tr("شاغر", "Vacant")}
+                              </span>
                             )}
                           </td>
                         </tr>
@@ -574,7 +608,7 @@ export function PublicClinicalSchedulePage() {
                   </table>
                 </div>
                 <p className="border-t border-slate-100 bg-slate-50 px-3 py-2 text-[9px] text-slate-400 sm:hidden">
-                  مرّر الجدول أفقيًا لرؤية جميع الأعمدة
+                  {tr("مرّر الجدول أفقيًا لرؤية جميع الأعمدة", "Scroll horizontally to view all columns")}
                 </p>
               </div>
             )}
@@ -582,8 +616,8 @@ export function PublicClinicalSchedulePage() {
             <details className="group overflow-hidden rounded-2xl border border-slate-200 bg-white">
               <summary className="flex cursor-pointer list-none items-center gap-2 p-3 text-xs font-black text-slate-700">
                 <UsersRound className="h-4 w-4 text-teal-600" />
-                مجموعتي وزملائي
-                <span className="mr-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
+                {tr("مجموعتي وزملائي", "My group members")}
+                <span className="ms-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
                   {data.members.length}
                 </span>
               </summary>
@@ -597,9 +631,9 @@ export function PublicClinicalSchedulePage() {
                       <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[9px]">
                         {index + 1}
                       </span>
-                      <span className="truncate">{member.name}</span>
+                      <span className="truncate">{ar ? member.name : member.name_en || member.name}</span>
                       {member.is_current_student && (
-                        <span className="mr-auto text-[9px]">أنت</span>
+                        <span className="ms-auto text-[9px]">{tr("أنت", "You")}</span>
                       )}
                     </div>
                   ))}
@@ -609,15 +643,20 @@ export function PublicClinicalSchedulePage() {
             <div className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-3 text-[9px] leading-4 text-slate-400 sm:text-[11px]">
               <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" />
               <p>
-                هذه البيانات خاصة بصاحب البريد الجامعي وتنتهي جلسة العرض
-                تلقائياً.
+                {tr(
+                  "هذه البيانات خاصة بصاحب البريد الجامعي وتنتهي جلسة العرض تلقائياً.",
+                  "This information is private to the university email owner, and the viewing session expires automatically.",
+                )}
               </p>
             </div>
           </section>
         )}
 
         <footer className="py-3 text-center text-[11px] text-slate-400">
-          جامعة الخليل — كلية الطب — الدائرة السريرية
+          {tr(
+            "جامعة الخليل — كلية الطب — الدائرة السريرية",
+            "Hebron University — Faculty of Medicine — Clinical Department",
+          )}
         </footer>
       </div>
     </main>

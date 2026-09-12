@@ -21,7 +21,7 @@ for (const file of files) {
     const text = ts.isJsxText(node) || ts.isStringLiteralLike(node) ? node.text : null;
     if (text && arabic.test(text) && !isTranslated(node)) {
       const pos = source.getLineAndCharacterOfPosition(node.getStart(source));
-      violations.push({ file: path.relative(process.cwd(), file).replaceAll('\\', '/'), line: pos.line + 1, text: text.trim().replace(/\s+/g, ' ').slice(0, 120) });
+      violations.push({ file: path.relative(process.cwd(), file).replaceAll('\\', '/'), line: pos.line + 1, kind: ts.SyntaxKind[node.kind], text: text.trim().replace(/\s+/g, ' ').slice(0, 120) });
     }
     ts.forEachChild(node, visit);
   };
@@ -45,6 +45,6 @@ function isTranslated(node) {
   return false;
 }
 
-for (const item of violations) console.log(`${item.file}:${item.line}\t${item.text}`);
+for (const item of violations) console.log(`${item.file}:${item.line}\t${item.kind}\t${item.text}`);
 console.log(`\nUntranslated Arabic literals: ${violations.length}`);
 process.exitCode = violations.length ? 1 : 0;

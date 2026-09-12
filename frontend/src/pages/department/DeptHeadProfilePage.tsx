@@ -222,14 +222,14 @@ export function DeptHeadProfilePage() {
       name: data.name,
       name_en: data.name_en,
       title: data.title || '',
-      department_name: data.department_name || 'القسم السريري',
+      department_name: data.department_name || tr('القسم السريري', 'Clinical department'),
       avatar_url: data.avatar_url,
       email: data.email,
       phone: data.phone || '',
       contract_type: data.contract_type || '',
       appointment_date: data.appointment_date || '',
       cv_summary: data.cv_summary || '',
-      specialty: data.specialty || `استشاري ${data.department_name || 'سريري'}`,
+      specialty: data.specialty || tr(`استشاري ${data.department_name || 'سريري'}`, `Consultant — ${data.department_name || 'Clinical'}`),
       publications: data.publications || [],
       conferences: data.conferences || [],
       documents: apiDocs,
@@ -248,7 +248,7 @@ export function DeptHeadProfilePage() {
       setEvalComments(data.evaluation.comments || '');
     }
 
-  }, [dbProfileResponse, targetId]);
+  }, [dbProfileResponse, targetId, locale]);
 
   // Transparent KPI Breakdown Calculation
   const automatedKpiBreakdown = useMemo(() => {
@@ -329,7 +329,7 @@ export function DeptHeadProfilePage() {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('يرجى اختيار ملف صورة صالح (PNG, JPG, WEBP)');
+      alert(tr('يرجى اختيار ملف صورة صالح (PNG, JPG, WEBP)', 'Please select a valid image file (PNG, JPG, WEBP)'));
       return;
     }
 
@@ -388,16 +388,16 @@ export function DeptHeadProfilePage() {
     if (!profileData) return;
 
     const evaluatorRoleLabel = userRoles.includes('DEAN') 
-      ? 'عميد كلية الطب البشري' 
-      : (userRoles.includes('CLINICAL_DIRECTOR') ? 'مدير الدائرة السريرية' : 'إدارة الكلية والدائرة السريرية');
+      ? tr('عميد كلية الطب البشري', 'Dean of the Faculty of Medicine')
+      : (userRoles.includes('CLINICAL_DIRECTOR') ? tr('مدير الدائرة السريرية', 'Clinical Department Director') : tr('إدارة الكلية والدائرة السريرية', 'Faculty and Clinical Department Administration'));
 
     const newEval: DirectorDeanEvaluation = {
-      evaluator_name: user?.name || 'د. معتز التميمي',
+      evaluator_name: user?.name || tr('د. معتز التميمي', 'Dr. Moataz Al-Tamimi'),
       evaluator_role: evaluatorRoleLabel,
       leadership_score: Number(evalLeadership),
       clinical_score: Number(evalClinical),
-      comments: evalComments.trim() || 'تمت المراجعة والاعتماد الرسمي من قبل مدير الدائرة والعميد.',
-      evaluation_date: new Date().toLocaleDateString('ar-EG')
+      comments: evalComments.trim() || tr('تمت المراجعة والاعتماد الرسمي من قبل مدير الدائرة والعميد.', 'Formally reviewed and approved by the Clinical Director and Dean.'),
+      evaluation_date: new Date().toLocaleDateString(ar ? 'ar-PS' : 'en-GB')
     };
 
     try {
@@ -410,7 +410,7 @@ export function DeptHeadProfilePage() {
       alert(locale === 'ar' ? `تم رصد وتحديث تقييم ${newEval.evaluator_name} (${evaluatorRoleLabel}) في قاعدة البيانات بنجاح ✓` : 'Evaluation saved ✓');
     } catch (err) {
       console.error('Evaluation save error:', err);
-      alert('حدث خطأ أثناء حفظ التقييم بقاعدة البيانات');
+      alert(tr('حدث خطأ أثناء حفظ التقييم بقاعدة البيانات', 'An error occurred while saving the evaluation.'));
     }
   };
 
@@ -422,7 +422,7 @@ export function DeptHeadProfilePage() {
                 Number(weightsConfig.evaluationWeight);
 
     if (sum !== 100) {
-      alert(`تنبيه: مجموع أوزان المحاور الخمسة يساوي حالياً (${sum}%) ويجب أن يكون المجموع دقيقاً 100%.`);
+      alert(tr(`تنبيه: مجموع أوزان المحاور الخمسة يساوي حالياً (${sum}%) ويجب أن يكون المجموع دقيقاً 100%.`, `Warning: the five domain weights currently total ${sum}% and must equal exactly 100%.`));
       return;
     }
 
@@ -436,7 +436,7 @@ export function DeptHeadProfilePage() {
       alert(locale === 'ar' ? 'تم تحديث واعتماد أوزان الـ KPI بقاعدة البيانات بنجاح ✓' : 'Weights saved ✓');
     } catch (err) {
       console.error('Weights save error:', err);
-      alert('حدث خطأ أثناء حفظ الأوزان بقاعدة البيانات');
+      alert(tr('حدث خطأ أثناء حفظ الأوزان بقاعدة البيانات', 'An error occurred while saving the weights.'));
     }
   };
 
@@ -458,7 +458,7 @@ export function DeptHeadProfilePage() {
       alert(locale === 'ar' ? 'تم رصد وتحديث الدرجات اليدوية بقاعدة البيانات بنجاح ✓' : 'Scores saved ✓');
     } catch (err) {
       console.error('Overrides save error:', err);
-      alert('حدث خطأ أثناء حفظ الدرجات اليدوية بقاعدة البيانات');
+      alert(tr('حدث خطأ أثناء حفظ الدرجات اليدوية بقاعدة البيانات', 'An error occurred while saving manual scores.'));
     }
   };
 
@@ -715,14 +715,14 @@ export function DeptHeadProfilePage() {
 
           {/* Legacy KPI is available only to authorized leadership, never in the head's own profile. */}
           {showLegacyKpi && !isOwnProfile && canViewOfficialEvaluation && <div className="bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200/80 text-center shrink-0 w-full md:w-48 space-y-1">
-            <span className="text-[11px] font-semibold text-slate-500 block">تقييم مؤشر الأداء الكلي</span>
+            <span className="text-[11px] font-semibold text-slate-500 block">{tr('تقييم مؤشر الأداء الكلي', 'Overall performance score')}</span>
             <div dir="ltr" className="text-3xl font-bold text-slate-900 font-mono tracking-tight">
               {automatedKpiBreakdown.totalScore} <span className="text-xs font-medium text-slate-400">/ 100</span>
             </div>
             <div className="pt-1">
               <span className="inline-flex items-center gap-1 text-xs font-semibold text-teal-800 bg-teal-50 px-3 py-0.5 rounded-md border border-teal-200/80">
                 <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-                <span>تقدير {automatedKpiBreakdown.rating}</span>
+                <span>{tr('تقدير', 'Rating')} {automatedKpiBreakdown.rating}</span>
               </span>
             </div>
           </div>}
@@ -839,7 +839,7 @@ export function DeptHeadProfilePage() {
           }`}
         >
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${activeTab === 'kpi' ? 'bg-white/20' : 'bg-white text-teal-600 shadow-sm'}`}><BarChart3 className="w-4 h-4" /></span>
-          <span className="leading-5">جدول تقييم الأداء التفصيلي</span>
+          <span className="leading-5">{tr('جدول تقييم الأداء التفصيلي', 'Detailed performance scorecard')}</span>
         </button>}
         </div>
       </div>
@@ -1275,7 +1275,7 @@ export function DeptHeadProfilePage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
                     <BarChart3 className="w-4 h-4 text-teal-600" />
-                    <span>جدول تقييم مؤشرات الأداء الكلي (KPI Scorecard)</span>
+                    <span>{tr('جدول تقييم مؤشرات الأداء الكلي (KPI Scorecard)', 'Overall KPI Scorecard')}</span>
                   </h3>
 
                   {!isOwnProfile && canEvaluate && (
@@ -1286,7 +1286,7 @@ export function DeptHeadProfilePage() {
                         className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-800 font-semibold text-[11px] rounded-lg border border-slate-200 flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
                       >
                         <Sliders className="w-3.5 h-3.5 text-teal-600" />
-                        <span>رصد الدرجات yدوياً</span>
+                        <span>{tr('رصد الدرجات يدوياً', 'Enter scores manually')}</span>
                       </button>
 
                       <button
@@ -1295,14 +1295,14 @@ export function DeptHeadProfilePage() {
                         className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-800 font-semibold text-[11px] rounded-lg border border-slate-200 flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
                       >
                         <Settings className="w-3.5 h-3.5 text-slate-600" />
-                        <span>ضبط الأوزان</span>
+                        <span>{tr('ضبط الأوزان', 'Configure weights')}</span>
                       </button>
                     </div>
                   )}
                 </div>
 
                 <p className="text-[11px] text-slate-500 pt-1 font-medium">
-                  حسبة شفافة تعتمد مباشرة على قواعد بيانات اعتمادات الدرجات والأبحاث وتغطيات الروتيشن السريري.
+                  {tr('حسبة شفافة تعتمد مباشرة على قواعد بيانات اعتمادات الدرجات والأبحاث وتغطيات الروتيشن السريري.', 'A transparent calculation based directly on grade approvals, research records, and clinical rotation coverage.')}
                 </p>
               </div>
 
@@ -1319,10 +1319,10 @@ export function DeptHeadProfilePage() {
                 <div className="flex items-center justify-between font-semibold text-slate-800">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-teal-600" />
-                    <span>1. اعتمادات العلامات والامتحانات بالمواعيد (الوزن النسبي: {automatedKpiBreakdown.weights.gradeTimelinessWeight}%)</span>
+                    <span>{tr('1. اعتمادات العلامات والامتحانات بالمواعيد (الوزن النسبي:', '1. Timely grade and examination approvals (weight:')} {automatedKpiBreakdown.weights.gradeTimelinessWeight}%)</span>
                     {automatedKpiBreakdown.overrides.gradeTimelinessScore !== undefined && (
                       <span className="text-[10px] bg-slate-200 text-slate-800 px-2 py-0.5 rounded">
-                        (درجة مرصودة يدوياً)
+                        {tr('(درجة مرصودة يدوياً)', '(Manually entered score)')}
                       </span>
                     )}
                   </div>
@@ -1338,7 +1338,7 @@ export function DeptHeadProfilePage() {
                 <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
                   <span className="font-medium flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>تم اعتماد 100% من المساقات السريرية في موعدها المعتمد.</span>
+                    <span>{tr('تم اعتماد 100% من المساقات السريرية في موعدها المعتمد.', '100% of clinical courses were approved on time.')}</span>
                   </span>
                   <button
                     type="button"
@@ -1346,7 +1346,7 @@ export function DeptHeadProfilePage() {
                     className="text-teal-700 font-semibold hover:underline cursor-pointer flex items-center gap-1"
                   >
                     <Info className="w-3.5 h-3.5" />
-                    <span>استعراض التفاصيل</span>
+                    <span>{tr('استعراض التفاصيل', 'View details')}</span>
                   </button>
                 </div>
               </div>
@@ -1356,10 +1356,10 @@ export function DeptHeadProfilePage() {
                 <div className="flex items-center justify-between font-semibold text-slate-800">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-teal-600" />
-                    <span>2. تغطية الروتيشنات وتكليف المشرفين (الوزن النسبي: {automatedKpiBreakdown.weights.rotationMgmtWeight}%)</span>
+                    <span>{tr('2. تغطية الروتيشنات وتكليف المشرفين (الوزن النسبي:', '2. Rotation coverage and supervisor assignments (weight:')} {automatedKpiBreakdown.weights.rotationMgmtWeight}%)</span>
                     {automatedKpiBreakdown.overrides.rotationMgmtScore !== undefined && (
                       <span className="text-[10px] bg-slate-200 text-slate-800 px-2 py-0.5 rounded">
-                        (درجة مرصودة يدوياً)
+                        {tr('(درجة مرصودة يدوياً)', '(Manually entered score)')}
                       </span>
                     )}
                   </div>
@@ -1375,7 +1375,7 @@ export function DeptHeadProfilePage() {
                 <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
                   <span className="font-medium flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>تغطية 96% من أسابيع التدريب في المستشفيات المعتمدة.</span>
+                    <span>{tr('تغطية 96% من أسابيع التدريب في المستشفيات المعتمدة.', '96% of training weeks are covered at approved hospitals.')}</span>
                   </span>
                   <button
                     type="button"
@@ -1383,7 +1383,7 @@ export function DeptHeadProfilePage() {
                     className="text-teal-700 font-semibold hover:underline cursor-pointer flex items-center gap-1"
                   >
                     <Info className="w-3.5 h-3.5" />
-                    <span>استعراض التغطية</span>
+                    <span>{tr('استعراض التغطية', 'View coverage')}</span>
                   </button>
                 </div>
               </div>
@@ -1393,10 +1393,10 @@ export function DeptHeadProfilePage() {
                 <div className="flex items-center justify-between font-semibold text-slate-800">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-teal-600" />
-                    <span>3. الأبحاث والإنتاج الأكاديمي (الوزن النسبي: {automatedKpiBreakdown.weights.researchWeight}%)</span>
+                    <span>{tr('3. الأبحاث والإنتاج الأكاديمي (الوزن النسبي:', '3. Research and academic output (weight:')} {automatedKpiBreakdown.weights.researchWeight}%)</span>
                     {automatedKpiBreakdown.overrides.researchScore !== undefined && (
                       <span className="text-[10px] bg-slate-200 text-slate-800 px-2 py-0.5 rounded">
-                        (درجة مرصودة يدوياً)
+                        {tr('(درجة مرصودة يدوياً)', '(Manually entered score)')}
                       </span>
                     )}
                   </div>
@@ -1411,7 +1411,7 @@ export function DeptHeadProfilePage() {
 
                 <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
                   <span className="font-medium">
-                    ({profileData.publications?.length || 0} أبحاث مضافة × 5 درجات لكل بحث)
+                    {tr(`(${profileData.publications?.length || 0} أبحاث مضافة × 5 درجات لكل بحث)`, `(${profileData.publications?.length || 0} publications × 5 points each)`)}
                   </span>
                   <button
                     type="button"
@@ -1419,7 +1419,7 @@ export function DeptHeadProfilePage() {
                     className="text-teal-700 font-semibold hover:underline cursor-pointer flex items-center gap-1"
                   >
                     <BookOpen className="w-3.5 h-3.5" />
-                    <span>عرض الأبحاث</span>
+                    <span>{tr('عرض الأبحاث', 'View research')}</span>
                   </button>
                 </div>
               </div>
@@ -1429,10 +1429,10 @@ export function DeptHeadProfilePage() {
                 <div className="flex items-center justify-between font-semibold text-slate-800">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-teal-600" />
-                    <span>4. المؤتمرات والورش الطبية (الوزن النسبي: {automatedKpiBreakdown.weights.confWeight}%)</span>
+                    <span>{tr('4. المؤتمرات والورش الطبية (الوزن النسبي:', '4. Medical conferences and workshops (weight:')} {automatedKpiBreakdown.weights.confWeight}%)</span>
                     {automatedKpiBreakdown.overrides.confScore !== undefined && (
                       <span className="text-[10px] bg-slate-200 text-slate-800 px-2 py-0.5 rounded">
-                        (درجة مرصودة يدوياً)
+                        {tr('(درجة مرصودة يدوياً)', '(Manually entered score)')}
                       </span>
                     )}
                   </div>
@@ -1447,7 +1447,7 @@ export function DeptHeadProfilePage() {
 
                 <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
                   <span className="font-medium">
-                    ({profileData.conferences?.length || 0} مشاركات ومؤتمرات × 5 درجات)
+                    {tr(`(${profileData.conferences?.length || 0} مشاركات ومؤتمرات × 5 درجات)`, `(${profileData.conferences?.length || 0} conference activities × 5 points)`)}
                   </span>
                   <button
                     type="button"
@@ -1455,7 +1455,7 @@ export function DeptHeadProfilePage() {
                     className="text-teal-700 font-semibold hover:underline cursor-pointer flex items-center gap-1"
                   >
                     <Award className="w-3.5 h-3.5" />
-                    <span>عرض المؤتمرات</span>
+                    <span>{tr('عرض المؤتمرات', 'View conferences')}</span>
                   </button>
                 </div>
               </div>
@@ -1465,7 +1465,7 @@ export function DeptHeadProfilePage() {
                 <div className="flex items-center justify-between font-semibold text-slate-800">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-slate-700" />
-                    <span>5. تقييم مدير الدائرة والعميد القيادي (الوزن النسبي: {automatedKpiBreakdown.weights.evaluationWeight}%)</span>
+                    <span>{tr('5. تقييم مدير الدائرة والعميد القيادي (الوزن النسبي:', '5. Director and Dean leadership evaluation (weight:')} {automatedKpiBreakdown.weights.evaluationWeight}%)</span>
                   </div>
                   <span dir="ltr" className="font-mono text-slate-900 font-bold text-xs">
                     {automatedKpiBreakdown.directorDeanEvalScore} / {automatedKpiBreakdown.weights.evaluationWeight}
@@ -1478,7 +1478,7 @@ export function DeptHeadProfilePage() {
 
                 <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
                   <span className="font-medium">
-                    (7.5 قيادة إدارية + 7.5 معايير سريرية وحوكمة)
+                    {tr('(7.5 قيادة إدارية + 7.5 معايير سريرية وحوكمة)', '(7.5 administrative leadership + 7.5 clinical standards and governance)')}
                   </span>
                   {!isOwnProfile && canEvaluate && (
                     <button
@@ -1487,7 +1487,7 @@ export function DeptHeadProfilePage() {
                       className="text-teal-700 font-semibold hover:underline cursor-pointer flex items-center gap-1"
                     >
                       <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>تعديل التقييم الرسمى</span>
+                      <span>{tr('تعديل التقييم الرسمي', 'Edit official evaluation')}</span>
                     </button>
                   )}
                 </div>
@@ -1500,7 +1500,7 @@ export function DeptHeadProfilePage() {
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-[#0F172A] text-xs flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-teal-700" />
-                  <span>ملاحظات وتقييم مدير الدائرة الرسمية:</span>
+                  <span>{tr('ملاحظات وتقييم مدير الدائرة الرسمية:', 'Official Clinical Director comments and evaluation:')}</span>
                 </h3>
 
                 {!isOwnProfile && canEvaluate && (
@@ -1509,7 +1509,7 @@ export function DeptHeadProfilePage() {
                     onClick={() => setIsEvalModalOpen(true)}
                     className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white font-medium text-xs rounded-lg transition-colors cursor-pointer"
                   >
-                    ✏️ تعديل التقييم
+                    {tr('✏️ تعديل التقييم', '✏️ Edit evaluation')}
                   </button>
                 )}
               </div>
@@ -1519,7 +1519,7 @@ export function DeptHeadProfilePage() {
                   <div className="flex items-center justify-between text-xs border-b border-slate-100 pb-2">
                     <span className="font-semibold text-slate-900 flex items-center gap-1.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>المقيّم: {profileData.evaluation.evaluator_name} ({profileData.evaluation.evaluator_role})</span>
+                      <span>{tr('المقيّم:', 'Evaluator:')} {profileData.evaluation.evaluator_name} ({profileData.evaluation.evaluator_role})</span>
                     </span>
                     <span className="text-slate-400 font-mono text-[11px]">{profileData.evaluation.evaluation_date}</span>
                   </div>
@@ -1529,7 +1529,7 @@ export function DeptHeadProfilePage() {
                   </p>
                 </div>
               ) : (
-                <p className="text-slate-500 text-center py-4">لم يتم إضافة ملاحظات تقييم رسمية بعد.</p>
+                <p className="text-slate-500 text-center py-4">{tr('لم يتم إضافة ملاحظات تقييم رسمية بعد.', 'No official evaluation comments have been added yet.')}</p>
               )}
             </div>
 
@@ -1546,17 +1546,17 @@ export function DeptHeadProfilePage() {
       <Modal
         isOpen={isManualOverrideModalOpen}
         onClose={() => setIsManualOverrideModalOpen(false)}
-        title="رصد الدرجات يدوياً في قاعدة البيانات"
+        title={tr('رصد الدرجات يدوياً في قاعدة البيانات', 'Enter scores manually in the database')}
       >
         <div className="space-y-4 text-xs">
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-slate-700 font-medium leading-relaxed">
-            يمكن لعميد الكلية ومدير الدائرة السريرية رصد وتثبيت درجات مباشرة لكل محور حسب الرؤية القيادية.
+            {tr('يمكن لعميد الكلية ومدير الدائرة السريرية رصد وتثبيت درجات مباشرة لكل محور حسب الرؤية القيادية.', 'The Faculty Dean and Clinical Director may enter and lock a score for each domain based on leadership assessment.')}
           </div>
 
           <div className="space-y-3">
             <div>
               <label className="block font-medium text-slate-800 mb-1">
-                1. درجة اعتمادات العلامات (من أصل {weightsConfig.gradeTimelinessWeight})
+                {tr('1. درجة اعتمادات العلامات (من أصل', '1. Grade approval score (out of')} {weightsConfig.gradeTimelinessWeight})
               </label>
               <input
                 type="number"
@@ -1571,7 +1571,7 @@ export function DeptHeadProfilePage() {
 
             <div>
               <label className="block font-medium text-slate-800 mb-1">
-                2. درجة إدارة وتغطية الروتيشنات (من أصل {weightsConfig.rotationMgmtWeight})
+                {tr('2. درجة إدارة وتغطية الروتيشنات (من أصل', '2. Rotation management and coverage score (out of')} {weightsConfig.rotationMgmtWeight})
               </label>
               <input
                 type="number"
@@ -1586,7 +1586,7 @@ export function DeptHeadProfilePage() {
 
             <div>
               <label className="block font-medium text-slate-800 mb-1">
-                3. درجة الأبحاث والنشرات الأكاديمية (من أصل {weightsConfig.researchWeight})
+                {tr('3. درجة الأبحاث والنشرات الأكاديمية (من أصل', '3. Research and publications score (out of')} {weightsConfig.researchWeight})
               </label>
               <input
                 type="number"
@@ -1601,7 +1601,7 @@ export function DeptHeadProfilePage() {
 
             <div>
               <label className="block font-medium text-slate-800 mb-1">
-                4. درجة المؤتمرات والورش السريرية (من أصل {weightsConfig.confWeight})
+                {tr('4. درجة المؤتمرات والورش السريرية (من أصل', '4. Clinical conferences and workshops score (out of')} {weightsConfig.confWeight})
               </label>
               <input
                 type="number"
@@ -1616,9 +1616,9 @@ export function DeptHeadProfilePage() {
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => setIsManualOverrideModalOpen(false)}>إلغاء</Button>
+            <Button variant="outline" onClick={() => setIsManualOverrideModalOpen(false)}>{tr('إلغاء', 'Cancel')}</Button>
             <Button onClick={handleSaveManualOverrides} className="bg-teal-700 hover:bg-teal-800 text-white font-medium">
-              اعتماد الدرجات اليدوية
+              {tr('اعتماد الدرجات اليدوية', 'Confirm manual scores')}
             </Button>
           </div>
         </div>
@@ -1628,17 +1628,17 @@ export function DeptHeadProfilePage() {
       <Modal 
         isOpen={isWeightModalOpen} 
         onClose={() => setIsWeightModalOpen(false)} 
-        title="ضبط أوزان معايير مؤشر الأداء (KPI Weights)"
+        title={tr('ضبط أوزان معايير مؤشر الأداء (KPI Weights)', 'Configure KPI Weights')}
       >
         <div className="space-y-4 text-xs">
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-slate-700 font-medium leading-relaxed">
-            يتاح لإدارة الكلية توزيع الأوزان النسبية للمحاور الخمسة بحيث يكون الإجمالي 100%.
+            {tr('يتاح لإدارة الكلية توزيع الأوزان النسبية للمحاور الخمسة بحيث يكون الإجمالي 100%.', 'Faculty administration can distribute the weights across the five domains, with a total of 100%.')}
           </div>
 
           <div className="space-y-3">
             <div>
               <label className="block font-medium text-slate-800 mb-1">
-                1. وزن اعتمادات العلامات والامتحانات (%)
+                {tr('1. وزن اعتمادات العلامات والامتحانات (%)', '1. Grade and examination approval weight (%)')}
               </label>
               <input
                 type="number"
@@ -1652,7 +1652,7 @@ export function DeptHeadProfilePage() {
 
             <div>
               <label className="block font-medium text-slate-800 mb-1">
-                2. وزن تغطية الروتيشنات وتكليف المشرفين (%)
+                {tr('2. وزن تغطية الروتيشنات وتكليف المشرفين (%)', '2. Rotation coverage and supervisor assignment weight (%)')}
               </label>
               <input
                 type="number"
@@ -1666,7 +1666,7 @@ export function DeptHeadProfilePage() {
 
             <div>
               <label className="block font-medium text-slate-800 mb-1">
-                3. وزن الأبحاث والنشر الأكاديمي (%)
+                {tr('3. وزن الأبحاث والنشر الأكاديمي (%)', '3. Research and academic publication weight (%)')}
               </label>
               <input
                 type="number"
@@ -1680,7 +1680,7 @@ export function DeptHeadProfilePage() {
 
             <div>
               <label className="block font-medium text-slate-800 mb-1">
-                4. وزن المؤتمرات والورش (%)
+                {tr('4. وزن المؤتمرات والورش (%)', '4. Conferences and workshops weight (%)')}
               </label>
               <input
                 type="number"
@@ -1694,7 +1694,7 @@ export function DeptHeadProfilePage() {
 
             <div>
               <label className="block font-medium text-slate-800 mb-1">
-                5. وزن التقييم المباشر للإدارة (%)
+                {tr('5. وزن التقييم المباشر للإدارة (%)', '5. Direct management evaluation weight (%)')}
               </label>
               <input
                 type="number"
@@ -1708,7 +1708,7 @@ export function DeptHeadProfilePage() {
           </div>
 
           <div className="p-3 bg-slate-100 rounded-lg flex items-center justify-between font-mono font-bold">
-            <span>مجموع الأوزان المحددة:</span>
+            <span>{tr('مجموع الأوزان المحددة:', 'Total configured weights:')}</span>
             <span className={`text-sm ${
               (weightsConfig.gradeTimelinessWeight + weightsConfig.rotationMgmtWeight + weightsConfig.researchWeight + weightsConfig.confWeight + weightsConfig.evaluationWeight) === 100 ? 'text-emerald-700' : 'text-red-600'
             }`}>
@@ -1717,9 +1717,9 @@ export function DeptHeadProfilePage() {
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => setIsWeightModalOpen(false)}>إلغاء</Button>
+            <Button variant="outline" onClick={() => setIsWeightModalOpen(false)}>{tr('إلغاء', 'Cancel')}</Button>
             <Button onClick={handleSaveWeightsConfig} className="bg-teal-700 hover:bg-teal-800 text-white font-medium">
-              اعتماد الأوزان
+              {tr('اعتماد الأوزان', 'Confirm weights')}
             </Button>
           </div>
         </div>
@@ -1729,16 +1729,16 @@ export function DeptHeadProfilePage() {
       <Modal 
         isOpen={isEvalModalOpen} 
         onClose={() => setIsEvalModalOpen(false)} 
-        title="نموذج التقييم الرسمي لرئيس القسم"
+        title={tr('نموذج التقييم الرسمي لرئيس القسم', 'Official Department Head Evaluation Form')}
       >
         <div className="space-y-4 text-xs">
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-slate-700 font-medium">
-            نموذج مخصص لرصد وتقييم الأداء القيادي والسريري لرئيس القسم من قبل عمادة الكلية والدائرة السريرية.
+            {tr('نموذج مخصص لرصد وتقييم الأداء القيادي والسريري لرئيس القسم من قبل عمادة الكلية والدائرة السريرية.', 'A form for the Faculty Dean and Clinical Department to assess the department head’s leadership and clinical performance.')}
           </div>
 
           <div>
             <label className="block font-medium text-slate-800 mb-1">
-              1. درجة القيادة والتنسيق الإداري (من 7.5)
+              {tr('1. درجة القيادة والتنسيق الإداري (من 7.5)', '1. Leadership and administrative coordination score (out of 7.5)')}
             </label>
             <input
               type="number"
@@ -1753,7 +1753,7 @@ export function DeptHeadProfilePage() {
 
           <div>
             <label className="block font-medium text-slate-800 mb-1">
-              2. درجة الحوكمة والمعايير السريرية (من 7.5)
+              {tr('2. درجة الحوكمة والمعايير السريرية (من 7.5)', '2. Governance and clinical standards score (out of 7.5)')}
             </label>
             <input
               type="number"
@@ -1768,11 +1768,11 @@ export function DeptHeadProfilePage() {
 
           <div>
             <label className="block font-medium text-slate-800 mb-1">
-              3. التوصيات الرسمية والملاحظات المباشرة
+              {tr('3. التوصيات الرسمية والملاحظات المباشرة', '3. Official recommendations and direct comments')}
             </label>
             <textarea
               rows={4}
-              placeholder="اكتب التوصيات والملاحظات الرسمية هنا..."
+              placeholder={tr('اكتب التوصيات والملاحظات الرسمية هنا...', 'Enter official recommendations and comments here...')}
               value={evalComments}
               onChange={(e) => setEvalComments(e.target.value)}
               className="w-full p-3 border border-slate-200 rounded-lg font-serif text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -1780,9 +1780,9 @@ export function DeptHeadProfilePage() {
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => setIsEvalModalOpen(false)}>إلغاء</Button>
+            <Button variant="outline" onClick={() => setIsEvalModalOpen(false)}>{tr('إلغاء', 'Cancel')}</Button>
             <Button onClick={handleSaveDeanDirectorEvaluation} className="bg-teal-700 hover:bg-teal-800 text-white font-medium">
-              حفظ واعتماد التقييم
+              {tr('حفظ واعتماد التقييم', 'Save and approve evaluation')}
             </Button>
           </div>
         </div>
@@ -1792,27 +1792,27 @@ export function DeptHeadProfilePage() {
       <Modal
         isOpen={Boolean(auditModalCriteria)}
         onClose={() => setAuditModalCriteria(null)}
-        title="سجل التتبع وتفاصيل الاعتمادات"
+        title={tr('سجل التتبع وتفاصيل الاعتمادات', 'Audit Trail and Approval Details')}
       >
         <div className="space-y-4 text-xs">
           {auditModalCriteria === 'grades' && (
             <div className="space-y-3">
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 font-semibold text-slate-800">
-                سجل اعتماد درجات مساقات قسم {profileData.department_name}:
+                {tr('سجل اعتماد درجات مساقات قسم', 'Course grade approval record for')} {profileData.department_name}:
               </div>
 
               <div className="space-y-2">
                 <div className="p-3 bg-white rounded-lg border border-slate-200 flex items-center justify-between font-medium">
-                  <span>مساق الباطني العام (MED601)</span>
-                  <span className="text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200/80 font-semibold">اعتُمِد بالموعد ✓</span>
+                  <span>{tr('مساق الباطني العام (MED601)', 'General Internal Medicine (MED601)')}</span>
+                  <span className="text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200/80 font-semibold">{tr('اعتُمِد بالموعد ✓', 'Approved on time ✓')}</span>
                 </div>
                 <div className="p-3 bg-white rounded-lg border border-slate-200 flex items-center justify-between font-medium">
-                  <span>مساق الجراحة السريرية (SURG602)</span>
-                  <span className="text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200/80 font-semibold">اعتُمِد بالموعد ✓</span>
+                  <span>{tr('مساق الجراحة السريرية (SURG602)', 'Clinical Surgery (SURG602)')}</span>
+                  <span className="text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200/80 font-semibold">{tr('اعتُمِد بالموعد ✓', 'Approved on time ✓')}</span>
                 </div>
                 <div className="p-3 bg-white rounded-lg border border-slate-200 flex items-center justify-between font-medium">
-                  <span>مساق طب الأطفال والخدّاج (PEDS603)</span>
-                  <span className="text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200/80 font-semibold">اعتُمِد بالموعد ✓</span>
+                  <span>{tr('مساق طب الأطفال والخدّاج (PEDS603)', 'Pediatrics and Neonatology (PEDS603)')}</span>
+                  <span className="text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200/80 font-semibold">{tr('اعتُمِد بالموعد ✓', 'Approved on time ✓')}</span>
                 </div>
               </div>
             </div>
@@ -1821,24 +1821,24 @@ export function DeptHeadProfilePage() {
           {auditModalCriteria === 'rotations' && (
             <div className="space-y-3">
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 font-semibold text-slate-800">
-                سجل تغطية المستشفيات والروتيشن السريري:
+                {tr('سجل تغطية المستشفيات والروتيشن السريري:', 'Hospital and clinical rotation coverage record:')}
               </div>
 
               <div className="space-y-2">
                 <div className="p-3 bg-white rounded-lg border border-slate-200 flex items-center justify-between font-medium">
-                  <span>مستشفى الخليل الحكومي — قسم الباطني</span>
-                  <span className="text-teal-700 font-semibold">مغطى 100% (20/20 أسبوع)</span>
+                  <span>{tr('مستشفى الخليل الحكومي — قسم الباطني', 'Hebron Governmental Hospital — Internal Medicine')}</span>
+                  <span className="text-teal-700 font-semibold">{tr('مغطى 100% (20/20 أسبوع)', '100% covered (20/20 weeks)')}</span>
                 </div>
                 <div className="p-3 bg-white rounded-lg border border-slate-200 flex items-center justify-between font-medium">
-                  <span>المستشفى الأهلي — قسم الجراحة</span>
-                  <span className="text-teal-700 font-semibold">مغطى 94% (15/16 أسبوع)</span>
+                  <span>{tr('المستشفى الأهلي — قسم الجراحة', 'Al-Ahli Hospital — Surgery')}</span>
+                  <span className="text-teal-700 font-semibold">{tr('مغطى 94% (15/16 أسبوع)', '94% covered (15/16 weeks)')}</span>
                 </div>
               </div>
             </div>
           )}
 
           <div className="flex justify-end pt-2">
-            <Button onClick={() => setAuditModalCriteria(null)}>إغلاق</Button>
+            <Button onClick={() => setAuditModalCriteria(null)}>{tr('إغلاق', 'Close')}</Button>
           </div>
         </div>
       </Modal>

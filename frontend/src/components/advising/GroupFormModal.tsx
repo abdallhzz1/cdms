@@ -12,6 +12,7 @@ interface GroupFormModalProps {
 
 export function GroupFormModal({ isOpen, onClose, onSave, onPreviewPrint }: GroupFormModalProps) {
   const { locale } = useI18n();
+  const tr = (arabic: string, english: string) => locale === 'ar' ? arabic : english;
   const { user } = useAuth();
 
   const [meetingNumber, setMeetingNumber] = useState('1');
@@ -77,7 +78,7 @@ export function GroupFormModal({ isOpen, onClose, onSave, onPreviewPrint }: Grou
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col" dir="rtl">
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
         
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
@@ -86,8 +87,8 @@ export function GroupFormModal({ isOpen, onClose, onSave, onPreviewPrint }: Grou
               <Users className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-sm text-slate-800">تعبئة نموذج محضر اجتماع إرشادي (جماعي)</h3>
-              <p className="text-xs text-slate-400">جامعة الخليل — كلية الطب البشري — دائرة ضمان الجودة والتطوير</p>
+              <h3 className="font-bold text-sm text-slate-800">{tr('تعبئة نموذج محضر اجتماع إرشادي (جماعي)', 'Complete Group Advising Meeting Minutes')}</h3>
+              <p className="text-xs text-slate-400">{tr('جامعة الخليل — كلية الطب البشري — دائرة ضمان الجودة والتطوير', 'Hebron University — Faculty of Medicine — Quality Assurance and Development')}</p>
             </div>
           </div>
 
@@ -105,19 +106,19 @@ export function GroupFormModal({ isOpen, onClose, onSave, onPreviewPrint }: Grou
           {/* Meeting General Details */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="block font-bold text-slate-700">رقم اللقاء الإرشادي *</label>
+              <label className="block font-bold text-slate-700">{tr('رقم اللقاء الإرشادي *', 'Advising meeting number *')}</label>
               <input
                 required
                 type="text"
                 value={meetingNumber}
                 onChange={(e) => setMeetingNumber(e.target.value)}
-                placeholder="مثال: 1 (اللقاء الأول)"
+                placeholder={tr('مثال: 1 (اللقاء الأول)', 'Example: 1 (first meeting)')}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 font-bold focus:border-teal-500 text-xs"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="block font-bold text-slate-700">تاريخ اللقاء *</label>
+              <label className="block font-bold text-slate-700">{tr('تاريخ اللقاء *', 'Meeting date *')}</label>
               <input
                 required
                 type="date"
@@ -128,7 +129,7 @@ export function GroupFormModal({ isOpen, onClose, onSave, onPreviewPrint }: Grou
             </div>
 
             <div className="space-y-1">
-              <label className="block font-bold text-slate-700">عدد الطلاب الحاضرين *</label>
+              <label className="block font-bold text-slate-700">{tr('عدد الطلاب الحاضرين *', 'Students present *')}</label>
               <input
                 required
                 type="number"
@@ -140,7 +141,7 @@ export function GroupFormModal({ isOpen, onClose, onSave, onPreviewPrint }: Grou
             </div>
 
             <div className="space-y-1">
-              <label className="block font-bold text-slate-700">عدد الطلاب الغائبين *</label>
+              <label className="block font-bold text-slate-700">{tr('عدد الطلاب الغائبين *', 'Students absent *')}</label>
               <input
                 required
                 type="number"
@@ -154,33 +155,33 @@ export function GroupFormModal({ isOpen, onClose, onSave, onPreviewPrint }: Grou
 
           {/* Agenda & Topics */}
           <div className="space-y-1">
-            <label className="block font-bold text-slate-700">محاور الاجتماع الجماعي *</label>
+            <label className="block font-bold text-slate-700">{tr('محاور الاجتماع الجماعي *', 'Group meeting topics *')}</label>
             <textarea
               required
               rows={3}
               value={topicsDiscussed}
               onChange={(e) => setTopicsDiscussed(e.target.value)}
-              placeholder="اكتب النقاشات العامة، التوجيهات الأكاديمية، الخطة الدراسية، أو التجهيز للامتحانات السريرية..."
+              placeholder={tr('اكتب النقاشات العامة، التوجيهات الأكاديمية، الخطة الدراسية، أو التجهيز للامتحانات السريرية...', 'Enter general discussions, academic guidance, study plan, or clinical exam preparation...')}
               className="w-full rounded-xl border border-slate-200 p-3 text-xs leading-relaxed font-serif focus:border-teal-500"
             />
           </div>
 
           {/* Recommendations */}
           <div className="space-y-1">
-            <label className="block font-bold text-slate-700">التوصيات والقرارات الجماعية *</label>
+            <label className="block font-bold text-slate-700">{tr('التوصيات والقرارات الجماعية *', 'Group recommendations and decisions *')}</label>
             <textarea
               required
               rows={3}
               value={recommendations}
               onChange={(e) => setRecommendations(e.target.value)}
-              placeholder="اكتب التوصيات الجماعية المتفق عليها وساعات الإرشاد الإضافية والمتابعات..."
+              placeholder={tr('اكتب التوصيات الجماعية المتفق عليها وساعات الإرشاد الإضافية والمتابعات...', 'Enter agreed recommendations, additional advising hours, and follow-up actions...')}
               className="w-full rounded-xl border border-slate-200 p-3 text-xs leading-relaxed font-serif focus:border-teal-500"
             />
           </div>
 
           {/* Advisor Name */}
           <div className="space-y-1">
-            <label className="block font-bold text-slate-700">اسم المرشد الأكاديمي</label>
+            <label className="block font-bold text-slate-700">{tr('اسم المرشد الأكاديمي', 'Academic advisor name')}</label>
             <input
               type="text"
               value={advisorName}
@@ -194,12 +195,12 @@ export function GroupFormModal({ isOpen, onClose, onSave, onPreviewPrint }: Grou
             <div className="flex items-center justify-between">
               <label className="font-bold text-slate-800 flex items-center gap-1.5">
                 <Paperclip className="w-4 h-4 text-teal-600" />
-                <span>إرفاق كشوفات الحضور أو المحاضر المصورة (اختياري):</span>
+                <span>{tr('إرفاق كشوفات الحضور أو المحاضر المصورة (اختياري):', 'Attach attendance sheets or scanned minutes (optional):')}</span>
               </label>
 
               <label className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shadow-2xs">
                 <Upload className="w-3.5 h-3.5" />
-                <span>رفع ملف</span>
+                <span>{tr('رفع ملف', 'Upload file')}</span>
                 <input type="file" multiple onChange={handleFileUpload} className="hidden" />
               </label>
             </div>
@@ -224,7 +225,7 @@ export function GroupFormModal({ isOpen, onClose, onSave, onPreviewPrint }: Grou
                 ))}
               </div>
             ) : (
-              <p className="text-[11px] text-slate-400">يمكنك إرفاق صور محضر الاجتماع، كشوف التوقيع، أو العرض التقديمي.</p>
+              <p className="text-[11px] text-slate-400">{tr('يمكنك إرفاق صور محضر الاجتماع، كشوف التوقيع، أو العرض التقديمي.', 'You can attach meeting minutes, signature sheets, or the presentation.')}</p>
             )}
           </div>
 
@@ -236,7 +237,7 @@ export function GroupFormModal({ isOpen, onClose, onSave, onPreviewPrint }: Grou
               className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-1.5 border border-slate-200"
             >
               <Printer className="w-4 h-4 text-teal-600" />
-              <span>معاينة للطباعة والـ PDF</span>
+              <span>{tr('معاينة للطباعة والـ PDF', 'Print / PDF preview')}</span>
             </button>
 
             <div className="flex items-center gap-2">
@@ -245,13 +246,13 @@ export function GroupFormModal({ isOpen, onClose, onSave, onPreviewPrint }: Grou
                 onClick={onClose}
                 className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
               >
-                إلغاء
+                {tr('إلغاء', 'Cancel')}
               </button>
               <button
                 type="submit"
                 className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md shadow-teal-600/20"
               >
-                حفظ النموذج السجل
+                {tr('حفظ النموذج السجل', 'Save form record')}
               </button>
             </div>
           </div>

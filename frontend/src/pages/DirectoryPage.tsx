@@ -293,10 +293,10 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       const forceAvailable = Array.isArray(err?.errors?.force_delete)
         && err.errors.force_delete.includes('available');
       if (!variables.force && forceAvailable) {
-        if (!window.confirm(`${protectedRecordMessage}\n\nهل تريد حذف الطالب نهائياً مع كل الحضور والتقييمات والعلامات والبيانات المرتبطة؟ لا يمكن التراجع عن هذا الإجراء.`)) return;
-        const confirmation = window.prompt(`للتأكيد اكتب الرقم الجامعي للطالب: ${variables.universityNumber}`);
+        if (!window.confirm(`${protectedRecordMessage}\n\n${locale === 'ar' ? 'هل تريد حذف الطالب نهائياً مع كل الحضور والتقييمات والعلامات والبيانات المرتبطة؟ لا يمكن التراجع عن هذا الإجراء.' : 'Permanently delete this student and all related attendance, assessments, grades, and records? This cannot be undone.'}`)) return;
+        const confirmation = window.prompt(locale === 'ar' ? `للتأكيد اكتب الرقم الجامعي للطالب: ${variables.universityNumber}` : `To confirm, enter the student's university number: ${variables.universityNumber}`);
         if (confirmation === null) return;
-        const reason = window.prompt('اكتب سبب الحذف النهائي (5 أحرف على الأقل):');
+        const reason = window.prompt(locale === 'ar' ? 'اكتب سبب الحذف النهائي (5 أحرف على الأقل):' : 'Enter the reason for permanent deletion (at least 5 characters):');
         if (reason === null) return;
         deleteStudentMutation.mutate({ id: variables.id, universityNumber: variables.universityNumber, force: true, confirmation: confirmation.trim(), reason: reason.trim() });
         return;
@@ -393,7 +393,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', 'نموذج_استيراد_الطلبة_جامعة_الخليل.csv');
+    link.setAttribute('download', locale === 'ar' ? 'نموذج_استيراد_الطلبة_جامعة_الخليل.csv' : 'hebron_university_student_import_template.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -907,23 +907,23 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               {/* Registration cycle and main group */}
               <div className="rounded-2xl border border-teal-100 bg-teal-50/50 p-4 space-y-3">
                 <div>
-                  <h4 className="text-xs font-bold text-teal-800">دورة التسجيل والمجموعة الرئيسية</h4>
-                  <p className="mt-1 text-[11px] text-teal-800">اختياري: اترك الدورة فارغة لحفظ الطالب في الدليل فقط، أو اخترها لإتاحته في رابط التسجيل الذاتي.</p>
+                  <h4 className="text-xs font-bold text-teal-800">{locale === 'ar' ? 'دورة التسجيل والمجموعة الرئيسية' : 'Registration cycle and main group'}</h4>
+                  <p className="mt-1 text-[11px] text-teal-800">{locale === 'ar' ? 'اختياري: اترك الدورة فارغة لحفظ الطالب في الدليل فقط، أو اخترها لإتاحته في رابط التسجيل الذاتي.' : 'Optional: leave the cycle empty to save the student only in the directory, or select one to include them in self-registration.'}</p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
-                    <label className="block text-xs font-bold text-slate-700">دورة التسجيل</label>
+                    <label className="block text-xs font-bold text-slate-700">{locale === 'ar' ? 'دورة التسجيل' : 'Registration cycle'}</label>
                     <select
                       value={studentForm.group_registration_cycle_id}
                       onChange={(e)=>setStudentForm({...studentForm,group_registration_cycle_id:e.target.value,main_group_code:''})}
                       className="w-full rounded-xl border border-teal-200 bg-white px-3.5 py-2.5 text-sm"
                     >
-                      <option value="">بدون ربط بدورة</option>
+                      <option value="">{locale === 'ar' ? 'بدون ربط بدورة' : 'No cycle link'}</option>
                       {manualRegistrationCycles.map(c=><option key={c.id} value={c.id}>{c.academic_year?.code||'—'} · {getLevelLabel(c.academic_level)}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-xs font-bold text-slate-700">المجموعة الرئيسية {studentForm.group_registration_cycle_id?'*':''}</label>
+                    <label className="block text-xs font-bold text-slate-700">{locale === 'ar' ? 'المجموعة الرئيسية' : 'Main group'} {studentForm.group_registration_cycle_id?'*':''}</label>
                     <select
                       required={Boolean(studentForm.group_registration_cycle_id)}
                       disabled={!selectedManualCycle}
@@ -931,12 +931,12 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                       onChange={(e)=>setStudentForm({...studentForm,main_group_code:e.target.value})}
                       className="w-full rounded-xl border border-teal-200 bg-white px-3.5 py-2.5 text-sm disabled:bg-slate-100"
                     >
-                      <option value="">اختر المجموعة</option>
+                      <option value="">{locale === 'ar' ? 'اختر المجموعة' : 'Select group'}</option>
                       {selectedManualCycle?.groups?.map(g=><option key={g.name} value={g.name}>{g.name}</option>)}
                     </select>
                   </div>
                 </div>
-                {manualRegistrationCycles.length===0&&<p className="text-[11px] font-bold text-slate-700">لا توجد دورة تسجيل لهذه السنة السريرية. أنشئ المجموعات الفارغة أولاً من شاشة إدارة المجموعات.</p>}
+                {manualRegistrationCycles.length===0&&<p className="text-[11px] font-bold text-slate-700">{locale === 'ar' ? 'لا توجد دورة تسجيل لهذه السنة السريرية. أنشئ المجموعات الفارغة أولاً من شاشة إدارة المجموعات.' : 'No registration cycle exists for this clinical year. Create the empty groups first from Group Management.'}</p>}
               </div>
 
               {/* Row 2: Full Name Arabic & English */}
@@ -948,7 +948,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                   <input
                     required
                     type="text"
-                    placeholder="مثال: أحمد محمود علي القواسمي"
+                    placeholder={locale === 'ar' ? 'مثال: أحمد محمود علي القواسمي' : 'Example: Ahmad Mahmoud Al-Qawasmi'}
                     value={studentForm.full_name_ar}
                     onChange={(e) => setStudentForm({ ...studentForm, full_name_ar: e.target.value })}
                     className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
@@ -1035,7 +1035,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                   </label>
                   <input
                     type="text"
-                    placeholder="الخليل"
+                    placeholder={locale === 'ar' ? 'الخليل' : 'Hebron'}
                     value={studentForm.city}
                     onChange={(e) => setStudentForm({ ...studentForm, city: e.target.value })}
                     className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
@@ -1054,7 +1054,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                     step="0.01"
                     min="0"
                     max="100"
-                    placeholder="مثال: 78.50"
+                    placeholder={locale === 'ar' ? 'مثال: 78.50' : 'Example: 78.50'}
                     value={studentForm.gpa}
                     onChange={(e) => setStudentForm({ ...studentForm, gpa: e.target.value })}
                     className="w-full rounded-xl border border-teal-200 px-3.5 py-2 text-sm bg-white font-bold text-slate-800 focus:border-teal-600 focus:ring-2 focus:ring-teal-500/20"
@@ -1167,15 +1167,15 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                   onChange={(e) => { setImportCycleId(e.target.value); setImportErrorMsg(''); }}
                   className="w-full rounded-xl border border-teal-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-800 focus:border-teal-500"
                 >
-                  <option value="">حفظ في دليل الطلاب فقط (بدون ربط بدورة)</option>
-                  {registrationCycles.filter(c=>c.status!=='archived').map(c=><option key={c.id} value={c.id}>{c.academic_year?.code || '—'} · {getLevelLabel(c.academic_level)} · {c.groups?.map(g=>g.name).join(', ') || 'المجموعات الرئيسية'}</option>)}
+                  <option value="">{locale === 'ar' ? 'حفظ في دليل الطلاب فقط (بدون ربط بدورة)' : 'Save in student directory only (without a cycle)'}</option>
+                  {registrationCycles.filter(c=>c.status!=='archived').map(c=><option key={c.id} value={c.id}>{c.academic_year?.code || '—'} · {getLevelLabel(c.academic_level)} · {c.groups?.map(g=>g.name).join(', ') || (locale === 'ar' ? 'المجموعات الرئيسية' : 'Main groups')}</option>)}
                 </select>
                 <p className="text-[11px] leading-5 text-teal-800">
                   {importCycleId
-                    ? 'سيتم تحديث دليل الطلاب وربط كل طالب بالمجموعة الرئيسية الموجودة في عمود المجموعة_الرئيسية. حالة registered أو unregistered هي الحالة الأكاديمية العامة للطالب.'
-                    : 'يمكن الاستيراد للدليل فقط. لتمكين رابط التسجيل الذاتي اختر دورة؛ ويجب أن يحتوي الملف على المجموعة الرئيسية لكل طالب.'}
+                    ? (locale === 'ar' ? 'سيتم تحديث دليل الطلاب وربط كل طالب بالمجموعة الرئيسية الموجودة في عمود المجموعة_الرئيسية. حالة registered أو unregistered هي الحالة الأكاديمية العامة للطالب.' : 'The directory will be updated and every student linked to the main group in the main_group column. Registered or unregistered is the student’s general academic status.')
+                    : (locale === 'ar' ? 'يمكن الاستيراد للدليل فقط. لتمكين رابط التسجيل الذاتي اختر دورة؛ ويجب أن يحتوي الملف على المجموعة الرئيسية لكل طالب.' : 'You can import to the directory only. To enable self-registration, select a cycle and include a main group for every student.')}
                 </p>
-                {registrationCycles.length===0&&<button type="button" onClick={()=>navigate('/distribution/groups')} className="text-xs font-bold text-teal-700 underline">لا توجد دورة؟ أنشئ المجموعات الفارغة أولاً من شاشة إدارة المجموعات</button>}
+                {registrationCycles.length===0&&<button type="button" onClick={()=>navigate('/distribution/groups')} className="text-xs font-bold text-teal-700 underline">{locale === 'ar' ? 'لا توجد دورة؟ أنشئ المجموعات الفارغة أولاً من شاشة إدارة المجموعات' : 'No cycle? Create empty groups first from Group Management'}</button>}
               </div>
 
               {/* Step 1: Download Template */}

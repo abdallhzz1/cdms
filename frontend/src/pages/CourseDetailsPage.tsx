@@ -156,9 +156,9 @@ export function CourseDetailsPage() {
   };
   const reportAction = useMutation({
     mutationFn: async (action: 'save'|'submit'|'approve'|'return') => {
-      if (!reportYearId) throw new Error('اختر العام الأكاديمي.');
+      if (!reportYearId) throw new Error(locale === 'ar' ? 'اختر العام الأكاديمي.' : 'Select an academic year.');
       if (action === 'save') return apiFetch(`/courses/${courseId}/reports`, { method:'POST', body:{ academic_year_id:Number(reportYearId), summary:reportSummary, achievements:reportAchievements, challenges:reportChallenges, improvement_plan:reportPlan } });
-      if (!selectedReport) throw new Error('احفظ التقرير أولاً.');
+      if (!selectedReport) throw new Error(locale === 'ar' ? 'احفظ التقرير أولاً.' : 'Save the report first.');
       return apiFetch(`/courses/${courseId}/reports/${selectedReport.id}/${action}`, { method:'POST', body: action === 'approve' || action === 'return' ? { review_notes:reviewNotes } : {} });
     },
     onSuccess: async () => { await refreshReports(); setReportError(''); },
@@ -633,7 +633,7 @@ export function CourseDetailsPage() {
                 <input
                   type="text"
                   required
-                  placeholder="امتحان التقييم السريري OSCE"
+                  placeholder={locale === 'ar' ? 'امتحان التقييم السريري OSCE' : 'OSCE clinical assessment'}
                   value={compName}
                   onChange={e => setCompName(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
@@ -721,7 +721,7 @@ export function CourseDetailsPage() {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">{locale === 'ar' ? 'الوصف بالعربية:' : 'Description (Arabic):'}</label>
                 <textarea
                   rows={2}
-                  placeholder="إتقان الفحص السريري الشامل لجهاز الدوران والقلب..."
+                  placeholder={locale === 'ar' ? 'إتقان الفحص السريري الشامل لجهاز الدوران والقلب...' : 'Demonstrates comprehensive cardiovascular examination skills...'}
                   value={iloTextAr}
                   onChange={e => setIloTextAr(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
@@ -815,8 +815,8 @@ export function CourseDetailsPage() {
             <div className="p-6 space-y-5 overflow-y-auto">
               {reportError && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-700">{reportError}</div>}
               <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-                <label className="space-y-1"><span className="text-xs font-bold text-slate-600">العام الأكاديمي</span><select value={reportYearId} onChange={e=>loadReport(e.target.value)} className="input"><option value="">اختر العام</option>{reportsQuery.data?.academic_years.map(year=><option key={year.id} value={year.id}>{year.code}{year.is_current?' — الحالي':''}</option>)}</select></label>
-                <div className="self-end rounded-xl bg-slate-100 px-4 py-2.5 text-xs font-black text-slate-600">{selectedReport ? ({draft:'مسودة',submitted:'مرسل للاعتماد',approved:'معتمد',returned:'معاد للتعديل'} as const)[selectedReport.status] : 'تقرير جديد'}</div>
+                <label className="space-y-1"><span className="text-xs font-bold text-slate-600">{locale === 'ar' ? 'العام الأكاديمي' : 'Academic year'}</span><select value={reportYearId} onChange={e=>loadReport(e.target.value)} className="input"><option value="">{locale === 'ar' ? 'اختر العام' : 'Select year'}</option>{reportsQuery.data?.academic_years.map(year=><option key={year.id} value={year.id}>{year.code}{year.is_current ? (locale === 'ar' ? ' — الحالي' : ' — Current') : ''}</option>)}</select></label>
+                <div className="self-end rounded-xl bg-slate-100 px-4 py-2.5 text-xs font-black text-slate-600">{selectedReport ? ({draft: locale === 'ar' ? 'مسودة' : 'Draft',submitted: locale === 'ar' ? 'مرسل للاعتماد' : 'Submitted',approved: locale === 'ar' ? 'معتمد' : 'Approved',returned: locale === 'ar' ? 'معاد للتعديل' : 'Returned'} as const)[selectedReport.status] : (locale === 'ar' ? 'تقرير جديد' : 'New report')}</div>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="p-3.5 rounded-2xl bg-teal-50 border border-teal-100 text-center">
@@ -841,8 +841,8 @@ export function CourseDetailsPage() {
                   {(data.learning_outcomes || []).map((ilo) => (
                     <div key={ilo.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between gap-2 text-xs">
                       <span className="font-bold text-teal-700 font-mono">{ilo.outcome_code}</span>
-                      <span className="font-medium text-slate-700 flex-1 truncate">{ilo.text_ar || ilo.text_en}</span>
-                      <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 font-bold text-[10px] shrink-0">مسجل</span>
+                      <span className="font-medium text-slate-700 flex-1 truncate">{locale === 'ar' ? (ilo.text_ar || ilo.text_en) : (ilo.text_en || ilo.text_ar)}</span>
+                      <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 font-bold text-[10px] shrink-0">{locale === 'ar' ? 'مسجل' : 'Recorded'}</span>
                     </div>
                   ))}
                   {(!data.learning_outcomes || data.learning_outcomes.length === 0) && (
@@ -852,12 +852,12 @@ export function CourseDetailsPage() {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">ملخص تنفيذ المساق *</span><textarea rows={4} value={reportSummary} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportSummary(e.target.value)} className="input resize-none" placeholder="ملخص التنفيذ والنتائج..."/></label>
-                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">الإنجازات</span><textarea rows={4} value={reportAchievements} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportAchievements(e.target.value)} className="input resize-none" placeholder="أهم الإنجازات..."/></label>
-                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">التحديات</span><textarea rows={4} value={reportChallenges} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportChallenges(e.target.value)} className="input resize-none" placeholder="التحديات والمعيقات..."/></label>
-                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">خطة التحسين *</span><textarea rows={4} value={reportPlan} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportPlan(e.target.value)} className="input resize-none" placeholder="إجراءات محددة للعام القادم..."/></label>
+                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">{locale === 'ar' ? 'ملخص تنفيذ المساق *' : 'Course implementation summary *'}</span><textarea rows={4} value={reportSummary} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportSummary(e.target.value)} className="input resize-none" placeholder={locale === 'ar' ? 'ملخص التنفيذ والنتائج...' : 'Implementation and results summary...'}/></label>
+                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">{locale === 'ar' ? 'الإنجازات' : 'Achievements'}</span><textarea rows={4} value={reportAchievements} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportAchievements(e.target.value)} className="input resize-none" placeholder={locale === 'ar' ? 'أهم الإنجازات...' : 'Key achievements...'}/></label>
+                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">{locale === 'ar' ? 'التحديات' : 'Challenges'}</span><textarea rows={4} value={reportChallenges} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportChallenges(e.target.value)} className="input resize-none" placeholder={locale === 'ar' ? 'التحديات والمعيقات...' : 'Challenges and obstacles...'}/></label>
+                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">{locale === 'ar' ? 'خطة التحسين *' : 'Improvement plan *'}</span><textarea rows={4} value={reportPlan} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportPlan(e.target.value)} className="input resize-none" placeholder={locale === 'ar' ? 'إجراءات محددة للعام القادم...' : 'Specific actions for next year...'}/></label>
               </div>
-              {(can('course_report.approve')||selectedReport?.review_notes)&&<label className="block space-y-1"><span className="text-xs font-bold text-slate-700">ملاحظات المراجعة</span><textarea rows={3} value={reviewNotes} disabled={!can('course_report.approve')||selectedReport?.status!=='submitted'} onChange={e=>setReviewNotes(e.target.value)} className="input resize-none" placeholder="ملاحظات الاعتماد أو الإعادة..."/></label>}
+              {(can('course_report.approve')||selectedReport?.review_notes)&&<label className="block space-y-1"><span className="text-xs font-bold text-slate-700">{locale === 'ar' ? 'ملاحظات المراجعة' : 'Review notes'}</span><textarea rows={3} value={reviewNotes} disabled={!can('course_report.approve')||selectedReport?.status!=='submitted'} onChange={e=>setReviewNotes(e.target.value)} className="input resize-none" placeholder={locale === 'ar' ? 'ملاحظات الاعتماد أو الإعادة...' : 'Approval or return notes...'}/></label>}
 
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button 
@@ -867,8 +867,8 @@ export function CourseDetailsPage() {
                 >
                   {locale === 'ar' ? 'إلغاء' : 'Close'}
                 </button>
-                {can('course_report.manage')&&(!selectedReport||['draft','returned'].includes(selectedReport.status))&&<><button type="button" disabled={reportAction.isPending} onClick={()=>reportAction.mutate('save')} className="px-4 py-2 text-xs font-semibold rounded-xl border border-teal-200 text-teal-700 hover:bg-teal-50">حفظ المسودة</button>{selectedReport&&<button type="button" disabled={reportAction.isPending} onClick={()=>reportAction.mutate('submit')} className="px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700">إرسال للاعتماد</button>}</>}
-                {can('course_report.approve')&&selectedReport?.status==='submitted'&&<><button type="button" disabled={reportAction.isPending||!reviewNotes.trim()} onClick={()=>reportAction.mutate('return')} className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-300 text-slate-700">إعادة للتعديل</button><button type="button" disabled={reportAction.isPending} onClick={()=>reportAction.mutate('approve')} className="px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white">اعتماد التقرير</button></>}
+                {can('course_report.manage')&&(!selectedReport||['draft','returned'].includes(selectedReport.status))&&<><button type="button" disabled={reportAction.isPending} onClick={()=>reportAction.mutate('save')} className="px-4 py-2 text-xs font-semibold rounded-xl border border-teal-200 text-teal-700 hover:bg-teal-50">{locale === 'ar' ? 'حفظ المسودة' : 'Save draft'}</button>{selectedReport&&<button type="button" disabled={reportAction.isPending} onClick={()=>reportAction.mutate('submit')} className="px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700">{locale === 'ar' ? 'إرسال للاعتماد' : 'Submit for approval'}</button>}</>}
+                {can('course_report.approve')&&selectedReport?.status==='submitted'&&<><button type="button" disabled={reportAction.isPending||!reviewNotes.trim()} onClick={()=>reportAction.mutate('return')} className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-300 text-slate-700">{locale === 'ar' ? 'إعادة للتعديل' : 'Return for revision'}</button><button type="button" disabled={reportAction.isPending} onClick={()=>reportAction.mutate('approve')} className="px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white">{locale === 'ar' ? 'اعتماد التقرير' : 'Approve report'}</button></>}
               </div>
             </div>
           </div>
