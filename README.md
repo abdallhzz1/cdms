@@ -236,12 +236,20 @@ Before any production deployment, run from `/backend`:
 
 ```bash
 php artisan cdms:readiness
+php artisan cdms:workflow-readiness
 php artisan migrate:status
 php artisan test
 ```
 
 `cdms:readiness` intentionally fails until production security, queue, CORS,
 S3, encrypted backups, and the backup package are configured.
+
+`cdms:workflow-readiness` is a read-only operational data audit for user
+acceptance and faculty demonstrations. It checks the current academic year,
+students and groups, published schedules, supervisor accounts and work days,
+assessment templates, critical role accounts, and approval workflows. `FAIL`
+identifies data that blocks the end-to-end workflow; `WARN` identifies data
+that should be completed before presentation. Add `--json` for structured output.
 
 ## API response format
 
