@@ -68,7 +68,8 @@ export function TasksPage() {
   const dateOnly=(v?:string|null)=>v?new Intl.DateTimeFormat(locale,{year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(v)):'—';
   const dateTime=(v?:string|null)=>v?new Intl.DateTimeFormat(locale,{dateStyle:'medium',timeStyle:'short'}).format(new Date(v)):'—';
   const overdue=(task:Task)=>Boolean(task.due_date&&!['completed','cancelled'].includes(task.status)&&task.due_date.slice(0,10)<new Date().toISOString().slice(0,10));
-  const tabs:{key:ViewKey;ar:string;en:string}[]=[{key:'mine',ar:'مهامي',en:'My tasks'},{key:'assigned',ar:'مكلّف بها',en:'Assigned'},{key:'created',ar:'أنشأتها',en:'Created'},{key:'overdue',ar:'متأخرة',en:'Overdue'},{key:'completed',ar:'مكتملة',en:'Completed'}];
+  const allTabs:{key:ViewKey;ar:string;en:string}[]=[{key:'mine',ar:'الكل',en:'All'},{key:'assigned',ar:'مكلّف بها',en:'Assigned'},{key:'created',ar:'أنشأتها',en:'Created'},{key:'overdue',ar:'متأخرة',en:'Overdue'},{key:'completed',ar:'مكتملة',en:'Completed'}];
+  const tabs=allTabs.filter(tab=>tab.key!=='created'||can('tasks.manage'));
   return <div className="mx-auto max-w-[1320px] space-y-4 pb-10">
     <PageHeader title={ar?'المهام':'Tasks'} description={ar?'مساحة عملية لمتابعة التكليفات والإنجاز دون تعقيد.':'A focused workspace for assignments and delivery.'}><div className="flex gap-2"><Button variant="outline" onClick={()=>void refresh()} aria-label={ar?'تحديث':'Refresh'}><RefreshCw className="h-4 w-4"/></Button>{can('tasks.manage')&&<Button onClick={()=>setCreateOpen(true)}><Plus className="me-2 h-4 w-4"/>{ar?'مهمة جديدة':'New task'}</Button>}</div></PageHeader>
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
