@@ -1,0 +1,11 @@
+# The Laravel application directory must never be served directly. The public
+# front controller at the domain document root bootstraps this code through the
+# filesystem; these HTTP access rules do not interfere with PHP includes.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
