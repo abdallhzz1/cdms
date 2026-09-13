@@ -66,18 +66,6 @@ interface Course {
   program_outcome_mappings?: ProgramOutcomeMapping[];
 }
 
-interface CourseReport {
-  id: number; academic_year_id: number; status: 'draft'|'submitted'|'approved'|'returned';
-  summary?: string|null; achievements?: string|null; challenges?: string|null;
-  improvement_plan?: string|null; review_notes?: string|null;
-  academic_year?: { id:number; code:string; is_current:boolean };
-  preparer?: { id:number; name:string }; approver?: { id:number; name:string };
-}
-interface ReportsPayload {
-  reports: CourseReport[];
-  academic_years: Array<{id:number;code:string;is_current:boolean;status:string}>;
-}
-
 export function CourseDetailsPage() {
   const { courseId } = useParams<{ courseId: string }>();
   const { can } = useAuth();
@@ -85,7 +73,6 @@ export function CourseDetailsPage() {
   const qc = useQueryClient();
 
   // Modals state
-  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isCompModalOpen, setIsCompModalOpen] = useState(false);
   const [isIloModalOpen, setIsIloModalOpen] = useState(false);
   const [isPloModalOpen, setIsPloModalOpen] = useState(false);
@@ -110,13 +97,6 @@ export function CourseDetailsPage() {
   const [ploCode, setPloCode] = useState('');
   const [ploLevel, setPloLevel] = useState('High');
 
-  const [reportYearId, setReportYearId] = useState('');
-  const [reportSummary, setReportSummary] = useState('');
-  const [reportAchievements, setReportAchievements] = useState('');
-  const [reportChallenges, setReportChallenges] = useState('');
-  const [reportPlan, setReportPlan] = useState('');
-  const [reviewNotes, setReviewNotes] = useState('');
-  const [reportError, setReportError] = useState('');
   const [actionError, setActionError] = useState('');
 
   // Fetch course details live from MySQL DB
@@ -129,41 +109,6 @@ export function CourseDetailsPage() {
   const { data: plosList } = useQuery({
     queryKey: ['program-outcomes'],
     queryFn: () => apiFetch<ProgramOutcome[]>('/program-outcomes'),
-  });
-
-  const reportsQuery = useQuery({
-    queryKey: ['course-reports', courseId],
-    queryFn: () => apiFetch<ReportsPayload>(`/courses/${courseId}/reports`),
-    enabled: Boolean(courseId),
-  });
-
-  const refreshReports = () => qc.invalidateQueries({ queryKey: ['course-reports', courseId] });
-  const selectedReport = reportsQuery.data?.reports.find((report) => String(report.academic_year_id) === reportYearId);
-  const loadReport = (yearId: string) => {
-    setReportYearId(yearId);
-    const report = reportsQuery.data?.reports.find((item) => String(item.academic_year_id) === yearId);
-    setReportSummary(report?.summary || '');
-    setReportAchievements(report?.achievements || '');
-    setReportChallenges(report?.challenges || '');
-    setReportPlan(report?.improvement_plan || '');
-    setReviewNotes(report?.review_notes || '');
-    setReportError('');
-  };
-  const openReports = () => {
-    const current = reportsQuery.data?.academic_years.find((year) => year.is_current)
-      || reportsQuery.data?.academic_years[0];
-    loadReport(current ? String(current.id) : '');
-    setIsReportModalOpen(true);
-  };
-  const reportAction = useMutation({
-    mutationFn: async (action: 'save'|'submit'|'approve'|'return') => {
-      if (!reportYearId) throw new Error(locale === 'ar' ? 'اختر العام الأكاديمي.' : 'Select an academic year.');
-      if (action === 'save') return apiFetch(`/courses/${courseId}/reports`, { method:'POST', body:{ academic_year_id:Number(reportYearId), summary:reportSummary, achievements:reportAchievements, challenges:reportChallenges, improvement_plan:reportPlan } });
-      if (!selectedReport) throw new Error(locale === 'ar' ? 'احفظ التقرير أولاً.' : 'Save the report first.');
-      return apiFetch(`/courses/${courseId}/reports/${selectedReport.id}/${action}`, { method:'POST', body: action === 'approve' || action === 'return' ? { review_notes:reviewNotes } : {} });
-    },
-    onSuccess: async () => { await refreshReports(); setReportError(''); },
-    onError: (error: Error) => setReportError(error.message),
   });
 
   // Assessment Component Mutations
@@ -333,14 +278,13 @@ export function CourseDetailsPage() {
         </div>
         
         <div className="flex items-center gap-2 flex-wrap">
-          <button 
-            type="button"
-            onClick={openReports}
+          <a
+            href={`/api/v1/courses/${courseId}/report.pdf`}
             className="text-xs font-semibold bg-teal-50 border border-teal-200 text-teal-700 hover:bg-teal-100/70 px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
           >
             <FileText className="w-4 h-4 text-teal-600" />
-            <span>{locale === 'ar' ? 'تقرير المساق السنوي' : 'Annual Course Report'}</span>
-          </button>
+            <span>{locale === 'ar' ? 'تصدير تقرير المساق PDF' : 'Export Course Report PDF'}</span>
+          </a>
 
           {can('grades.view') && <Link
             to={`/grades?course_id=${courseId}`} 
@@ -793,79 +737,6 @@ export function CourseDetailsPage() {
         </div>
       )}
 
-      {/* Annual Course Report Modal */}
-      {isReportModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <h3 className="font-bold text-slate-800 text-sm">
-                {locale === 'ar' ? `تقرير المساق السنوي: ${data.code} - ${name}` : `Annual Course Report: ${data.code}`}
-              </h3>
-              <button type="button" onClick={() => setIsReportModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold p-1">✕</button>
-            </div>
-
-            <div className="p-6 space-y-5 overflow-y-auto">
-              {reportError && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-700">{reportError}</div>}
-              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-                <label className="space-y-1"><span className="text-xs font-bold text-slate-600">{locale === 'ar' ? 'العام الأكاديمي' : 'Academic year'}</span><select value={reportYearId} onChange={e=>loadReport(e.target.value)} className="input"><option value="">{locale === 'ar' ? 'اختر العام' : 'Select year'}</option>{reportsQuery.data?.academic_years.map(year=><option key={year.id} value={year.id}>{year.code}{year.is_current ? (locale === 'ar' ? ' — الحالي' : ' — Current') : ''}</option>)}</select></label>
-                <div className="self-end rounded-xl bg-slate-100 px-4 py-2.5 text-xs font-black text-slate-600">{selectedReport ? ({draft: locale === 'ar' ? 'مسودة' : 'Draft',submitted: locale === 'ar' ? 'مرسل للاعتماد' : 'Submitted',approved: locale === 'ar' ? 'معتمد' : 'Approved',returned: locale === 'ar' ? 'معاد للتعديل' : 'Returned'} as const)[selectedReport.status] : (locale === 'ar' ? 'تقرير جديد' : 'New report')}</div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="p-3.5 rounded-2xl bg-teal-50 border border-teal-100 text-center">
-                  <div className="text-xl font-black text-teal-700">{data.credit_hours}</div>
-                  <div className="text-[11px] font-bold text-teal-600 mt-0.5">{locale === 'ar' ? 'ساعات معتمدة' : 'Credits'}</div>
-                </div>
-                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-100 text-center">
-                  <div className="text-xl font-black text-emerald-700">{data.learning_outcomes?.length || 0}</div>
-                  <div className="text-[11px] font-bold text-emerald-600 mt-0.5">{locale === 'ar' ? 'مخرجات تعلم ILOs' : 'ILOs Count'}</div>
-                </div>
-                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-center">
-                  <div className="text-xl font-black text-slate-700">{data.assessment_components?.length || 0}</div>
-                  <div className="text-[11px] font-bold text-slate-600 mt-0.5">{locale === 'ar' ? 'مكونات تقييم' : 'Assessment Items'}</div>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  {locale === 'ar' ? 'مخرجات التعلم وتطابقها في التقرير السنوي' : 'Learning Outcomes Status'}
-                </h4>
-                <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                  {(data.learning_outcomes || []).map((ilo) => (
-                    <div key={ilo.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between gap-2 text-xs">
-                      <span className="font-bold text-teal-700 font-mono">{ilo.outcome_code}</span>
-                      <span className="font-medium text-slate-700 flex-1 truncate">{locale === 'ar' ? (ilo.text_ar || ilo.text_en) : (ilo.text_en || ilo.text_ar)}</span>
-                      <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 font-bold text-[10px] shrink-0">{locale === 'ar' ? 'مسجل' : 'Recorded'}</span>
-                    </div>
-                  ))}
-                  {(!data.learning_outcomes || data.learning_outcomes.length === 0) && (
-                    <p className="text-xs text-slate-400 text-center p-3">{locale === 'ar' ? 'لا يوجد مخرجات مسجلة' : 'No outcomes recorded'}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">{locale === 'ar' ? 'ملخص تنفيذ المساق *' : 'Course implementation summary *'}</span><textarea rows={4} value={reportSummary} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportSummary(e.target.value)} className="input resize-none" placeholder={locale === 'ar' ? 'ملخص التنفيذ والنتائج...' : 'Implementation and results summary...'}/></label>
-                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">{locale === 'ar' ? 'الإنجازات' : 'Achievements'}</span><textarea rows={4} value={reportAchievements} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportAchievements(e.target.value)} className="input resize-none" placeholder={locale === 'ar' ? 'أهم الإنجازات...' : 'Key achievements...'}/></label>
-                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">{locale === 'ar' ? 'التحديات' : 'Challenges'}</span><textarea rows={4} value={reportChallenges} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportChallenges(e.target.value)} className="input resize-none" placeholder={locale === 'ar' ? 'التحديات والمعيقات...' : 'Challenges and obstacles...'}/></label>
-                <label className="space-y-1"><span className="text-xs font-bold text-slate-700">{locale === 'ar' ? 'خطة التحسين *' : 'Improvement plan *'}</span><textarea rows={4} value={reportPlan} disabled={!can('course_report.manage')||selectedReport?.status==='submitted'||selectedReport?.status==='approved'} onChange={e=>setReportPlan(e.target.value)} className="input resize-none" placeholder={locale === 'ar' ? 'إجراءات محددة للعام القادم...' : 'Specific actions for next year...'}/></label>
-              </div>
-              {(can('course_report.approve')||selectedReport?.review_notes)&&<label className="block space-y-1"><span className="text-xs font-bold text-slate-700">{locale === 'ar' ? 'ملاحظات المراجعة' : 'Review notes'}</span><textarea rows={3} value={reviewNotes} disabled={!can('course_report.approve')||selectedReport?.status!=='submitted'} onChange={e=>setReviewNotes(e.target.value)} className="input resize-none" placeholder={locale === 'ar' ? 'ملاحظات الاعتماد أو الإعادة...' : 'Approval or return notes...'}/></label>}
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button 
-                  type="button"
-                  onClick={() => setIsReportModalOpen(false)}
-                  className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50"
-                >
-                  {locale === 'ar' ? 'إلغاء' : 'Close'}
-                </button>
-                {can('course_report.manage')&&(!selectedReport||['draft','returned'].includes(selectedReport.status))&&<><button type="button" disabled={reportAction.isPending} onClick={()=>reportAction.mutate('save')} className="px-4 py-2 text-xs font-semibold rounded-xl border border-teal-200 text-teal-700 hover:bg-teal-50">{locale === 'ar' ? 'حفظ المسودة' : 'Save draft'}</button>{selectedReport&&<button type="button" disabled={reportAction.isPending} onClick={()=>reportAction.mutate('submit')} className="px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700">{locale === 'ar' ? 'إرسال للاعتماد' : 'Submit for approval'}</button>}</>}
-                {can('course_report.approve')&&selectedReport?.status==='submitted'&&<><button type="button" disabled={reportAction.isPending||!reviewNotes.trim()} onClick={()=>reportAction.mutate('return')} className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-300 text-slate-700">{locale === 'ar' ? 'إعادة للتعديل' : 'Return for revision'}</button><button type="button" disabled={reportAction.isPending} onClick={()=>reportAction.mutate('approve')} className="px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white">{locale === 'ar' ? 'اعتماد التقرير' : 'Approve report'}</button></>}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

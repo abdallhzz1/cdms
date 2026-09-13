@@ -145,6 +145,31 @@ class CourseManagementWorkflowTest extends TestCase
         ])->assertOk()->assertJsonPath('data.status', 'approved');
     }
 
+    public function test_course_details_can_be_exported_as_a_print_ready_pdf(): void
+    {
+        $course = Course::factory()->create([
+            'code' => 'M1460',
+            'name_ar' => 'الطب الباطني مبتدئ',
+            'description' => 'وصف المساق السريري',
+        ]);
+        $course->learningOutcomes()->create([
+            'outcome_code' => 'ILO-1',
+            'text_ar' => 'يطبق الطالب المهارات السريرية بأمان.',
+            'domain' => 'Skills',
+        ]);
+        DB::table('program_outcomes')->insert([
+            'code' => 'PLO-1', 'name_ar' => 'الممارسة المهنية', 'name_en' => 'Professional practice',
+            'is_active' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $course->programOutcomeMappings()->create(['program_outcome_code' => 'PLO-1', 'mapping_level' => 'High']);
+
+        $response = $this->actingAs($this->manager)->get("/api/v1/courses/{$course->id}/report.pdf");
+
+        $response->assertOk()
+            ->assertHeader('content-type', 'application/pdf')
+            ->assertDownload('course-M1460.pdf');
+    }
+
     private function approvalUser(string $roleCode, string $modulePermission): User
     {
         $role = Role::where('code', $roleCode)->firstOrFail();

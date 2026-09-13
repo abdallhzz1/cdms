@@ -7,6 +7,8 @@ use App\Http\Responses\ApiResponse;
 use App\Models\Course;
 use App\Models\CourseReport;
 use App\Models\AcademicYear;
+use App\Models\ProgramOutcome;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -15,6 +17,25 @@ use App\Models\User;
 
 class CourseReportController extends Controller
 {
+    public function exportCourseDetails(Course $course)
+    {
+        $course->load(['assessmentComponents', 'learningOutcomes', 'programOutcomeMappings']);
+        $programOutcomes = ProgramOutcome::query()
+            ->whereIn('code', $course->programOutcomeMappings->pluck('program_outcome_code'))
+            ->get()
+            ->keyBy('code');
+        $academicYear = AcademicYear::query()->where('is_current', true)->first()
+            ?? AcademicYear::query()->orderByDesc('start_date')->first();
+        $logoPath = base_path('../frontend/src/assets/hebron.png');
+
+        return Pdf::loadView('reports.course_details', [
+            'course' => $course,
+            'academicYear' => $academicYear,
+            'programOutcomes' => $programOutcomes,
+            'logoData' => is_file($logoPath) ? base64_encode(file_get_contents($logoPath)) : null,
+        ])->setPaper('a4', 'portrait')->download('course-'.$course->code.'.pdf');
+    }
+
     public function index(Course $course): JsonResponse
     {
         return ApiResponse::success([

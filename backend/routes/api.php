@@ -256,6 +256,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('courses/bulk-import', [CourseController::class, 'bulkImport'])->middleware('permission:courses.manage');
         Route::get('program-outcomes', [ProgramOutcomeController::class, 'index'])->middleware('permission:courses.view');
         Route::get('courses/{course}', [CourseController::class, 'show'])->middleware('permission:courses.view');
+        Route::get('courses/{course}/report.pdf', [CourseReportController::class, 'exportCourseDetails'])->middleware('permission:courses.view');
         Route::put('courses/{course}', [CourseController::class, 'update'])->middleware('permission:courses.manage');
         Route::delete('courses/{course}', [CourseController::class, 'destroy'])->middleware('permission:courses.manage');
         Route::post('courses/{course}/assessment-components', [CourseController::class, 'addAssessmentComponent'])->middleware('permission:courses.manage');
