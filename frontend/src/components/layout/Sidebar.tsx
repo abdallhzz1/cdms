@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useI18n } from '@/i18n/I18nContext';
 import { useAuth } from '@/auth/AuthContext';
 import {
@@ -33,6 +33,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onToggleCollapsed }: SidebarProps) {
+  const location = useLocation();
   const { locale } = useI18n();
   const { can, user } = useAuth();
   const userRoles = (user?.roles ?? []).map(r => String(r).toUpperCase());
@@ -131,6 +132,21 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
   };
 
   const sections = getNavigation();
+  const isItemVisible = (item: NavItem) => {
+    if (item.customCheck) return item.customCheck();
+    if (item.permission) return can(item.permission);
+    if (item.roles && item.roles.length > 0) {
+      return item.roles.some(role => userRoles.includes(role.toUpperCase()));
+    }
+    return true;
+  };
+  const visibleSections = sections
+    .map(section => ({ ...section, items: section.items.filter(isItemVisible) }))
+    .filter(section => section.items.length > 0);
+  const activeNavigationPath = visibleSections
+    .flatMap(section => section.items.map(item => item.path))
+    .filter(path => path === '/' ? location.pathname === '/' : location.pathname === path || location.pathname.startsWith(`${path}/`))
+    .sort((left, right) => right.length - left.length)[0] ?? null;
 
   return (
     <>
@@ -163,18 +179,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
         </div>
 
         <div className={`flex-1 overflow-y-auto py-3 ${isCollapsed ? 'md:px-2' : 'px-3'}`}>
-          {sections.map((section, idx) => {
-            const filteredItems = section.items.filter(item => {
-              if (item.customCheck) return item.customCheck();
-              if (item.permission) return can(item.permission);
-              if (item.roles && item.roles.length > 0) {
-                return item.roles.some(r => userRoles.includes(r.toUpperCase()));
-              }
-              return true;
-            });
-
-            if (filteredItems.length === 0) return null;
-
+          {visibleSections.map((section, idx) => {
             const isClosed = closedSections.has(idx);
             return (
               <div key={idx} className="mb-3">
@@ -182,12 +187,13 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
                   <span>{section.title}</span><ChevronDown className={`h-4 w-4 transition ${isClosed ? '' : 'rotate-180'}`} />
                 </button>}
                 {(!isClosed || isCollapsed) && <div className="mt-1 space-y-0.5">
-                  {filteredItems.map(item => {
+                  {section.items.map(item => {
                     const Icon = item.icon;
                     return (
                       <NavLink
                         key={item.path}
                         to={item.path}
+                        end={activeNavigationPath !== item.path}
                         onClick={onCloseMobile}
                         title={isCollapsed ? item.label : undefined}
                         className={({ isActive }) =>
