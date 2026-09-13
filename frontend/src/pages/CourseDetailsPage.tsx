@@ -88,6 +88,7 @@ export function CourseDetailsPage() {
   const [isCompModalOpen, setIsCompModalOpen] = useState(false);
   const [isIloModalOpen, setIsIloModalOpen] = useState(false);
   const [isPloModalOpen, setIsPloModalOpen] = useState(false);
+  const [activeSection,setActiveSection]=useState<'outcomes'|'assessment'>('outcomes');
 
   // Edit states
   const [editingComp, setEditingComp] = useState<AssessmentComponent | null>(null);
@@ -241,6 +242,11 @@ export function CourseDetailsPage() {
 
   // Calculate total weights
   const totalWeight = (data.assessment_components || []).reduce((acc, item) => acc + (Number(item.weight) || 0), 0);
+  const mappingLevelLabel = (value?: string | null) => {
+    const level = value || 'High';
+    if (locale !== 'ar') return level;
+    return ({ High: 'مرتفع', Medium: 'متوسط', Low: 'منخفض' } as Record<string, string>)[level] || level;
+  };
 
   // Handlers for Modals
   const handleOpenCompModal = (comp?: AssessmentComponent) => {
@@ -388,10 +394,15 @@ export function CourseDetailsPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <nav className="flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
+        <button onClick={()=>setActiveSection('outcomes')} className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition ${activeSection==='outcomes'?'bg-teal-600 text-white shadow-sm':'text-slate-500 hover:bg-slate-50'}`}><Target className="h-4 w-4"/>{locale==='ar'?'مخرجات التعلم والبرنامج':'Learning outcomes'}<span className={`rounded-md px-1.5 py-0.5 text-[9px] ${activeSection==='outcomes'?'bg-white/20':'bg-slate-100'}`}>{(data.learning_outcomes?.length||0)+(data.program_outcome_mappings?.length||0)}</span></button>
+        <button onClick={()=>setActiveSection('assessment')} className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition ${activeSection==='assessment'?'bg-teal-600 text-white shadow-sm':'text-slate-500 hover:bg-slate-50'}`}><Settings className="h-4 w-4"/>{locale==='ar'?'خطة التقييم':'Assessment plan'}<span className={`rounded-md px-1.5 py-0.5 text-[9px] ${activeSection==='assessment'?'bg-white/20':'bg-slate-100'}`}>{data.assessment_components?.length||0}</span></button>
+      </nav>
+
+      <div>
         
         {/* Main Column (2/3 width) */}
-        <div className="lg:col-span-2 space-y-5">
+        {activeSection==='outcomes'&&<div className="space-y-4">
           
           {/* Learning Outcomes (ILOs) Card */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
@@ -498,7 +509,7 @@ export function CourseDetailsPage() {
                         <div className="flex items-center gap-2">
                           <span className="font-bold font-mono text-slate-800 text-xs">{item.program_outcome_code}</span>
                           <span className="text-[11px] font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-100">
-                            {item.mapping_level || 'High'}
+                            {mappingLevelLabel(item.mapping_level)}
                           </span>
                         </div>
                         <p className="mt-2 text-[11px] font-medium leading-5 text-slate-600">
@@ -525,10 +536,10 @@ export function CourseDetailsPage() {
               )}
             </div>
           </div>
-        </div>
+        </div>}
 
         {/* Sidebar Column (1/3 width) */}
-        <div className="space-y-5">
+        {activeSection==='assessment'&&<div className="space-y-4">
           {/* Assessment Components Card */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
@@ -554,16 +565,17 @@ export function CourseDetailsPage() {
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
                 <div className="flex justify-between text-[11px] font-bold">
                   <span className="text-slate-600">{locale === 'ar' ? 'إجمالي الوزن النسبي:' : 'Total Weight:'}</span>
-                  <span className={totalWeight === 100 ? 'text-emerald-600' : 'text-teal-700'}>
+                  <span className={totalWeight === 100 ? 'text-emerald-600' : 'text-amber-700'}>
                     {totalWeight}%
                   </span>
                 </div>
                 <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                   <div 
-                    className={`h-full transition-all duration-300 ${totalWeight === 100 ? 'bg-emerald-500' : 'bg-teal-600'}`} 
+                    className={`h-full transition-all duration-300 ${totalWeight === 100 ? 'bg-emerald-500' : 'bg-amber-500'}`}
                     style={{ width: `${Math.min(100, totalWeight)}%` }}
                   />
                 </div>
+                {totalWeight !== 100 && <p className="text-[10px] font-bold text-amber-700">{locale === 'ar' ? `المتبقي لاعتماد الخطة: ${Math.max(0, 100-totalWeight)}%` : `Remaining to complete the plan: ${Math.max(0, 100-totalWeight)}%`}</p>}
               </div>
 
               {!data.assessment_components?.length ? (
@@ -613,7 +625,7 @@ export function CourseDetailsPage() {
               )}
             </div>
           </div>
-        </div>
+        </div>}
       </div>
 
       {/* Assessment Component Modal */}
