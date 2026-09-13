@@ -1,205 +1,50 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertCircle, BookOpen, Check, GraduationCap, Search, UserCheck, Users, UserX, X } from 'lucide-react';
 import { apiFetch, ApiError } from '@/api/client';
 import { useI18n } from '@/i18n/I18nContext';
-import { Users, Check, Lock, Unlock, AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { LoadingState } from '@/components/ui/LoadingState';
+import { Modal } from '@/components/ui/Modal';
+import { PageHeader } from '@/components/ui/PageHeader';
 
-interface RTAUser {
-  id: number;
-  name: string;
-  email: string;
-  assigned_levels: string[] | null;
-  is_active: boolean;
-  roles: string[];
-  student_count: number;
-  course_count: number;
+interface RTAUser { id:number; name:string; email:string; assigned_levels:string[]|null; is_active:boolean; roles:string[]; student_count:number; course_count:number }
+const COHORT_LEVELS=[{key:'fourth',ar:'السنة الرابعة',en:'Fourth year'},{key:'fifth',ar:'السنة الخامسة',en:'Fifth year'},{key:'sixth',ar:'السنة السادسة',en:'Sixth year'}];
+type AssignmentFilter='all'|'assigned'|'unassigned';
+
+export function RtaAssignmentsPage(){
+  const {locale}=useI18n();const ar=locale==='ar';const tr=(a:string,e:string)=>ar?a:e;const queryClient=useQueryClient();
+  const [editingUser,setEditingUser]=useState<RTAUser|null>(null);const [pendingLevels,setPendingLevels]=useState<string[]>([]);const [search,setSearch]=useState('');const [filter,setFilter]=useState<AssignmentFilter>('all');const [errorMessage,setErrorMessage]=useState('');const [notice,setNotice]=useState('');
+  const query=useQuery({queryKey:['rta-list'],queryFn:()=>apiFetch<RTAUser[]>('/users/rta-list')});
+  const users:RTAUser[]=Array.isArray(query.data)?query.data:[];
+  const filteredUsers=useMemo(()=>{const needle=search.trim().toLocaleLowerCase();return users.filter(user=>{const assigned=Boolean(user.assigned_levels?.length);if(filter==='assigned'&&!assigned)return false;if(filter==='unassigned'&&assigned)return false;return !needle||`${user.name} ${user.email}`.toLocaleLowerCase().includes(needle)})},[filter,search,users]);
+  const assignedCount=users.filter(user=>user.assigned_levels?.length).length;
+  const mutation=useMutation({mutationFn:({userId,levels}:{userId:number;levels:string[]|null})=>apiFetch(`/users/${userId}/assign-levels`,{method:'PUT',body:{assigned_levels:levels?.length?levels:null}}),onSuccess:async()=>{await queryClient.invalidateQueries({queryKey:['rta-list']});setEditingUser(null);setPendingLevels([]);setErrorMessage('');setNotice(tr('تم حفظ تكليف المساعد بنجاح.','Assistant assignment saved successfully.'))},onError:error=>setErrorMessage(error instanceof ApiError?error.message:tr('تعذر حفظ التكليف.','Could not save assignment.'))});
+  const openEditor=(user:RTAUser)=>{setEditingUser(user);setPendingLevels(user.assigned_levels??[]);setErrorMessage('');setNotice('')};
+  const toggleLevel=(key:string)=>setPendingLevels(current=>current.includes(key)?current.filter(level=>level!==key):[...current,key]);
+  const levelName=(key:string)=>{const level=COHORT_LEVELS.find(item=>item.key===key);return ar?level?.ar:level?.en};
+  if(query.isLoading)return <LoadingState/>;
+  if(query.isError)return <ErrorState title={tr('تعذر تحميل تكليفات المساعدين','Could not load assistant assignments')} message={tr('تحقق من الاتصال والصلاحية ثم أعد المحاولة.','Check your connection and permission, then retry.')} onRetry={()=>query.refetch()}/>;
+  return <div className="space-y-4 pb-20">
+    <PageHeader title={tr('تكليف مساعدي البحث والتدريس','Research and teaching assistant assignments')} description={tr('حدد السنوات السريرية التي يتابع مساعدو البحث والتدريس طلبتها ومساقاتها.','Define the clinical years whose students and courses each assistant can manage.')}/>
+    {notice&&<div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800"><Check className="h-4 w-4"/>{notice}</div>}
+    <section className="grid grid-cols-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><Summary label={tr('المساعدون','Assistants')} value={users.length} icon={Users}/><Summary label={tr('لديهم تكليف','Assigned')} value={assignedCount} icon={UserCheck}/><Summary label={tr('دون تكليف','Unassigned')} value={users.length-assignedCount} icon={UserX} warning={users.length-assignedCount>0}/></section>
+    <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <label className="flex h-10 w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 sm:max-w-md"><Search className="h-4 w-4 text-slate-400"/><input value={search} onChange={event=>setSearch(event.target.value)} className="w-full bg-transparent text-xs font-bold outline-none" placeholder={tr('ابحث باسم المساعد أو بريده...','Search by assistant name or email...')}/>{search&&<button onClick={()=>setSearch('')} aria-label={tr('مسح البحث','Clear search')}><X className="h-4 w-4 text-slate-400"/></button>}</label>
+      <div className="flex gap-1 rounded-xl bg-slate-100 p-1">{([{key:'all',ar:'الكل',en:'All'},{key:'assigned',ar:'مكلّف',en:'Assigned'},{key:'unassigned',ar:'دون تكليف',en:'Unassigned'}] as const).map(item=><button key={item.key} onClick={()=>setFilter(item.key)} className={`rounded-lg px-3 py-2 text-[11px] font-bold transition ${filter===item.key?'bg-white text-teal-800 shadow-sm':'text-slate-500 hover:text-slate-800'}`}>{ar?item.ar:item.en}</button>)}</div>
+    </section>
+    {users.length===0?<Empty icon={Users} title={tr('لا يوجد مساعدو بحث وتدريس','No research and teaching assistants')} text={tr('عيّن دور مساعد البحث والتدريس للمستخدم من شاشة المستخدمين أولًا.','Assign the RTA role from the users screen first.')}/>:filteredUsers.length===0?<Empty icon={Search} title={tr('لا توجد نتائج مطابقة','No matching results')} text={tr('غيّر عبارة البحث أو التصنيف.','Change the search term or filter.')}/>:
+      <section className="grid gap-3 lg:grid-cols-2">{filteredUsers.map(user=>{const assigned=Boolean(user.assigned_levels?.length);return <article key={user.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-teal-200 hover:shadow-md">
+        <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-sm font-black text-teal-800">{user.name.trim().charAt(0)||'—'}</span><div className="min-w-0"><div className="flex items-center gap-2"><h2 className="truncate text-sm font-black text-slate-900">{user.name}</h2><span className={`h-2 w-2 shrink-0 rounded-full ${user.is_active?'bg-emerald-500':'bg-slate-300'}`} title={user.is_active?tr('نشط','Active'):tr('غير نشط','Inactive')}/></div><p className="truncate text-[11px] text-slate-500">{user.email}</p></div></div><Button size="sm" variant={assigned?'outline':'primary'} onClick={()=>openEditor(user)}>{assigned?tr('تعديل','Edit'):tr('تكليف','Assign')}</Button></div>
+        <div className="mt-4 border-t border-slate-100 pt-3"><p className="mb-2 text-[10px] font-bold text-slate-400">{tr('نطاق المتابعة','Management scope')}</p>{assigned?<div className="flex flex-wrap gap-1.5">{user.assigned_levels!.map(level=><span key={level} className="rounded-lg bg-teal-50 px-2.5 py-1 text-[10px] font-bold text-teal-800">{levelName(level)}</span>)}</div>:<div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-700"><AlertCircle className="h-4 w-4"/>{tr('لا يمكنه متابعة أي دفعة حاليًا','Cannot manage any cohort yet')}</div>}</div>
+        <div className="mt-3 flex gap-4 text-[10px] text-slate-500"><span className="flex items-center gap-1"><GraduationCap className="h-3.5 w-3.5 text-teal-600"/><strong className="text-slate-700">{user.student_count}</strong> {tr('طالب','students')}</span><span className="flex items-center gap-1"><BookOpen className="h-3.5 w-3.5 text-teal-600"/><strong className="text-slate-700">{user.course_count}</strong> {tr('مساق','courses')}</span></div>
+      </article>})}</section>}
+    <Modal isOpen={Boolean(editingUser)} onClose={()=>{if(!mutation.isPending)setEditingUser(null)}} title={tr('تحديد نطاق عمل المساعد','Set assistant management scope')} maxWidth="lg">
+      {editingUser&&<form className="space-y-4" onSubmit={event=>{event.preventDefault();mutation.mutate({userId:editingUser.id,levels:pendingLevels.length?pendingLevels:null})}}><div className="rounded-xl bg-slate-50 p-3"><p className="text-sm font-black text-slate-900">{editingUser.name}</p><p className="mt-0.5 text-[11px] text-slate-500">{editingUser.email}</p></div><div><p className="text-xs font-black text-slate-700">{tr('السنوات التي يمكن للمساعد متابعتها','Clinical years the assistant can manage')}</p><p className="mt-1 text-[11px] leading-5 text-slate-500">{tr('يشمل التكليف طلبة السنة ومساقاتها وعلاماتها. يمكن اختيار أكثر من سنة.','The assignment covers the year’s students, courses, and grades. You may select more than one year.')}</p></div><div className="grid gap-2 sm:grid-cols-3">{COHORT_LEVELS.map(level=>{const checked=pendingLevels.includes(level.key);return <button key={level.key} type="button" onClick={()=>toggleLevel(level.key)} className={`flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border p-3 text-xs font-black transition ${checked?'border-teal-500 bg-teal-50 text-teal-900 ring-2 ring-teal-100':'border-slate-200 bg-white text-slate-600 hover:border-teal-200'}`}><span className={`flex h-5 w-5 items-center justify-center rounded-md border ${checked?'border-teal-600 bg-teal-600 text-white':'border-slate-300'}`}>{checked&&<Check className="h-3.5 w-3.5"/>}</span>{ar?level.ar:level.en}</button>})}</div>{pendingLevels.length===0&&<div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] font-bold leading-5 text-amber-800"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0"/>{tr('الحفظ دون اختيار سيزيل التكليف، ولن يتمكن المساعد من متابعة أي دفعة.','Saving without a selection removes the assignment, so the assistant cannot manage any cohort.')}</div>}{errorMessage&&<div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-700">{errorMessage}</div>}<div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={mutation.isPending} onClick={()=>setEditingUser(null)}>{tr('إلغاء','Cancel')}</Button><Button type="submit" isLoading={mutation.isPending}>{tr('حفظ التكليف','Save assignment')}</Button></div></form>}
+    </Modal>
+  </div>
 }
 
-const COHORT_LEVELS = [
-  { key: 'fourth', labelAr: 'السنة الرابعة', labelEn: '4th Year' },
-  { key: 'fifth',  labelAr: 'السنة الخامسة', labelEn: '5th Year' },
-  { key: 'sixth',  labelAr: 'السنة السادسة', labelEn: '6th Year' },
-];
-
-export function RtaAssignmentsPage() {
-  const { locale } = useI18n();
-  const queryClient = useQueryClient();
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [pendingLevels, setPendingLevels] = useState<string[]>([]);
-  const [savingId, setSavingId] = useState<number | null>(null);
-  const [errorMessage, setErrorMessage] = useState('');
-
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['rta-list'],
-    queryFn: () => apiFetch<any>('/users/rta-list'),
-  });
-
-  const users: RTAUser[] = Array.isArray(data) ? data : (data?.data ?? []);
-
-  const mutation = useMutation({
-    mutationFn: ({ userId, levels }: { userId: number; levels: string[] | null }) =>
-      apiFetch('/users/' + userId + '/assign-levels', {
-        method: 'PUT',
-        body: { assigned_levels: levels && levels.length > 0 ? levels : null },
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['rta-list'] });
-      setEditingId(null);
-      setPendingLevels([]);
-      setSavingId(null);
-      setErrorMessage('');
-    },
-    onError: error => {
-      setSavingId(null);
-      setErrorMessage(error instanceof ApiError ? error.message : (locale === 'ar' ? 'تعذر حفظ التكليف.' : 'Could not save assignment.'));
-    },
-  });
-
-  const startEdit = (u: RTAUser) => {
-    setEditingId(u.id);
-    setPendingLevels(u.assigned_levels ?? []);
-  };
-
-  const toggleLevel = (key: string) => {
-    setPendingLevels(prev =>
-      prev.includes(key) ? prev.filter(l => l !== key) : [...prev, key]
-    );
-  };
-
-  const saveAssignment = (userId: number) => {
-    setSavingId(userId);
-    mutation.mutate({ userId, levels: pendingLevels.length > 0 ? pendingLevels : null });
-  };
-
-  const getRoleLabel = (roles: string[]) => {
-    if (roles.includes('RTA')) return locale === 'ar' ? 'مساعد بحث وتدريس' : 'Research & Teaching Assistant';
-    if (roles.includes('CLINICAL_SUPERVISOR')) return locale === 'ar' ? 'طبيب / مشرف سريري' : 'Clinical Supervisor';
-    return roles[0];
-  };
-
-  return (
-    <div className="space-y-6 pb-20">
-      <div>
-        <h1 className="text-xl sm:text-2xl font-black text-slate-900">
-          {locale === 'ar' ? 'تخصيص الدفعات لمساعدي البحث والتدريس' : 'Assign Cohorts to RTA'}
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          {locale === 'ar'
-            ? 'حدد الدفعات الدراسية التي يحق لكل مساعد بحث وتدريس إدخال علاماتها.'
-            : 'Define which academic cohorts each RTA can grade.'}
-        </p>
-      </div>
-
-      {errorMessage && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{errorMessage}</div>}
-
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-        {isLoading ? (
-          <div className="p-16 text-center text-slate-400">
-            <div className="w-9 h-9 border-3 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-xs font-bold">{locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
-          </div>
-        ) : isError ? (
-          <div className="p-16 text-center text-sm font-bold text-red-600">{locale === 'ar' ? 'تعذر تحميل تكليفات المساعدين. تحقق من الصلاحية ثم أعد المحاولة.' : 'Could not load RTA assignments. Check your permission and retry.'}</div>
-        ) : users.length === 0 ? (
-          <div className="p-16 text-center text-slate-400">
-            <Users className="w-10 h-10 mx-auto mb-3 text-slate-300" />
-            <p className="text-sm font-bold text-slate-600">
-              {locale === 'ar' ? 'لا يوجد مساعدو بحث وتدريس في النظام بعد.' : 'No RTA found.'}
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {users.map(u => (
-              <div key={u.id} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-black text-sm border border-teal-100 shrink-0">
-                      {u.name.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="font-black text-slate-900 text-sm">{u.name}</p>
-                      <p className="text-xs text-slate-500">{u.email}</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10.5px] font-bold">
-                      {getRoleLabel(u.roles)}
-                    </span>
-                    {u.assigned_levels && u.assigned_levels.length > 0 ? (
-                      u.assigned_levels.map(l => {
-                        const tab = COHORT_LEVELS.find(c => c.key === l);
-                        return (
-                          <span key={l} className="px-2 py-0.5 rounded-full bg-teal-50 text-teal-800 text-[10.5px] font-bold border border-teal-200">
-                            {locale === 'ar' ? tab?.labelAr : tab?.labelEn}
-                          </span>
-                        );
-                      })
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10.5px] font-bold border border-amber-200 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" />
-                        {locale === 'ar' ? 'غير محدد — لا يرى طلاب' : 'Not assigned'}
-                      </span>
-                    )}
-                    <span className="px-2 py-0.5 rounded-full bg-slate-50 text-slate-600 text-[10.5px] font-bold border border-slate-200">
-                      {u.student_count} {locale === 'ar' ? 'طالب' : 'students'} · {u.course_count} {locale === 'ar' ? 'مساق' : 'courses'}
-                    </span>
-                  </div>
-                </div>
-
-                {editingId === u.id ? (
-                  <div className="flex flex-col gap-3">
-                    <div className="flex flex-wrap gap-2">
-                      {COHORT_LEVELS.map(lvl => (
-                        <button
-                          key={lvl.key}
-                          type="button"
-                          onClick={() => toggleLevel(lvl.key)}
-                          className={'px-3 py-1.5 rounded-2xl text-xs font-black border transition-all cursor-pointer flex items-center gap-1.5 ' + (
-                            pendingLevels.includes(lvl.key)
-                              ? 'bg-teal-600 text-white border-teal-500 shadow-sm'
-                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                          )}
-                        >
-                          {pendingLevels.includes(lvl.key) && <Check className="w-3 h-3" />}
-                          {locale === 'ar' ? lvl.labelAr : lvl.labelEn}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-2 justify-end">
-                      <button
-                        type="button"
-                        onClick={() => { setEditingId(null); setPendingLevels([]); }}
-                        className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer"
-                      >
-                        {locale === 'ar' ? 'إلغاء' : 'Cancel'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={savingId === u.id}
-                        onClick={() => saveAssignment(u.id)}
-                        className="px-3 py-1.5 rounded-xl bg-teal-600 text-white text-xs font-bold hover:bg-teal-700 cursor-pointer disabled:opacity-60"
-                      >
-                        {savingId === u.id ? (locale === 'ar' ? 'جاري الحفظ...' : 'Saving...') : (locale === 'ar' ? 'حفظ التخصيص' : 'Save')}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => startEdit(u)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-100 cursor-pointer shrink-0"
-                  >
-                    {u.assigned_levels && u.assigned_levels.length > 0
-                      ? <><Unlock className="w-3.5 h-3.5" /> {locale === 'ar' ? 'تعديل التخصيص' : 'Edit'}</>
-                      : <><Lock className="w-3.5 h-3.5 text-amber-600" /> {locale === 'ar' ? 'تخصيص دفعة' : 'Assign Cohort'}</>
-                    }
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+function Summary({label,value,icon:Icon,warning=false}:{label:string;value:number;icon:typeof Users;warning?:boolean}){return <div className="flex min-w-0 items-center gap-2 border-e border-slate-100 p-3 last:border-e-0 sm:p-4"><span className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-xl sm:flex ${warning?'bg-amber-50 text-amber-600':'bg-teal-50 text-teal-700'}`}><Icon className="h-4 w-4"/></span><div className="min-w-0"><p className="truncate text-[9px] font-bold text-slate-500 sm:text-[11px]">{label}</p><p className="text-lg font-black text-slate-900">{value}</p></div></div>}
+function Empty({icon:Icon,title,text}:{icon:typeof Users;title:string;text:string}){return <section className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm"><Icon className="mx-auto h-9 w-9 text-slate-300"/><h2 className="mt-3 text-sm font-black text-slate-700">{title}</h2><p className="mt-1 text-xs text-slate-500">{text}</p></section>}
