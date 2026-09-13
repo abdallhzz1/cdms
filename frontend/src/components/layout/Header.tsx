@@ -8,7 +8,6 @@ import {
   User as UserIcon, CheckCheck, ListTodo, Mail, CalendarDays, AlertTriangle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import hebronLogo from '@/assets/hebron.png';
 import { apiFetch } from '@/api/client';
 import { notificationText, relativeNotificationTime, type LocalNotification } from '@/features/notifications/types';
 
@@ -126,55 +125,32 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
   const unreadCount = unread.count;
 
   return (
-    <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-xs">
-      <div className="flex h-16 items-center justify-between px-3 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
+      <div className="flex h-14 items-center justify-between px-3 sm:px-5 lg:px-7">
         
         {/* ========================================================================= */}
         {/* START SIDE: Mobile Menu Button & University Branding */}
         {/* ========================================================================= */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="flex min-w-0 items-center gap-2.5">
           <button 
             type="button" 
             onClick={onToggleMobileNav} 
-            className="md:hidden p-2 rounded-xl text-slate-600 hover:text-teal-600 hover:bg-slate-100 transition-colors"
+            className="rounded-xl p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-teal-700 md:hidden"
             aria-label="Open Navigation Menu"
           >
             <Menu className="w-5 h-5" />
           </button>
           
-          <div className="flex items-center gap-2 sm:gap-3 cursor-pointer" onClick={() => navigate('/')}>
-            <img 
-              src={hebronLogo} 
-              alt={locale === 'ar' ? 'جامعة الخليل' : 'Hebron University'} 
-              className="h-9 w-9 sm:h-10 sm:w-10 object-contain shrink-0 drop-shadow-xs" 
-            />
-            
-            {/* Mobile: Name & Role beside University Logo */}
-            <div className="block sm:hidden">
-              <h1 className="text-xs font-bold text-slate-800 tracking-tight leading-tight truncate max-w-[130px]">
-                {user ? user.name : (locale === 'ar' ? 'جامعة الخليل' : 'Hebron Univ')}
-              </h1>
-              <p className="text-[10px] font-semibold text-teal-600 truncate max-w-[130px]">
-                {roleLabel}
-              </p>
-            </div>
-
-            {/* Desktop: University Name & System Title */}
-            <div className="hidden sm:block">
-              <h1 className="text-sm font-bold text-slate-800 tracking-tight leading-none">
-                {locale === 'ar' ? 'جامعة الخليل' : 'Hebron University'}
-              </h1>
-              <p className="text-xs font-semibold text-teal-600 mt-0.5">
-                {locale === 'ar' ? 'نظام الدائرة السريرية' : 'Clinical Management System'}
-              </p>
-            </div>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-black text-slate-800">{locale === 'ar' ? 'مساحة العمل' : 'Workspace'}</p>
+            <p className="hidden truncate text-[9px] font-bold text-slate-400 sm:block">{roleLabel}</p>
           </div>
         </div>
 
         {/* ========================================================================= */}
         {/* END SIDE: Language Switcher + Notifications Popover + User Profile Dropdown */}
         {/* ========================================================================= */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5">
           
           {/* 1. Language Switcher */}
           <LanguageSwitcher />
@@ -184,7 +160,7 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
             <button 
               type="button"
               onClick={() => setIsNotifOpen(!isNotifOpen)}
-              className={`relative p-2 rounded-xl transition-all ${
+              className={`relative rounded-xl p-2 transition-colors ${
                 isNotifOpen 
                   ? 'bg-teal-50 text-teal-700' 
                   : 'text-slate-500 hover:text-teal-600 hover:bg-slate-100'
@@ -269,25 +245,23 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
             <div className="relative" ref={userMenuRef}>
               <button
                 type="button"
+                aria-label={`${user.name} ${roleLabel}`}
                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                className={`flex items-center gap-2 p-1 sm:pe-3 rounded-full border transition-all ${
+                className={`flex items-center gap-2 rounded-xl p-1 transition-colors ${
                   isUserMenuOpen
-                    ? 'border-teal-300 bg-teal-50/50 shadow-sm'
-                    : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50 shadow-xs'
+                    ? 'bg-teal-50'
+                    : 'hover:bg-slate-100'
                 }`}
               >
                 {/* User Avatar Circle */}
-                <div className="h-8 w-8 overflow-hidden rounded-full bg-gradient-to-tr from-teal-500 to-teal-400 text-white flex items-center justify-center font-black text-xs shrink-0 shadow-xs">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-teal-600 text-xs font-black text-white">
                   {user.avatar_url ? <img src={user.avatar_url} alt="" className="h-full w-full object-cover" /> : user.name.charAt(0).toUpperCase()}
                 </div>
 
                 {/* User Name & Role Label (Desktop) */}
-                <div className="text-start hidden md:block">
+                <div className="hidden text-start lg:block">
                   <p className="text-xs font-bold text-slate-800 leading-tight truncate max-w-[130px]">
                     {user.name}
-                  </p>
-                  <p className="text-[10px] font-semibold text-teal-700 truncate max-w-[130px] mt-0.5">
-                    {roleLabel}
                   </p>
                 </div>
 

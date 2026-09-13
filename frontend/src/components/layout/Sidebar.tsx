@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useI18n } from '@/i18n/I18nContext';
 import { useAuth } from '@/auth/AuthContext';
@@ -5,8 +6,10 @@ import {
   Users, Calendar, LayoutDashboard,
   Map, FileText, ClipboardCheck, BookOpen, Clock, ShieldCheck,
   MessagesSquare, FolderGit2, BarChart3,
-  GraduationCap, X, Monitor, Settings, Activity, Building2, UserRound, GitBranch
+  GraduationCap, X, Monitor, Settings, Activity, Building2, UserRound, GitBranch,
+  ChevronDown, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
+import hebronLogo from '@/assets/hebron.png';
 
 interface NavItem {
   path: string;
@@ -25,13 +28,16 @@ interface NavSection {
 interface SidebarProps {
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
-export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
+export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onToggleCollapsed }: SidebarProps) {
   const { locale } = useI18n();
   const { can, user } = useAuth();
   const userRoles = (user?.roles ?? []).map(r => String(r).toUpperCase());
   const isClinicalSupervisor = userRoles.includes('CLINICAL_SUPERVISOR');
+  const [closedSections, setClosedSections] = useState<Set<number>>(new Set());
 
   const getNavigation = (): NavSection[] => {
     // If user is purely a Supervisor and has no administrative roles
@@ -137,22 +143,26 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
       )}
       {/* Sidebar Content */}
       <aside
-        className={`fixed md:static inset-y-0 z-40 w-72 max-w-[85vw] bg-white border-e border-slate-200/80 flex flex-col transition-transform duration-200 ease-in-out md:translate-x-0 ${
+        className={`fixed inset-y-0 z-40 flex max-w-[86vw] flex-col border-e border-slate-200 bg-white transition-all duration-200 ease-in-out md:sticky md:top-0 md:h-screen md:translate-x-0 ${isCollapsed ? 'md:w-20' : 'md:w-64'} w-72 ${
           isOpenMobile
             ? 'translate-x-0 shadow-2xl'
             : locale === 'ar' ? 'translate-x-full md:translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
-        {/* Mobile Drawer Header */}
-        <div className="md:hidden flex items-center justify-between p-3.5 border-b border-slate-100">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{locale === 'ar' ? 'القائمة الرئيسية' : 'Navigation Menu'}</span>
-          <button onClick={onCloseMobile} className="p-1 rounded-lg text-slate-400 hover:text-slate-700">
-            <X className="w-5 h-5" />
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-3">
+          <NavLink to="/" onClick={onCloseMobile} className="flex min-w-0 items-center gap-2.5">
+            <img src={hebronLogo} alt="" className="h-9 w-9 shrink-0 object-contain" />
+            {!isCollapsed && <span className="min-w-0"><strong className="block truncate text-xs font-black text-slate-900">{locale === 'ar' ? 'جامعة الخليل' : 'Hebron University'}</strong><span className="mt-0.5 block truncate text-[9px] font-bold text-teal-700">{locale === 'ar' ? 'إدارة الدائرة السريرية' : 'Clinical Department'}</span></span>}
+          </NavLink>
+          <button onClick={onCloseMobile} aria-label={locale === 'ar' ? 'إغلاق القائمة' : 'Close navigation'} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 md:hidden">
+            <X className="h-5 w-5" />
+          </button>
+          <button onClick={onToggleCollapsed} className="hidden rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-teal-700 md:block" title={isCollapsed ? (locale === 'ar' ? 'توسيع القائمة' : 'Expand navigation') : (locale === 'ar' ? 'تصغير القائمة' : 'Collapse navigation')}>
+            {isCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </button>
         </div>
 
-        {/* Navigation Sections */}
-        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+        <div className={`flex-1 overflow-y-auto py-3 ${isCollapsed ? 'md:px-2' : 'px-3'}`}>
           {sections.map((section, idx) => {
             const filteredItems = section.items.filter(item => {
               if (item.customCheck) return item.customCheck();
@@ -165,12 +175,13 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
 
             if (filteredItems.length === 0) return null;
 
+            const isClosed = closedSections.has(idx);
             return (
-              <div key={idx} className="space-y-1">
-                <h2 className="px-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  {section.title}
-                </h2>
-                <div className="space-y-0.5 pt-1">
+              <div key={idx} className="mb-3">
+                {!isCollapsed && <button type="button" onClick={() => setClosedSections(current => { const next = new Set(current); next.has(idx) ? next.delete(idx) : next.add(idx); return next; })} className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-[9px] font-black text-slate-400 hover:bg-slate-50 hover:text-slate-600">
+                  <span>{section.title}</span><ChevronDown className={`h-3.5 w-3.5 transition ${isClosed ? '' : 'rotate-180'}`} />
+                </button>}
+                {(!isClosed || isCollapsed) && <div className="mt-1 space-y-0.5">
                   {filteredItems.map(item => {
                     const Icon = item.icon;
                     return (
@@ -178,34 +189,31 @@ export function Sidebar({ isOpenMobile, onCloseMobile }: SidebarProps) {
                         key={item.path}
                         to={item.path}
                         onClick={onCloseMobile}
+                        title={isCollapsed ? item.label : undefined}
                         className={({ isActive }) =>
-                          `flex items-center gap-3.5 px-3 py-2 rounded-2xl text-sm font-semibold transition-all ${
+                          `relative flex h-10 items-center rounded-xl text-xs font-bold transition-colors ${isCollapsed ? 'md:justify-center md:px-0 px-3 gap-3' : 'gap-3 px-3'} ${
                             isActive
-                              ? 'bg-white text-slate-800 font-bold shadow-md shadow-slate-200/60'
-                              : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/60'
+                              ? 'bg-teal-50 text-teal-800'
+                              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
                           }`
                         }
                       >
                         {({ isActive }) => (
                           <>
-                            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-all ${
-                              isActive
-                                ? 'bg-teal-600 text-white shadow-md shadow-teal-600/30'
-                                : 'bg-white text-teal-600 shadow-xs border border-slate-100'
-                            }`}>
-                              <Icon className="w-4 h-4" />
-                            </div>
-                            <span className="truncate">{item.label}</span>
+                            {isActive && <span className="absolute inset-y-2 right-0 w-0.5 rounded-full bg-teal-600 rtl:right-0 ltr:right-auto ltr:left-0" />}
+                            <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-teal-700' : 'text-slate-400'}`} />
+                            <span className={`truncate ${isCollapsed ? 'md:hidden' : ''}`}>{item.label}</span>
                           </>
                         )}
                       </NavLink>
                     );
                   })}
-                </div>
+                </div>}
               </div>
             );
           })}
         </div>
+        {!isCollapsed && user && <div className="hidden shrink-0 border-t border-slate-100 p-3 md:block"><NavLink to="/profile" className="flex items-center gap-2.5 rounded-xl p-2 hover:bg-slate-50"><span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-xl bg-teal-600 text-xs font-black text-white">{user.avatar_url ? <img src={user.avatar_url} alt="" className="h-full w-full object-cover" /> : user.name.charAt(0)}</span><span className="min-w-0"><strong className="block truncate text-[11px] font-black text-slate-800">{user.name}</strong><span className="block truncate text-[9px] text-slate-400">{user.email}</span></span></NavLink></div>}
       </aside>
     </>
   );
