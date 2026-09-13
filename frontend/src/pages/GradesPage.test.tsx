@@ -14,16 +14,16 @@ describe('GradesPage official workflow',()=>{
     vi.spyOn(window,'fetch').mockImplementation(async(input)=>{
       const url=String(input);
       if(url.includes('/auth/me'))return envelope({id:1,name:'RTA',email:'rta@hebron.edu',roles:['RTA'],assigned_levels:['fourth'],department_ids:[1],permissions:[{code:'grades.view',scope:'global'}]});
-      if(url.includes('/grade-entries/options'))return envelope({academic_years:[{id:3,code:'2026-2027',is_current:true}],courses:[{id:8,code:'MED401',name_ar:'الجراحة',name_en:'Surgery',academic_level:'fourth',is_active:true,assessment_components:[{code:'clinical',name:'التقييم السريري',max_score:20,weight:20},{code:'osce',name:'امتحان OSCE',max_score:40,weight:40},{code:'written',name:'الامتحان النظري',max_score:40,weight:40}]}],assigned_levels:['fourth']});
+      if(url.includes('/grade-entries/options'))return envelope({academic_years:[{id:3,code:'2026-2027',is_current:true}],courses:[{id:8,code:'MED401',name_ar:'الجراحة',name_en:'Surgery',academic_level:'fourth',is_active:true,assessment_components:[{code:'clinical',name:'Clinical practice',max_score:25,weight:25},{code:'osce',name:'Skills examination',max_score:35,weight:35},{code:'written',name:'Knowledge examination',max_score:40,weight:40}]}],assigned_levels:['fourth']});
       if(url.includes('/grade-entries/approval-status'))return envelope(null);
       if(url.includes('/grade-entries/roster'))return envelope([{student:{id:5,university_number:'22210001',full_name_ar:'طالب',full_name_en:'Clinical Student',academic_level:'fourth'},official_clinical_score:18,grade_entry:null}]);
       throw new Error(`Unmocked request: ${url}`);
     });
     renderWithProviders(<GradesPage/>,{route:'/grades'});
-    expect(await screen.findByText('Assessment plan: 20 + 40 + 40 = 100')).toBeVisible();
-    expect(await screen.findByText('Clinical assessment /20')).toBeVisible();
-    expect(screen.getByText('OSCE exam /40')).toBeVisible();
-    expect(screen.getByText('Written exam /40')).toBeVisible();
+    expect(await screen.findByText('Assessment plan: 25 + 35 + 40 = 100')).toBeVisible();
+    expect(await screen.findByText('Clinical practice /25')).toBeVisible();
+    expect(screen.getByText('Skills examination /35')).toBeVisible();
+    expect(screen.getByText('Knowledge examination /40')).toBeVisible();
   });
 
   it('loads the scoped official roster and never submits a client clinical score',async()=>{

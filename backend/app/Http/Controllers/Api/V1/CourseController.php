@@ -163,6 +163,10 @@ class CourseController extends Controller
             'notes' => 'nullable|string',
         ]);
 
+        if ($component->code && array_key_exists('weight', $validated)) {
+            $validated['max_score'] = $validated['weight'];
+        }
+
         $this->validateAssessmentWeight($course, (float) ($validated['weight'] ?? $component->weight ?? 0), $component->id);
 
         $component->update($validated);

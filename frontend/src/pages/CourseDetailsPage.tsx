@@ -98,7 +98,6 @@ export function CourseDetailsPage() {
   // Assessment Component Form State
   const [compName, setCompName] = useState('');
   const [compWeight, setCompWeight] = useState('20');
-  const [compMaxScore, setCompMaxScore] = useState('100');
   const [compNotes, setCompNotes] = useState('');
 
   // ILO Form State
@@ -256,13 +255,11 @@ export function CourseDetailsPage() {
       setEditingComp(comp);
       setCompName(comp.name);
       setCompWeight(String(comp.weight || 20));
-      setCompMaxScore(String(comp.max_score || 100));
       setCompNotes(comp.notes || '');
     } else {
       setEditingComp(null);
       setCompName('');
       setCompWeight('20');
-      setCompMaxScore('100');
       setCompNotes('');
     }
     setIsCompModalOpen(true);
@@ -274,7 +271,7 @@ export function CourseDetailsPage() {
     compMutation.mutate({
       name: compName.trim(),
       weight: Number(compWeight),
-      max_score: Number(compMaxScore),
+      max_score: Number(compWeight),
       notes: compNotes.trim() || null,
     });
   };
@@ -646,9 +643,9 @@ export function CourseDetailsPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">{locale === 'ar' ? 'الوزن النسبي (%):' : 'Weight (%):'}</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">{locale === 'ar' ? 'العلامة والوزن من 100:' : 'Score and weight out of 100:'}</label>
                   <input
                     type="number"
                     required
@@ -660,17 +657,6 @@ export function CourseDetailsPage() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">{locale === 'ar' ? 'العلامة القصوى:' : 'Max Score:'}</label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    value={compMaxScore}
-                    onChange={e => setCompMaxScore(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
-                  />
-                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">

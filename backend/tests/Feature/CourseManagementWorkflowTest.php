@@ -79,11 +79,12 @@ class CourseManagementWorkflowTest extends TestCase
 
         $osce = $course->assessmentComponents()->where('code', 'osce')->firstOrFail();
         $this->actingAs($this->manager)->putJson("/api/v1/courses/{$course->id}/assessment-components/{$osce->id}", [
-            'name' => 'الفحص السريري الموضوعي OSCE', 'weight' => 35, 'max_score' => 35,
+            'name' => 'الفحص السريري الموضوعي OSCE', 'weight' => 35,
         ])->assertOk()
             ->assertJsonPath('data.code', 'osce')
             ->assertJsonPath('data.name', 'الفحص السريري الموضوعي OSCE')
-            ->assertJsonPath('data.weight', '35.00');
+            ->assertJsonPath('data.weight', '35.00')
+            ->assertJsonPath('data.max_score', '35.00');
 
         $this->actingAs($this->manager)->postJson("/api/v1/courses/{$course->id}/learning-outcomes", [
             'outcome_code' => 'ILO-1', 'text_ar' => 'مخرج تعلم',
