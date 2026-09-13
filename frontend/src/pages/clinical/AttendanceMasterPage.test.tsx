@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { AttendanceMasterPage } from './AttendanceMasterPage';
@@ -24,7 +24,7 @@ describe('AttendanceMasterPage', () => {
         weeks: [{ number: 1, start_date: '2026-09-01', end_date: '2026-09-07' }],
         selected_week: { number: 1, start_date: '2026-09-01', end_date: '2026-09-07' },
         schedule: [{ rotation_block_id: 7, supervisor: { id: 8, full_name_ar: 'د. أحمد', full_name_en: 'Dr Ahmad' }, training_site: { id: 2, name_ar: 'المستشفى الأهلي', name_en: 'Ahli Hospital' }, scheduled_dates: ['2026-09-01'], student_count: 1 }],
-        students: [{ student: { id: 4, university_number: '22310001', full_name_ar: 'طالب سريري', full_name_en: 'Clinical Student' }, totals: { scheduled_days: 1, elapsed_scheduled_days: 1, recorded_days: 1, present: 0, absent: 1, late: 0, excused: 0, absence_percentage: 100, warning_level: 20 } }],
+        students: [{ student: { id: 4, university_number: '22310001', full_name_ar: 'طالب سريري', full_name_en: 'Clinical Student', photo_url: '/storage/students/4.jpg' }, totals: { scheduled_days: 1, elapsed_scheduled_days: 1, recorded_days: 1, present: 0, absent: 1, late: 0, excused: 0, absence_percentage: 100, warning_level: 20 } }],
       });
       if (url.includes('/attendance-warnings/send') && init?.method === 'POST') {
         sentPayload = JSON.parse(String(init.body));
@@ -38,6 +38,11 @@ describe('AttendanceMasterPage', () => {
     expect(await screen.findByText('Dr Ahmad')).toBeVisible();
     expect(screen.getByText('Clinical Student')).toBeVisible();
     expect(screen.getAllByText(/Week 1/).length).toBeGreaterThan(0);
+    await userEvent.click(screen.getByRole('button', { name: 'Enlarge student photo' }));
+    const photoDialog = screen.getByRole('dialog', { name: 'Clinical Student' });
+    expect(photoDialog).toBeVisible();
+    expect(within(photoDialog).getByText('22310001')).toBeVisible();
+    await userEvent.click(within(photoDialog).getByRole('button', { name: /Close|إغلاق/ }));
     await userEvent.click(await screen.findByRole('button', { name: 'Absence alerts (1)' }));
     expect(await screen.findByText('Formal warning')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Send formal warning' }));

@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { SupervisorStudentPhoto } from '@/components/clinical/SupervisorStudentPhoto';
 
 type Named = { id?: number; code?: string; name?: string; name_ar?: string; name_en?: string | null };
 type Supervisor = { id?: number; full_name_ar?: string; full_name_en?: string | null } | null;
@@ -215,7 +216,7 @@ function WeeklyRegister({ summary, ar, tr }: { summary: GroupSummary; ar: boolea
 function StudentRow({ row, ar, tr }: { row: StudentSummary; ar: boolean; tr: (a: string, e: string) => string }) {
   const studentName = ar ? row.student.full_name_ar : row.student.full_name_en || row.student.full_name_ar;
   return <tr className="text-[11px] hover:bg-slate-50/50">
-    <td className="px-4 py-3"><div className="flex items-center gap-2.5"><span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl bg-teal-50 font-black text-teal-700">{row.student.photo_url ? <img src={row.student.photo_url} alt="" className="h-full w-full object-cover"/> : studentName.trim().charAt(0)}</span><div><b className="block max-w-[180px] truncate text-slate-800">{studentName}</b><span dir="ltr" className="font-mono text-[9px] text-slate-400">{row.student.university_number}</span></div></div></td>
+    <td className="px-4 py-3"><div className="flex items-center gap-2.5"><SupervisorStudentPhoto student={row.student} ar={ar} lightbox/><div><b className="block max-w-[180px] truncate text-slate-800">{studentName}</b><span dir="ltr" className="font-mono text-[9px] text-slate-400">{row.student.university_number}</span></div></div></td>
     <Count value={row.totals.present} tone="emerald"/><Count value={row.totals.absent} tone="rose"/><Count value={row.totals.late} tone="amber"/><Count value={row.totals.excused} tone="sky"/>
     <td className="px-4 py-3 text-center"><b className="text-slate-700">{row.totals.recorded_days}/{row.totals.elapsed_scheduled_days}</b><p className="mt-1 text-[9px] text-slate-400">{tr('يوم مرصود/مستحق','recorded/due')}</p></td>
     <td className="px-4 py-3 text-center"><b className={row.totals.warning_level ? 'text-rose-700' : 'text-slate-700'}>{Number(row.totals.absence_percentage).toFixed(1)}%</b></td>

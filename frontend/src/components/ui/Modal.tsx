@@ -10,9 +10,10 @@ interface ModalProps {
   children: ReactNode;
   footer?: ReactNode;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  backdropTone?: 'dark' | 'light';
 }
 
-export function Modal({ isOpen, onClose, title, children, footer, maxWidth = 'md' }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, footer, maxWidth = 'md', backdropTone = 'dark' }: ModalProps) {
   const { t } = useI18n();
   useEffect(() => {
     if (isOpen) {
@@ -47,7 +48,7 @@ export function Modal({ isOpen, onClose, title, children, footer, maxWidth = 'md
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div 
-        className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity" 
+        className={`fixed inset-0 backdrop-blur-sm transition-opacity ${backdropTone === 'light' ? 'bg-white/85' : 'bg-slate-900/50'}`}
         onClick={onClose}
         aria-hidden="true"
       />
