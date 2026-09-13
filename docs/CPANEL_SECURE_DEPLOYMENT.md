@@ -5,10 +5,11 @@ root. The intended layout on the current host is:
 
 ```text
 /home/alfajrhe/repositories/cdms/                 private repository and backend
-/home/alfajrhe/domains/cdms.four7.ps/public_html/ public build only
+/home/alfajrhe/cdms.alfajrhealth.com/             public build only
 ```
 
-`public_html` is deployed from an explicit allow-list and contains only:
+The domain document root is deployed from an explicit allow-list and contains
+only:
 
 ```text
 .htaccess
@@ -30,17 +31,17 @@ everything outside the public allow-list:
 ```bash
 cd /home/alfajrhe/repositories/cdms
 
-if [ ! -f backend/.env ] && [ -f /home/alfajrhe/domains/cdms.four7.ps/public_html/backend/.env ]; then
-  cp /home/alfajrhe/domains/cdms.four7.ps/public_html/backend/.env backend/.env
+if [ ! -f backend/.env ] && [ -f /home/alfajrhe/cdms.alfajrhealth.com/backend/.env ]; then
+  cp /home/alfajrhe/cdms.alfajrhealth.com/backend/.env backend/.env
 fi
 
-if [ ! -f backend/vendor/autoload.php ] && [ -f /home/alfajrhe/domains/cdms.four7.ps/public_html/backend/vendor/autoload.php ]; then
+if [ ! -f backend/vendor/autoload.php ] && [ -f /home/alfajrhe/cdms.alfajrhealth.com/backend/vendor/autoload.php ]; then
   mkdir -p backend/vendor
-  cp -a /home/alfajrhe/domains/cdms.four7.ps/public_html/backend/vendor/. backend/vendor/
+  cp -a /home/alfajrhe/cdms.alfajrhealth.com/backend/vendor/. backend/vendor/
 fi
 
-if [ -d /home/alfajrhe/domains/cdms.four7.ps/public_html/backend/storage ]; then
-  rsync -a /home/alfajrhe/domains/cdms.four7.ps/public_html/backend/storage/ backend/storage/
+if [ -d /home/alfajrhe/cdms.alfajrhealth.com/backend/storage ]; then
+  rsync -a /home/alfajrhe/cdms.alfajrhealth.com/backend/storage/ backend/storage/
 fi
 
 mkdir -p backend/storage/app/public backend/storage/framework/{cache,sessions,views} backend/bootstrap/cache
@@ -71,11 +72,11 @@ php artisan queue:restart
 Verify that public source paths are denied:
 
 ```bash
-curl -I https://cdms.four7.ps/.git/config
-curl -I https://cdms.four7.ps/backend/.env
-curl -I https://cdms.four7.ps/frontend/package.json
-curl -I https://cdms.four7.ps/README.md
-curl -I https://cdms.four7.ps/api/v1/health
+curl -I https://cdms.alfajrhealth.com/.git/config
+curl -I https://cdms.alfajrhealth.com/backend/.env
+curl -I https://cdms.alfajrhealth.com/frontend/package.json
+curl -I https://cdms.alfajrhealth.com/README.md
+curl -I https://cdms.alfajrhealth.com/api/v1/health
 ```
 
 The first four requests must return `403` or `404`. The health endpoint must

@@ -8,15 +8,17 @@ use Illuminate\Http\Request;
 define('LARAVEL_START', microtime(true));
 
 /*
- * Production keeps public_html at /home/<account>/domains/<domain>/public_html
- * and the private application at /home/<account>/repositories/cdms/backend.
+ * Production keeps the domain document root separate from the private
+ * application at /home/<account>/repositories/cdms/backend.
  * The local fallback supports development and the one-time server migration.
  */
 $configuredBackend = getenv('CDMS_BACKEND_PATH') ?: null;
-$accountHome = dirname(__DIR__, 3);
 $candidates = array_filter([
     $configuredBackend,
-    $accountHome.'/repositories/cdms/backend',
+    // cPanel addon-domain root: /home/<account>/<domain>
+    dirname(__DIR__).'/repositories/cdms/backend',
+    // Hosts using: /home/<account>/domains/<domain>/public_html
+    dirname(__DIR__, 3).'/repositories/cdms/backend',
     __DIR__.'/backend',
 ]);
 
