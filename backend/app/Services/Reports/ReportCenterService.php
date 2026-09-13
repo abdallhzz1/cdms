@@ -59,13 +59,20 @@ class ReportCenterService
         $courseReports = CourseReport::query();
         $this->filterCourseReports($courseReports, $filters);
 
+        $vacantRows = CourseScheduleRow::query()
+            ->where('row_type', 'vacancy')
+            ->whereHas('version', fn ($query) => $query->where('status', 'published')->where('is_current', true));
+        $vacantRows->when($filters['academic_year_id'] ?? null, fn ($query, $year) => $query->whereHas('version.rotation', fn ($rotation) => $rotation->where('academic_year_id', $year)));
+        $vacantRows->when($filters['academic_level'] ?? null, fn ($query, $level) => $query->whereHas('version.rotation', fn ($rotation) => $rotation->where('academic_level', $level)));
+        $vacantRows->when($filters['clinical_period_id'] ?? null, fn ($query, $period) => $query->whereHas('version.rotation', fn ($rotation) => $rotation->where('clinical_period_id', $period)));
+
         return [
             'students' => (clone $students)->count(),
             'academically_registered' => (clone $students)->where('academic_registration_status', 'registered')->count(),
             'students_in_groups' => (clone $rosters)->distinct('student_id')->count('student_id'),
             'students_in_published_schedule' => (clone $assignments)->distinct('student_id')->count('student_id'),
             'active_supervisors' => $this->supervisorsQuery()->where('is_active', true)->count(),
-            'vacant_schedule_rows' => CourseScheduleRow::query()->where('row_type', 'vacancy')->count(),
+            'vacant_schedule_rows' => $vacantRows->count(),
             'course_reports_pending_approval' => (clone $courseReports)->where('status', 'submitted')->count(),
         ];
     }
