@@ -12,6 +12,7 @@ root. The intended layout on the current host is:
 
 ```text
 .htaccess
+.well-known/ (when managed by the host for TLS validation)
 assets/
 favicon.svg
 index.html
