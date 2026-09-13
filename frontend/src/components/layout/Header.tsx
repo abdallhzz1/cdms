@@ -126,7 +126,7 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
-      <div className="flex h-14 items-center justify-between px-3 sm:px-5 lg:px-7">
+      <div className="flex h-16 items-center justify-between px-3 sm:px-5 lg:px-7">
         
         {/* ========================================================================= */}
         {/* START SIDE: Mobile Menu Button & University Branding */}
@@ -142,8 +142,8 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
           </button>
           
           <div className="min-w-0">
-            <p className="truncate text-xs font-black text-slate-800">{locale === 'ar' ? 'مساحة العمل' : 'Workspace'}</p>
-            <p className="hidden truncate text-[9px] font-bold text-slate-400 sm:block">{roleLabel}</p>
+            <p className="truncate text-sm font-black text-slate-800">{locale === 'ar' ? 'مساحة العمل' : 'Workspace'}</p>
+            <p className="hidden truncate text-[10px] font-bold text-slate-500 sm:block">{roleLabel}</p>
           </div>
         </div>
 
@@ -260,7 +260,7 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
 
                 {/* User Name & Role Label (Desktop) */}
                 <div className="hidden text-start lg:block">
-                  <p className="text-xs font-bold text-slate-800 leading-tight truncate max-w-[130px]">
+                  <p className="max-w-[150px] truncate text-sm font-bold leading-tight text-slate-800">
                     {user.name}
                   </p>
                 </div>

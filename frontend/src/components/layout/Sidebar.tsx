@@ -143,16 +143,16 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
       )}
       {/* Sidebar Content */}
       <aside
-        className={`fixed inset-y-0 z-40 flex max-w-[86vw] flex-col border-e border-slate-200 bg-white transition-all duration-200 ease-in-out md:sticky md:top-0 md:h-screen md:translate-x-0 ${isCollapsed ? 'md:w-20' : 'md:w-64'} w-72 ${
+        className={`fixed inset-y-0 z-40 flex max-w-[88vw] flex-col border-e border-slate-200 bg-white transition-all duration-200 ease-in-out md:sticky md:top-0 md:h-screen md:translate-x-0 ${isCollapsed ? 'md:w-20' : 'md:w-72'} w-80 ${
           isOpenMobile
             ? 'translate-x-0 shadow-2xl'
             : locale === 'ar' ? 'translate-x-full md:translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-3">
+        <div className="flex h-18 shrink-0 items-center justify-between border-b border-slate-100 px-4">
           <NavLink to="/" onClick={onCloseMobile} className="flex min-w-0 items-center gap-2.5">
-            <img src={hebronLogo} alt="" className="h-9 w-9 shrink-0 object-contain" />
-            {!isCollapsed && <span className="min-w-0"><strong className="block truncate text-xs font-black text-slate-900">{locale === 'ar' ? 'جامعة الخليل' : 'Hebron University'}</strong><span className="mt-0.5 block truncate text-[9px] font-bold text-teal-700">{locale === 'ar' ? 'إدارة الدائرة السريرية' : 'Clinical Department'}</span></span>}
+            <img src={hebronLogo} alt="" className="h-10 w-10 shrink-0 object-contain" />
+            {!isCollapsed && <span className="min-w-0"><strong className="block truncate text-sm font-black text-slate-900">{locale === 'ar' ? 'جامعة الخليل' : 'Hebron University'}</strong><span className="mt-0.5 block truncate text-[11px] font-bold text-teal-700">{locale === 'ar' ? 'إدارة الدائرة السريرية' : 'Clinical Department'}</span></span>}
           </NavLink>
           <button onClick={onCloseMobile} aria-label={locale === 'ar' ? 'إغلاق القائمة' : 'Close navigation'} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 md:hidden">
             <X className="h-5 w-5" />
@@ -178,8 +178,8 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
             const isClosed = closedSections.has(idx);
             return (
               <div key={idx} className="mb-3">
-                {!isCollapsed && <button type="button" onClick={() => setClosedSections(current => { const next = new Set(current); next.has(idx) ? next.delete(idx) : next.add(idx); return next; })} className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-[9px] font-black text-slate-400 hover:bg-slate-50 hover:text-slate-600">
-                  <span>{section.title}</span><ChevronDown className={`h-3.5 w-3.5 transition ${isClosed ? '' : 'rotate-180'}`} />
+                {!isCollapsed && <button type="button" onClick={() => setClosedSections(current => { const next = new Set(current); next.has(idx) ? next.delete(idx) : next.add(idx); return next; })} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-[11px] font-black text-slate-500 hover:bg-slate-50 hover:text-slate-700">
+                  <span>{section.title}</span><ChevronDown className={`h-4 w-4 transition ${isClosed ? '' : 'rotate-180'}`} />
                 </button>}
                 {(!isClosed || isCollapsed) && <div className="mt-1 space-y-0.5">
                   {filteredItems.map(item => {
@@ -191,7 +191,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
                         onClick={onCloseMobile}
                         title={isCollapsed ? item.label : undefined}
                         className={({ isActive }) =>
-                          `relative flex h-10 items-center rounded-xl text-xs font-bold transition-colors ${isCollapsed ? 'md:justify-center md:px-0 px-3 gap-3' : 'gap-3 px-3'} ${
+                          `relative flex h-11 items-center rounded-xl text-sm font-bold transition-colors ${isCollapsed ? 'md:justify-center md:px-0 px-3 gap-3' : 'gap-3.5 px-3'} ${
                             isActive
                               ? 'bg-teal-50 text-teal-800'
                               : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
@@ -201,7 +201,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
                         {({ isActive }) => (
                           <>
                             {isActive && <span className="absolute inset-y-2 right-0 w-0.5 rounded-full bg-teal-600 rtl:right-0 ltr:right-auto ltr:left-0" />}
-                            <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-teal-700' : 'text-slate-400'}`} />
+                            <Icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-teal-800' : 'text-teal-600'}`} />
                             <span className={`truncate ${isCollapsed ? 'md:hidden' : ''}`}>{item.label}</span>
                           </>
                         )}
@@ -213,7 +213,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
             );
           })}
         </div>
-        {!isCollapsed && user && <div className="hidden shrink-0 border-t border-slate-100 p-3 md:block"><NavLink to="/profile" className="flex items-center gap-2.5 rounded-xl p-2 hover:bg-slate-50"><span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-xl bg-teal-600 text-xs font-black text-white">{user.avatar_url ? <img src={user.avatar_url} alt="" className="h-full w-full object-cover" /> : user.name.charAt(0)}</span><span className="min-w-0"><strong className="block truncate text-[11px] font-black text-slate-800">{user.name}</strong><span className="block truncate text-[9px] text-slate-400">{user.email}</span></span></NavLink></div>}
+        {!isCollapsed && user && <div className="hidden shrink-0 border-t border-slate-100 p-3 md:block"><NavLink to="/profile" className="flex items-center gap-3 rounded-xl p-2.5 hover:bg-slate-50"><span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-teal-600 text-sm font-black text-white">{user.avatar_url ? <img src={user.avatar_url} alt="" className="h-full w-full object-cover" /> : user.name.charAt(0)}</span><span className="min-w-0"><strong className="block truncate text-xs font-black text-slate-800">{user.name}</strong><span className="mt-0.5 block truncate text-[10px] text-slate-400">{user.email}</span></span></NavLink></div>}
       </aside>
     </>
   );
