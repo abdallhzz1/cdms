@@ -1,13 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, BookOpenCheck, CalendarDays, GraduationCap, Search, UserCheck, Users } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BookOpenCheck, CalendarDays, Search, UserCheck, UserX, Users, X } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { AdvisingNavTabs } from '@/components/advising/AdvisingNavTabs';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { LoadingState } from '@/components/ui/LoadingState';
+import { PageHeader } from '@/components/ui/PageHeader';
 
 type AdvisorOption = { id: number; name: string; person_id?: number | null };
 type AdvisingStudent = {
@@ -40,7 +41,11 @@ export function AdvisingDashboardPage() {
   const ar = locale === 'ar';
   const [level, setLevel] = useState('');
   const [advisorId, setAdvisorId] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const [focus, setFocus] = useState<'all'|'risk'|'open'|'unassigned'>('all');
+
+  useEffect(()=>{const timer=window.setTimeout(()=>setSearch(searchInput.trim()),300);return()=>window.clearTimeout(timer)},[searchInput]);
 
   const query = useMemo(() => {
     const params = new URLSearchParams();
@@ -66,58 +71,47 @@ export function AdvisingDashboardPage() {
   if (overviewQuery.isError || !overviewQuery.data) return <ErrorState onRetry={() => overviewQuery.refetch()} />;
 
   const data = overviewQuery.data;
-  const maximumLevel = Math.max(1, ...Object.values(data.level_counts));
   const indicators = [
     { label: ar ? 'الطلبة ضمن نطاقك' : 'Students in scope', value: data.metrics.students, icon: Users },
     { label: ar ? 'حالات تحتاج تدخلاً' : 'Cases requiring attention', value: data.metrics.at_risk, icon: AlertTriangle },
     { label: ar ? 'ملفات إرشاد مفتوحة' : 'Open advising cases', value: data.metrics.open_cases, icon: BookOpenCheck },
     { label: ar ? 'جلسات هذا الشهر' : 'Sessions this month', value: data.metrics.sessions_this_month, icon: CalendarDays },
+    { label: ar ? 'دون مرشد' : 'Without advisor', value: data.metrics.without_advisor, icon: UserX },
   ];
+  const visibleStudents=data.students.filter(student=>focus==='all'||(focus==='risk'&&(student.warning_count>0||(Number(student.gpa)>0&&Number(student.gpa)<65)))||(focus==='open'&&student.open_advising_count>0)||(focus==='unassigned'&&!student.academic_advisor));
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-4 pb-14">
-      <header className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-start gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700 ring-1 ring-teal-100"><GraduationCap className="h-5 w-5" /></span>
-            <div><p className="text-[9px] font-black uppercase tracking-[.18em] text-teal-600">{ar ? 'الإرشاد الأكاديمي' : 'Academic advising'}</p><h1 className="mt-1 text-lg font-black text-slate-950 sm:text-xl">{ar ? 'متابعة الطلبة والحالات الإرشادية' : 'Student and advising-case follow-up'}</h1><p className="mt-1 max-w-3xl text-[10px] leading-5 text-slate-500 sm:text-xs">{ar ? 'صورة تشغيلية موحدة للطلبة المعينين، مؤشرات التعثر، الجلسات وخطط المتابعة.' : 'A unified operational view of assigned students, risk indicators, sessions, and follow-up plans.'}</p></div>
-          </div>
-          <div className="flex gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <PageHeader title={ar?'الإرشاد الأكاديمي':'Academic advising'} description={ar?'متابعة الطلبة والحالات التي تحتاج تدخلاً وتوثيق الجلسات.':'Follow students, cases requiring intervention, and documented sessions.'}/>
+          <div className="flex shrink-0 gap-2">
             {can('advising.assign') && <Link to="/advising/assignments" className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-teal-200 px-4 text-[10px] font-bold text-teal-700 transition hover:bg-teal-50 sm:flex-none"><UserCheck className="h-4 w-4" />{ar ? 'تعيين المرشدين' : 'Assign advisors'}</Link>}
             {can('advising.manage') && <Link to="/advising/logs?new=1" className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 text-[10px] font-black text-white transition hover:bg-teal-700 sm:flex-none"><BookOpenCheck className="h-4 w-4" />{ar ? 'تسجيل جلسة' : 'Log a session'}</Link>}
-          </div>
-        </div>
-      </header>
+          </div></div>
 
       <AdvisingNavTabs />
 
-      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-        <div className="grid grid-cols-2 border-b border-slate-100 lg:grid-cols-4">
-          {indicators.map((item, index) => { const Icon = item.icon; return <div key={item.label} className={`flex min-h-24 items-center gap-3 px-4 py-4 sm:px-5 ${index % 2 ? 'border-s border-slate-100' : ''} ${index > 1 ? 'border-t border-slate-100 lg:border-t-0' : ''} ${index > 0 ? 'lg:border-s lg:border-slate-100' : ''}`}><Icon className="h-4 w-4 shrink-0 text-teal-600" /><div><p className="text-xl font-black tabular-nums text-slate-950">{item.value}</p><p className="mt-1 text-[9px] font-bold leading-4 text-slate-500">{item.label}</p></div></div>; })}
-        </div>
+      <section className="grid grid-cols-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:grid-cols-5">
+          {indicators.map((item,index) => { const Icon=item.icon;const attention=(index===1||index===4)&&item.value>0;return <button key={item.label} onClick={()=>index===1?setFocus('risk'):index===2?setFocus('open'):index===4?setFocus('unassigned'):setFocus('all')} className="flex min-w-0 items-center gap-2 border-b border-e border-slate-100 p-3 text-start last:border-e-0 md:border-b-0"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${attention?'bg-amber-50 text-amber-600':'bg-teal-50 text-teal-700'}`}><Icon className="h-4 w-4"/></span><div className="min-w-0"><p className="text-lg font-black text-slate-900">{item.value}</p><p className="truncate text-[9px] font-bold text-slate-500">{item.label}</p></div></button>})}
+      </section>
 
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_330px]">
-          <div className="min-w-0 p-4 sm:p-5 lg:border-e lg:border-slate-100">
-            <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
-              <div><h2 className="text-sm font-black text-slate-900">{ar ? 'قائمة المتابعة الإرشادية' : 'Advising follow-up roster'}</h2><p className="mt-1 text-[9px] text-slate-400">{ar ? 'مرتبة تلقائياً حسب الإنذارات والمعدل والحاجة للتدخل.' : 'Automatically prioritized by warnings, GPA, and intervention need.'}</p></div>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="p-4 sm:p-5">
+            <div className="space-y-3 border-b border-slate-100 pb-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-sm font-black text-slate-900">{ar ? 'الطلبة والمتابعة' : 'Students and follow-up'}</h2><p className="mt-1 text-[9px] text-slate-400">{ar ? 'مرتبة حسب الإنذارات والمعدل، وتعرض أول 40 طالبًا مطابقًا.' : 'Prioritized by warnings and GPA, showing the first 40 matches.'}</p></div><div className="flex gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1">{([{key:'all',ar:'الكل',en:'All'},{key:'risk',ar:'يحتاج تدخلاً',en:'At risk'},{key:'open',ar:'ملف مفتوح',en:'Open case'},{key:'unassigned',ar:'بلا مرشد',en:'Unassigned'}] as const).map(item=><button key={item.key} onClick={()=>setFocus(item.key)} className={`shrink-0 rounded-lg px-3 py-2 text-[10px] font-bold ${focus===item.key?'bg-white text-teal-800 shadow-sm':'text-slate-500'}`}>{ar?item.ar:item.en}</button>)}</div></div>
               <div className="grid gap-2 sm:grid-cols-3">
-                <label className="relative"><Search className="absolute start-3 top-3 h-3.5 w-3.5 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={ar ? 'بحث عن طالب...' : 'Search student...'} className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 ps-9 pe-3 text-[10px] outline-none focus:border-teal-300 focus:bg-white" /></label>
+                <label className="relative"><Search className="absolute start-3 top-3 h-3.5 w-3.5 text-slate-400" /><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={ar ? 'اسم الطالب أو رقمه...' : 'Student name or number...'} className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 ps-9 pe-8 text-[10px] outline-none focus:border-teal-300 focus:bg-white" />{searchInput&&<button onClick={()=>setSearchInput('')} className="absolute end-2.5 top-3 text-slate-400"><X className="h-3.5 w-3.5"/></button>}</label>
                 <select value={level} onChange={(event) => setLevel(event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-bold text-slate-600"><option value="">{ar ? 'كل الدفعات' : 'All cohorts'}</option><option value="fourth">{levelLabel('fourth', ar)}</option><option value="fifth">{levelLabel('fifth', ar)}</option><option value="sixth">{levelLabel('sixth', ar)}</option></select>
                 {can('advising.assign') && <select value={advisorId} onChange={(event) => setAdvisorId(event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-bold text-slate-600"><option value="">{ar ? 'كل المرشدين' : 'All advisors'}</option>{(advisorsQuery.data ?? []).map((advisor) => <option key={advisor.id} value={advisor.id}>{advisor.name}</option>)}</select>}
               </div>
             </div>
 
-            <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[720px] text-start text-[10px]"><thead><tr className="border-b border-slate-100 text-slate-400"><th className="px-3 py-3 font-bold">{ar ? 'الطالب' : 'Student'}</th><th className="px-3 py-3 font-bold">{ar ? 'الدفعة' : 'Cohort'}</th><th className="px-3 py-3 font-bold">{ar ? 'المؤشرات' : 'Indicators'}</th><th className="px-3 py-3 font-bold">{ar ? 'المرشد' : 'Advisor'}</th><th className="px-3 py-3 font-bold">{ar ? 'آخر جلسة' : 'Last session'}</th><th className="w-10" /></tr></thead><tbody className="divide-y divide-slate-100">{data.students.map((student) => <StudentRow key={student.id} student={student} ar={ar} />)}</tbody></table></div>
-            <div className="divide-y divide-slate-100 md:hidden">{data.students.map((student) => <StudentMobileCard key={student.id} student={student} ar={ar} />)}</div>
-            {!data.students.length && <div className="py-14 text-center text-[10px] text-slate-400">{ar ? 'لا يوجد طلاب مطابقون للفلاتر الحالية.' : 'No students match the current filters.'}</div>}
+            <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[720px] text-start text-[10px]"><thead><tr className="border-b border-slate-100 text-slate-400"><th className="px-3 py-3 font-bold">{ar ? 'الطالب' : 'Student'}</th><th className="px-3 py-3 font-bold">{ar ? 'الدفعة' : 'Cohort'}</th><th className="px-3 py-3 font-bold">{ar ? 'المؤشرات' : 'Indicators'}</th><th className="px-3 py-3 font-bold">{ar ? 'المرشد' : 'Advisor'}</th><th className="px-3 py-3 font-bold">{ar ? 'آخر جلسة' : 'Last session'}</th><th className="w-10" /></tr></thead><tbody className="divide-y divide-slate-100">{visibleStudents.map((student) => <StudentRow key={student.id} student={student} ar={ar} />)}</tbody></table></div>
+            <div className="divide-y divide-slate-100 md:hidden">{visibleStudents.map((student) => <StudentMobileCard key={student.id} student={student} ar={ar} />)}</div>
+            {!visibleStudents.length && <div className="py-14 text-center text-[10px] text-slate-400">{ar ? 'لا يوجد طلاب مطابقون للفلاتر الحالية.' : 'No students match the current filters.'}</div>}
           </div>
-
-          <aside className="space-y-5 bg-slate-50/45 p-4 sm:p-5">
-            <div><div className="flex items-center justify-between"><h2 className="text-xs font-black text-slate-900">{ar ? 'توزيع الطلبة' : 'Student distribution'}</h2><span className="text-[9px] font-bold text-teal-700">{data.metrics.students}</span></div><div className="mt-4 space-y-3">{(['fourth', 'fifth', 'sixth'] as const).map((item) => <div key={item}><div className="mb-1.5 flex justify-between text-[9px]"><span className="font-bold text-slate-500">{levelLabel(item, ar)}</span><b className="text-slate-800">{data.level_counts[item]}</b></div><div className="h-2 overflow-hidden rounded-full bg-white ring-1 ring-slate-100"><div className="h-full rounded-full bg-teal-500" style={{ width: `${(data.level_counts[item] / maximumLevel) * 100}%` }} /></div></div>)}</div></div>
-            <div className="border-t border-slate-200 pt-5"><div className="mb-3 flex items-center justify-between"><h2 className="text-xs font-black text-slate-900">{ar ? 'آخر الجلسات' : 'Recent sessions'}</h2><Link to="/advising/logs" className="text-[9px] font-bold text-teal-700">{ar ? 'عرض السجل' : 'View log'}</Link></div><div className="space-y-2">{data.recent_records.map((record) => <Link key={record.id} to={`/advising/records/${record.id}`} className="block rounded-2xl bg-white p-3 ring-1 ring-slate-100 transition hover:ring-teal-200"><div className="flex items-center justify-between gap-2"><p className="truncate text-[10px] font-black text-slate-700">{ar ? record.student?.full_name_ar : record.student?.full_name_en || record.student?.full_name_ar}</p><span className="shrink-0 text-[8px] text-slate-400">{String(record.meeting_date).slice(0, 10)}</span></div><p className="mt-1 text-[8px] text-slate-400">{categoryLabel(record.category, ar)} · {statusLabel(record.status, ar)}</p></Link>)}{!data.recent_records.length && <p className="rounded-2xl border border-dashed border-slate-200 p-5 text-center text-[9px] text-slate-400">{ar ? 'لم تسجل جلسات بعد.' : 'No sessions recorded yet.'}</p>}</div></div>
-          </aside>
-        </div>
       </section>
+      {data.recent_records.length>0&&<section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center justify-between"><h2 className="text-xs font-black text-slate-900">{ar?'آخر الجلسات':'Recent sessions'}</h2><Link to="/advising/logs" className="text-[10px] font-bold text-teal-700">{ar?'عرض السجل الكامل':'View full log'}</Link></div><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{data.recent_records.map(record=><Link key={record.id} to={`/advising/records/${record.id}`} className="rounded-xl bg-slate-50 p-3 transition hover:bg-teal-50"><div className="flex justify-between gap-2"><p className="truncate text-[10px] font-black text-slate-700">{ar?record.student?.full_name_ar:record.student?.full_name_en||record.student?.full_name_ar}</p><span className="text-[8px] text-slate-400">{String(record.meeting_date).slice(0,10)}</span></div><p className="mt-1 text-[8px] text-slate-400">{categoryLabel(record.category,ar)} · {statusLabel(record.status,ar)}</p></Link>)}</div></section>}
     </div>
   );
 }
