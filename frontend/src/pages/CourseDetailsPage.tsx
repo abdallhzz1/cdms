@@ -405,7 +405,7 @@ export function CourseDetailsPage() {
         {activeSection==='outcomes'&&<div className="space-y-4">
           
           {/* Learning Outcomes (ILOs) Card */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+          <section className="overflow-hidden border-y border-slate-200 bg-white">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Target className="w-4 h-4 text-teal-600" />
@@ -431,9 +431,9 @@ export function CourseDetailsPage() {
               {!data.learning_outcomes?.length ? (
                 <EmptyState message={locale === 'ar' ? 'لم يتم إضافة مخرجات تعلم (ILOs) لهذا المساق بعد' : 'No learning outcomes added yet'} />
               ) : (
-                <div className="space-y-3">
+                <div className="divide-y divide-slate-100">
                   {data.learning_outcomes.map(item => (
-                    <div key={item.id} className="p-3.5 bg-slate-50/70 rounded-xl border border-slate-200/80 hover:border-teal-200 transition-all space-y-2">
+                    <div key={item.id} className="space-y-2 px-1 py-3.5 transition-colors hover:bg-slate-50/70 sm:px-2">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-teal-700 font-mono bg-teal-50 border border-teal-100 px-2.5 py-0.5 rounded-md text-xs">
@@ -476,10 +476,10 @@ export function CourseDetailsPage() {
                 </div>
               )}
             </div>
-          </div>
+          </section>
 
           {/* Program Outcomes Mapping (PLOs) Card */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+          <section className="overflow-hidden border-y border-slate-200 bg-white">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <CheckCircle className="w-4 h-4 text-teal-600" />
@@ -502,9 +502,9 @@ export function CourseDetailsPage() {
               {!data.program_outcome_mappings?.length ? (
                 <EmptyState message={locale === 'ar' ? 'لا يوجد ارتباط بمخرجات البرنامج العامة حالياً' : 'No program outcome mappings defined'} />
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="divide-y divide-slate-100">
                   {data.program_outcome_mappings.map(item => (
-                    <div key={item.id} className="flex items-start justify-between gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div key={item.id} className="flex items-start justify-between gap-3 px-1 py-3.5 transition-colors hover:bg-slate-50/70 sm:px-2">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-bold font-mono text-slate-800 text-xs">{item.program_outcome_code}</span>
@@ -535,7 +535,7 @@ export function CourseDetailsPage() {
                 </div>
               )}
             </div>
-          </div>
+          </section>
         </div>}
 
         {/* Sidebar Column (1/3 width) */}
