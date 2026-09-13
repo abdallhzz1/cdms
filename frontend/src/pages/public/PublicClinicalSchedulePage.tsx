@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { ApiError, apiFetch } from "@/api/client";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ProfilePhotoLightbox } from "@/components/ui/ProfilePhotoLightbox";
 import hebronLogo from "@/assets/hebron.png";
 import { useI18n } from "@/i18n/I18nContext";
 import {
@@ -10,7 +11,6 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
-  GraduationCap,
   LockKeyhole,
   Mail,
   RefreshCw,
@@ -59,6 +59,7 @@ type ScheduleItem = {
     name: string;
     full_name_ar: string | null;
     full_name_en: string | null;
+    avatar_url?: string | null;
     work_schedule?: {
       day: string;
       status: "work" | "leave" | "unavailable";
@@ -84,12 +85,14 @@ type StudentSchedule = {
     name_en: string | null;
     university_number: string;
     academic_level: string;
+    photo_url?: string | null;
   };
   group: { name: string } | null;
   subgroup: { name: string } | null;
   members: {
     name: string;
     name_en: string | null;
+    photo_url?: string | null;
     is_current_student: boolean;
   }[];
   schedule: ScheduleItem[];
@@ -416,9 +419,7 @@ export function PublicClinicalSchedulePage() {
           <section className="space-y-3 sm:space-y-4">
             <Card className="rounded-2xl border border-slate-200 p-3 sm:rounded-[28px] sm:p-5">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-600 text-white sm:h-11 sm:w-11">
-                  <GraduationCap className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
-                </div>
+                <ProfilePhotoLightbox photoUrl={data.student.photo_url} name={ar ? data.student.name : data.student.name_en || data.student.name} subtitle={data.student.university_number} enlargeLabel={tr('تكبير صورة الطالب','Enlarge student photo')} />
                 <div className="min-w-0 flex-1">
                   <h2 className="truncate text-sm font-black sm:text-base">
                     {ar ? data.student.name : data.student.name_en || data.student.name}
@@ -594,12 +595,10 @@ export function PublicClinicalSchedulePage() {
                             {item.item_type === "activity" ? (
                               <span className="text-amber-700">—</span>
                             ) : (
-                              <span className="block">
-                                {(ar ? item.supervisor?.full_name_ar : item.supervisor?.full_name_en) ||
-                                  item.supervisor?.full_name_ar ||
-                                  item.supervisor?.name ||
-                                  tr("شاغر", "Vacant")}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <ProfilePhotoLightbox photoUrl={item.supervisor?.avatar_url} name={(ar ? item.supervisor?.full_name_ar : item.supervisor?.full_name_en) || item.supervisor?.full_name_ar || item.supervisor?.name || tr("شاغر", "Vacant")} enlargeLabel={tr('تكبير صورة المشرف','Enlarge supervisor photo')} size="sm" />
+                                <span className="block">{(ar ? item.supervisor?.full_name_ar : item.supervisor?.full_name_en) || item.supervisor?.full_name_ar || item.supervisor?.name || tr("شاغر", "Vacant")}</span>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -628,9 +627,7 @@ export function PublicClinicalSchedulePage() {
                       key={`${member.name}-${index}`}
                       className={`flex items-center gap-2 rounded-lg px-2.5 py-2 text-[11px] font-bold ${member.is_current_student ? "bg-teal-50 text-teal-800" : "bg-slate-50 text-slate-600"}`}
                     >
-                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[9px]">
-                        {index + 1}
-                      </span>
+                      <ProfilePhotoLightbox photoUrl={member.photo_url} name={ar ? member.name : member.name_en || member.name} enlargeLabel={tr('تكبير صورة الطالب','Enlarge student photo')} size="sm" />
                       <span className="truncate">{ar ? member.name : member.name_en || member.name}</span>
                       {member.is_current_student && (
                         <span className="ms-auto text-[9px]">{tr("أنت", "You")}</span>

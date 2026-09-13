@@ -94,7 +94,8 @@ class Phase5BTest extends TestCase
             'full_name_en' => 'Ahmad Ali',
             'university_number' => '20260001',
             'academic_year_id' => $this->rotation->academic_year_id,
-            'registration_status' => 'active'
+            'registration_status' => 'active',
+            'photo_url' => '/storage/students/ahmad.jpg',
         ]);
 
         $this->student2 = Student::factory()->create([
@@ -116,6 +117,7 @@ class Phase5BTest extends TestCase
             'department_id' => $this->department1->id,
             'primary_site_id' => $this->site1->id,
             'is_active' => true,
+            'photo_url' => '/storage/avatars/omar.jpg',
         ]);
 
         // Create Current Published Version
@@ -163,6 +165,8 @@ class Phase5BTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertJsonCount(2, 'data.data');
+        $response->assertJsonPath('data.data.0.student.photo_url', '/storage/students/ahmad.jpg');
+        $response->assertJsonPath('data.data.0.supervisor.avatar_url', '/storage/avatars/omar.jpg');
 
         // Check date calculations
         // Block 1: 2026-09-01 -> 2026-09-28

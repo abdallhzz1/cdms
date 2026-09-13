@@ -42,11 +42,13 @@ class PublicStudentScheduleTest extends TestCase
             'academic_level' => 'fourth',
             'academic_year_id' => $year->id,
             'academic_registration_status' => 'registered',
+            'photo_url' => '/storage/students/current.jpg',
         ]);
         $teammate = Student::factory()->create([
             'full_name_ar' => 'زميل المجموعة',
             'academic_level' => 'fourth',
             'academic_year_id' => $year->id,
+            'photo_url' => '/storage/students/teammate.jpg',
         ]);
         $group = StudentGroup::factory()->create([
             'academic_year_id' => $year->id,
@@ -89,7 +91,7 @@ class PublicStudentScheduleTest extends TestCase
             'to_week' => 2,
         ]);
         $site = TrainingSite::factory()->create(['name_ar' => 'مستشفى الأهلي']);
-        $supervisor = Person::factory()->create(['full_name_ar' => 'د. طبيب الاختبار']);
+        $supervisor = Person::factory()->create(['full_name_ar' => 'د. طبيب الاختبار', 'photo_url' => '/storage/avatars/supervisor.jpg']);
         $version = DistributionVersion::create([
             'rotation_id' => $rotation->id,
             'status' => 'published',
@@ -242,13 +244,16 @@ class PublicStudentScheduleTest extends TestCase
         $this->postJson('/api/v1/public/student-schedule', ['access_token' => $token])
             ->assertOk()
             ->assertJsonPath('data.student.university_number', '22210466')
+            ->assertJsonPath('data.student.photo_url', '/storage/students/current.jpg')
             ->assertJsonPath('data.group.name', 'L')
             ->assertJsonPath('data.subgroup.name', 'L1')
             ->assertJsonCount(2, 'data.members')
+            ->assertJsonPath('data.members.0.photo_url', '/storage/students/current.jpg')
             ->assertJsonCount(1, 'data.schedule')
             ->assertJsonPath('data.schedule.0.course.name_ar', 'الجراحة العامة')
             ->assertJsonPath('data.schedule.0.training_site.name_ar', 'مستشفى الأهلي')
-            ->assertJsonPath('data.schedule.0.supervisor.full_name_ar', 'د. طبيب الاختبار');
+            ->assertJsonPath('data.schedule.0.supervisor.full_name_ar', 'د. طبيب الاختبار')
+            ->assertJsonPath('data.schedule.0.supervisor.avatar_url', '/storage/avatars/supervisor.jpg');
 
         $this->postJson('/api/v1/public/student-schedule', ['access_token' => Str::random(80)])
             ->assertUnauthorized()

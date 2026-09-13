@@ -42,6 +42,8 @@ class ClinicalScheduleQueryService
                 'trainingSite',
                 'department',
                 'supervisor.availabilities.trainingSite',
+                'supervisor.user.userProfile',
+                'supervisor.user.clinicalSupervisorProfile',
             ]);
 
         // Auto-scope by department if user is a Department Head or RTA
@@ -127,6 +129,7 @@ class ClinicalScheduleQueryService
             ->addSelect([
                 'students.university_number as dto_student_number', 'students.full_name_ar as dto_student_name_ar',
                 'students.full_name_en as dto_student_name_en', 'students.registration_status as dto_student_status',
+                'students.photo_url as dto_student_photo_url',
                 'courses.code as dto_course_code', 'courses.name_ar as dto_course_name_ar', 'courses.name_en as dto_course_name_en',
                 'academic_years.code as dto_year_code',
                 'student_subgroups.name as dto_subgroup_name', 'student_groups.id as dto_group_id', 'student_groups.name as dto_group_name',
@@ -168,6 +171,8 @@ class ClinicalScheduleQueryService
                 'trainingSite',
                 'department',
                 'supervisor.availabilities.trainingSite',
+                'supervisor.user.userProfile',
+                'supervisor.user.clinicalSupervisorProfile',
             ])
             ->join('rotation_blocks', 'student_clinical_assignments.rotation_block_id', '=', 'rotation_blocks.id')
             ->join('rotations', 'rotation_blocks.rotation_id', '=', 'rotations.id')
@@ -180,6 +185,7 @@ class ClinicalScheduleQueryService
             ->addSelect([
                 'students.university_number as dto_student_number', 'students.full_name_ar as dto_student_name_ar',
                 'students.full_name_en as dto_student_name_en', 'students.registration_status as dto_student_status',
+                'students.photo_url as dto_student_photo_url',
                 'courses.code as dto_course_code', 'courses.name_ar as dto_course_name_ar', 'courses.name_en as dto_course_name_en',
                 'academic_years.code as dto_year_code',
                 'student_subgroups.name as dto_subgroup_name', 'student_groups.id as dto_group_id', 'student_groups.name as dto_group_name',
@@ -203,6 +209,7 @@ class ClinicalScheduleQueryService
             'full_name_ar' => $assignment->dto_student_name_ar,
             'full_name_en' => $assignment->dto_student_name_en,
             'registration_status' => $assignment->dto_student_status,
+            'photo_url' => $assignment->dto_student_photo_url,
         ]));
 
         $rotation = $assignment->rotationBlock?->rotation;

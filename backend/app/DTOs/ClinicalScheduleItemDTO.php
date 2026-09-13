@@ -75,6 +75,7 @@ class ClinicalScheduleItemDTO
                 'full_name_en' => $student->full_name_en,
                 'full_name' => $student->full_name_en ?? $student->full_name_ar,
                 'registration_status' => $student->registration_status,
+                'photo_url' => $student->photo_url,
             ] : null,
             'group' => $group ? [
                 'id' => $group->id,
@@ -142,6 +143,9 @@ class ClinicalScheduleItemDTO
                 'full_name_en' => $supervisor->full_name_en,
                 'name' => $supervisor->full_name_en ?? $supervisor->full_name_ar,
                 'email' => $supervisor->email,
+                'avatar_url' => $supervisor->photo_url
+                    ?: $supervisor->user?->userProfile?->avatar_url
+                    ?: $supervisor->user?->clinicalSupervisorProfile?->avatar_url,
                 'work_schedule' => $workSchedule,
                 'work_locations' => $workLocations,
             ] : null,

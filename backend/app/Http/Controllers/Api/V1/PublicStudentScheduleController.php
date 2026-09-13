@@ -184,6 +184,8 @@ class PublicStudentScheduleController extends Controller
                 'trainingSite',
                 'department',
                 'supervisor.availabilities.trainingSite',
+                'supervisor.user.userProfile',
+                'supervisor.user.clinicalSupervisorProfile',
             ])
             ->get()
             ->sortBy([
@@ -208,7 +210,7 @@ class PublicStudentScheduleController extends Controller
         if ($subgroup) {
             $members = StudentGroupAssignment::current()
                 ->where('student_subgroup_id', $subgroup->id)
-                ->with('student:id,full_name_ar,full_name_en')
+                ->with('student:id,full_name_ar,full_name_en,photo_url')
                 ->get()
                 ->pluck('student')
                 ->filter();
@@ -218,7 +220,7 @@ class PublicStudentScheduleController extends Controller
                     ->whereHas('distributionVersion', fn ($query) => $query
                         ->where('status', 'published')->where('is_current', true))
                     ->distinct()->pluck('student_id');
-                $members = Student::whereIn('id', $memberIds)->get(['id', 'full_name_ar', 'full_name_en']);
+                $members = Student::whereIn('id', $memberIds)->get(['id', 'full_name_ar', 'full_name_en', 'photo_url']);
             }
         }
 
@@ -253,6 +255,7 @@ class PublicStudentScheduleController extends Controller
                     'full_name_ar' => $item['supervisor']['full_name_ar'],
                     'full_name_en' => $item['supervisor']['full_name_en'],
                     'name' => $item['supervisor']['name'],
+                    'avatar_url' => $item['supervisor']['avatar_url'] ?? null,
                     'work_schedule' => $item['supervisor']['work_schedule'] ?? [],
                     'work_locations' => $item['supervisor']['work_locations'] ?? [],
                 ] : null,
@@ -334,12 +337,14 @@ class PublicStudentScheduleController extends Controller
                 'name_en' => $student->full_name_en,
                 'university_number' => $student->university_number,
                 'academic_level' => $student->academic_level,
+                'photo_url' => $student->photo_url,
             ],
             'group' => $group ? ['name' => $group->name] : null,
             'subgroup' => $subgroup ? ['name' => $subgroup->name] : null,
             'members' => $members->sortBy('full_name_ar')->values()->map(fn ($member) => [
                 'name' => $member->full_name_ar,
                 'name_en' => $member->full_name_en,
+                'photo_url' => $member->photo_url,
                 'is_current_student' => $member->id === $student->id,
             ]),
             'schedule' => $schedule,

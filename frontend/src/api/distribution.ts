@@ -455,6 +455,7 @@ export interface ClinicalScheduleItem {
     full_name_en?: string;
     full_name: string;
     registration_status: string;
+    photo_url?: string | null;
   } | null;
   group: {
     id: number;
@@ -517,6 +518,7 @@ export interface ClinicalScheduleItem {
     full_name_en?: string;
     name: string;
     email?: string;
+    avatar_url?: string | null;
     work_schedule?: {day:string;status:'work'|'leave'|'unavailable';note?:string|null}[];
     work_locations?: Array<{
       training_site: { id: number; name_ar: string; name_en?: string | null } | null;
