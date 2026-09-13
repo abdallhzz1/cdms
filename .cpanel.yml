@@ -1,6 +1,18 @@
 ---
 deployment:
   tasks:
-    - /usr/bin/rsync -a --delete --exclude=.git/ --exclude=backend/.env --exclude=backend/storage/ --exclude=backend/vendor/ --exclude=backend/bootstrap/cache/ /home/alfajrhe/repositories/cdms/ /home/alfajrhe/cdms.alfajrhealth.com/
-    - /bin/chmod 755 /home/alfajrhe/cdms.alfajrhealth.com
-    - /bin/chmod 600 /home/alfajrhe/cdms.alfajrhealth.com/backend/.env
+    # Keep Laravel and the repository outside the document root. These checks
+    # stop deployment before public_html is cleaned if runtime files are missing.
+    - /usr/bin/test -f /home/alfajrhe/repositories/cdms/backend/.env
+    - /usr/bin/test -f /home/alfajrhe/repositories/cdms/backend/vendor/autoload.php
+    - /usr/bin/test -f /home/alfajrhe/repositories/cdms/index.html
+    - /bin/mkdir -p /home/alfajrhe/domains/cdms.four7.ps/public_html
+
+    # Publish an explicit allow-list only. --delete-excluded removes source
+    # files left behind by the previous deployment layout.
+    - /usr/bin/rsync -a --delete --delete-excluded --include=/.htaccess --include=/index.php --include=/index.html --include=/favicon.svg --include=/robots.txt --include=/assets/*** --include=/templates/*** --exclude=* /home/alfajrhe/repositories/cdms/ /home/alfajrhe/domains/cdms.four7.ps/public_html/
+
+    - /bin/ln -sfn /home/alfajrhe/repositories/cdms/backend/storage/app/public /home/alfajrhe/domains/cdms.four7.ps/public_html/storage
+    - /bin/chmod 755 /home/alfajrhe/domains/cdms.four7.ps/public_html
+    - /bin/chmod 600 /home/alfajrhe/repositories/cdms/backend/.env
+    - /bin/chmod -R 775 /home/alfajrhe/repositories/cdms/backend/storage /home/alfajrhe/repositories/cdms/backend/bootstrap/cache

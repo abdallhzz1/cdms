@@ -1,27 +1,39 @@
-DirectoryIndex index.php index.html
+DirectoryIndex index.html index.php
 Options -Indexes
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "same-origin"
+    Header always set X-Robots-Tag "noindex, nofollow, noarchive"
+</IfModule>
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /
 
-    # Route /sanctum requests to backend/public/index.php
-    RewriteCond %{REQUEST_URI} ^/sanctum [NC]
-    RewriteRule ^sanctum(.*)$ backend/public/index.php [L,QSA]
+    # Deny repository metadata, source trees, dependencies and project files
+    # even if a previous deployment accidentally leaves them in public_html.
+    RewriteRule ^(?:\.git|\.github|backend|frontend|docker|docs|presentation|vendor|node_modules)(?:/|$) - [F,L,NC]
+    RewriteRule ^(?:ARCHITECTURE|PROJECT_RULES|REFERENCE_SOURCES|README|DOCKER)(?:\.[^/]+)?$ - [F,L,NC]
+    RewriteRule ^(?:composer\.(?:json|lock)|package(?:-lock)?\.json|vite\.config\.[^/]+|docker-compose\.ya?ml|\.cpanel\.yml|\.env(?:\.[^/]+)?)$ - [F,L,NC]
+    RewriteRule (^|/)\.(?!well-known(?:/|$)) - [F,L]
+    RewriteRule \.(?:md|sql|sqlite|log|bak|ya?ml|lock|xlsx?|docx?|pdf)$ - [F,L,NC]
 
-    # Route /api requests to backend/public/index.php
-    RewriteCond %{REQUEST_URI} ^/api [NC]
-    RewriteRule ^api(.*)$ backend/public/index.php [L,QSA]
+    # Laravel endpoints use the public front controller. index.php resolves the
+    # private backend from the repository outside the document root.
+    RewriteRule ^(?:api|sanctum)(?:/|$) index.php [L,QSA,NC]
 
-    # Route /storage requests to backend/public/storage
-    RewriteCond %{REQUEST_URI} ^/storage [NC]
-    RewriteRule ^storage(.*)$ backend/public/storage$1 [L,QSA]
-
-    # Allow direct access to existing files and directories
+    # Serve allow-listed files that physically exist in public_html.
     RewriteCond %{REQUEST_FILENAME} -f [OR]
     RewriteCond %{REQUEST_FILENAME} -d
     RewriteRule ^ - [L]
 
-    # SPA rewrite to index.html for all frontend routes
+    # React Router fallback.
     RewriteRule ^ index.html [L]
+</IfModule>
+
+<IfModule !mod_rewrite.c>
+    <FilesMatch "^(?:\.env|composer\.(?:json|lock)|package(?:-lock)?\.json|docker-compose\.ya?ml)$">
+        Require all denied
+    </FilesMatch>
 </IfModule>
