@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Str;
 use App\Services\Approvals\ApprovalWorkflowService;
 use App\Models\User;
 
@@ -42,6 +43,7 @@ class MeetingController extends Controller
         $data = $request->validate($this->rules());
         $data['created_by'] = $request->user()->id;
         $data['status'] = $data['status'] ?? 'draft';
+        $data['minutes_number'] = $data['minutes_number'] ?? $this->nextMinutesNumber();
         return ApiResponse::success(Meeting::create($data), 'Meeting created.', [], 201);
     }
 
@@ -182,7 +184,7 @@ class MeetingController extends Controller
     {
         $sometimes = $partial ? ['sometimes'] : [];
         return [
-            'minutes_number' => [...$sometimes, 'required', 'string', 'max:100', Rule::unique('meetings', 'minutes_number')->ignore($meeting?->id)],
+            'minutes_number' => [...$sometimes, 'nullable', 'string', 'max:100', Rule::unique('meetings', 'minutes_number')->ignore($meeting?->id)],
             'meeting_type' => [...$sometimes, 'required', 'string', 'max:255'],
             'status' => ['sometimes', Rule::in(['draft', 'scheduled'])],
             'meeting_date' => [...$sometimes, 'required', 'date'], 'meeting_time' => ['nullable', 'date_format:H:i'],
@@ -191,6 +193,15 @@ class MeetingController extends Controller
             'agenda' => ['nullable', 'string', 'max:10000'], 'discussion_summary' => ['nullable', 'string', 'max:10000'],
             'decisions_summary' => ['nullable', 'string', 'max:10000'], 'implementation_owner' => ['nullable', 'string', 'max:255'],
         ];
+    }
+
+    private function nextMinutesNumber(): string
+    {
+        do {
+            $number = 'MTG-'.now()->format('Y').'-'.Str::upper(Str::random(6));
+        } while (Meeting::where('minutes_number', $number)->exists());
+
+        return $number;
     }
 
     private function actionRules(bool $partial = false): array
