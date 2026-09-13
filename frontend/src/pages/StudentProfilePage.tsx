@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useEffect, useState, useRef } from 'react';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
 import { useI18n } from '@/i18n/I18nContext';
@@ -8,6 +8,11 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
+import {
+  buildStudentEditForm,
+  buildStudentUpdatePayload,
+  emptyStudentEditForm,
+} from '@/features/students/studentEditModel';
 import { 
   ChevronRight, Camera, GraduationCap, 
   Building2, Clock, 
@@ -29,12 +34,21 @@ interface StudentDoc {
   mime_type?: string;
 }
 
+type RegistrationCycle = {
+  id: number;
+  academic_level: string;
+  status: string;
+  academic_year?: { code: string };
+  groups?: Array<{ name: string }>;
+};
+
 function ProfileClinicalField({label,value}:{label:string;value:string}){return <div className="rounded-xl bg-slate-50 px-3 py-2"><p className="text-[10px] font-bold text-slate-400">{label}</p><p className="mt-1 truncate text-xs font-black text-slate-700">{value}</p></div>}
 function attendanceStatusLabel(status:string,locale:string){const labels:Record<string,[string,string]>={present:['حاضر','Present'],absent:['غائب','Absent'],late:['متأخر','Late'],excused:['مبرر','Excused']};const value=labels[status]??[status,status];return value[locale==='ar'?0:1]}
 function generalStatusLabel(status:string,locale:string){const labels:Record<string,[string,string]>={active:['منتظم','Active'],suspended:['موقوف','Suspended'],on_leave:['إجازة','On leave'],transferred:['منتقل','Transferred'],graduated:['متخرج','Graduated'],repeating:['معيد للسنة','Repeating'],deferred:['مؤجل','Deferred']};const value=labels[status]??[status,status];return value[locale==='ar'?0:1]}
 
 export function StudentProfilePage() {
   const { id: studentId } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { locale } = useI18n();
   const { can } = useAuth();
   const queryClient = useQueryClient();
@@ -49,28 +63,7 @@ export function StudentProfilePage() {
 
   // Edit Student Modal State for Admin Assistant / Admins
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [studentForm, setStudentForm] = useState({
-    university_number: '',
-    full_name_ar: '',
-    full_name_en: '',
-    national_id: '',
-    academic_level: 'fourth',
-    batch_year: 2022,
-    registration_status: 'active',
-    academic_registration_status: 'registered',
-    gender: 'male',
-    university_email: '',
-    phone: '',
-    guardian_phone: '',
-    city: 'الخليل',
-    date_of_birth: '',
-    gpa: '',
-    warning_count: 0,
-    credit_hours_passed: '',
-    clinical_fees_status: 'unknown',
-    has_amboss_subscription: false,
-    notes: '',
-  });
+  const [studentForm, setStudentForm] = useState(emptyStudentEditForm);
 
   // Main student data query
   const { data: student_data, isLoading, isError, refetch } = useQuery({
@@ -106,6 +99,22 @@ export function StudentProfilePage() {
     queryFn: () => apiFetch<any[]>(`/attendance-records?student_id=${studentId}`),
     enabled: Boolean(studentId) && can('attendance.review')
   });
+
+  const { data: registrationCycles = [] } = useQuery({
+    queryKey: ['group-registration-cycles', 'student-profile'],
+    queryFn: () => apiFetch<RegistrationCycle[]>('/group-registration-cycles'),
+    enabled: Boolean(studentId) && can('students.update') && can('group_registration.view'),
+  });
+
+  useEffect(() => {
+    if (searchParams.get('edit') !== '1' || !student_data || !can('students.update')) return;
+    const currentStudent = (student_data as any)?.data || student_data;
+    setStudentForm(buildStudentEditForm(currentStudent));
+    setIsEditModalOpen(true);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('edit');
+    setSearchParams(nextParams, { replace: true });
+  }, [can, searchParams, setSearchParams, student_data]);
 
   // Upload Photo Mutation
   const updatePhotoMutation = useMutation({
@@ -166,42 +175,13 @@ export function StudentProfilePage() {
 
   const handleOpenEditModal = () => {
     if (!student) return;
-    setStudentForm({
-      university_number: student.university_number || '',
-      full_name_ar: student.full_name_ar || '',
-      full_name_en: student.full_name_en || '',
-      national_id: student.national_id || '',
-      academic_level: student.academic_level || 'fourth',
-      batch_year: student.batch_year || (student.academic_level === 'fourth' ? 2022 : student.academic_level === 'fifth' ? 2021 : 2020),
-      registration_status: student.registration_status || 'active',
-      academic_registration_status: student.academic_registration_status || 'registered',
-      gender: student.gender || 'male',
-      university_email: student.university_email || '',
-      phone: student.phone || '',
-      guardian_phone: student.guardian_phone || '',
-      city: student.city || 'الخليل',
-      date_of_birth: student.date_of_birth ? student.date_of_birth.split('T')[0] : '',
-      gpa: student.gpa !== null && student.gpa !== undefined ? String(student.gpa) : '',
-      warning_count: student.warning_count ?? 0,
-      credit_hours_passed: student.credit_hours_passed ?? '',
-      clinical_fees_status: student.clinical_fees_status || 'unknown',
-      has_amboss_subscription: Boolean(student.has_amboss_subscription),
-      notes: student.notes || '',
-    });
+    setStudentForm(buildStudentEditForm(student));
     setIsEditModalOpen(true);
   };
 
   const handleEditFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = {
-      ...studentForm,
-      batch_year: studentForm.batch_year ? Number(studentForm.batch_year) : undefined,
-      university_email: studentForm.university_email || `${studentForm.university_number}@students.hebron.edu`,
-      gpa: studentForm.gpa !== '' ? Number(studentForm.gpa) : null,
-      credit_hours_passed: studentForm.credit_hours_passed !== '' ? Number(studentForm.credit_hours_passed) : null,
-      warning_count: Number(studentForm.warning_count || 0),
-    };
-    updateStudentMutation.mutate(payload);
+    updateStudentMutation.mutate(buildStudentUpdatePayload(studentForm));
   };
 
   const handleUploadDocument = async (e: React.FormEvent) => {
@@ -237,6 +217,12 @@ export function StudentProfilePage() {
   const visibleClinicalItems=clinicalPeriodFilter?clinicalItems.filter((item:any)=>String(item.clinical_period?.id)===clinicalPeriodFilter):clinicalItems;
   const advisingItems = Array.isArray(advisingRecords) ? advisingRecords : (advisingRecords as any)?.items || [];
   const attendanceItems = Array.isArray(attendanceRecords) ? attendanceRecords : (attendanceRecords as any)?.items || [];
+  const editableRegistrationCycles = registrationCycles.filter(
+    cycle => cycle.status !== 'archived' && cycle.academic_level === studentForm.academic_level,
+  );
+  const selectedRegistrationCycle = editableRegistrationCycles.find(
+    cycle => String(cycle.id) === studentForm.group_registration_cycle_id,
+  );
 
   const stats = {
     present: attendanceItems.filter((r: any) => r.status === 'present').length,
@@ -255,10 +241,8 @@ export function StudentProfilePage() {
   };
 
   const getBatchName = () => {
-    if (student.batch_year) return `دفعة ${student.batch_year}`;
-    if (student.academic_level === 'fourth') return 'دفعة 2022';
-    if (student.academic_level === 'fifth') return 'دفعة 2021';
-    return 'دفعة 2020';
+    const year = student.batch_year || (student.academic_level === 'fourth' ? 2022 : student.academic_level === 'fifth' ? 2021 : 2020);
+    return locale === 'ar' ? `دفعة ${year}` : `Batch ${year}`;
   };
 
   const TABS = [
@@ -333,10 +317,6 @@ export function StudentProfilePage() {
                 {student.full_name_en && locale === 'ar' && (
                   <p className="text-xs text-slate-400 mt-0.5">{student.full_name_en}</p>
                 )}
-                <p className="mt-1 text-[10px] text-slate-400">
-                  {locale === 'ar' ? 'آخر تحديث' : 'Last updated'}: {student.updated_at ? new Date(student.updated_at).toLocaleString(locale === 'ar' ? 'ar-PS' : 'en-GB') : '—'}
-                  {student.data_source ? ` · ${locale === 'ar' ? 'المصدر' : 'Source'}: ${student.data_source}` : ''}
-                </p>
               </div>
 
               {/* Badges Row */}
@@ -346,11 +326,7 @@ export function StudentProfilePage() {
                 </span>
 
                 <span className="text-xs font-semibold text-teal-800 bg-teal-50 px-3 py-1 rounded-xl border border-teal-100">
-                  {getBatchName()}
-                </span>
-
-                <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-3 py-1 rounded-xl">
-                  {getLevelName(student.academic_level)}
+                  {getLevelName(student.academic_level)} · {getBatchName()}
                 </span>
 
                 <span className="text-xs font-semibold text-teal-700 bg-teal-50 px-3 py-1 rounded-xl border border-teal-100">
@@ -426,7 +402,7 @@ export function StudentProfilePage() {
               {locale === 'ar' ? 'المؤشرات الأكاديمية والسريرية' : 'Academic Summary'}
             </h3>
 
-            <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-3 lg:grid-cols-5">
               <div className="p-3 rounded-2xl bg-teal-50/70 border border-teal-100/80">
                 <span className="text-[11px] text-teal-800 font-semibold block mb-1">{locale === 'ar' ? 'المعدل التراكمي' : 'GPA'}</span>
                 <span className="text-base font-bold text-teal-800">{student.gpa !== null && student.gpa !== undefined ? `%${student.gpa}` : '—'}</span>
@@ -454,17 +430,13 @@ export function StudentProfilePage() {
                 <span className="text-base font-bold text-slate-800">{student.credit_hours_passed ?? '—'}</span>
               </div>
 
-              <div className="p-3 rounded-2xl bg-slate-50/70 border border-slate-100">
-                <span className="text-[11px] text-slate-400 block mb-1">{locale === 'ar' ? 'التسجيل الأكاديمي' : 'Registration'}</span>
-                <span className="text-xs font-bold text-slate-800">{student.academic_registration_status === 'registered' ? (locale === 'ar' ? 'مسجل' : 'Registered') : (locale === 'ar' ? 'غير مسجل' : 'Unregistered')}</span>
-              </div>
             </div>
           </div>
 
           {/* Contact & Personal Details Card */}
           <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
-              {locale === 'ar' ? 'بيانات الاتصال والهوية' : 'Contact & Personal Details'}
+              {locale === 'ar' ? 'بيانات الاتصال والمتابعة' : 'Contact & Follow-up'}
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-8 text-xs">
@@ -478,40 +450,6 @@ export function StudentProfilePage() {
                 <span className="font-semibold text-slate-800 font-mono">{student.phone || '—'}</span>
               </div>
 
-              <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="text-slate-400">{locale === 'ar' ? 'هاتف ولي الأمر' : 'Guardian Phone'}</span>
-                <span className="font-semibold text-slate-800 font-mono">{student.guardian_phone || '—'}</span>
-              </div>
-
-              <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="text-slate-400">{locale === 'ar' ? 'المدينة / السكن' : 'City'}</span>
-                <span className="font-semibold text-slate-800">{student.city || 'الخليل'}</span>
-              </div>
-
-              <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="text-slate-400">{locale === 'ar' ? 'رقم الهوية' : 'National ID'}</span>
-                <span className="font-semibold text-slate-800 font-mono">{student.national_id || '—'}</span>
-              </div>
-
-              <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="text-slate-400">{locale === 'ar' ? 'تاريخ الميلاد' : 'Birth Date'}</span>
-                <span className="font-semibold text-slate-800 font-mono">{student.date_of_birth ? student.date_of_birth.split('T')[0] : '—'}</span>
-              </div>
-
-              <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="text-slate-400">{locale === 'ar' ? 'الجنس' : 'Gender'}</span>
-                <span className="font-semibold text-slate-800">{student.gender === 'female' ? (locale === 'ar' ? 'أنثى' : 'Female') : (locale === 'ar' ? 'ذكر' : 'Male')}</span>
-              </div>
-
-              <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="text-slate-400">{locale === 'ar' ? 'الرسوم السريرية' : 'Clinical fees'}</span>
-                <span className="font-semibold text-slate-800">{{paid: locale === 'ar' ? 'مدفوعة' : 'Paid', pending: locale === 'ar' ? 'قيد المتابعة' : 'Pending', exempt: locale === 'ar' ? 'معفى' : 'Exempt', unknown: locale === 'ar' ? 'غير محدد' : 'Unknown'}[student.clinical_fees_status as 'paid'|'pending'|'exempt'|'unknown'] || '—'}</span>
-              </div>
-
-              <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="text-slate-400">AMBOSS</span>
-                <span className="font-semibold text-slate-800">{student.has_amboss_subscription ? (locale === 'ar' ? 'مشترك' : 'Subscribed') : (locale === 'ar' ? 'غير مشترك' : 'Not subscribed')}</span>
-              </div>
             </div>
             {student.notes && <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-3 text-xs leading-6 text-slate-600"><span className="font-bold text-slate-700">{locale === 'ar' ? 'ملاحظات إدارية: ' : 'Administrative notes: '}</span>{student.notes}</div>}
           </div>
@@ -677,265 +615,72 @@ export function StudentProfilePage() {
 
       {/* Edit Student Modal for Admin Assistant / Admins */}
       {isEditModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-500/25 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-xl border border-slate-200 p-5 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
-                <Pencil className="w-4 h-4 text-teal-600" />
-                <span>{locale === 'ar' ? 'تعديل بيانات بروفايل الطالب' : 'Edit Student Profile'}</span>
-              </h3>
-              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer">
-                ✕
-              </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/20 p-3 backdrop-blur-sm sm:p-5">
+          <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">
+              <div>
+                <h3 className="flex items-center gap-2 text-base font-black text-slate-800">
+                  <Pencil className="h-4 w-4 text-teal-600" />
+                  <span>{locale === 'ar' ? 'تعديل بيانات الطالب' : 'Edit Student'}</span>
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">{name} · {student.university_number}</p>
+              </div>
+              <button type="button" aria-label={locale === 'ar' ? 'إغلاق' : 'Close'} onClick={() => setIsEditModalOpen(false)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">✕</button>
             </div>
 
-            <form onSubmit={handleEditFormSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'الاسم بالعربية (رباعي):' : 'Full Name (Arabic):'}</label>
-                  <input
-                    required
-                    type="text"
-                    value={studentForm.full_name_ar}
-                    onChange={e => setStudentForm({ ...studentForm, full_name_ar: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
-                  />
-                </div>
+            <form onSubmit={handleEditFormSubmit} className="overflow-y-auto">
+              <div className="space-y-5 p-5 sm:p-6">
+                <section className="space-y-3">
+                  <h4 className="text-xs font-black text-slate-500">{locale === 'ar' ? 'البيانات الأساسية' : 'Basic information'}</h4>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'الاسم بالعربية *' : 'Arabic name *'}<input required value={studentForm.full_name_ar} onChange={e => setStudentForm({...studentForm, full_name_ar:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20" /></label>
+                    <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'الاسم بالإنجليزية' : 'English name'}<input value={studentForm.full_name_en} onChange={e => setStudentForm({...studentForm, full_name_en:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20" /></label>
+                    <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'الرقم الجامعي *' : 'University ID *'}<input required value={studentForm.university_number} onChange={e => setStudentForm({...studentForm, university_number:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono text-sm font-bold focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20" /></label>
+                    <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'البريد الجامعي' : 'University email'}<input type="email" placeholder={`${studentForm.university_number || '22011001'}@students.hebron.edu`} value={studentForm.university_email} onChange={e => setStudentForm({...studentForm, university_email:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20" /></label>
+                  </div>
+                </section>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'الاسم بالإنجليزية:' : 'Full Name (English):'}</label>
-                  <input
-                    type="text"
-                    value={studentForm.full_name_en}
-                    onChange={e => setStudentForm({ ...studentForm, full_name_en: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
-                  />
-                </div>
+                <section className="space-y-3 border-t border-slate-100 pt-5">
+                  <h4 className="text-xs font-black text-slate-500">{locale === 'ar' ? 'الوضع الأكاديمي' : 'Academic status'}</h4>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'السنة السريرية' : 'Clinical year'}<select value={studentForm.academic_level} onChange={e => setStudentForm({...studentForm, academic_level:e.target.value, group_registration_cycle_id:'', main_group_code:''})} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="fourth">{locale==='ar'?'الرابعة':'4th Year'}</option><option value="fifth">{locale==='ar'?'الخامسة':'5th Year'}</option><option value="sixth">{locale==='ar'?'السادسة':'6th Year'}</option></select></label>
+                    <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'سنة الدفعة' : 'Batch year'}<input type="number" value={studentForm.batch_year} onChange={e => setStudentForm({...studentForm, batch_year:Number(e.target.value)})} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" /></label>
+                    <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'حالة الطالب' : 'Student status'}<select value={studentForm.registration_status} onChange={e => setStudentForm({...studentForm, registration_status:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="active">{locale==='ar'?'منتظم':'Active'}</option><option value="deferred">{locale==='ar'?'مؤجل':'Deferred'}</option><option value="suspended">{locale==='ar'?'موقوف':'Suspended'}</option><option value="on_leave">{locale==='ar'?'إجازة':'On leave'}</option><option value="transferred">{locale==='ar'?'منتقل':'Transferred'}</option><option value="repeating">{locale==='ar'?'معيد للسنة':'Repeating'}</option><option value="graduated">{locale==='ar'?'متخرج':'Graduated'}</option></select></label>
+                    <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'التسجيل الأكاديمي' : 'Academic registration'}<select value={studentForm.academic_registration_status} onChange={e => setStudentForm({...studentForm, academic_registration_status:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="registered">{locale==='ar'?'مسجل':'Registered'}</option><option value="unregistered">{locale==='ar'?'غير مسجل':'Unregistered'}</option></select></label>
+                  </div>
+
+                  {can('group_registration.view') && (
+                    <div className="grid gap-3 rounded-2xl border border-teal-100 bg-teal-50/50 p-3 sm:grid-cols-2">
+                      <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'دورة التسجيل' : 'Registration cycle'}<select value={studentForm.group_registration_cycle_id} onChange={e => setStudentForm({...studentForm, group_registration_cycle_id:e.target.value, main_group_code:''})} className="mt-1 w-full rounded-xl border border-teal-200 bg-white px-3 py-2.5 text-sm"><option value="">{locale==='ar'?'بدون دورة':'No cycle'}</option>{editableRegistrationCycles.map(cycle=><option key={cycle.id} value={cycle.id}>{cycle.academic_year?.code || `#${cycle.id}`}</option>)}</select></label>
+                      <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'المجموعة الرئيسية' : 'Main group'}<select disabled={!studentForm.group_registration_cycle_id} value={studentForm.main_group_code} onChange={e => setStudentForm({...studentForm, main_group_code:e.target.value})} className="mt-1 w-full rounded-xl border border-teal-200 bg-white px-3 py-2.5 text-sm disabled:bg-slate-100"><option value="">{locale==='ar'?'اختر المجموعة':'Select group'}</option>{selectedRegistrationCycle?.groups?.map(group=><option key={group.name} value={group.name}>{group.name}</option>)}</select></label>
+                    </div>
+                  )}
+                </section>
+
+                <section className="space-y-3 border-t border-slate-100 pt-5">
+                  <h4 className="text-xs font-black text-slate-500">{locale === 'ar' ? 'التواصل والمتابعة' : 'Contact & follow-up'}</h4>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'رقم الهاتف' : 'Phone'}<input type="tel" value={studentForm.phone} onChange={e => setStudentForm({...studentForm, phone:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono text-sm" /></label>
+                    <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'المعدل %' : 'GPA %'}<input type="number" min="0" max="100" step="0.01" value={studentForm.gpa} onChange={e => setStudentForm({...studentForm, gpa:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" /></label>
+                    <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'الإنذارات' : 'Warnings'}<input type="number" min="0" max="10" value={studentForm.warning_count} onChange={e => setStudentForm({...studentForm, warning_count:Number(e.target.value)})} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" /></label>
+                    <label className="space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'الساعات المجتازة' : 'Passed hours'}<input type="number" min="0" max="500" value={studentForm.credit_hours_passed} onChange={e => setStudentForm({...studentForm, credit_hours_passed:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" /></label>
+                  </div>
+                  <label className="block space-y-1 text-xs font-bold text-slate-700">{locale === 'ar' ? 'ملاحظات المتابعة' : 'Follow-up notes'}<textarea rows={3} maxLength={2000} value={studentForm.notes} onChange={e => setStudentForm({...studentForm, notes:e.target.value})} className="mt-1 w-full resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium" /></label>
+                </section>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'الرقم الجامعي:' : 'University ID:'}</label>
-                  <input
-                    required
-                    type="text"
-                    value={studentForm.university_number}
-                    onChange={e => setStudentForm({ ...studentForm, university_number: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-mono font-bold focus:ring-1 focus:ring-teal-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'رقم الهوية:' : 'National ID:'}</label>
-                  <input
-                    type="text"
-                    value={studentForm.national_id}
-                    onChange={e => setStudentForm({ ...studentForm, national_id: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-mono font-semibold focus:ring-1 focus:ring-teal-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'السنة الدراسية السريرية:' : 'Academic Level:'}</label>
-                  <select
-                    value={studentForm.academic_level}
-                    onChange={e => setStudentForm({ ...studentForm, academic_level: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold bg-white cursor-pointer focus:ring-1 focus:ring-teal-600"
-                  >
-                    <option value="fourth">{locale === 'ar' ? 'سنة رابعة' : '4th Year'}</option>
-                    <option value="fifth">{locale === 'ar' ? 'سنة خامسة' : '5th Year'}</option>
-                    <option value="sixth">{locale === 'ar' ? 'سنة سادسة' : '6th Year'}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'سنة الدفعة:' : 'Batch Year:'}</label>
-                  <input
-                    type="number"
-                    value={studentForm.batch_year}
-                    onChange={e => setStudentForm({ ...studentForm, batch_year: Number(e.target.value) })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'الحالة العامة للطالب:' : 'General student status:'}</label>
-                  <select
-                    value={studentForm.registration_status}
-                    onChange={e => setStudentForm({ ...studentForm, registration_status: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold bg-white cursor-pointer focus:ring-1 focus:ring-teal-600"
-                  >
-                    <option value="active">{locale === 'ar' ? 'منتظم / نشط' : 'Active'}</option>
-                    <option value="suspended">{locale === 'ar' ? 'موقوف' : 'Suspended'}</option>
-                    <option value="on_leave">{locale === 'ar' ? 'إجازة' : 'On leave'}</option>
-                    <option value="transferred">{locale === 'ar' ? 'منتقل' : 'Transferred'}</option>
-                    <option value="graduated">{locale === 'ar' ? 'متخرج' : 'Graduated'}</option>
-                    <option value="repeating">{locale === 'ar' ? 'معيد للسنة' : 'Repeating'}</option>
-                    <option value="deferred">{locale === 'ar' ? 'مؤجل' : 'Deferred'}</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'حالة التسجيل الأكاديمية:' : 'Academic registration:'}</label>
-                  <select
-                    value={studentForm.academic_registration_status}
-                    onChange={e => setStudentForm({ ...studentForm, academic_registration_status: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold bg-white cursor-pointer focus:ring-1 focus:ring-teal-600"
-                  >
-                    <option value="registered">{locale === 'ar' ? 'مسجل' : 'Registered'}</option>
-                    <option value="unregistered">{locale === 'ar' ? 'غير مسجل' : 'Unregistered'}</option>
-                  </select>
-                  <p className="mt-1 text-[10px] text-slate-400">{locale === 'ar' ? 'تتحكم بإتاحة روابط تسجيل المجموعات والاستعلام.' : 'Controls group registration and student lookup access.'}</p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'الجنس:' : 'Gender:'}</label>
-                  <select
-                    value={studentForm.gender}
-                    onChange={e => setStudentForm({ ...studentForm, gender: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold bg-white cursor-pointer focus:ring-1 focus:ring-teal-600"
-                  >
-                    <option value="male">{locale === 'ar' ? 'ذكر' : 'Male'}</option>
-                    <option value="female">{locale === 'ar' ? 'أنثى' : 'Female'}</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* GPA percentage and Warning count row */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-teal-50/60 p-3.5 rounded-2xl border border-teal-100">
-                <div>
-                  <label className="block text-xs font-bold text-teal-800 mb-1">{locale === 'ar' ? 'المعدل التراكمي السابق (من %100):' : 'Cumulative GPA (out of 100%):'}</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    placeholder="78.50"
-                    value={studentForm.gpa}
-                    onChange={e => setStudentForm({ ...studentForm, gpa: e.target.value })}
-                    className="w-full rounded-xl border border-teal-200 p-2 text-xs font-bold bg-white focus:ring-1 focus:ring-teal-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1">{locale === 'ar' ? 'عدد الإنذارات الأكاديمية:' : 'Warning Count:'}</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="10"
-                    placeholder="0"
-                    value={studentForm.warning_count}
-                    onChange={e => setStudentForm({ ...studentForm, warning_count: Number(e.target.value) })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-bold bg-white focus:ring-1 focus:ring-slate-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1">{locale === 'ar' ? 'الساعات المجتازة:' : 'Passed credit hours:'}</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="500"
-                    value={studentForm.credit_hours_passed}
-                    onChange={e => setStudentForm({ ...studentForm, credit_hours_passed: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-bold bg-white focus:ring-1 focus:ring-slate-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'البريد الجامعي:' : 'University email:'}</label>
-                <input
-                  type="email"
-                  placeholder={`${studentForm.university_number || '22210466'}@students.hebron.edu`}
-                  value={studentForm.university_email}
-                  onChange={e => setStudentForm({ ...studentForm, university_email: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'رقم هاتف الطالب:' : 'Phone:'}</label>
-                  <input
-                    type="tel"
-                    placeholder="0599123456"
-                    value={studentForm.phone}
-                    onChange={e => setStudentForm({ ...studentForm, phone: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-mono font-semibold focus:ring-1 focus:ring-teal-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'رقم هاتف ولي الأمر:' : 'Guardian Phone:'}</label>
-                  <input
-                    type="tel"
-                    placeholder="0599123456"
-                    value={studentForm.guardian_phone}
-                    onChange={e => setStudentForm({ ...studentForm, guardian_phone: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-mono font-semibold focus:ring-1 focus:ring-teal-600"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'حالة الرسوم السريرية:' : 'Clinical fees status:'}</label>
-                  <select value={studentForm.clinical_fees_status} onChange={e => setStudentForm({ ...studentForm, clinical_fees_status: e.target.value })} className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold bg-white">
-                    <option value="unknown">{locale === 'ar' ? 'غير محدد' : 'Unknown'}</option>
-                    <option value="paid">{locale === 'ar' ? 'مدفوعة' : 'Paid'}</option>
-                    <option value="pending">{locale === 'ar' ? 'قيد المتابعة' : 'Pending'}</option>
-                    <option value="exempt">{locale === 'ar' ? 'معفى' : 'Exempt'}</option>
-                  </select>
-                </div>
-                <label className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">
-                  <input type="checkbox" checked={studentForm.has_amboss_subscription} onChange={e => setStudentForm({ ...studentForm, has_amboss_subscription: e.target.checked })} className="h-4 w-4 accent-teal-600" />
-                  {locale === 'ar' ? 'لديه اشتراك AMBOSS' : 'Has AMBOSS subscription'}
-                </label>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'ملاحظات إدارية:' : 'Administrative notes:'}</label>
-                <textarea rows={3} maxLength={2000} value={studentForm.notes} onChange={e => setStudentForm({ ...studentForm, notes: e.target.value })} className="w-full resize-none rounded-xl border border-slate-200 p-2.5 text-xs font-medium focus:ring-1 focus:ring-teal-600" />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'المدينة / السكن:' : 'City:'}</label>
-                  <input
-                    type="text"
-                    value={studentForm.city}
-                    onChange={e => setStudentForm({ ...studentForm, city: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">{locale === 'ar' ? 'تاريخ الميلاد:' : 'Birth Date:'}</label>
-                  <input
-                    type="date"
-                    value={studentForm.date_of_birth}
-                    onChange={e => setStudentForm({ ...studentForm, date_of_birth: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold focus:ring-1 focus:ring-teal-600"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <div className="flex justify-end gap-2 border-t border-slate-100 bg-white px-5 py-4 sm:px-6">
                 <button
                   type="button"
                   onClick={() => setIsEditModalOpen(false)}
-                  className="px-3.5 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
                 >
                   {locale === 'ar' ? 'إلغاء' : 'Cancel'}
                 </button>
-
                 <button
                   type="submit"
                   disabled={updateStudentMutation.isPending}
-                  className="px-4 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold cursor-pointer shadow-xs"
+                  className="rounded-xl bg-teal-600 px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-teal-700 disabled:opacity-60"
                 >
                   {updateStudentMutation.isPending ? (locale === 'ar' ? 'جاري الحفظ...' : 'Saving...') : (locale === 'ar' ? 'حفظ التغييرات' : 'Save Changes')}
                 </button>

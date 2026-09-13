@@ -9,6 +9,7 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
 import { Button } from '@/components/ui/Button';
+import { studentEditPath } from '@/features/students/studentEditModel';
 import { 
   Search, ChevronRight, ChevronLeft, UserPlus, X, 
   CheckCircle, AlertCircle, FileSpreadsheet, Download, UploadCloud, FileCheck,
@@ -333,27 +334,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
 
   const handleOpenEdit = (student: any, e: React.MouseEvent) => {
     e.stopPropagation();
-    setEditingStudent(student);
-    setStudentForm({
-      university_number: student.university_number || '',
-      full_name_ar: student.full_name_ar || '',
-      full_name_en: student.full_name_en || '',
-      national_id: student.national_id || '',
-      academic_level: student.academic_level || 'fourth',
-      batch_year: student.batch_year || (student.academic_level === 'fourth' ? 2022 : student.academic_level === 'fifth' ? 2021 : 2020),
-      registration_status: student.registration_status || 'active',
-      academic_registration_status: student.academic_registration_status || 'registered',
-      gender: student.gender || 'male',
-      university_email: student.university_email || '',
-      phone: student.phone || '',
-      city: student.city || 'الخليل',
-      notes: student.notes || '',
-      gpa: student.gpa !== null && student.gpa !== undefined ? String(student.gpa) : '',
-      warning_count: student.warning_count ?? 0,
-      group_registration_cycle_id: student.registration_cycle_id ? String(student.registration_cycle_id) : '',
-      main_group_code: student.registration_main_group || '',
-    });
-    setIsAddModalOpen(true);
+    navigate(studentEditPath(student.id));
   };
 
   const handleDeleteStudent = (student: any, e: React.MouseEvent) => {
@@ -475,11 +456,11 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const selectedManualCycle = manualRegistrationCycles.find(c=>String(c.id)===studentForm.group_registration_cycle_id);
 
   const pageTitle = kind === 'students' 
-    ? (locale === 'ar' ? 'دليل وسجلات الطلاب' : 'Students Directory')
+    ? (locale === 'ar' ? 'دليل الطلبة' : 'Student Directory')
     : (locale === 'ar' ? 'دليل الكادر والمشرفين' : 'Staff Directory');
 
   const pageDesc = kind === 'students'
-    ? (locale === 'ar' ? 'إدارة سجلات وبيانات طلبة كلية الطب والمرحلة السريرية' : 'Manage student clinical records and cohorts')
+    ? (locale === 'ar' ? 'البحث في سجلات طلبة المرحلة السريرية وإدارتها' : 'Find and manage clinical student records')
     : (locale === 'ar' ? 'عرض المشرفين والأقسام ومواقع التدريب' : 'View supervisors, departments and training sites');
 
   const headers: Record<DirectoryKind, string[]> = {
@@ -668,9 +649,9 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                   {row.photo_url ? <img src={row.photo_url} alt={name(row)} className="h-full w-full object-cover"/> : name(row).substring(0,1)}
                 </div>
                 <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-black text-slate-800">{name(row)}</h3>{kind==='students'&&<p className="mt-1 font-mono text-[11px] text-slate-500">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span>}{getStatus(row)}</div></div>
-                {kind==='students'&&<div className="flex shrink-0 gap-1" onClick={event=>event.stopPropagation()}>{can('students.update')&&<button type="button" onClick={event=>handleOpenEdit(row,event)} className="rounded-lg bg-slate-50 p-2 text-teal-600"><Pencil className="h-4 w-4"/></button>}{can('students.delete')&&<button type="button" onClick={event=>handleDeleteStudent(row,event)} className="rounded-lg bg-red-50 p-2 text-red-500"><Trash2 className="h-4 w-4"/></button>}</div>}
+                {kind==='students'&&<div className="flex shrink-0 gap-1" onClick={event=>event.stopPropagation()}>{can('students.update')&&<button type="button" aria-label={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} title={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} onClick={event=>handleOpenEdit(row,event)} className="rounded-lg bg-slate-50 p-2 text-teal-600"><Pencil className="h-4 w-4"/></button>}{can('students.delete')&&<button type="button" aria-label={locale==='ar'?'حذف الطالب':'Delete student'} title={locale==='ar'?'حذف الطالب':'Delete student'} onClick={event=>handleDeleteStudent(row,event)} className="rounded-lg bg-red-50 p-2 text-red-500"><Trash2 className="h-4 w-4"/></button>}</div>}
               </div>
-              {kind==='students'&&<div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]"><div><span className="text-slate-400">الدفعة</span><p className="mt-1 font-bold text-slate-700">{getBatchLabel(row)}</p></div><div><span className="text-slate-400">المجموعة الرئيسية</span><p className="mt-1 font-bold text-slate-700">{row.registration_main_group||'—'}</p></div></div>}
+              {kind==='students'&&<div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]"><div><span className="text-slate-400">{locale==='ar'?'الدفعة':'Batch'}</span><p className="mt-1 font-bold text-slate-700">{getBatchLabel(row)}</p></div><div><span className="text-slate-400">{locale==='ar'?'المجموعة الرئيسية':'Main group'}</span><p className="mt-1 font-bold text-slate-700">{row.registration_main_group||'—'}</p></div></div>}
             </article>
           ))}
         </div>
@@ -758,6 +739,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                             onClick={(e) => handleOpenEdit(row, e)}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-teal-600 hover:bg-teal-50 transition-colors"
                             title={locale === 'ar' ? 'تعديل بيانات الطالب' : 'Edit Student'}
+                            aria-label={locale === 'ar' ? 'تعديل بيانات الطالب' : 'Edit student'}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -768,6 +750,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                             onClick={(e) => handleDeleteStudent(row, e)}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                             title={locale === 'ar' ? 'حذف الطالب' : 'Delete Student'}
+                            aria-label={locale === 'ar' ? 'حذف الطالب' : 'Delete student'}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

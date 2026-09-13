@@ -13,6 +13,7 @@ export function LanguageSwitcher() {
       type="button"
       onClick={toggleLanguage}
       title={locale === 'ar' ? 'Switch to English (EN)' : 'التحويل إلى العربية (AR)'}
+      aria-label={locale === 'ar' ? 'العربية — Switch to English' : 'English — التحويل إلى العربية'}
       className="flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-100 hover:text-teal-700"
     >
       <Globe className="w-4 h-4 text-teal-600 shrink-0" />
