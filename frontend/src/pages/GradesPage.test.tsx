@@ -9,6 +9,23 @@ const envelope=(data:unknown)=>new Response(JSON.stringify({success:true,data,me
 afterEach(()=>{vi.restoreAllMocks();document.cookie='XSRF-TOKEN=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'});
 
 describe('GradesPage official workflow',()=>{
+  it('renders the course assessment plan returned by the grade API',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    vi.spyOn(window,'fetch').mockImplementation(async(input)=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope({id:1,name:'RTA',email:'rta@hebron.edu',roles:['RTA'],assigned_levels:['fourth'],department_ids:[1],permissions:[{code:'grades.view',scope:'global'}]});
+      if(url.includes('/grade-entries/options'))return envelope({academic_years:[{id:3,code:'2026-2027',is_current:true}],courses:[{id:8,code:'MED401',name_ar:'الجراحة',name_en:'Surgery',academic_level:'fourth',is_active:true,assessment_components:[{code:'clinical',name:'التقييم السريري',max_score:20,weight:20},{code:'osce',name:'امتحان OSCE',max_score:40,weight:40},{code:'written',name:'الامتحان النظري',max_score:40,weight:40}]}],assigned_levels:['fourth']});
+      if(url.includes('/grade-entries/approval-status'))return envelope(null);
+      if(url.includes('/grade-entries/roster'))return envelope([{student:{id:5,university_number:'22210001',full_name_ar:'طالب',full_name_en:'Clinical Student',academic_level:'fourth'},official_clinical_score:18,grade_entry:null}]);
+      throw new Error(`Unmocked request: ${url}`);
+    });
+    renderWithProviders(<GradesPage/>,{route:'/grades'});
+    expect(await screen.findByText('Assessment plan: 20 + 40 + 40 = 100')).toBeVisible();
+    expect(await screen.findByText('Clinical assessment /20')).toBeVisible();
+    expect(screen.getByText('OSCE exam /40')).toBeVisible();
+    expect(screen.getByText('Written exam /40')).toBeVisible();
+  });
+
   it('loads the scoped official roster and never submits a client clinical score',async()=>{
     document.cookie='XSRF-TOKEN=test; path=/';
     const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{

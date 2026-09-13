@@ -61,7 +61,14 @@ class GradeAndRtaIntegrationTest extends TestCase
         $this->actingAs($rta)->getJson('/api/v1/grade-entries/options')
             ->assertOk()
             ->assertJsonCount(1, 'data.courses')
-            ->assertJsonPath('data.courses.0.id', $course->id);
+            ->assertJsonPath('data.courses.0.id', $course->id)
+            ->assertJsonCount(3, 'data.courses.0.assessment_components')
+            ->assertJsonPath('data.courses.0.assessment_components.0.code', 'clinical')
+            ->assertJsonPath('data.courses.0.assessment_components.0.max_score', '20.00')
+            ->assertJsonPath('data.courses.0.assessment_components.1.code', 'osce')
+            ->assertJsonPath('data.courses.0.assessment_components.1.max_score', '40.00')
+            ->assertJsonPath('data.courses.0.assessment_components.2.code', 'written')
+            ->assertJsonPath('data.courses.0.assessment_components.2.max_score', '40.00');
 
         $this->actingAs($rta)->getJson('/api/v1/students?per_page=100')
             ->assertOk()
@@ -266,6 +273,23 @@ class GradeAndRtaIntegrationTest extends TestCase
         $this->assertDatabaseHas('grade_entries', [
             'clinical_score' => null, 'score' => null, 'osce_score' => 40, 'written_score' => 40,
         ]);
+    }
+
+    public function test_grade_batch_uses_course_component_maximums(): void
+    {
+        $year = AcademicYear::factory()->create();
+        $course = Course::factory()->create(['academic_level' => 'fourth']);
+        $student = Student::factory()->create(['academic_level' => 'fourth']);
+        $role = Role::create(['code' => 'GRADE_LIMIT_EDITOR', 'name_key' => 'grade.limit.editor', 'name_ar' => 'راصد', 'name_en' => 'Editor']);
+        $role->permissions()->attach(Permission::where('code', 'grades.create')->firstOrFail()->id, ['scope_type' => 'global']);
+        $editor = User::factory()->create();
+        $editor->roles()->attach($role);
+
+        $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch', [
+            'course_code' => $course->code,
+            'academic_year_id' => $year->id,
+            'grades' => [['student_id' => $student->id, 'osce_score' => 41, 'written_score' => 40, 'max_score' => 100]],
+        ])->assertUnprocessable()->assertJsonValidationErrors('grades.0.osce_score');
     }
 
     public function test_grade_submission_explains_missing_supervisor_scores_in_request_language_and_refreshes_them(): void

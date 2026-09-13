@@ -30,6 +30,7 @@ class GradeEntryController extends Controller
     {
         $levelScope = $this->getEffectiveAcademicLevelScope();
         $courses = Course::query()
+            ->with(['assessmentComponents' => fn ($query) => $query->select('id', 'course_id', 'code', 'name', 'weight', 'max_score')->orderBy('id')])
             ->when($levelScope !== null, function ($query) use ($levelScope) {
                 empty($levelScope)
                     ? $query->whereRaw('1 = 0')
@@ -238,6 +239,14 @@ class GradeEntryController extends Controller
     
     public function batchStore(Request $request): JsonResponse
     {
+        $courseIdentity = $request->validate(['course_code' => ['required', 'string']]);
+        $course = Course::where('code', $courseIdentity['course_code'])->with('assessmentComponents')->first();
+        if (!$course) {
+            return ApiResponse::error('Course not found.', [], [], 404);
+        }
+        $this->authorizeCourseDepartmentAccess($course);
+        $plan = $this->standardAssessmentPlan($course);
+
         $data = $request->validate([
             'course_code' => ['required', 'string'],
             'academic_year_id' => ['nullable', 'integer', 'exists:academic_years,id', 'required_without:academic_year'],
@@ -245,18 +254,12 @@ class GradeEntryController extends Controller
             'grades' => ['required', 'array'],
             'grades.*.student_id' => ['required', 'exists:students,id'],
             'grades.*.score' => ['nullable', 'numeric', 'min:0'],
-            'grades.*.clinical_score' => ['nullable', 'numeric', 'between:0,20'],
-            'grades.*.osce_score' => ['nullable', 'numeric', 'between:0,40'],
-            'grades.*.written_score' => ['nullable', 'numeric', 'between:0,40'],
+            'grades.*.clinical_score' => ['nullable', 'numeric', 'between:0,'.$plan['clinical']->max_score],
+            'grades.*.osce_score' => ['nullable', 'numeric', 'between:0,'.$plan['osce']->max_score],
+            'grades.*.written_score' => ['nullable', 'numeric', 'between:0,'.$plan['written']->max_score],
             'grades.*.max_score' => ['required', 'numeric', 'gt:0'],
             'grades.*.notes' => ['nullable', 'string', 'max:2000']
         ]);
-        
-        $course = Course::where('code', $data['course_code'])->first();
-        if (!$course) {
-            return ApiResponse::error('Course not found.', [], [], 404);
-        }
-        $this->authorizeCourseDepartmentAccess($course);
         
         $academicYearId = $this->resolveAcademicYearId($data);
 
@@ -331,6 +334,7 @@ class GradeEntryController extends Controller
             return ApiResponse::error('Course not found.', [], [], 404);
         }
         $this->authorizeCourseDepartmentAccess($course);
+        $this->standardAssessmentPlan($course->load('assessmentComponents'));
         
         $academicYearId = $this->resolveAcademicYearId($data);
         DB::transaction(function () use ($course, $academicYearId, $workflow) {
@@ -651,6 +655,23 @@ class GradeEntryController extends Controller
             return null;
         }
         return round((float) $clinical + (float) $osce + (float) $written, 2);
+    }
+
+    private function standardAssessmentPlan(Course $course)
+    {
+        $components = $course->assessmentComponents->keyBy('code');
+        $required = collect(['clinical', 'osce', 'written']);
+        $valid = $required->every(fn (string $code) => $components->has($code))
+            && abs((float) $components->sum('weight') - 100.0) < 0.001;
+
+        if (! $valid) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['assessment_components' => [$this->tr(
+                'خطة تقييم المساق غير مكتملة. يجب أن تحتوي السريري وOSCE والنظري بمجموع 100%.',
+                'The course assessment plan is incomplete. It must contain clinical, OSCE, and written components totaling 100%.',
+            )]]);
+        }
+
+        return $components;
     }
 
     private function incompleteGradeSheetMessage(int $clinical, int $osce, int $written): string

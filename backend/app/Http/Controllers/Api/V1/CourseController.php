@@ -145,24 +145,19 @@ class CourseController extends Controller
      * Assessment Components Sub-Resource API
      */
     public function addAssessmentComponent(Request $request, Course $course): JsonResponse {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'weight' => 'nullable|numeric|min:0|max:100',
-            'max_score' => 'nullable|numeric|min:0',
-            'evaluator' => 'nullable|string|max:255',
-            'timing' => 'nullable|string|max:255',
-            'is_required_to_pass' => 'boolean',
-            'notes' => 'nullable|string',
+        throw ValidationException::withMessages([
+            'assessment_components' => ['خطة التقييم موحدة: التقييم السريري 20%، وOSCE بنسبة 40%، والامتحان النظري 40%.'],
         ]);
 
-        $this->validateAssessmentWeight($course, (float) ($validated['weight'] ?? 0));
-
-        $component = $course->assessmentComponents()->create($validated);
-        return ApiResponse::success($component, 'Assessment component added.', [], 201);
     }
 
     public function updateAssessmentComponent(Request $request, Course $course, int $componentId): JsonResponse {
         $component = $course->assessmentComponents()->findOrFail($componentId);
+        if (in_array($component->code, ['clinical', 'osce', 'written'], true)) {
+            throw ValidationException::withMessages([
+                'assessment_components' => ['مكونات خطة التقييم القياسية مرتبطة بكشف العلامات ولا يمكن تعديلها منفردة.'],
+            ]);
+        }
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'weight' => 'nullable|numeric|min:0|max:100',
@@ -181,6 +176,11 @@ class CourseController extends Controller
 
     public function deleteAssessmentComponent(Course $course, int $componentId): JsonResponse {
         $component = $course->assessmentComponents()->findOrFail($componentId);
+        if (in_array($component->code, ['clinical', 'osce', 'written'], true)) {
+            throw ValidationException::withMessages([
+                'assessment_components' => ['لا يمكن حذف مكوّن قياسي من خطة التقييم المعتمدة.'],
+            ]);
+        }
         $component->delete();
         return ApiResponse::success(null, 'Assessment component deleted.');
     }

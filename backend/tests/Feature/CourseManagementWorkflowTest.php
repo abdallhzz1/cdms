@@ -70,12 +70,12 @@ class CourseManagementWorkflowTest extends TestCase
         $this->actingAs($this->manager)->getJson('/api/v1/program-outcomes')
             ->assertOk()->assertJsonPath('data.0.code', 'PLO-T1');
 
+        $this->assertDatabaseHas('course_assessment_components', ['course_id' => $course->id, 'code' => 'clinical', 'weight' => 20, 'max_score' => 20]);
+        $this->assertDatabaseHas('course_assessment_components', ['course_id' => $course->id, 'code' => 'osce', 'weight' => 40, 'max_score' => 40]);
+        $this->assertDatabaseHas('course_assessment_components', ['course_id' => $course->id, 'code' => 'written', 'weight' => 40, 'max_score' => 40]);
         $this->actingAs($this->manager)->postJson("/api/v1/courses/{$course->id}/assessment-components", [
-            'name' => 'امتحان', 'weight' => 60, 'max_score' => 100,
-        ])->assertCreated();
-        $this->actingAs($this->manager)->postJson("/api/v1/courses/{$course->id}/assessment-components", [
-            'name' => 'تقييم سريري', 'weight' => 50, 'max_score' => 100,
-        ])->assertUnprocessable()->assertJsonValidationErrors('weight');
+            'name' => 'تقييم إضافي', 'weight' => 10, 'max_score' => 10,
+        ])->assertUnprocessable()->assertJsonValidationErrors('assessment_components');
 
         $this->actingAs($this->manager)->postJson("/api/v1/courses/{$course->id}/learning-outcomes", [
             'outcome_code' => 'ILO-1', 'text_ar' => 'مخرج تعلم',

@@ -15,6 +15,7 @@ import {
 
 interface AssessmentComponent {
   id: number;
+  code?: 'clinical' | 'osce' | 'written' | null;
   name: string;
   weight?: number | null;
   max_score?: number | null;
@@ -548,16 +549,7 @@ export function CourseDetailsPage() {
                 <h2 className="font-bold text-xs text-slate-800">{locale === 'ar' ? 'مكونات التقييم' : 'Assessment Components'}</h2>
               </div>
 
-              {can('courses.manage') && (
-                <button
-                  type="button"
-                  onClick={() => handleOpenCompModal()}
-                  className="px-2.5 py-1 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs flex items-center gap-1 cursor-pointer transition-all"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>{locale === 'ar' ? 'إضافة تقييم' : 'Add'}</span>
-                </button>
-              )}
+              <span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-700">{locale === 'ar' ? 'خطة موحدة مع كشف العلامات' : 'Linked to grade sheet'}</span>
             </div>
 
             <div className="p-4 space-y-4">
@@ -596,7 +588,7 @@ export function CourseDetailsPage() {
                           {item.weight || 0}%
                         </span>
 
-                        {can('courses.manage') && (
+                        {can('courses.manage') && !item.code && (
                           <div className="flex items-center gap-0.5">
                             <button
                               type="button"
