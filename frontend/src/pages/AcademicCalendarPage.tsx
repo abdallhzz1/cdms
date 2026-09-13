@@ -15,12 +15,12 @@ import {
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
-  Clock3,
   Edit3,
   ExternalLink,
   FileSpreadsheet,
   GraduationCap,
   Layers3,
+  MoreHorizontal,
   Plus,
   Settings2,
   Trash2,
@@ -713,7 +713,7 @@ export function AcademicCalendarPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <PageHeader
           title={tr("التقويم الأكاديمي والسريري", "Academic and Clinical Calendar")}
           description={tr("مرجع موحّد للأعوام والفصول والدورات السريرية والامتحانات والإجازات.", "A unified reference for academic years, clinical rotations, exams, and holidays.")}
@@ -728,34 +728,8 @@ export function AcademicCalendarPage() {
             <FileSpreadsheet className="ml-1.5 h-4 w-4" />
             {tr("تصدير Excel", "Export Excel")}
           </Button>
-          {canManage && (
-            <>
-              <Button variant="outline" onClick={openNewYear}>
-                <Plus className="ml-1.5 h-4 w-4" />
-                {tr("عام جديد", "New year")}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={openEditYear}
-                disabled={!selectedYear}
-              >
-                <Settings2 className="ml-1.5 h-4 w-4" />
-                {tr("إعدادات العام", "Year settings")}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={openNewPeriod}
-                disabled={!selectedYear}
-              >
-                <Layers3 className="ml-1.5 h-4 w-4" />
-                {tr("إضافة فترة", "Add period")}
-              </Button>
-              <Button onClick={openNewEvent} disabled={!selectedYear}>
-                <Plus className="ml-1.5 h-4 w-4" />
-                {tr("إضافة حدث", "Add event")}
-              </Button>
-            </>
-          )}
+          {canManage && <Button onClick={openNewEvent} disabled={!selectedYear}><Plus className="ml-1.5 h-4 w-4" />{tr("إضافة حدث", "Add event")}</Button>}
+          {canManage && <details className="group relative"><summary className="flex h-10 cursor-pointer list-none items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"><MoreHorizontal className="h-4 w-4"/>{tr("إدارة", "Manage")}</summary><div className="absolute end-0 z-30 mt-2 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"><button onClick={openEditYear} disabled={!selectedYear} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-start text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"><Settings2 className="h-4 w-4 text-teal-600"/>{tr("إعدادات العام", "Year settings")}</button><button onClick={openNewPeriod} disabled={!selectedYear} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-start text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"><Layers3 className="h-4 w-4 text-teal-600"/>{tr("إضافة فترة سريرية", "Add clinical period")}</button><button onClick={openNewYear} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-start text-xs font-bold text-slate-700 hover:bg-slate-50"><Plus className="h-4 w-4 text-teal-600"/>{tr("إنشاء عام جديد", "Create new year")}</button></div></details>}
         </div>
       </div>
 
@@ -787,14 +761,11 @@ export function AcademicCalendarPage() {
         </Card>
       ) : (
         <>
-          <Card className="p-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="text-xs font-bold text-slate-500">
-                  {tr("العام الأكاديمي", "Academic year")}
-                </label>
+          <Card className="p-3">
+            <div className="grid gap-3 md:grid-cols-[15rem_1fr] md:items-end">
+              <label className="space-y-1.5"><span className="block text-[11px] font-bold text-slate-500">{tr("العام الأكاديمي", "Academic year")}</span>
                 <select
-                  className={`${inputClass} w-48`}
+                  className={`${inputClass} w-full`}
                   value={yearId}
                   onChange={(e) => setYearId(e.target.value)}
                 >
@@ -805,27 +776,18 @@ export function AcademicCalendarPage() {
                     </option>
                   ))}
                 </select>
-                <span
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${selectedYear?.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}
-                >
-                  {selectedYear?.status === "active"
-                    ? tr("نشط", "Active")
-                    : selectedYear?.status === "planned"
-                      ? tr("مخطط", "Planned")
-                      : tr("مغلق", "Closed")}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
+              </label>
+              <div><span className="mb-1.5 block text-[11px] font-bold text-slate-500">{tr("السنة السريرية", "Clinical year")}</span><div className="flex gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1">
                 {(["all", "fourth", "fifth", "sixth"] as const).map((item) => (
                   <button
                     key={item}
                     onClick={() => setLevel(item)}
-                    className={`rounded-lg px-3 py-2 text-xs font-bold ${level === item ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                    className={`shrink-0 flex-1 rounded-lg px-3 py-2 text-xs font-bold transition ${level === item ? "bg-white text-teal-800 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
                   >
                     {item === "all" ? tr("كل السنوات", "All years") : levelLabel(item)}
                   </button>
                 ))}
-              </div>
+              </div></div>
             </div>
           </Card>
 
@@ -836,25 +798,15 @@ export function AcademicCalendarPage() {
           ) : (
             overview && (
               <>
-                <section className="grid gap-3 lg:grid-cols-3">
+                {overview.periods.length>0&&<section className="flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
                   {overview.periods.map((period) => (
                     <article
                       key={period.id}
-                      className="rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm"
+                      className="flex min-w-64 flex-1 items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <span className="rounded-lg bg-indigo-50 px-2 py-1 text-[10px] font-black text-indigo-700">
-                            {period.code} · {period.weeks_count} {tr("أسبوع", "weeks")}
-                          </span>
-                          <h3 className="mt-2 font-black text-slate-900">{ar ? period.name_ar : (period.name_en || period.name_ar)}</h3>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {format(period.start_date)} —{" "}
-                            {format(period.end_date)}
-                          </p>
-                        </div>
+                        <div className="min-w-0"><div className="flex items-center gap-2"><span className="rounded-md bg-teal-100 px-1.5 py-0.5 text-[9px] font-black text-teal-800">{period.code}</span><h3 className="truncate text-xs font-black text-slate-900">{ar ? period.name_ar : (period.name_en || period.name_ar)}</h3></div><p className="mt-1 truncate text-[10px] text-slate-500">{format(period.start_date)} — {format(period.end_date)} · {period.weeks_count} {tr("أسبوع", "weeks")}</p></div>
                         {canManage && (
-                          <div className="flex">
+                          <div className="flex shrink-0">
                             <Button
                               size="sm"
                               variant="ghost"
@@ -875,32 +827,9 @@ export function AcademicCalendarPage() {
                             </Button>
                           </div>
                         )}
-                      </div>
                     </article>
                   ))}
-                </section>
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <Summary
-                    icon={<CalendarDays />}
-                    label={tr("مدة العام", "Academic year duration")}
-                    value={`${format(selectedYear?.start_date ?? null)} — ${format(selectedYear?.end_date ?? null)}`}
-                  />
-                  <Summary
-                    icon={<Layers3 />}
-                    label={tr("الدورات المرتبطة", "Linked rotations")}
-                    value={tr(`${visibleRotations.length} دورة`, `${visibleRotations.length} rotations`)}
-                  />
-                  <Summary
-                    icon={<Clock3 />}
-                    label={tr("الأحداث المسجلة", "Recorded events")}
-                    value={tr(`${visibleEvents.length} حدث`, `${visibleEvents.length} events`)}
-                  />
-                  <Summary
-                    icon={<AlertTriangle />}
-                    label={tr("فترات توقف التدريب", "Training suspension periods")}
-                    value={tr(`${visibleEvents.filter((item) => item.suspends_clinical_training).length} فترة`, `${visibleEvents.filter((item) => item.suspends_clinical_training).length} periods`)}
-                  />
-                </div>
+                </section>}
 
                 <Card className="overflow-hidden">
                   <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1354,29 +1283,6 @@ export function AcademicCalendarPage() {
   );
 }
 
-function Summary({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <Card className="p-4">
-      <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700 [&>svg]:h-4 [&>svg]:w-4">
-          {icon}
-        </div>
-        <div>
-          <p className="text-[11px] font-bold text-slate-500">{label}</p>
-          <p className="mt-1 text-sm font-black text-slate-900">{value}</p>
-        </div>
-      </div>
-    </Card>
-  );
-}
 function Field({
   label,
   children,
