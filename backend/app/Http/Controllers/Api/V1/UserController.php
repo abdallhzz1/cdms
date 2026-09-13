@@ -55,7 +55,9 @@ class UserController extends Controller
 
         if ($request->query('purpose') === 'advising') {
             $users = $users
-                ->filter(fn (User $advisor) => $advisor->roles->contains('code', 'ACADEMIC_ADVISOR'))
+                ->filter(fn (User $advisor) => $advisor->roles->whereIn('code', [
+                    'CLINICAL_DIRECTOR', 'DEPARTMENT_HEAD', 'RTA',
+                ])->isNotEmpty())
                 ->values();
         }
 

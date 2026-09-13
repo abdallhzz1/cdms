@@ -79,23 +79,27 @@ class AdvisingWorkflowTest extends TestCase
             ->assertJsonPath('data.meeting_number', 'ADV-2026-00001');
     }
 
-    public function test_assignment_permission_is_separate_and_only_academic_advisors_are_listed(): void
+    public function test_assignment_permission_is_separate_and_only_eligible_operational_roles_are_listed(): void
     {
         $managerRole = Role::create(['code' => 'ADVISING_ASSIGNMENT_MANAGER', 'name_key' => 'roles.advising_assignment_manager']);
         $this->grant($managerRole, ['advising.assign']);
         $manager = User::factory()->create();
         $manager->roles()->attach($managerRole, ['scope_type' => 'global']);
 
-        $advisor = User::factory()->create(['name' => 'Academic Advisor']);
-        $advisor->roles()->attach(Role::where('code', 'ACADEMIC_ADVISOR')->firstOrFail(), ['scope_type' => 'global']);
+        $advisor = User::factory()->create(['name' => 'Clinical Director']);
+        $advisor->roles()->attach(Role::where('code', 'CLINICAL_DIRECTOR')->firstOrFail(), ['scope_type' => 'global']);
+        foreach (['DEPARTMENT_HEAD', 'RTA'] as $roleCode) {
+            $eligible = User::factory()->create();
+            $eligible->roles()->attach(Role::where('code', $roleCode)->firstOrFail(), ['scope_type' => 'global']);
+        }
         $unrelated = User::factory()->create(['name' => 'Administrative Assistant']);
         $unrelated->roles()->attach(Role::where('code', 'ADMIN_ASSISTANT')->firstOrFail(), ['scope_type' => 'global']);
         $student = Student::factory()->create();
 
         $this->actingAs($manager)->getJson('/api/v1/users/lookup?purpose=advising')
             ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.id', $advisor->id);
+            ->assertJsonCount(3, 'data')
+            ->assertJsonFragment(['id' => $advisor->id]);
 
         $this->actingAs($manager)->postJson('/api/v1/students/bulk-assign-advisor', [
             'assignments' => [[

@@ -377,9 +377,10 @@ class StudentController extends Controller
             if (! empty($item['academic_advisor_id'])) {
                 $candidateId = (int) $item['academic_advisor_id'];
                 $advisorUser = User::with('roles')->find($candidateId);
-                if ($advisorUser && ! $advisorUser->roles->contains('code', 'ACADEMIC_ADVISOR')) {
+                $eligibleAdvisorRoles = ['CLINICAL_DIRECTOR', 'DEPARTMENT_HEAD', 'RTA'];
+                if ($advisorUser && $advisorUser->roles->whereIn('code', $eligibleAdvisorRoles)->isEmpty()) {
                     throw ValidationException::withMessages([
-                        'assignments' => ["User {$candidateId} is not an academic advisor."],
+                        'assignments' => ["User {$candidateId} is not eligible for academic advising."],
                     ]);
                 }
 
@@ -395,12 +396,12 @@ class StudentController extends Controller
                     )
                     : Person::with('user.roles')->find($candidateId);
 
-                if ($person && (! $person->user || ! $person->user->roles->contains('code', 'ACADEMIC_ADVISOR'))) {
+                if ($person && (! $person->user || $person->user->roles->whereIn('code', $eligibleAdvisorRoles)->isEmpty())) {
                     $person = null;
                 }
                 if (! $person) {
                     throw ValidationException::withMessages([
-                        'assignments' => ["Advisor {$candidateId} is unavailable or does not hold the academic-advisor role."],
+                        'assignments' => ["Advisor {$candidateId} is unavailable or does not hold an eligible advising role."],
                     ]);
                 }
                 $advisorId = $person->id;
