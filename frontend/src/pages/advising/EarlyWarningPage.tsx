@@ -6,7 +6,8 @@ import { useI18n } from '@/i18n/I18nContext';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { AdvisingNavTabs } from '@/components/advising/AdvisingNavTabs';
-import { AlertTriangle, ChevronRight, CheckCircle2, ShieldCheck, User } from 'lucide-react';
+import { AlertTriangle, ChevronRight, CheckCircle2, Search, ShieldCheck, User, X } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Link } from 'react-router-dom';
 
 export function EarlyWarningPage() {
@@ -15,11 +16,12 @@ export function EarlyWarningPage() {
 
   const [selectedAdvisorId, setSelectedAdvisorId] = useState<string>('');
   const [selectedLevel, setSelectedLevel] = useState<string>('');
+  const [search,setSearch]=useState('');
 
   // Check if current user is an Administrator / Department Head / Dean
   const isAdminOrHead = useMemo(() => {
     if (!user?.roles) return false;
-    const roles = user.roles.map(r => (typeof r === 'string' ? r : (r as any).name || '').toUpperCase());
+    const roles = user.roles.map(r => (typeof r === 'string' ? r : (r as any).code || (r as any).name || '').toUpperCase());
     return roles.some(r => ['DEPARTMENT_HEAD', 'CLINICAL_DIRECTOR', 'ADMIN_ASSISTANT', 'SYS_ADMIN', 'DEAN', 'VICE_DEAN'].includes(r));
   }, [user]);
 
@@ -43,15 +45,16 @@ export function EarlyWarningPage() {
     return `/students?academic_advisor_id=${user?.id}&per_page=1000`;
   }, [isAdminOrHead, selectedAdvisorId, user?.id]);
 
-  const { data: students, isLoading } = useQuery({
+  const studentsQuery = useQuery({
     queryKey: ['early-warning-students-list', studentsEndpoint],
     queryFn: () => apiFetch<any>(studentsEndpoint)
   });
 
   if (!hasAccess) return <ErrorState title={t('state.forbidden.title')} message={t('state.forbidden.message')} />;
-  if (isLoading) return <LoadingState />;
+  if (studentsQuery.isLoading) return <LoadingState />;
+  if (studentsQuery.isError) return <ErrorState title={locale==='ar'?'تعذر تحميل حالات الإنذار المبكر':'Could not load early-warning cases'} onRetry={()=>studentsQuery.refetch()}/>;
 
-  const studentsList: any[] = Array.isArray(students) ? students : (students?.data || students?.items || []);
+  const studentsList: any[] = Array.isArray(studentsQuery.data) ? studentsQuery.data : (studentsQuery.data?.data || studentsQuery.data?.items || []);
   const advisorsList: any[] = Array.isArray(usersLookup) ? usersLookup : (usersLookup?.data || []);
 
   // Filter students by risk condition: warning_count > 0 OR gpa < 65%
@@ -65,6 +68,7 @@ export function EarlyWarningPage() {
   if (selectedLevel) {
     atRiskStudents = atRiskStudents.filter((s: any) => s.academic_level === selectedLevel);
   }
+  if(search.trim()){const needle=search.trim().toLocaleLowerCase();atRiskStudents=atRiskStudents.filter((s:any)=>`${s.full_name_ar??''} ${s.full_name_en??''} ${s.university_number??''}`.toLocaleLowerCase().includes(needle))}
 
   // Summary Metrics
   const totalRisk = atRiskStudents.length;
@@ -73,28 +77,14 @@ export function EarlyWarningPage() {
 
   return (
     <div className="space-y-4 pb-16 px-1 sm:px-0">
-      {/* Header Banner */}
-      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center shrink-0 shadow-2xs">
-            <AlertTriangle className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm sm:text-base font-black text-slate-900">
-                {locale === 'ar' ? 'نظام الإنذار الأكاديمي المبكر' : 'Early Academic Warning System'}
-              </h1>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div><PageHeader title={locale==='ar'?'الإنذار الأكاديمي المبكر':'Early academic warning'} description={locale==='ar'?'حالات تحتاج متابعة بسبب انخفاض المعدل أو وجود إنذارات أكاديمية.':'Cases requiring follow-up due to a low GPA or academic warnings.'}/>
               {isAdminOrHead && (
-                <span className="px-2.5 py-0.5 bg-amber-50 text-amber-700 text-[10.5px] font-bold rounded-lg border border-amber-200 flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
+                <span className="inline-flex px-2.5 py-0.5 bg-teal-50 text-teal-700 text-[10.5px] font-bold rounded-lg border border-teal-200 items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-teal-600" />
                   {locale === 'ar' ? 'لوحة رصد الدائرة والعمادة' : 'Faculty-Wide Overview'}
                 </span>
               )}
-            </div>
-            <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-              {locale === 'ar' ? 'رصد تلقائي للطلاب الذين يقل معدلهم المئوي عن %65 أو لديهم إنذارات أكاديمية للتدخل الفوري.' : 'Automatic tracking of students with GPA < 65% or active academic warnings.'}
-            </p>
-          </div>
         </div>
 
         {/* Admin Filters Row */}
@@ -130,38 +120,30 @@ export function EarlyWarningPage() {
       {/* Advising Sub-Navigation Tabs */}
       <AdvisingNavTabs />
 
-      {/* KPI Cards Summary Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
+      <div className="grid grid-cols-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="p-3.5 flex items-center justify-between border-e border-slate-100">
           <div>
             <div className="text-[11px] font-semibold text-slate-400">{locale === 'ar' ? 'إجمالي الحالات المتعثرة' : 'Total At-Risk'}</div>
-            <div className="text-lg font-black text-amber-600 mt-0.5">{totalRisk} {locale === 'ar' ? 'طالب' : 'Students'}</div>
-          </div>
-          <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-xs">
-            {totalRisk}
+            <div className="text-lg font-black text-slate-900 mt-0.5">{totalRisk}</div>
           </div>
         </div>
 
-        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
+        <div className="p-3.5 flex items-center justify-between border-e border-slate-100">
           <div>
             <div className="text-[11px] font-semibold text-slate-400">{locale === 'ar' ? 'معدل أقل من %65' : 'GPA < 65%'}</div>
-            <div className="text-lg font-black text-red-600 mt-0.5">{lowGpaCount} {locale === 'ar' ? 'طالب' : 'Students'}</div>
-          </div>
-          <div className="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center font-bold text-xs">
-            {lowGpaCount}
+            <div className="text-lg font-black text-slate-900 mt-0.5">{lowGpaCount}</div>
           </div>
         </div>
 
-        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
+        <div className="p-3.5 flex items-center justify-between">
           <div>
             <div className="text-[11px] font-semibold text-slate-400">{locale === 'ar' ? 'إنذارات أكاديمية نشطة' : 'Active Warnings'}</div>
-            <div className="text-lg font-black text-slate-800 mt-0.5">{warningCount} {locale === 'ar' ? 'حالة' : 'Cases'}</div>
-          </div>
-          <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs">
-            {warningCount}
+            <div className="text-lg font-black text-slate-900 mt-0.5">{warningCount}</div>
           </div>
         </div>
       </div>
+
+      <label className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 shadow-sm"><Search className="h-4 w-4 text-slate-400"/><input value={search} onChange={event=>setSearch(event.target.value)} className="w-full bg-transparent text-xs font-bold outline-none" placeholder={locale==='ar'?'ابحث باسم الطالب أو رقمه...':'Search by student name or number...'}/>{search&&<button onClick={()=>setSearch('')}><X className="h-4 w-4 text-slate-400"/></button>}</label>
 
       {/* Risk Grid Content */}
       {atRiskStudents.length === 0 ? (
@@ -183,13 +165,13 @@ export function EarlyWarningPage() {
             const hasWarnings = s.warning_count > 0;
 
             return (
-              <div key={s.id} className="bg-white rounded-2xl border border-red-200/80 shadow-2xs overflow-hidden flex flex-col justify-between hover:border-red-300 transition-all">
+              <div key={s.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col justify-between hover:border-teal-300 transition-all">
                 <div className="p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <div className="w-8 h-8 bg-red-50 text-red-600 rounded-xl flex items-center justify-center border border-red-100">
+                    <div className="w-8 h-8 bg-teal-50 text-teal-700 rounded-xl flex items-center justify-center border border-teal-100">
                       <AlertTriangle className="w-4 h-4" />
                     </div>
-                    <span className="px-2 py-0.5 bg-red-50 text-red-700 text-[10.5px] font-bold rounded-md border border-red-100">
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10.5px] font-bold rounded-md border border-slate-200">
                       {isLowGpa && hasWarnings 
                         ? (locale === 'ar' ? 'خطر تعثر + إنذارات' : 'Risk & Warnings')
                         : isLowGpa 

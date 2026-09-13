@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { AdvisingNavTabs } from '@/components/advising/AdvisingNavTabs';
 import { AdvisingFormPrintView } from '@/components/advising/AdvisingFormPrintView';
@@ -8,6 +9,9 @@ import { AdvisingPolicyDrawer } from '@/components/advising/AdvisingPolicyDrawer
 import { IndividualFormModal } from '@/components/advising/IndividualFormModal';
 import { GroupFormModal } from '@/components/advising/GroupFormModal';
 import { AtRiskFormModal } from '@/components/advising/AtRiskFormModal';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { LoadingState } from '@/components/ui/LoadingState';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { 
   FileText, Users, AlertTriangle, ShieldCheck, 
   Plus, Printer, Paperclip, Search, Trash2, Calendar
@@ -15,6 +19,7 @@ import {
 
 export function AdvisingFormsPage() {
   const { locale } = useI18n();
+  const { can } = useAuth();
   const tr = (arabic: string, english: string) => locale === 'ar' ? arabic : english;
   const queryClient = useQueryClient();
 
@@ -29,53 +34,35 @@ export function AdvisingFormsPage() {
   const [printPreviewItem, setPrintPreviewItem] = useState<{ type: any; data: any } | null>(null);
 
   // Stored Official Forms Records State
-  const [formsRecords, setFormsRecords] = useState<any[]>(() => {
-    const saved = localStorage.getItem('cdms_advising_official_forms');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      } catch (e) {}
-    }
-    return [];
-  });
+  const [formsRecords, setFormsRecords] = useState<any[]>([]);
+  const [notice,setNotice]=useState('');
+  const [saveError,setSaveError]=useState('');
 
   // Fetch payload from MySQL Database
-  const { data: dbFormsPayload } = useQuery({
+  const formsQuery = useQuery({
     queryKey: ['db-advising-official-forms'],
     queryFn: () => apiFetch<any>(`/operational/distribution-payload?key=${encodeURIComponent('cdms_advising_official_forms')}`),
   });
 
   useEffect(() => {
-    const data = Array.isArray(dbFormsPayload) ? dbFormsPayload : dbFormsPayload?.data;
-    if (Array.isArray(data) && data.length > 0) {
-      setFormsRecords(data);
-      try { localStorage.setItem('cdms_advising_official_forms', JSON.stringify(data)); } catch (e) {}
-    }
-  }, [dbFormsPayload]);
+    const data = Array.isArray(formsQuery.data) ? formsQuery.data : formsQuery.data?.data;
+    setFormsRecords(Array.isArray(data) ? data : []);
+  }, [formsQuery.data]);
 
-  const saveFormsRecords = (updated: any[]) => {
-    setFormsRecords(updated);
-    try { localStorage.setItem('cdms_advising_official_forms', JSON.stringify(updated)); } catch (e) {}
-
-    apiFetch('/operational/distribution-payload', {
+  const saveMutation=useMutation({mutationFn:(updated:any[])=>apiFetch('/operational/distribution-payload', {
       method: 'POST',
       body: { key: 'cdms_advising_official_forms', payload: updated }
-    }).then(() => {
-      queryClient.invalidateQueries({ queryKey: ['db-advising-official-forms'] });
-    }).catch(err => console.error('DB Sync Error:', err));
-  };
+    }),onSuccess:async(_,updated)=>{setFormsRecords(updated);await queryClient.invalidateQueries({queryKey:['db-advising-official-forms']});setSaveError('');setNotice(tr('تم حفظ سجل النماذج على السيرفر.','Forms were saved on the server.'))},onError:()=>setSaveError(tr('تعذر حفظ التغيير على السيرفر. لم يتم اعتماد التعديل.','The change could not be saved on the server.'))});
 
   const handleSaveForm = (newFormPayload: any) => {
     const updated = [newFormPayload, ...formsRecords];
-    saveFormsRecords(updated);
-    alert(locale === 'ar' ? 'تم حفظ نموذج الإرشاد بنجاح وتوثيقه بالكلية ✓' : 'Form saved successfully ✓');
+    setNotice('');setSaveError('');saveMutation.mutate(updated);
   };
 
   const handleDeleteForm = (formId: string) => {
     if (window.confirm(locale === 'ar' ? 'هل أنت متأكد من حذف هذا السجل الإرشادي؟' : 'Delete record?')) {
       const updated = formsRecords.filter(f => f.id !== formId);
-      saveFormsRecords(updated);
+      setNotice('');setSaveError('');saveMutation.mutate(updated);
     }
   };
 
@@ -91,34 +78,28 @@ export function AdvisingFormsPage() {
     );
   });
 
+  if(formsQuery.isLoading)return <LoadingState/>;
+  if(formsQuery.isError)return <ErrorState title={tr('تعذر تحميل النماذج الرسمية','Could not load official forms')} onRetry={()=>formsQuery.refetch()}/>;
   return (
     <div className="space-y-6 pb-20">
       
       {/* Top Header & Navigation Tabs */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 leading-tight flex items-center gap-2.5">
-            <span>{tr('نماذج وسياسة الإرشاد الأكاديمي الرسمية', 'Official Academic Advising Forms and Policy')}</span>
-            <span className="bg-teal-50 text-teal-800 text-xs font-mono font-bold px-2.5 py-1 rounded-xl border border-teal-200">
-              AQC-8
-            </span>
-          </h1>
-          <p className="text-xs text-slate-500 font-medium mt-1">
-            {tr('نماذج محاضر الاجتماعات الفردية والجماعية واستمارة المتعثرين مع ترويسة الكلية والطباعة المعتمدة', 'Individual and group meeting minutes and at-risk student forms with approved faculty branding and printing')}
-          </p>
-        </div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <PageHeader title={tr('النماذج الرسمية للإرشاد الأكاديمي','Official academic advising forms')} description={tr('محاضر الاجتماعات واستمارات المتابعة المحفوظة مركزيًا والقابلة للطباعة.','Centrally stored meeting records and follow-up forms ready for printing.')}/>
 
         <button
           type="button"
           onClick={() => setIsPolicyOpen(true)}
-          className="px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-2 shadow-sm transition-all shrink-0 cursor-pointer"
+          className="px-4 py-2.5 rounded-xl border border-teal-200 bg-white hover:bg-teal-50 text-teal-800 font-bold text-xs flex items-center gap-2 shadow-sm transition-all shrink-0 cursor-pointer"
         >
-          <ShieldCheck className="w-4 h-4 text-teal-400" />
+          <ShieldCheck className="w-4 h-4 text-teal-600" />
           <span>{tr('سياسة ودليل الإرشاد (AQC-8)', 'Advising Policy and Guide (AQC-8)')}</span>
         </button>
       </div>
 
       <AdvisingNavTabs />
+      {notice&&<div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800">{notice}</div>}
+      {saveError&&<div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-700">{saveError}</div>}
 
       {/* Action Bar: Create Forms */}
       <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -157,12 +138,12 @@ export function AdvisingFormsPage() {
             type="button"
             onClick={() => setActiveTab('at_risk')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
-              activeTab === 'at_risk' ? 'bg-white text-amber-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              activeTab === 'at_risk' ? 'bg-white text-teal-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <AlertTriangle className="w-4 h-4 text-teal-600" />
             <span>{tr('استمارات المتعثرين', 'At-risk forms')}</span>
-            <span className="bg-amber-50 text-amber-800 text-[10.5px] px-2 py-0.5 rounded-md font-mono">
+            <span className="bg-teal-50 text-teal-800 text-[10.5px] px-2 py-0.5 rounded-md font-mono">
               {formsRecords.filter(f => f.form_type === 'at_risk').length}
             </span>
           </button>
@@ -170,7 +151,7 @@ export function AdvisingFormsPage() {
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          {activeTab === 'individual' && (
+          {can('advising.manage') && activeTab === 'individual' && (
             <button
               type="button"
               onClick={() => setIsIndividualModalOpen(true)}
@@ -181,7 +162,7 @@ export function AdvisingFormsPage() {
             </button>
           )}
 
-          {activeTab === 'group' && (
+          {can('advising.manage') && activeTab === 'group' && (
             <button
               type="button"
               onClick={() => setIsGroupModalOpen(true)}
@@ -192,11 +173,11 @@ export function AdvisingFormsPage() {
             </button>
           )}
 
-          {activeTab === 'at_risk' && (
+          {can('advising.manage') && activeTab === 'at_risk' && (
             <button
               type="button"
               onClick={() => setIsAtRiskModalOpen(true)}
-              className="px-4 py-2.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-600/20 transition-all cursor-pointer"
+              className="px-4 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-teal-600/20 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>{tr('تعبئة استمارة متعثرين جديدة', 'Create at-risk form')}</span>
@@ -243,14 +224,14 @@ export function AdvisingFormsPage() {
                       <span>{item.date || new Date().toISOString().slice(0, 10)}</span>
                     </span>
 
-                    <button
+                    {can('advising.manage')&&<button
                       type="button"
                       onClick={() => handleDeleteForm(item.id)}
                       className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"
                       title="حذف هذا المحضر"
                     >
                       <Trash2 className="w-4 h-4" />
-                    </button>
+                    </button>}
                   </div>
 
                   {/* Title & Student Name */}
@@ -272,7 +253,7 @@ export function AdvisingFormsPage() {
 
                   {item.form_type === 'at_risk' && (
                     <div>
-                      <h4 className="font-black text-sm text-amber-900">استمارة رصد الطلاب المتعثرين</h4>
+                      <h4 className="font-black text-sm text-slate-900">{tr('استمارة رصد الطلاب المتعثرين','At-risk student monitoring form')}</h4>
                       <span className="text-xs font-bold text-slate-500">
                         عدد الطلبة المرصودين: {Array.isArray(item.students) ? item.students.length : 0} طالب
                       </span>
@@ -310,7 +291,7 @@ export function AdvisingFormsPage() {
                   )}
 
                   <div className="flex items-center justify-between gap-2 pt-1">
-                    <span className="text-[10.5px] font-bold text-slate-400">المرشد: {item.advisor_name || 'د. رامي القواسمة'}</span>
+                    <span className="text-[10.5px] font-bold text-slate-400">{tr('المرشد:','Advisor:')} {item.advisor_name || tr('غير موثق','Not recorded')}</span>
                     <button
                       type="button"
                       onClick={() => setPrintPreviewItem({ type: item.form_type, data: item })}
