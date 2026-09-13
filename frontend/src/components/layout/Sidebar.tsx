@@ -143,7 +143,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
       )}
       {/* Sidebar Content */}
       <aside
-        className={`fixed inset-y-0 z-40 flex max-w-[88vw] flex-col border-e border-slate-200 bg-white transition-all duration-200 ease-in-out md:sticky md:top-0 md:h-screen md:translate-x-0 ${isCollapsed ? 'md:w-20' : 'md:w-72'} w-80 ${
+        className={`fixed inset-y-0 z-40 flex max-w-[90vw] flex-col border-e border-slate-200 bg-white transition-all duration-200 ease-in-out md:sticky md:top-0 md:h-screen md:translate-x-0 ${isCollapsed ? 'md:w-20' : 'md:w-80'} w-80 ${
           isOpenMobile
             ? 'translate-x-0 shadow-2xl'
             : locale === 'ar' ? 'translate-x-full md:translate-x-0' : '-translate-x-full md:translate-x-0'
@@ -213,7 +213,6 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
             );
           })}
         </div>
-        {!isCollapsed && user && <div className="hidden shrink-0 border-t border-slate-100 p-3 md:block"><NavLink to="/profile" className="flex items-center gap-3 rounded-xl p-2.5 hover:bg-slate-50"><span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-teal-600 text-sm font-black text-white">{user.avatar_url ? <img src={user.avatar_url} alt="" className="h-full w-full object-cover" /> : user.name.charAt(0)}</span><span className="min-w-0"><strong className="block truncate text-xs font-black text-slate-800">{user.name}</strong><span className="mt-0.5 block truncate text-[10px] text-slate-400">{user.email}</span></span></NavLink></div>}
       </aside>
     </>
   );
