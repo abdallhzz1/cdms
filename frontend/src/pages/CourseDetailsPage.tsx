@@ -243,6 +243,7 @@ export function CourseDetailsPage() {
 
   // Calculate total weights
   const totalWeight = (data.assessment_components || []).reduce((acc, item) => acc + (Number(item.weight) || 0), 0);
+  const totalMaxScore = (data.assessment_components || []).reduce((acc, item) => acc + (Number(item.max_score) || 0), 0);
   const mappingLevelLabel = (value?: string | null) => {
     const level = value || 'High';
     if (locale !== 'ar') return level;
@@ -568,6 +569,7 @@ export function CourseDetailsPage() {
                   />
                 </div>
                 {totalWeight !== 100 && <p className="text-[10px] font-bold text-amber-700">{locale === 'ar' ? `المتبقي لاعتماد الخطة: ${Math.max(0, 100-totalWeight)}%` : `Remaining to complete the plan: ${Math.max(0, 100-totalWeight)}%`}</p>}
+                <p className={`text-[10px] font-bold ${totalMaxScore === 100 ? 'text-emerald-700' : 'text-amber-700'}`}>{locale === 'ar' ? `مجموع العلامات القصوى: ${totalMaxScore}/100` : `Maximum scores total: ${totalMaxScore}/100`}</p>
               </div>
 
               {!data.assessment_components?.length ? (
@@ -588,7 +590,7 @@ export function CourseDetailsPage() {
                           {item.weight || 0}%
                         </span>
 
-                        {can('courses.manage') && !item.code && (
+                        {can('courses.manage') && (
                           <div className="flex items-center gap-0.5">
                             <button
                               type="button"
@@ -597,7 +599,7 @@ export function CourseDetailsPage() {
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
-                            <button
+                            {!item.code && <button
                               type="button"
                               onClick={() => {
                                 if (window.confirm(locale === 'ar' ? 'حذف هذا التقييم؟' : 'Delete component?')) {
@@ -607,7 +609,7 @@ export function CourseDetailsPage() {
                               className="p-1 text-slate-400 hover:text-red-600 transition-colors"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            </button>}
                           </div>
                         )}
                       </div>

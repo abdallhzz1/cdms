@@ -8,6 +8,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\GradeEntry;
 use App\Models\StudentCourseEnrollment;
 use App\Models\Course;
+use App\Models\CourseAssessmentComponent;
 use App\Models\Student;
 use App\Models\AcademicYear;
 use App\Models\ClinicalAssessment;
@@ -636,6 +637,10 @@ class GradeEntryController extends Controller
 
     private function clinicalScores(array $studentIds, ?int $courseId = null, ?int $academicYearId = null, bool $withMetadata = false)
     {
+        $clinicalMax = $courseId
+            ? (float) (CourseAssessmentComponent::where('course_id', $courseId)->where('code', 'clinical')->value('max_score') ?: 20)
+            : 20.0;
+
         return ClinicalAssessment::query()
             // A supervisor's submitted weekly assessment is the official
             // clinical input. Administrative approval applies to the final
@@ -643,7 +648,7 @@ class GradeEntryController extends Controller
             ->whereIn('status', ['submitted', 'approved'])->where('max_score', '>', 0)->whereIn('student_id', $studentIds)
             ->when($courseId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $courseId)))
             ->when($academicYearId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $academicYearId)))
-            ->selectRaw('student_id, ROUND(AVG((score * 20.0) / max_score), 2) as clinical_score, COUNT(*) as assessments_count')
+            ->selectRaw('student_id, ROUND(AVG((score * ?) / max_score), 2) as clinical_score, COUNT(*) as assessments_count', [$clinicalMax])
             ->groupBy('student_id')->get()->keyBy('student_id')->map(fn ($item) => $withMetadata
                 ? ['clinical_score' => (float) $item->clinical_score, 'assessments_count' => (int) $item->assessments_count]
                 : (float) $item->clinical_score);
@@ -662,12 +667,13 @@ class GradeEntryController extends Controller
         $components = $course->assessmentComponents->keyBy('code');
         $required = collect(['clinical', 'osce', 'written']);
         $valid = $required->every(fn (string $code) => $components->has($code))
-            && abs((float) $components->sum('weight') - 100.0) < 0.001;
+            && abs((float) $components->sum('weight') - 100.0) < 0.001
+            && abs((float) $components->sum('max_score') - 100.0) < 0.001;
 
         if (! $valid) {
             throw \Illuminate\Validation\ValidationException::withMessages(['assessment_components' => [$this->tr(
-                'خطة تقييم المساق غير مكتملة. يجب أن تحتوي السريري وOSCE والنظري بمجموع 100%.',
-                'The course assessment plan is incomplete. It must contain clinical, OSCE, and written components totaling 100%.',
+                'خطة تقييم المساق غير مكتملة. يجب أن تحتوي السريري وOSCE والنظري، وأن يساوي مجموع الأوزان والعلامات القصوى 100.',
+                'The course assessment plan is incomplete. It must contain clinical, OSCE, and written components, with weights and maximum scores each totaling 100.',
             )]]);
         }
 

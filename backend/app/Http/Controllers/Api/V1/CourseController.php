@@ -153,11 +153,6 @@ class CourseController extends Controller
 
     public function updateAssessmentComponent(Request $request, Course $course, int $componentId): JsonResponse {
         $component = $course->assessmentComponents()->findOrFail($componentId);
-        if (in_array($component->code, ['clinical', 'osce', 'written'], true)) {
-            throw ValidationException::withMessages([
-                'assessment_components' => ['مكونات خطة التقييم القياسية مرتبطة بكشف العلامات ولا يمكن تعديلها منفردة.'],
-            ]);
-        }
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'weight' => 'nullable|numeric|min:0|max:100',
