@@ -30,11 +30,12 @@ function mockApi(exportResponse?:Response) {
 afterEach(()=>vi.restoreAllMocks());
 
 describe('ReportsDashboard',()=>{
-  it('renders operational metrics, report catalog and preview',async()=>{
+  it('renders the compact report controls and preview',async()=>{
     const fetchSpy=mockApi();
     renderWithProviders(<ReportsDashboard/>);
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input])=>String(input).includes('summary?academic_year_id=1'))).toBe(true));
-    await waitFor(()=>expect(screen.getByText('Academically registered students')).toBeVisible());
+    await waitFor(()=>expect(screen.getByText('Annual reports and statistics')).toBeVisible());
+    expect(screen.getByText('Report')).toBeVisible();
     expect(screen.getAllByText('Data and operational gaps').length).toBeGreaterThanOrEqual(1);
     await waitFor(()=>expect(screen.getByText('طالب تجريبي')).toBeVisible());
     expect(screen.getByRole('button',{name:/Excel/i})).toBeInTheDocument();

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, BarChart3, BookOpenCheck, Building2, CheckCircle2, ChevronLeft, ClipboardCheck, Download, FileSpreadsheet, GraduationCap, Loader2, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Stethoscope, Users, X } from 'lucide-react';
+import { AlertTriangle, BarChart3, BookOpenCheck, Building2, CheckCircle2, ClipboardCheck, Download, FileSpreadsheet, GraduationCap, Loader2, RefreshCw, Search, Stethoscope, Users, X } from 'lucide-react';
 import { apiFetch, apiUrl } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
@@ -9,8 +9,8 @@ import { Button } from '@/components/ui/Button';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { LoadingState } from '@/components/ui/LoadingState';
 
-type Category = 'all' | 'academic' | 'clinical' | 'quality' | 'monitoring';
-type ReportDefinition = { key:string; category:Exclude<Category,'all'>; title:string; description:string };
+type Category = 'academic' | 'clinical' | 'quality' | 'monitoring';
+type ReportDefinition = { key:string; category:Category; title:string; description:string };
 type SummaryPayload = {
   academic_years:Array<{id:number;code:string;is_current:boolean;status:string}>;
   clinical_periods?:Array<{id:number;academic_year_id:number;code:string;name_ar:string;name_en:string|null;sequence:number}>;
@@ -34,7 +34,7 @@ const reportCopy: Record<string, { ar: string; en: string; descriptionAr: string
 };
 
 const categories:Array<{id:Category;ar:string;en:string}> = [
-  {id:'all',ar:'جميع التقارير',en:'All reports'}, {id:'academic',ar:'أكاديمية',en:'Academic'}, {id:'clinical',ar:'سريرية',en:'Clinical'}, {id:'quality',ar:'الجودة',en:'Quality'}, {id:'monitoring',ar:'رقابية',en:'Monitoring'},
+  {id:'academic',ar:'التقارير الأكاديمية',en:'Academic reports'}, {id:'clinical',ar:'التقارير السريرية',en:'Clinical reports'}, {id:'quality',ar:'تقارير الجودة',en:'Quality reports'}, {id:'monitoring',ar:'التقارير الرقابية',en:'Monitoring reports'},
 ];
 const reportIcons:Record<string,typeof Users> = {
   student_directory:Users, group_rosters:GraduationCap, clinical_schedule:Stethoscope,
@@ -48,7 +48,6 @@ export function ReportsDashboard() {
   const { locale } = useI18n();
   const ar = locale === 'ar';
   const tr = (arabic:string, english:string) => ar ? arabic : english;
-  const [category,setCategory] = useState<Category>('all');
   const [yearId,setYearId] = useState('');
   const [level,setLevel] = useState('');
   const [periodId,setPeriodId] = useState('');
@@ -77,12 +76,6 @@ export function ReportsDashboard() {
     const copy = reportCopy[report.key];
     return { title: copy ? (ar ? copy.ar : copy.en) : report.title, description: copy ? (ar ? copy.descriptionAr : copy.descriptionEn) : report.description };
   };
-  const filtered=category==='all'?summary.reports:summary.reports.filter(r=>r.category===category);
-  const metrics=summary.metrics;
-  const ungrouped=Math.max(0,metrics.academically_registered-metrics.students_in_groups);
-  const unscheduled=Math.max(0,metrics.students_in_groups-metrics.students_in_published_schedule);
-  const groupingRate=metrics.academically_registered?Math.round((metrics.students_in_groups/metrics.academically_registered)*100):0;
-  const scheduleRate=metrics.students_in_groups?Math.round((metrics.students_in_published_schedule/metrics.students_in_groups)*100):0;
   const selectedReport=summary.reports.find(report=>report.key===selectedKey)??summary.reports[0];
   const selectedCopy=selectedReport?reportLabel(selectedReport):null;
   const activeFilterCount=[yearId,periodId,level].filter(Boolean).length;
@@ -104,44 +97,21 @@ export function ReportsDashboard() {
   return <div className="space-y-4 pb-20">
     <PageHeader title={tr('التقارير السنوية والإحصائيات', 'Annual reports and statistics')} description={tr('صورة موحدة عن العمل الأكاديمي والسريري، مع تقارير جاهزة للمعاينة والتصدير.', 'A unified view of academic and clinical operations with ready-to-export reports.')}/>
 
-    <section className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"><SlidersHorizontal className="h-5 w-5"/></span><div><h2 className="text-sm font-black text-slate-900">{tr('نطاق التقرير','Reporting scope')}</h2><p className="text-[11px] text-slate-500">{tr('اختيارك ينعكس على الأرقام والمعاينة والتصدير.','Your selection applies to metrics, preview, and export.')}</p></div></div>
-        {activeFilterCount>0&&<button onClick={resetFilters} className="flex items-center gap-1.5 self-start rounded-xl px-3 py-2 text-xs font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"><X className="h-4 w-4"/>{tr('مسح الفلاتر','Clear filters')}</button>}
-      </div>
-      <div className="grid gap-3 p-4 md:grid-cols-3">
+    <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm md:grid-cols-2 xl:grid-cols-[1.35fr_1fr_1fr_1fr_auto] xl:items-end">
+      <FilterField label={tr('التقرير','Report')}><select value={selectedKey} onChange={e=>{setSelectedKey(e.target.value);setSearchInput('');setSearch('')}} className="input">{categories.map(group=><optgroup key={group.id} label={ar?group.ar:group.en}>{summary.reports.filter(report=>report.category===group.id).map(report=><option key={report.key} value={report.key}>{reportLabel(report).title}</option>)}</optgroup>)}</select></FilterField>
         <FilterField label={tr('العام الأكاديمي','Academic year')}><select value={yearId} onChange={e=>{setYearId(e.target.value);setPeriodId('')}} className="input"><option value="">{tr('جميع الأعوام', 'All years')}</option>{summary.academic_years.map(y=><option key={y.id} value={y.id}>{y.code}{y.is_current?tr(' — الحالي',' — Current'):''}</option>)}</select></FilterField>
         <FilterField label={tr('الفترة السريرية','Clinical period')}><select value={periodId} onChange={e=>setPeriodId(e.target.value)} disabled={!visiblePeriods.length} className="input disabled:bg-slate-50 disabled:text-slate-400"><option value="">{tr('جميع الفترات','All periods')}</option>{visiblePeriods.map(period=><option key={period.id} value={period.id}>{period.code} — {ar?period.name_ar:period.name_en||period.name_ar}</option>)}</select></FilterField>
         <FilterField label={tr('السنة السريرية','Clinical year')}><select value={level} onChange={e=>setLevel(e.target.value)} className="input"><option value="">{tr('جميع السنوات', 'All years')}</option><option value="fourth">{tr('السنة الرابعة','Fourth year')}</option><option value="fifth">{tr('السنة الخامسة','Fifth year')}</option><option value="sixth">{tr('السنة السادسة','Sixth year')}</option></select></FilterField>
-      </div>
+      <button onClick={resetFilters} disabled={!activeFilterCount&&!searchInput} className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-500 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-default disabled:opacity-40"><X className="h-4 w-4"/>{tr('مسح','Clear')}</button>
     </section>
-
-    <section className="grid grid-cols-2 overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm lg:grid-cols-4">
-      <Metric label={tr('المسجلون أكاديمياً','Academically registered students')} value={metrics.academically_registered} note={tr(`من ${metrics.students} طالب`, `of ${metrics.students} students`)} icon={Users}/>
-      <Metric label={tr('تغطية المجموعات','Group coverage')} value={`${groupingRate}%`} note={ungrouped?tr(`${ungrouped} طالب بحاجة لمجموعة`, `${ungrouped} students need a group`):tr('التغطية مكتملة','Coverage complete')} icon={GraduationCap} warning={ungrouped>0}/>
-      <Metric label={tr('تغطية الجدول المنشور','Published schedule coverage')} value={`${scheduleRate}%`} note={unscheduled?tr(`${unscheduled} طالب دون جدول منشور`, `${unscheduled} students without a published schedule`):tr('التغطية مكتملة','Coverage complete')} icon={Stethoscope} warning={unscheduled>0}/>
-      <Metric label={tr('المشرفون النشطون','Active supervisors')} value={metrics.active_supervisors} note={tr(`${metrics.vacant_schedule_rows} شاغر · ${metrics.course_reports_pending_approval} تقرير معلّق`, `${metrics.vacant_schedule_rows} vacancies · ${metrics.course_reports_pending_approval} pending reports`)} icon={ShieldCheck} warning={metrics.vacant_schedule_rows>0||metrics.course_reports_pending_approval>0}/>
-    </section>
-
-    {(ungrouped>0||unscheduled>0||metrics.vacant_schedule_rows>0||metrics.course_reports_pending_approval>0)&&<section className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600"/><div><h2 className="text-xs font-black text-amber-900">{tr('توجد حالات تحتاج متابعة','Items need attention')}</h2><p className="mt-0.5 text-[11px] leading-5 text-amber-800">{tr('افتح تقرير نواقص البيانات لمعرفة الحالات والإجراء المقترح لكل منها.','Open the data gaps report to see each case and its recommended action.')}</p></div></div><Button variant="outline" onClick={()=>{setSelectedKey('data_gaps');setCategory('monitoring');document.getElementById('report-preview')?.scrollIntoView({behavior:'smooth'})}}>{tr('عرض النواقص','View gaps')}<ChevronLeft className="ms-1 h-4 w-4"/></Button></section>}
-
-    <section className="grid items-start gap-4 xl:grid-cols-[17rem_minmax(0,1fr)]">
-      <aside className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm xl:sticky xl:top-4">
-        <div className="border-b border-slate-100 p-4"><h2 className="text-sm font-black text-slate-900">{tr('مكتبة التقارير','Report library')}</h2><p className="mt-1 text-[11px] text-slate-500">{tr(`${summary.reports.length} تقارير جاهزة`, `${summary.reports.length} ready reports`)}</p></div>
-        <div className="flex gap-1 overflow-x-auto border-b border-slate-100 p-2 xl:flex-wrap">{categories.map(item=><button key={item.id} onClick={()=>setCategory(item.id)} className={`shrink-0 rounded-lg px-2.5 py-2 text-[11px] font-bold transition ${category===item.id?'bg-teal-600 text-white':'text-slate-500 hover:bg-teal-50 hover:text-teal-700'}`}>{ar?item.ar:item.en}</button>)}</div>
-        <div className="flex gap-2 overflow-x-auto p-2 xl:block xl:max-h-[34rem] xl:space-y-1 xl:overflow-y-auto">{filtered.map(report=>{const Icon=reportIcons[report.key]||FileSpreadsheet;const active=selectedKey===report.key;const copy=reportLabel(report);return <button key={report.key} onClick={()=>setSelectedKey(report.key)} className={`flex min-w-56 items-center gap-3 rounded-xl p-3 text-start transition xl:min-w-0 xl:w-full ${active?'bg-teal-50 text-teal-900':'text-slate-600 hover:bg-slate-50'}`}><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${active?'bg-teal-600 text-white':'bg-slate-100 text-slate-500'}`}><Icon className="h-4 w-4"/></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-black">{copy.title}</span><span className="mt-0.5 block truncate text-[10px] text-slate-400">{copy.description}</span></span>{active&&<span className="h-2 w-2 rounded-full bg-teal-500"/>}</button>})}</div>
-      </aside>
-
     <section id="report-preview" className="min-w-0 overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 bg-slate-50/60 p-4"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 items-start gap-3">{selectedReport&&(()=>{const Icon=reportIcons[selectedReport.key]||FileSpreadsheet;return <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-600 text-white"><Icon className="h-5 w-5"/></span>})()}<div className="min-w-0"><h2 className="text-base font-black text-slate-900">{selectedCopy?.title??tr('معاينة التقرير','Report preview')}</h2><p className="mt-1 max-w-2xl text-[11px] leading-5 text-slate-500">{selectedCopy?.description}</p></div></div><div className="flex shrink-0 flex-wrap gap-2">{can('reports.export')&&<><Button variant="outline" disabled={Boolean(downloadKey)||previewQuery.isLoading} onClick={()=>download('xlsx')}>{downloadKey.endsWith('xlsx')?<Loader2 className="ms-1 h-4 w-4 animate-spin"/>:<FileSpreadsheet className="ms-1 h-4 w-4"/>}Excel</Button><Button disabled={Boolean(downloadKey)||previewQuery.isLoading} onClick={()=>download('pdf')}>{downloadKey.endsWith('pdf')?<Loader2 className="ms-1 h-4 w-4 animate-spin"/>:<Download className="ms-1 h-4 w-4"/>}PDF</Button></>}</div></div>
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><label className="flex h-10 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 sm:max-w-sm"><Search className="h-4 w-4 text-slate-400"/><input value={searchInput} onChange={e=>setSearchInput(e.target.value)} className="w-full bg-transparent text-xs font-bold outline-none" placeholder={tr('بحث في نتائج هذا التقرير...','Search this report...')}/>{searchInput&&<button onClick={()=>setSearchInput('')} aria-label={tr('مسح البحث','Clear search')}><X className="h-4 w-4 text-slate-400"/></button>}</label><div className="flex items-center gap-2 text-[10px] text-slate-400"><RefreshCw className="h-3.5 w-3.5"/>{tr('آخر تحديث:','Last updated:')} {new Date(summary.generated_at).toLocaleString(locale==='ar'?'ar-PS':'en-GB',{dateStyle:'short',timeStyle:'short'})}</div></div>
       </div>
       {downloadError&&<div className="border-b border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-700">{downloadError}</div>}
       {previewQuery.isLoading?<div className="flex min-h-48 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-teal-600"/></div>:previewQuery.isError?<div className="p-6"><ErrorState title={tr('تعذر تحميل معاينة التقرير','Could not load report preview')} onRetry={()=>previewQuery.refetch()}/></div>:previewQuery.data&&!previewQuery.data.rows.length?<div className="p-12 text-center"><FileSpreadsheet className="mx-auto h-9 w-9 text-slate-300"/><p className="mt-3 text-sm font-black text-slate-700">{tr('لا توجد بيانات مطابقة','No matching data')}</p><p className="mt-1 text-xs text-slate-500">{tr('غيّر العام أو السنة السريرية أو عبارة البحث.','Change the academic year, clinical year, or search term.')}</p></div>:previewQuery.data&&<><div className="overflow-x-auto"><table className="w-full min-w-max text-start text-xs"><thead><tr className="border-b border-slate-200 bg-slate-50 text-slate-500">{previewQuery.data.columns.map(column=><th key={column} className="whitespace-nowrap px-4 py-3 font-bold">{column}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{previewQuery.data.rows.map((row,index)=><tr key={index} className="hover:bg-teal-50/30">{row.map((value,cell)=><td key={cell} className="max-w-72 px-4 py-3 align-top text-slate-700">{value===null||value===''?'—':String(value)}</td>)}</tr>)}</tbody></table></div><div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-500">{tr('إجمالي النتائج:','Total results:')} <strong className="text-teal-700">{previewQuery.data.total}</strong>{previewQuery.data.total>previewQuery.data.preview_limit&&tr(' · صدّر الملف لعرض جميع النتائج',' · Export the file to view all results')}</div></>}
-    </section></section>
+    </section>
   </div>;
 }
 
 function FilterField({label,children}:{label:string;children:React.ReactNode}){return <label className="space-y-1.5"><span className="block text-[11px] font-bold text-slate-500">{label}</span>{children}</label>}
-
-function Metric({label,value,note,icon:Icon,warning=false}:{label:string;value:number|string;note:string;icon:typeof Users;warning?:boolean}){return <article className="relative min-w-0 border-b border-slate-100 p-4 odd:border-e lg:border-b-0 lg:border-e last:border-e-0"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-[10px] font-bold text-slate-500 sm:text-[11px]">{label}</p><p className="mt-1 text-xl font-black text-slate-900 sm:text-2xl">{value}</p></div><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${warning?'bg-amber-50 text-amber-600':'bg-teal-50 text-teal-700'}`}><Icon className="h-4 w-4"/></span></div><p className={`mt-1 truncate text-[9px] sm:text-[10px] ${warning?'font-bold text-amber-700':'text-slate-500'}`}>{note}</p></article>}
