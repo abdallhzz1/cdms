@@ -19,15 +19,22 @@ class AuthorizationService
 {
     /**
      * @param  mixed  $scopeContext  Opaque, module-defined context (e.g. a
-     *                                student ID) that a future business
-     *                                module's scope resolver will use.
-     *                                Unused by any scope_type recognized in
-     *                                this phase — see resolveScope().
+     *                               student ID) that a future business
+     *                               module's scope resolver will use.
+     *                               Unused by any scope_type recognized in
+     *                               this phase — see resolveScope().
      */
     public function can(User $user, string $permissionCode, mixed $scopeContext = null): bool
     {
         if (! $user->is_active) {
             return false;
+        }
+
+        // An individual grant is always global. It is intentionally checked
+        // before role scopes so one account can receive sensitive access
+        // without broadening the permissions of everyone sharing its role.
+        if ($user->directPermissions()->where('code', $permissionCode)->exists()) {
+            return true;
         }
 
         /** @var Permission|null $grant */

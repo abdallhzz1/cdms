@@ -30,6 +30,18 @@ type Permission = { id: number; code: string; module: string; action: string };
 type MatrixPermission = { permission_id: number; granted: boolean };
 type MatrixRole = { role_id: number; permissions: MatrixPermission[] };
 type MatrixResponse = { roles: Role[]; permissions: Permission[]; matrix: MatrixRole[] };
+type DirectAccessUser = {
+  id: number;
+  name: string;
+  email: string;
+  roles: string[];
+  direct_granted: boolean;
+  role_granted: boolean;
+};
+type DirectAccessResponse = {
+  permission: { id: number; code: string };
+  users: DirectAccessUser[];
+};
 type LocalizedLabel = { ar: string; en: string };
 
 const ROLE_LABELS: Record<string, { label: LocalizedLabel; icon: Icon }> = {
@@ -222,6 +234,7 @@ export function PermissionMatrixPage() {
   const [selectedModule, setSelectedModule] = useState('ALL');
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Set<string>>(new Set());
+  const [userSearch, setUserSearch] = useState('');
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -231,6 +244,28 @@ export function PermissionMatrixPage() {
 
   const roles = data?.roles ?? [];
   const permissions = data?.permissions ?? [];
+
+  const directAccessQuery = useQuery({
+    queryKey: ['admin-confidential-finance-users', userSearch],
+    queryFn: () => apiFetch<DirectAccessResponse>(`/admin/permissions/confidential-finance-users?search=${encodeURIComponent(userSearch.trim())}`),
+  });
+
+  const directAccessMutation = useMutation({
+    mutationFn: (body: { userId: number; granted: boolean }) =>
+      apiFetch<{ user_id: number; permission_id: number; granted: boolean }>(`/admin/permissions/confidential-finance-users/${body.userId}/toggle`, {
+        method: 'POST',
+        body: { granted: body.granted },
+      }),
+    onSuccess: () => {
+      setNotice({ text: tr('تم تحديث وصول المستخدم للخزنة', 'User vault access updated') });
+      void directAccessQuery.refetch();
+      window.setTimeout(() => setNotice(null), 1800);
+    },
+    onError: () => {
+      setNotice({ text: tr('تعذر تحديث وصول المستخدم', 'Could not update user access'), error: true });
+      window.setTimeout(() => setNotice(null), 3500);
+    },
+  });
 
   useEffect(() => {
     if (!data) return;
@@ -319,7 +354,7 @@ export function PermissionMatrixPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 pb-16">
-      <PageHeader title={tr('إدارة صلاحيات الأدوار', 'Role Permissions')} description={tr('اختر الدور، ثم فعّل فقط الشاشات والعمليات التي يحتاجها.', 'Select a role, then enable only the screens and operations it needs.')} />
+      <PageHeader title={tr('إدارة الصلاحيات', 'Permission Management')} description={tr('تحكم بصلاحيات الأدوار، وامنح الوصول الفردي للحالات الخاصة دون التأثير على بقية أصحاب الدور.', 'Manage role permissions and grant individual access for special cases without affecting others who share the role.')} />
 
       {notice && (
         <div className={`fixed bottom-5 left-5 z-50 flex items-center gap-2 rounded-2xl px-4 py-3 text-xs font-bold text-white shadow-xl ${notice.error ? 'bg-rose-600' : 'bg-slate-900'}`}>
@@ -327,6 +362,54 @@ export function PermissionMatrixPage() {
           {notice.text}
         </div>
       )}
+
+      <section className="overflow-hidden rounded-3xl border border-teal-100 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:p-5">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-teal-50 text-teal-700"><LockKeyhole className="h-5 w-5" /></span>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-black text-slate-900">{tr('الوصول الفردي للخزنة المالية', 'Individual Financial Vault Access')}</h2>
+            <p className="mt-1 text-[11px] font-medium leading-5 text-slate-500">{tr('ابحث عن المستخدم وفعّل وصوله لهذا الحساب فقط. لن تتغير صلاحيات مساعدي البحث والتدريس الآخرين.', 'Find a user and enable access for that account only. Other Research and Teaching Assistants will not be affected.')}</p>
+          </div>
+          <label className="relative block w-full sm:w-72">
+            <Search className="absolute start-3.5 top-3.5 h-4 w-4 text-slate-400" />
+            <input value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder={tr('ابحث بالاسم أو البريد...', 'Search name or email...')} className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 ps-10 pe-3 text-xs font-bold text-slate-800 outline-none focus:border-teal-500 focus:bg-white" />
+          </label>
+        </div>
+
+        <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
+          {directAccessQuery.isLoading && <div className="flex items-center justify-center gap-2 py-10 text-xs font-bold text-slate-400"><Loader2 className="h-4 w-4 animate-spin" />{tr('جاري تحميل المستخدمين...', 'Loading users...')}</div>}
+          {directAccessQuery.isError && <button type="button" onClick={() => directAccessQuery.refetch()} className="w-full py-10 text-center text-xs font-bold text-rose-600">{tr('تعذر تحميل المستخدمين — اضغط للمحاولة مجدداً', 'Could not load users — click to retry')}</button>}
+          {!directAccessQuery.isLoading && !directAccessQuery.isError && directAccessQuery.data?.users.length === 0 && <div className="py-10 text-center text-xs font-bold text-slate-400">{tr('لا يوجد مستخدم مطابق.', 'No matching user found.')}</div>}
+          {directAccessQuery.data?.users.map((account) => {
+            const inherited = account.role_granted;
+            const active = inherited || account.direct_granted;
+            const saving = directAccessMutation.isPending && directAccessMutation.variables?.userId === account.id;
+            return (
+              <button
+                key={account.id}
+                type="button"
+                disabled={inherited || saving}
+                onClick={() => directAccessMutation.mutate({ userId: account.id, granted: !account.direct_granted })}
+                className="flex w-full items-center gap-3 px-4 py-3 text-start transition hover:bg-slate-50 disabled:cursor-default sm:px-5"
+              >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-black text-slate-600">{account.name.trim().charAt(0) || '?'}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-black text-slate-800">{account.name}</span>
+                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] font-medium text-slate-400">
+                    <span>{account.email}</span>
+                    {account.roles.map((code) => <span key={code} className="rounded-md bg-slate-100 px-1.5 py-0.5 font-bold text-slate-500">{roleLabel(code)}</span>)}
+                  </span>
+                </span>
+                {inherited && <span className="shrink-0 rounded-lg bg-sky-50 px-2 py-1 text-[10px] font-black text-sky-700">{tr('من الدور', 'From role')}</span>}
+                {saving && <Loader2 className="h-4 w-4 animate-spin text-teal-600" />}
+                <span role="switch" aria-checked={active} className={`relative h-6 w-11 shrink-0 rounded-full transition ${active ? 'bg-teal-600' : 'bg-slate-200'} ${inherited ? 'opacity-60' : ''}`}>
+                  <span className={`absolute top-1 grid h-4 w-4 place-items-center rounded-full bg-white shadow-sm transition-all ${active ? 'start-6' : 'start-1'}`}>{active && <Check className="h-2.5 w-2.5 text-teal-700" />}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <label className="mb-2 block text-xs font-black text-slate-700 sm:hidden" htmlFor="permission-role">{tr('الدور الوظيفي', 'Role')}</label>

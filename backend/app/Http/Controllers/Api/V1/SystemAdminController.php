@@ -4,14 +4,15 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
-use App\Models\User;
-use App\Models\Role;
-use App\Models\Permission;
 use App\Models\AuditLog;
+use App\Models\Permission;
+use App\Models\Role;
+use App\Models\User;
 use App\Services\SecurityAuditService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class SystemAdminController extends Controller
 {
@@ -86,7 +87,9 @@ class SystemAdminController extends Controller
 
         $sessions = $rows->map(function ($session) use ($users, $currentSessionId) {
             $user = $users->get($session->user_id);
-            if (!$user) return null;
+            if (! $user) {
+                return null;
+            }
 
             return [
                 'id' => $session->id,
@@ -97,7 +100,7 @@ class SystemAdminController extends Controller
                 'ip_address' => $session->ip_address,
                 'user_agent' => $session->user_agent,
                 'is_current' => hash_equals((string) $currentSessionId, (string) $session->id),
-                'last_activity' => \Carbon\Carbon::createFromTimestamp($session->last_activity)->toIso8601String(),
+                'last_activity' => Carbon::createFromTimestamp($session->last_activity)->toIso8601String(),
             ];
         })->filter()->values();
 
@@ -144,6 +147,7 @@ class SystemAdminController extends Controller
 
         $matrix = $roles->map(function ($role) use ($permissions) {
             $rolePermIds = $role->permissions->pluck('id')->toArray();
+
             return [
                 'role_id' => $role->id,
                 'role_code' => $role->code,
@@ -161,7 +165,7 @@ class SystemAdminController extends Controller
         });
 
         return ApiResponse::success([
-            'roles' => $roles->map(fn($r) => [
+            'roles' => $roles->map(fn ($r) => [
                 'id' => $r->id,
                 'code' => $r->code,
                 'name' => $r->code,
@@ -256,6 +260,84 @@ class SystemAdminController extends Controller
             'permission_id' => $permission->id,
             'granted' => $granted,
         ], 'تم تحديث مصفوفة الصلاحيات بنجاح.');
+    }
+
+    /**
+     * Active accounts that may receive the confidential-finance permission
+     * directly. Role-based access is returned separately so the UI never
+     * presents an inherited grant as though it could be revoked here.
+     */
+    public function confidentialFinanceUsers(Request $request)
+    {
+        $search = trim((string) $request->query('search', ''));
+        $permission = Permission::where('code', 'confidential_finance.manage')->firstOrFail();
+
+        $users = User::query()
+            ->where('is_active', true)
+            ->with(['person', 'roles:id,code', 'directPermissions' => fn ($query) => $query->whereKey($permission->id)])
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($nested) use ($search): void {
+                    $nested->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhereHas('person', function ($personQuery) use ($search): void {
+                            $personQuery->where('full_name_ar', 'like', "%{$search}%")
+                                ->orWhere('full_name_en', 'like', "%{$search}%");
+                        });
+                });
+            })
+            ->orderBy('name')
+            ->limit(50)
+            ->get();
+
+        $roleGrantedUserIds = DB::table('user_roles')
+            ->join('role_permissions', 'role_permissions.role_id', '=', 'user_roles.role_id')
+            ->where('role_permissions.permission_id', $permission->id)
+            ->whereIn('user_roles.user_id', $users->pluck('id'))
+            ->pluck('user_roles.user_id')
+            ->unique()
+            ->all();
+
+        return ApiResponse::success([
+            'permission' => ['id' => $permission->id, 'code' => $permission->code],
+            'users' => $users->map(fn (User $user) => [
+                'id' => $user->id,
+                'name' => $user->person?->full_name_ar ?: $user->name,
+                'email' => $user->email,
+                'roles' => $user->roles->pluck('code')->values(),
+                'direct_granted' => $user->directPermissions->isNotEmpty(),
+                'role_granted' => in_array($user->id, $roleGrantedUserIds, true),
+            ])->values(),
+        ]);
+    }
+
+    /** Grant or revoke confidential-finance access for one account only. */
+    public function toggleConfidentialFinanceUser(Request $request, User $user)
+    {
+        $validated = $request->validate(['granted' => ['required', 'boolean']]);
+        $permission = Permission::where('code', 'confidential_finance.manage')->firstOrFail();
+        $granted = (bool) $validated['granted'];
+
+        DB::transaction(function () use ($request, $user, $permission, $granted): void {
+            if ($granted) {
+                $user->directPermissions()->syncWithoutDetaching([
+                    $permission->id => ['granted_by' => $request->user()->id],
+                ]);
+            } else {
+                $user->directPermissions()->detach($permission->id);
+            }
+        });
+
+        $this->audit->record('user.permission_changed', User::class, $user->id, [
+            'permission_id' => $permission->id,
+            'permission_code' => $permission->code,
+            'direct_granted' => $granted,
+        ]);
+
+        return ApiResponse::success([
+            'user_id' => $user->id,
+            'permission_id' => $permission->id,
+            'granted' => $granted,
+        ], $granted ? 'تم منح المستخدم صلاحية الخزنة.' : 'تم سحب صلاحية الخزنة من المستخدم.');
     }
 
     /**

@@ -92,15 +92,21 @@ class AuthController extends Controller
      */
     private function presentUser(User $user): array
     {
-        $user->loadMissing('roles.permissions', 'person', 'userProfile', 'clinicalSupervisorProfile', 'departmentHeadProfile');
+        $user->loadMissing('roles.permissions', 'directPermissions', 'person', 'userProfile', 'clinicalSupervisorProfile', 'departmentHeadProfile');
 
-        $permissions = $user->roles
+        $rolePermissions = $user->roles
             ->flatMap(fn ($role) => $role->permissions)
-            ->unique('id')
             ->map(fn ($permission) => [
                 'code' => $permission->code,
                 'scope' => $permission->pivot->scope_type,
-            ])
+            ]);
+
+        $permissions = $rolePermissions
+            ->concat($user->directPermissions->map(fn ($permission) => [
+                'code' => $permission->code,
+                'scope' => 'global',
+            ]))
+            ->unique('code')
             ->values()
             ->all();
 
@@ -122,17 +128,17 @@ class AuthController extends Controller
         }
 
         return [
-            'id'              => $user->id,
-            'name'            => $user->person?->full_name_ar ?: $user->name,
-            'email'           => $user->email,
-            'avatar_url'      => $user->userProfile?->avatar_url
+            'id' => $user->id,
+            'name' => $user->person?->full_name_ar ?: $user->name,
+            'email' => $user->email,
+            'avatar_url' => $user->userProfile?->avatar_url
                 ?: $user->person?->photo_url
                 ?: $user->clinicalSupervisorProfile?->avatar_url
                 ?: $user->departmentHeadProfile?->avatar_url,
-            'roles'           => $user->roles->pluck('code')->values()->all(),
-            'permissions'     => $permissions,
+            'roles' => $user->roles->pluck('code')->values()->all(),
+            'permissions' => $permissions,
             'assigned_levels' => $user->assigned_levels ?? null,
-            'department_ids'  => $departmentIds,
+            'department_ids' => $departmentIds,
         ];
     }
 }

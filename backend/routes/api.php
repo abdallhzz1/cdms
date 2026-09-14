@@ -697,6 +697,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 ->middleware('permission:roles.manage')->name('permissions.matrix');
             Route::post('permissions/toggle', [SystemAdminController::class, 'togglePermission'])
                 ->middleware('permission:roles.manage')->name('permissions.toggle');
+            Route::get('permissions/confidential-finance-users', [SystemAdminController::class, 'confidentialFinanceUsers'])
+                ->middleware('permission:roles.manage')->name('permissions.confidential-finance-users');
+            Route::post('permissions/confidential-finance-users/{user}/toggle', [SystemAdminController::class, 'toggleConfidentialFinanceUser'])
+                ->middleware('permission:roles.manage')->name('permissions.confidential-finance-users.toggle');
             Route::get('settings', [SystemAdminController::class, 'getSettings'])
                 ->middleware('permission:settings.manage')->name('settings.show');
             Route::post('settings', [SystemAdminController::class, 'updateSettings'])

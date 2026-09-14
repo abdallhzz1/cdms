@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Database\Factories\PermissionFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -16,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  */
 class Permission extends Model
 {
-    /** @use HasFactory<\Database\Factories\PermissionFactory> */
+    /** @use HasFactory<PermissionFactory> */
     use HasFactory;
 
     protected $fillable = [
@@ -33,6 +34,14 @@ class Permission extends Model
     {
         return $this->belongsToMany(Role::class, 'role_permissions')
             ->withPivot('scope_type')
+            ->withTimestamps();
+    }
+
+    /** @return BelongsToMany<User, $this> */
+    public function directlyGrantedUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'user_permission_grants')
+            ->withPivot('granted_by')
             ->withTimestamps();
     }
 }

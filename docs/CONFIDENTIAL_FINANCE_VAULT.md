@@ -6,7 +6,9 @@ College leadership requested a highly confidential financial file channel that c
 
 ## Access model
 
-- `confidential_finance.manage` is granted to the `DEAN` role during migration. Additional management access must be granted explicitly through the permission matrix.
+- `confidential_finance.manage` is granted to the `DEAN` role during migration.
+- The permission matrix has a separate individual-access panel for exceptional accounts. A direct grant applies only to the selected user, is combined with role permissions by the backend authorization service, and can be revoked without changing that user's role or affecting peers with the same role.
+- Individual grants record the administrator who granted them, and every grant or revocation is written to the audit log.
 - The QR route is public only as an entry point. Before password verification it returns no vault title, description, file name, or file metadata.
 - Passwords are hashed and never returned, logged, or encoded in the QR URL.
 - Successful verification creates a random 30-minute access session in an encrypted, `HttpOnly`, `SameSite=Strict` cookie. The server stores only its SHA-256 hash and binds it to the requesting IP address and user agent.

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\AuthorizationService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\Phase3PermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -106,6 +107,53 @@ class PermissionMatrixWorkflowTest extends TestCase
             ->assertJsonPath('data.granted', true);
 
         $this->assertTrue($role->permissions()->where('permissions.id', $permission->id)->exists());
+    }
+
+    public function test_confidential_finance_access_can_be_granted_to_one_user_without_affecting_peers(): void
+    {
+        $rtaRole = Role::where('code', 'RTA')->firstOrFail();
+        $permission = Permission::where('code', 'confidential_finance.manage')->firstOrFail();
+        $selectedRta = User::factory()->create(['name' => 'Selected RTA']);
+        $otherRta = User::factory()->create(['name' => 'Other RTA']);
+        $selectedRta->roles()->attach($rtaRole->id);
+        $otherRta->roles()->attach($rtaRole->id);
+
+        $this->actingAs($this->admin)->postJson(
+            "/api/v1/admin/permissions/confidential-finance-users/{$selectedRta->id}/toggle",
+            ['granted' => true]
+        )->assertOk()
+            ->assertJsonPath('data.user_id', $selectedRta->id)
+            ->assertJsonPath('data.granted', true);
+
+        $this->assertDatabaseHas('user_permission_grants', [
+            'user_id' => $selectedRta->id,
+            'permission_id' => $permission->id,
+            'granted_by' => $this->admin->id,
+        ]);
+
+        $authorization = app(AuthorizationService::class);
+        $this->assertTrue($authorization->can($selectedRta, 'confidential_finance.manage'));
+        $this->assertFalse($authorization->can($otherRta, 'confidential_finance.manage'));
+
+        $this->actingAs($selectedRta)->getJson('/api/v1/auth/me')->assertOk()
+            ->assertJsonFragment(['code' => 'confidential_finance.manage', 'scope' => 'global']);
+
+        $this->actingAs($this->admin)->postJson(
+            "/api/v1/admin/permissions/confidential-finance-users/{$selectedRta->id}/toggle",
+            ['granted' => false]
+        )->assertOk()->assertJsonPath('data.granted', false);
+
+        $this->assertFalse($authorization->can($selectedRta, 'confidential_finance.manage'));
+        $this->assertDatabaseMissing('user_permission_grants', [
+            'user_id' => $selectedRta->id,
+            'permission_id' => $permission->id,
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'user_id' => $this->admin->id,
+            'action' => 'user.permission_changed',
+            'entity_type' => User::class,
+            'entity_id' => $selectedRta->id,
+        ]);
     }
 
     public function test_roles_manage_cannot_be_revoked_from_system_admin_role(): void
