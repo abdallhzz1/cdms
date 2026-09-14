@@ -96,4 +96,44 @@ describe('App', () => {
       expect(screen.getByRole('heading', { name: /page not found/i })).toBeInTheDocument();
     });
   });
+
+  it('opens departments management with departments.manage without users.manage', async () => {
+    const departmentManager = {
+      ...AUTHENTICATED_USER,
+      data: {
+        ...AUTHENTICATED_USER.data,
+        roles: ['ADMIN_ASSISTANT'],
+        permissions: [{ code: 'departments.manage', scope: 'global' }],
+      },
+    };
+    mockFetchByUrl({
+      '/auth/me': () => jsonResponse(departmentManager),
+      '/departments-manage/candidates': () => jsonResponse({ success: true, data: { head_candidates: [], rta_candidates: [] }, message: null, meta: {} }),
+      '/departments-manage': () => jsonResponse({ success: true, data: [], message: null, meta: {} }),
+      '/health': () => jsonResponse(HEALTH_OK),
+    });
+
+    renderWithProviders(<App />, { route: '/admin/departments' });
+
+    expect(await screen.findByRole('heading', { name: /Faculty Departments and Academic Leadership|إدارة أقسام الكلية والقيادات الأكاديمية/i })).toBeInTheDocument();
+  });
+
+  it('does not treat users.manage as permission to manage departments', async () => {
+    const userManager = {
+      ...AUTHENTICATED_USER,
+      data: {
+        ...AUTHENTICATED_USER.data,
+        roles: ['ADMIN_ASSISTANT'],
+        permissions: [{ code: 'users.manage', scope: 'global' }],
+      },
+    };
+    mockFetchByUrl({
+      '/auth/me': () => jsonResponse(userManager),
+      '/health': () => jsonResponse(HEALTH_OK),
+    });
+
+    renderWithProviders(<App />, { route: '/admin/departments' });
+
+    expect(await screen.findByRole('heading', { name: /page not found/i })).toBeInTheDocument();
+  });
 });

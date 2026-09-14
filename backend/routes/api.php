@@ -687,13 +687,14 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         Route::middleware(['permission:users.manage'])->group(function () {
             Route::apiResource('users', UserController::class);
+        });
 
-            // Admin Departments Management
+        Route::middleware(['permission:departments.manage'])->group(function () {
+            // Faculty departments and academic leadership management
             Route::get('departments-manage/candidates', [AdminDepartmentController::class, 'candidates']);
             Route::post('departments-manage/{department}/assign-leaders', [AdminDepartmentController::class, 'assignLeaders']);
             Route::post('departments-manage/{department}/toggle', [AdminDepartmentController::class, 'toggle']);
             Route::apiResource('departments-manage', AdminDepartmentController::class)->parameters(['departments-manage' => 'department']);
-
         });
 
         // Phase 5A — Core Operational Read APIs

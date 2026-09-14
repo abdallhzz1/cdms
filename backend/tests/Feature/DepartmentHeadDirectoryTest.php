@@ -30,7 +30,11 @@ class DepartmentHeadDirectoryTest extends TestCase
             'name_ar' => 'اختبار',
             'name_en' => 'Test',
         ]);
-        $permissionIds = Permission::whereIn('code', ['people.view', 'users.manage'])->pluck('id');
+        Permission::firstOrCreate(
+            ['code' => 'departments.manage'],
+            ['module' => 'Departments', 'action' => 'MANAGE', 'description_key' => 'permissions.departments_manage.description']
+        );
+        $permissionIds = Permission::whereIn('code', ['people.view', 'departments.manage'])->pluck('id');
         $role->permissions()->sync($permissionIds->mapWithKeys(
             fn (int $id) => [$id => ['scope_type' => 'global']]
         )->all());
@@ -113,6 +117,24 @@ class DepartmentHeadDirectoryTest extends TestCase
             'scope_type' => 'department',
             'scope_id' => $department->id,
         ]);
+    }
+
+    public function test_users_manage_alone_does_not_authorize_department_management(): void
+    {
+        $role = Role::create([
+            'code' => 'USERS_ONLY_TEST',
+            'name_key' => 'users-only-test',
+            'name_ar' => 'مستخدمون فقط',
+            'name_en' => 'Users only',
+        ]);
+        $permission = Permission::where('code', 'users.manage')->firstOrFail();
+        $role->permissions()->attach($permission, ['scope_type' => 'global']);
+        $user = User::factory()->create();
+        $user->roles()->attach($role);
+
+        $this->actingAs($user)
+            ->getJson('/api/v1/departments-manage')
+            ->assertForbidden();
     }
 
     public function test_department_head_and_clinical_supervisor_profiles_are_independent(): void

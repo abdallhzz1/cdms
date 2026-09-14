@@ -46,4 +46,33 @@ describe('Sidebar active navigation', () => {
     expect(distributionLink).not.toHaveAttribute('aria-current', 'page');
     expect(registrationLink).toHaveAttribute('aria-current', 'page');
   });
+
+  it('shows departments management for a non-admin granted departments.manage', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.includes('/auth/me')) {
+          return jsonResponse({
+            success: true,
+            data: {
+              id: 2,
+              name: 'Department Manager',
+              email: 'manager@cdms.local',
+              roles: ['ADMIN_ASSISTANT'],
+              permissions: [{ code: 'departments.manage', scope: 'global' }],
+            },
+            message: null,
+            meta: {},
+          });
+        }
+        throw new Error(`Unmocked fetch call to ${url}`);
+      }),
+    );
+
+    renderWithProviders(<Sidebar />, { route: '/admin/departments' });
+
+    const link = await screen.findByRole('link', { name: /Departments & Leaders Management|إدارة أقسام الكلية والقيادات/i });
+    expect(link).toHaveAttribute('aria-current', 'page');
+  });
 });

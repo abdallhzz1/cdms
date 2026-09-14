@@ -87,6 +87,8 @@ class PermissionSeeder extends Seeder
             ['code' => 'tasks.manage', 'module' => 'Tasks', 'action' => 'MANAGE', 'description_key' => 'permissions.tasks_manage.description'],
             ['code' => 'reports.view', 'module' => 'Reports', 'action' => 'VIEW', 'description_key' => 'permissions.reports_view.description'],
             ['code' => 'reports.export', 'module' => 'Reports', 'action' => 'EXPORT', 'description_key' => 'permissions.reports_export.description'],
+            ['code' => 'departments.view', 'module' => 'Departments', 'action' => 'VIEW', 'description_key' => 'permissions.departments_view.description'],
+            ['code' => 'departments.manage', 'module' => 'Departments', 'action' => 'MANAGE', 'description_key' => 'permissions.departments_manage.description'],
             ['code' => 'users.manage', 'module' => 'Security', 'action' => 'MANAGE_USERS', 'description_key' => 'permissions.users_manage.description'],
             ['code' => 'roles.manage', 'module' => 'Security', 'action' => 'MANAGE_ROLES', 'description_key' => 'permissions.roles_manage.description'],
             ['code' => 'audit.view', 'module' => 'Security', 'action' => 'VIEW_AUDIT', 'description_key' => 'permissions.audit_view.description'],

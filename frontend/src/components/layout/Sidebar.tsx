@@ -119,7 +119,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
         title: locale === 'ar' ? 'إدارة النظام والأمان' : 'System Administration',
         items: [
           { path: '/users', label: locale === 'ar' ? 'المستخدمون والأدوار' : 'Users & Roles', icon: Users, permission: 'users.manage' },
-          { path: '/admin/departments', label: locale === 'ar' ? 'إدارة أقسام الكلية والقيادات' : 'Departments & Leaders Management', icon: Building2, permission: 'users.manage' },
+          { path: '/admin/departments', label: locale === 'ar' ? 'إدارة أقسام الكلية والقيادات' : 'Departments & Leaders Management', icon: Building2, permission: 'departments.manage' },
           { path: '/admin/permissions', label: locale === 'ar' ? 'مصفوفة الصلاحيات والشاشات' : 'Permission Matrix', icon: ShieldCheck, permission: 'roles.manage' },
           { path: '/admin/approval-workflows', label: locale === 'ar' ? 'إعداد مسارات الاعتماد' : 'Approval Workflows', icon: GitBranch, permission: 'approval_workflows.view' },
           { path: '/admin/sessions', label: locale === 'ar' ? 'الجلسات والأمان الحية' : 'Active Sessions & Security', icon: Monitor, permission: 'users.manage' },

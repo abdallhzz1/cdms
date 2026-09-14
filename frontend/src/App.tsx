@@ -157,7 +157,7 @@ export function App() {
                 <Route 
                   path="/admin/departments" 
                   element={
-                    <ProtectedRoute requiredPermission="users.manage">
+                    <ProtectedRoute requiredPermission="departments.manage">
                       <DepartmentsManagementPage />
                     </ProtectedRoute>
                   } 
