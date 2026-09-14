@@ -20,6 +20,8 @@ class SecureFileUploadService
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/zip',
+        'application/x-zip-compressed',
     ];
 
     public function storeAvatar(UploadedFile|string $source, string $directory): array
@@ -114,6 +116,7 @@ class SecureFileUploadService
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
             'application/vnd.ms-excel' => 'xls',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+            'application/zip', 'application/x-zip-compressed' => 'zip',
             default => throw ValidationException::withMessages(['file' => ['This file type is not allowed.']]),
         };
     }

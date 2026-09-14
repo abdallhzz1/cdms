@@ -38,6 +38,7 @@ use App\Http\Controllers\Api\V1\GradeEntryController;
 use App\Http\Controllers\Api\V1\GroupRegistrationAdminController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\MeetingController;
+use App\Http\Controllers\Api\V1\MeetingRepositoryController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OperationalDashboardController;
 use App\Http\Controllers\Api\V1\OperationalDistributionController;
@@ -122,6 +123,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('group-registration/{cycle:public_id}/options', [PublicGroupRegistrationController::class, 'options'])->middleware('throttle:operational-read');
         Route::post('group-registration/{cycle:public_id}/select', [PublicGroupRegistrationController::class, 'select'])->middleware('throttle:operational-read');
         Route::post('group-registration/{cycle:public_id}/withdraw', [PublicGroupRegistrationController::class, 'withdraw'])->middleware('throttle:operational-read');
+        Route::get('meeting-repositories/{token}', [MeetingRepositoryController::class, 'publicShow'])
+            ->middleware('throttle:operational-read');
+        Route::get('meeting-repositories/{token}/files/{file}', [MeetingRepositoryController::class, 'publicFile'])
+            ->middleware('throttle:operational-read');
     });
 
     // -------------------------------------------------------------------------
@@ -371,6 +376,15 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('meetings/{meeting}/actions', [MeetingController::class, 'storeAction'])->middleware('permission:meetings.manage');
         Route::put('meetings/{meeting}/actions/{action}', [MeetingController::class, 'updateAction'])->middleware('permission:meetings.manage');
         Route::delete('meetings/{meeting}/actions/{action}', [MeetingController::class, 'destroyAction'])->middleware('permission:meetings.manage');
+        Route::get('meeting-repositories', [MeetingRepositoryController::class, 'index'])->middleware('permission:meetings.manage');
+        Route::post('meeting-repositories', [MeetingRepositoryController::class, 'store'])->middleware('permission:meetings.manage');
+        Route::get('meeting-repositories/{meetingRepository}', [MeetingRepositoryController::class, 'show'])->middleware('permission:meetings.manage');
+        Route::put('meeting-repositories/{meetingRepository}', [MeetingRepositoryController::class, 'update'])->middleware('permission:meetings.manage');
+        Route::delete('meeting-repositories/{meetingRepository}', [MeetingRepositoryController::class, 'destroy'])->middleware('permission:meetings.manage');
+        Route::post('meeting-repositories/{meetingRepository}/rotate-share-token', [MeetingRepositoryController::class, 'rotateShareToken'])->middleware('permission:meetings.manage');
+        Route::post('meeting-repositories/{meetingRepository}/files', [MeetingRepositoryController::class, 'storeFiles'])->middleware('permission:meetings.manage');
+        Route::get('meeting-repositories/{meetingRepository}/files/{file}/download', [MeetingRepositoryController::class, 'downloadFile'])->middleware('permission:meetings.manage');
+        Route::delete('meeting-repositories/{meetingRepository}/files/{file}', [MeetingRepositoryController::class, 'destroyFile'])->middleware('permission:meetings.manage');
 
         // Department Heads Routes
         Route::get('dept-heads', [DepartmentHeadController::class, 'index'])

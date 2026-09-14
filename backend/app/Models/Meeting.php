@@ -11,4 +11,5 @@ class Meeting extends Model
     public function creator(){return $this->belongsTo(User::class, 'created_by');}
     public function approver(){return $this->belongsTo(User::class, 'approved_by');}
     public function transitions(){return $this->hasMany(WorkflowTransitionLog::class, 'entity_id')->where('entity_type', self::class)->latest();}
+    public function repositories(){return $this->belongsToMany(MeetingRepository::class, 'meeting_repository_meeting')->withTimestamps();}
 }

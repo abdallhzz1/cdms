@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { CalendarDays, ChevronLeft, ChevronRight, MapPin, Plus, Search, UserRound } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, FolderArchive, MapPin, Plus, Search, UserRound } from 'lucide-react';
 import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
@@ -28,7 +28,7 @@ const rows=query.data??[];const today=new Date().toISOString().slice(0,10);
 const state=(v:string)=>({draft:ar?'مسودة':'Draft',scheduled:ar?'مجدول':'Scheduled',held:ar?'تم الانعقاد':'Held',minutes_draft:ar?'بانتظار الاعتماد':'Awaiting approval',approved:ar?'معتمد':'Approved',cancelled:ar?'ملغي':'Cancelled'}[v]||v);
 const upcoming=rows.filter(x=>x.meeting_date>=today&&!['approved','cancelled'].includes(x.status)).length;const awaiting=rows.filter(x=>['held','minutes_draft'].includes(x.status)).length;const open=rows.reduce((sum,x)=>sum+(x.open_actions_count||0),0);
 return <div className="mx-auto max-w-6xl space-y-4 pb-14">
-  <PageHeader title={ar?'محاضر الاجتماعات':'Meeting minutes'} description={ar?'تخطيط الاجتماع، توثيق المحضر، ومتابعة ما ينتج عنه.':'Plan, document, and follow up meetings.'}><Button onClick={()=>setModal(true)}><Plus className="me-2 h-4 w-4"/>{ar?'اجتماع جديد':'New meeting'}</Button></PageHeader>
+  <PageHeader title={ar?'محاضر الاجتماعات':'Meeting minutes'} description={ar?'تخطيط الاجتماع، توثيق المحضر، ومتابعة ما ينتج عنه.':'Plan, document, and follow up meetings.'}><Link to="/meetings/repositories" className="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm hover:border-teal-200 hover:bg-teal-50"><FolderArchive className="me-2 h-4 w-4 text-teal-700"/>{ar?'مستودعات المشاركة':'Shared repositories'}</Link><Button onClick={()=>setModal(true)}><Plus className="me-2 h-4 w-4"/>{ar?'اجتماع جديد':'New meeting'}</Button></PageHeader>
 
   <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
     <div className="grid grid-cols-3 divide-x divide-x-reverse divide-slate-100 border-b border-slate-100">

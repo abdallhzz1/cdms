@@ -48,6 +48,7 @@ import { KpiPage } from '@/pages/quality/KpiPage';
 import { QualityOperationsPage } from '@/pages/quality/QualityOperationsPage';
 import { MeetingsPage } from '@/pages/MeetingsPage';
 import { MeetingDetailsPage } from '@/pages/MeetingDetailsPage';
+import { MeetingRepositoriesPage } from '@/pages/MeetingRepositoriesPage';
 import { AcademicCalendarPage } from '@/pages/AcademicCalendarPage';
 import { EvaluationFormsPage } from '@/pages/EvaluationFormsPage';
 import { ExternalElectivesPage } from '@/pages/ExternalElectivesPage';
@@ -71,6 +72,7 @@ import { CorrespondenceDetailsPage } from '@/pages/CorrespondenceDetailsPage';
 import { PublicClinicalSchedulePage } from '@/pages/public/PublicClinicalSchedulePage';
 import { PublicStudentRegistrationPage } from '@/pages/PublicStudentRegistrationPage';
 import { PublicQualitySurveyPage } from '@/pages/public/PublicQualitySurveyPage';
+import { PublicMeetingRepositoryPage } from '@/pages/public/PublicMeetingRepositoryPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
 
 function DefaultAuthenticatedHome() {
@@ -89,6 +91,7 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/public/student-registration" element={<PublicStudentRegistrationPage />} />
       <Route path="/survey/:publicId" element={<PublicQualitySurveyPage />} />
+      <Route path="/shared/meeting-repositories/:token" element={<PublicMeetingRepositoryPage />} />
       <Route path="/student-registration" element={<PublicStudentRegistrationPage />} />
       <Route path="/student-registration/:publicId" element={<PublicStudentRegistrationPage />} />
       <Route path="/public/student-registration/:publicId" element={<PublicStudentRegistrationPage />} />
@@ -214,6 +217,7 @@ export function App() {
                 <Route path="/quality/kpis" element={<KpiPage />} />
                 <Route path="/quality/operations" element={<QualityOperationsPage />} />
                 <Route path="/meetings" element={<MeetingsPage />} />
+                <Route path="/meetings/repositories" element={<MeetingRepositoriesPage />} />
                 <Route path="/meetings/:id" element={<MeetingDetailsPage />} />
                 <Route path="/academic/calendar" element={<AcademicCalendarPage />} />
 
