@@ -9,6 +9,12 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // MySQL DDL is not transactional. A failed first deployment may leave
+        // the first table behind while this migration remains unrecorded.
+        Schema::dropIfExists('confidential_financial_access_sessions');
+        Schema::dropIfExists('confidential_financial_files');
+        Schema::dropIfExists('confidential_financial_vaults');
+
         Schema::create('confidential_financial_vaults', function (Blueprint $table) {
             $table->id();
             $table->string('title');
@@ -26,7 +32,9 @@ return new class extends Migration
 
         Schema::create('confidential_financial_files', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('confidential_financial_vault_id')->constrained()->cascadeOnDelete();
+            $table->unsignedBigInteger('confidential_financial_vault_id');
+            $table->foreign('confidential_financial_vault_id', 'cf_files_vault_fk')
+                ->references('id')->on('confidential_financial_vaults')->cascadeOnDelete();
             $table->foreignId('uploaded_by')->constrained('users')->restrictOnDelete();
             $table->string('original_name');
             $table->string('stored_path');
@@ -38,7 +46,9 @@ return new class extends Migration
 
         Schema::create('confidential_financial_access_sessions', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('confidential_financial_vault_id')->constrained()->cascadeOnDelete();
+            $table->unsignedBigInteger('confidential_financial_vault_id');
+            $table->foreign('confidential_financial_vault_id', 'cf_sessions_vault_fk')
+                ->references('id')->on('confidential_financial_vaults')->cascadeOnDelete();
             $table->char('token_hash', 64)->unique();
             $table->char('ip_hash', 64);
             $table->char('user_agent_hash', 64)->nullable();
