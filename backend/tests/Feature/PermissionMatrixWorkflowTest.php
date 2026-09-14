@@ -5,6 +5,9 @@ namespace Tests\Feature;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\Phase3PermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -21,9 +24,9 @@ class PermissionMatrixWorkflowTest extends TestCase
         parent::setUp();
 
         $this->seed([
-            \Database\Seeders\PermissionSeeder::class,
-            \Database\Seeders\Phase3PermissionSeeder::class,
-            \Database\Seeders\RoleSeeder::class,
+            PermissionSeeder::class,
+            Phase3PermissionSeeder::class,
+            RoleSeeder::class,
         ]);
 
         $this->adminRole = Role::where('code', 'SYS_ADMIN')->firstOrFail();
@@ -47,6 +50,8 @@ class PermissionMatrixWorkflowTest extends TestCase
             ->assertJsonPath('data.audit.missing_route_permissions', []);
 
         $codes = collect($response->json('data.permissions'))->pluck('code');
+
+        $this->assertTrue($codes->contains('confidential_finance.manage'));
 
         $this->assertEqualsCanonicalizing([
             'group_registration.view',
@@ -86,6 +91,21 @@ class PermissionMatrixWorkflowTest extends TestCase
         $this->actingAs($this->admin)->postJson('/api/v1/admin/permissions/toggle', $payload)->assertOk();
 
         $this->assertSame(1, $role->permissions()->where('permissions.id', $permission->id)->count());
+    }
+
+    public function test_confidential_finance_permission_can_be_granted_to_another_role(): void
+    {
+        $role = Role::where('code', 'VICE_DEAN')->firstOrFail();
+        $permission = Permission::where('code', 'confidential_finance.manage')->firstOrFail();
+
+        $this->actingAs($this->admin)->postJson('/api/v1/admin/permissions/toggle', [
+            'role_id' => $role->id,
+            'permission_id' => $permission->id,
+            'granted' => true,
+        ])->assertOk()
+            ->assertJsonPath('data.granted', true);
+
+        $this->assertTrue($role->permissions()->where('permissions.id', $permission->id)->exists());
     }
 
     public function test_roles_manage_cannot_be_revoked_from_system_admin_role(): void

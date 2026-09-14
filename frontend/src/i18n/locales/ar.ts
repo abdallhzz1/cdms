@@ -307,6 +307,7 @@ const ar: typeof en = {
     roles_manage: { description: 'إدارة الأدوار' },
     audit_view: { description: 'عرض السجل' },
     settings_manage: { description: 'إعدادات النظام' },
+    confidential_finance_manage: { description: 'دخول وإدارة الخزنة المالية السرية' },
   },
 };
 

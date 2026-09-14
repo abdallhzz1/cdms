@@ -318,6 +318,7 @@ const en = {
     roles_manage: { description: 'Manage roles' },
     audit_view: { description: 'View audit logs' },
     settings_manage: { description: 'System settings' },
+    confidential_finance_manage: { description: 'Access and manage the confidential finance vault' },
   },
 };
 

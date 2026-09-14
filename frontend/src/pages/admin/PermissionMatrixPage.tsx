@@ -11,6 +11,7 @@ import {
   GraduationCap,
   LayoutGrid,
   Loader2,
+  LockKeyhole,
   Monitor,
   Search,
   Shield,
@@ -75,6 +76,7 @@ const MODULES: Record<string, { label: LocalizedLabel; icon: Icon }> = {
   'Training Sites': { label: { ar: 'المستشفيات ومواقع التدريب', en: 'Hospitals and Training Sites' }, icon: ShieldCheck },
   Partnerships: { label: { ar: 'الشراكات السريرية', en: 'Clinical Partnerships' }, icon: ShieldCheck },
   GroupRegistration: { label: { ar: 'تسجيل مجموعات الطلبة', en: 'Student Group Registration' }, icon: GraduationCap },
+  'Confidential Finance': { label: { ar: 'الخزنة المالية السرية', en: 'Confidential Finance Vault' }, icon: LockKeyhole },
 };
 
 const PERMISSION_LABELS: Record<string, string> = {
@@ -176,6 +178,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   'group_registration.open_close': 'فتح وإغلاق بوابة التسجيل',
   'group_registration.override': 'تسجيل أو سحب طالب إداريًا',
   'group_registration.export': 'تصدير نتائج التسجيل',
+  'confidential_finance.manage': 'دخول وإدارة الخزنة المالية السرية',
 };
 
 const ACTION_LABELS: Record<string, string> = {
