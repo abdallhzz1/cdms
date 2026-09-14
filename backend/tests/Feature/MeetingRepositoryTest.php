@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -57,25 +58,30 @@ class MeetingRepositoryTest extends TestCase
         ]);
     }
 
-    public function test_repository_link_can_be_disabled_and_rotated(): void
+    public function test_repository_link_is_permanent_and_unchanged_after_updates(): void
     {
         $manager = $this->userWithPermissions(['meetings.manage']);
         $created = $this->actingAs($manager, 'web')->postJson('/api/v1/meeting-repositories', [
             'title' => 'Committee archive',
         ])->assertCreated();
         $repositoryId = $created->json('data.id');
-        $oldPublicPath = $created->json('data.public_path');
-        $oldApiPath = '/api/v1/public'.str_replace('/shared', '', $oldPublicPath);
+        $publicPath = $created->json('data.public_path');
+        $publicApiPath = '/api/v1/public'.str_replace('/shared', '', $publicPath);
+
+        DB::table('meeting_repositories')->where('id', $repositoryId)->update(['expires_at' => now()->subDay()]);
+        $this->getJson($publicApiPath)->assertOk();
 
         $this->putJson("/api/v1/meeting-repositories/{$repositoryId}", ['is_active' => false])->assertOk();
-        $this->getJson($oldApiPath)->assertNotFound();
+        $this->getJson($publicApiPath)->assertNotFound();
 
-        $rotated = $this->postJson("/api/v1/meeting-repositories/{$repositoryId}/rotate-share-token")
-            ->assertOk();
-        $this->assertNotSame($oldPublicPath, $rotated->json('data.public_path'));
-        $this->getJson($oldApiPath)->assertNotFound();
-        $newApiPath = '/api/v1/public'.str_replace('/shared', '', $rotated->json('data.public_path'));
-        $this->getJson($newApiPath)->assertOk();
+        $updated = $this->putJson("/api/v1/meeting-repositories/{$repositoryId}", [
+            'title' => 'Updated committee archive',
+            'is_active' => true,
+        ])->assertOk();
+
+        $this->assertSame($publicPath, $updated->json('data.public_path'));
+        $this->getJson($publicApiPath)->assertOk()
+            ->assertJsonPath('data.title', 'Updated committee archive');
     }
 
     public function test_private_files_are_only_exposed_through_authorized_or_active_share_routes(): void

@@ -50,7 +50,6 @@ class MeetingRepositoryController extends Controller
                 'share_token_hash' => hash('sha256', $token),
                 'is_active' => $data['is_active'] ?? true,
                 'allow_download' => $data['allow_download'] ?? true,
-                'expires_at' => $data['expires_at'] ?? null,
                 'created_by' => $request->user()->id,
             ]);
             $repository->meetings()->sync($data['meeting_ids'] ?? []);
@@ -74,7 +73,7 @@ class MeetingRepositoryController extends Controller
         $data = $request->validate($this->rules(true));
         DB::transaction(function () use ($data, $meetingRepository, $request) {
             $meetingRepository->update(collect($data)->only([
-                'title', 'description', 'is_active', 'allow_download', 'expires_at',
+                'title', 'description', 'is_active', 'allow_download',
             ])->all());
             if (array_key_exists('meeting_ids', $data)) {
                 $meetingRepository->meetings()->sync($data['meeting_ids']);
@@ -86,19 +85,6 @@ class MeetingRepositoryController extends Controller
         });
 
         return ApiResponse::success($this->detail($meetingRepository->fresh()), $this->tr('تم تحديث المستودع.', 'Repository updated.'));
-    }
-
-    public function rotateShareToken(Request $request, MeetingRepository $meetingRepository): JsonResponse
-    {
-        $token = Str::random(64);
-        $meetingRepository->update([
-            'share_token' => $token,
-            'share_token_hash' => hash('sha256', $token),
-            'is_active' => true,
-        ]);
-        $this->audit($request, $meetingRepository, 'meeting_repository.share_link_rotated');
-
-        return ApiResponse::success($this->detail($meetingRepository->fresh()), $this->tr('تم تجديد رابط المشاركة وإبطال الرابط السابق.', 'Share link rotated and the previous link was revoked.'));
     }
 
     public function storeFiles(Request $request, MeetingRepository $meetingRepository, SecureFileUploadService $uploads): JsonResponse
@@ -161,8 +147,6 @@ class MeetingRepositoryController extends Controller
 
         return ApiResponse::success([
             'title' => $repository->title,
-            'description' => $repository->description,
-            'expires_at' => $repository->expires_at,
             'allow_download' => $repository->allow_download,
             'meetings' => $repository->meetings->map(fn ($meeting) => [
                 'id' => $meeting->id,
@@ -224,7 +208,6 @@ class MeetingRepositoryController extends Controller
             ->where('is_active', true)
             ->with(['meetings', 'files'])
             ->firstOrFail();
-        abort_if($repository->expires_at?->isPast(), 410);
 
         return $repository;
     }
@@ -245,7 +228,6 @@ class MeetingRepositoryController extends Controller
             'meeting_ids.*' => ['integer', 'distinct', Rule::exists('meetings', 'id')->where('status', 'approved')],
             'is_active' => ['sometimes', 'boolean'],
             'allow_download' => ['sometimes', 'boolean'],
-            'expires_at' => ['nullable', 'date', 'after:now'],
         ];
     }
 

@@ -381,7 +381,6 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('meeting-repositories/{meetingRepository}', [MeetingRepositoryController::class, 'show'])->middleware('permission:meetings.manage');
         Route::put('meeting-repositories/{meetingRepository}', [MeetingRepositoryController::class, 'update'])->middleware('permission:meetings.manage');
         Route::delete('meeting-repositories/{meetingRepository}', [MeetingRepositoryController::class, 'destroy'])->middleware('permission:meetings.manage');
-        Route::post('meeting-repositories/{meetingRepository}/rotate-share-token', [MeetingRepositoryController::class, 'rotateShareToken'])->middleware('permission:meetings.manage');
         Route::post('meeting-repositories/{meetingRepository}/files', [MeetingRepositoryController::class, 'storeFiles'])->middleware('permission:meetings.manage');
         Route::get('meeting-repositories/{meetingRepository}/files/{file}/download', [MeetingRepositoryController::class, 'downloadFile'])->middleware('permission:meetings.manage');
         Route::delete('meeting-repositories/{meetingRepository}/files/{file}', [MeetingRepositoryController::class, 'destroyFile'])->middleware('permission:meetings.manage');

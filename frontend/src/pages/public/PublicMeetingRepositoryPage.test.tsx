@@ -25,8 +25,10 @@ describe('public meeting repository', () => {
     renderWithProviders(<Routes><Route path="/shared/meeting-repositories/:token" element={<PublicMeetingRepositoryPage/>}/></Routes>, { route: '/shared/meeting-repositories/share-token' });
 
     expect(await screen.findByRole('heading', { name: 'Faculty council archive' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'محاضر الاجتماعات (1)' })).toBeVisible();
     expect(screen.getByText('Decision')).toBeVisible();
-    expect(screen.getByRole('link', { name: 'View' })).toHaveAttribute('href', '/api/v1/public/meeting-repositories/share-token/files/3');
-    expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute('href', '/api/v1/public/meeting-repositories/share-token/files/3?download=1');
+    expect(screen.queryByText('Approved minutes')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'عرض' })).toHaveAttribute('href', '/api/v1/public/meeting-repositories/share-token/files/3');
+    expect(screen.getByRole('link', { name: 'تنزيل' })).toHaveAttribute('href', '/api/v1/public/meeting-repositories/share-token/files/3?download=1');
   });
 });
