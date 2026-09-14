@@ -2,8 +2,8 @@
 
 namespace App\Providers;
 
-use App\Models\User;
 use App\Models\Course;
+use App\Models\User;
 use App\Observers\BusinessRecordAuditObserver;
 use App\Services\AuthorizationService;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -80,5 +80,11 @@ class AppServiceProvider extends ServiceProvider
             Limit::perHour(10)->by('otp-student:'.hash('sha256', (string) $request->input('university_number'))),
         ]);
         RateLimiter::for('student-otp-verify', fn (Request $request) => Limit::perMinute(10)->by('otp-verify:'.$request->ip()));
+
+        RateLimiter::for('confidential-finance-unlock', fn (Request $request) => [
+            Limit::perMinute(5)->by('confidential-finance:ip:'.$request->ip()),
+            Limit::perMinute(5)->by('confidential-finance:vault:'.hash('sha256', (string) $request->route('token')).':'.$request->ip()),
+        ]);
+        RateLimiter::for('confidential-finance-read', fn (Request $request) => Limit::perMinute(30)->by('confidential-finance-read:'.$request->ip()));
     }
 }

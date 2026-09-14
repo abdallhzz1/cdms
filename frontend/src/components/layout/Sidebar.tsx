@@ -7,7 +7,7 @@ import {
   Map, FileText, ClipboardCheck, BookOpen, Clock, ShieldCheck,
   MessagesSquare, FolderGit2, BarChart3,
   GraduationCap, X, Monitor, Settings, Activity, Building2, UserRound, GitBranch,
-  ChevronDown, PanelLeftClose, PanelLeftOpen
+  ChevronDown, LockKeyhole, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import hebronLogo from '@/assets/hebron.png';
 
@@ -112,6 +112,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
           { path: '/approvals', label: locale === 'ar' ? 'مركز الاعتمادات' : 'Approval Center', icon: GitBranch, permission: 'approvals.view' },
           { path: '/inbox', label: locale === 'ar' ? 'المراسلات' : 'Mail', icon: MessagesSquare, permission: 'correspondence.view' },
           { path: '/meetings', label: locale === 'ar' ? 'محاضر الاجتماعات' : 'Meetings', icon: Calendar, permission: 'meetings.manage' },
+          { path: '/finance/confidential-documents', label: locale === 'ar' ? 'الخزنة المالية السرية' : 'Confidential Finance Vault', icon: LockKeyhole, permission: 'confidential_finance.manage' },
           { path: '/tasks', label: locale === 'ar' ? 'المهام والتكليفات' : 'Tasks', icon: FolderGit2, permission: 'tasks.view' },
         ]
       },

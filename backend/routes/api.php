@@ -2,11 +2,11 @@
 
 use App\Http\Controllers\Api\V1\AcademicCalendarEventController;
 use App\Http\Controllers\Api\V1\AcademicYearController;
-use App\Http\Controllers\Api\V1\ApprovalInboxController;
-use App\Http\Controllers\Api\V1\ApprovalWorkflowController;
 use App\Http\Controllers\Api\V1\AdminDepartmentController;
 use App\Http\Controllers\Api\V1\AdvisingRecordController;
 use App\Http\Controllers\Api\V1\AnnualReportEntryController;
+use App\Http\Controllers\Api\V1\ApprovalInboxController;
+use App\Http\Controllers\Api\V1\ApprovalWorkflowController;
 use App\Http\Controllers\Api\V1\AttendanceRecordController;
 use App\Http\Controllers\Api\V1\AttendanceWarningController;
 use App\Http\Controllers\Api\V1\AuditLogController;
@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\ClinicalAssessmentTemplateController;
 use App\Http\Controllers\Api\V1\ClinicalSessionController;
 use App\Http\Controllers\Api\V1\ClinicalSupervisorController;
 use App\Http\Controllers\Api\V1\ClinicalSupervisorEvaluationController;
+use App\Http\Controllers\Api\V1\ConfidentialFinancialVaultController;
 use App\Http\Controllers\Api\V1\CorrespondenceController;
 use App\Http\Controllers\Api\V1\CourseController;
 use App\Http\Controllers\Api\V1\CourseDistributionController;
@@ -127,6 +128,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->middleware('throttle:operational-read');
         Route::get('meeting-repositories/{token}/files/{file}', [MeetingRepositoryController::class, 'publicFile'])
             ->middleware('throttle:operational-read');
+        Route::get('confidential-financial-vaults/{token}', [ConfidentialFinancialVaultController::class, 'publicShow'])
+            ->middleware('throttle:confidential-finance-read');
+        Route::post('confidential-financial-vaults/{token}/unlock', [ConfidentialFinancialVaultController::class, 'unlock'])
+            ->middleware('throttle:confidential-finance-unlock');
+        Route::get('confidential-financial-vaults/{token}/files/{file}', [ConfidentialFinancialVaultController::class, 'publicFile'])
+            ->middleware('throttle:confidential-finance-read');
     });
 
     // -------------------------------------------------------------------------
@@ -384,6 +391,13 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('meeting-repositories/{meetingRepository}/files', [MeetingRepositoryController::class, 'storeFiles'])->middleware('permission:meetings.manage');
         Route::get('meeting-repositories/{meetingRepository}/files/{file}/download', [MeetingRepositoryController::class, 'downloadFile'])->middleware('permission:meetings.manage');
         Route::delete('meeting-repositories/{meetingRepository}/files/{file}', [MeetingRepositoryController::class, 'destroyFile'])->middleware('permission:meetings.manage');
+        Route::get('confidential-financial-vaults', [ConfidentialFinancialVaultController::class, 'index'])->middleware('permission:confidential_finance.manage');
+        Route::post('confidential-financial-vaults', [ConfidentialFinancialVaultController::class, 'store'])->middleware('permission:confidential_finance.manage');
+        Route::get('confidential-financial-vaults/{confidentialFinancialVault}', [ConfidentialFinancialVaultController::class, 'show'])->middleware('permission:confidential_finance.manage');
+        Route::put('confidential-financial-vaults/{confidentialFinancialVault}', [ConfidentialFinancialVaultController::class, 'update'])->middleware('permission:confidential_finance.manage');
+        Route::post('confidential-financial-vaults/{confidentialFinancialVault}/files', [ConfidentialFinancialVaultController::class, 'storeFiles'])->middleware('permission:confidential_finance.manage');
+        Route::get('confidential-financial-vaults/{confidentialFinancialVault}/files/{file}/download', [ConfidentialFinancialVaultController::class, 'internalFile'])->middleware('permission:confidential_finance.manage');
+        Route::delete('confidential-financial-vaults/{confidentialFinancialVault}/files/{file}', [ConfidentialFinancialVaultController::class, 'destroyFile'])->middleware('permission:confidential_finance.manage');
 
         // Department Heads Routes
         Route::get('dept-heads', [DepartmentHeadController::class, 'index'])

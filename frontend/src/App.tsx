@@ -49,6 +49,7 @@ import { QualityOperationsPage } from '@/pages/quality/QualityOperationsPage';
 import { MeetingsPage } from '@/pages/MeetingsPage';
 import { MeetingDetailsPage } from '@/pages/MeetingDetailsPage';
 import { MeetingRepositoriesPage } from '@/pages/MeetingRepositoriesPage';
+import { ConfidentialFinancialVaultsPage } from '@/pages/ConfidentialFinancialVaultsPage';
 import { AcademicCalendarPage } from '@/pages/AcademicCalendarPage';
 import { EvaluationFormsPage } from '@/pages/EvaluationFormsPage';
 import { ExternalElectivesPage } from '@/pages/ExternalElectivesPage';
@@ -73,6 +74,7 @@ import { PublicClinicalSchedulePage } from '@/pages/public/PublicClinicalSchedul
 import { PublicStudentRegistrationPage } from '@/pages/PublicStudentRegistrationPage';
 import { PublicQualitySurveyPage } from '@/pages/public/PublicQualitySurveyPage';
 import { PublicMeetingRepositoryPage } from '@/pages/public/PublicMeetingRepositoryPage';
+import { ProtectedFinancialDocumentPage } from '@/pages/public/ProtectedFinancialDocumentPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
 
 function DefaultAuthenticatedHome() {
@@ -92,6 +94,7 @@ export function App() {
       <Route path="/public/student-registration" element={<PublicStudentRegistrationPage />} />
       <Route path="/survey/:publicId" element={<PublicQualitySurveyPage />} />
       <Route path="/shared/meeting-repositories/:token" element={<PublicMeetingRepositoryPage />} />
+      <Route path="/secure/financial-documents/:token" element={<ProtectedFinancialDocumentPage />} />
       <Route path="/student-registration" element={<PublicStudentRegistrationPage />} />
       <Route path="/student-registration/:publicId" element={<PublicStudentRegistrationPage />} />
       <Route path="/public/student-registration/:publicId" element={<PublicStudentRegistrationPage />} />
@@ -218,6 +221,7 @@ export function App() {
                 <Route path="/quality/operations" element={<QualityOperationsPage />} />
                 <Route path="/meetings" element={<MeetingsPage />} />
                 <Route path="/meetings/repositories" element={<MeetingRepositoriesPage />} />
+                <Route path="/finance/confidential-documents" element={<ProtectedRoute requiredPermission="confidential_finance.manage"><ConfidentialFinancialVaultsPage /></ProtectedRoute>} />
                 <Route path="/meetings/:id" element={<MeetingDetailsPage />} />
                 <Route path="/academic/calendar" element={<AcademicCalendarPage />} />
 
