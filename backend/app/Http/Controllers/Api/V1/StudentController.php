@@ -202,6 +202,7 @@ class StudentController extends Controller
                     'currentGroupAssignments.group',
                     'currentGroupAssignments.subgroup',
                     'groupRegistrationRosters.group',
+                    'policyAssignments.campaign.document',
                 )
             )
         );

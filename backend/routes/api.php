@@ -50,6 +50,7 @@ use App\Http\Controllers\Api\V1\PersonController;
 use App\Http\Controllers\Api\V1\PublicGroupRegistrationController;
 use App\Http\Controllers\Api\V1\PublicProfileImageController;
 use App\Http\Controllers\Api\V1\PublicStudentScheduleController;
+use App\Http\Controllers\Api\V1\PublicStudentPolicyController;
 use App\Http\Controllers\Api\V1\QualityImprovementController;
 use App\Http\Controllers\Api\V1\QualityOperationsController;
 use App\Http\Controllers\Api\V1\QualitySurveyController;
@@ -59,6 +60,7 @@ use App\Http\Controllers\Api\V1\RotationController;
 use App\Http\Controllers\Api\V1\SkillLogbookRequirementController;
 use App\Http\Controllers\Api\V1\StaffAllocationController;
 use App\Http\Controllers\Api\V1\StudentController;
+use App\Http\Controllers\Api\V1\StudentPolicyController;
 use App\Http\Controllers\Api\V1\StudentCourseEnrollmentController;
 use App\Http\Controllers\Api\V1\StudentGroupAssignmentController;
 use App\Http\Controllers\Api\V1\StudentGroupController;
@@ -118,6 +120,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('student-schedule/request-otp', [PublicStudentScheduleController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
         Route::post('student-schedule/verify-otp', [PublicStudentScheduleController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
         Route::post('student-schedule', [PublicStudentScheduleController::class, 'schedule'])->middleware('throttle:operational-read');
+        Route::get('student-policies/{campaign:public_id}', [PublicStudentPolicyController::class, 'show'])->middleware('throttle:operational-read');
+        Route::post('student-policies/{campaign:public_id}/request-otp', [PublicStudentPolicyController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
+        Route::post('student-policies/{campaign:public_id}/verify-otp', [PublicStudentPolicyController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
+        Route::post('student-policies/{campaign:public_id}/document-opened', [PublicStudentPolicyController::class, 'opened'])->middleware('throttle:operational-read');
+        Route::get('student-policies/{campaign:public_id}/document', [PublicStudentPolicyController::class, 'document'])->middleware('throttle:operational-read');
+        Route::post('student-policies/{campaign:public_id}/acknowledge', [PublicStudentPolicyController::class, 'acknowledge'])->middleware('throttle:operational-read');
         Route::get('group-registration/{cycle:public_id}', [PublicGroupRegistrationController::class, 'cycle']);
         Route::post('group-registration/{cycle:public_id}/request-otp', [PublicGroupRegistrationController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
         Route::post('group-registration/{cycle:public_id}/verify-otp', [PublicGroupRegistrationController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
@@ -141,6 +149,22 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // All routes: auth:sanctum (authentication) + permission:<code> (authorization)
     // -------------------------------------------------------------------------
     Route::middleware('auth:sanctum')->group(function () {
+
+        Route::prefix('student-policies')->group(function () {
+            Route::get('/', [StudentPolicyController::class, 'index'])->middleware('permission.any:student_policies.view,student_policies.manage');
+            Route::post('/documents', [StudentPolicyController::class, 'storeDocument'])->middleware('permission:student_policies.manage');
+            Route::post('/campaigns', [StudentPolicyController::class, 'storeCampaign'])->middleware('permission:student_policies.manage');
+            Route::get('/campaigns/{campaign}', [StudentPolicyController::class, 'show'])->middleware('permission.any:student_policies.view,student_policies.manage');
+            Route::get('/campaigns/{campaign}/document', [StudentPolicyController::class, 'document'])->middleware('permission.any:student_policies.view,student_policies.manage');
+            Route::post('/campaigns/{campaign}/publish', [StudentPolicyController::class, 'publish'])->middleware('permission:student_policies.manage');
+            Route::post('/campaigns/{campaign}/close', [StudentPolicyController::class, 'close'])->middleware('permission:student_policies.manage');
+            Route::post('/campaigns/{campaign}/record-export', [StudentPolicyController::class, 'recordExport'])->middleware('permission.any:student_policies.view,student_policies.manage');
+            Route::post('/assignments/bulk-paper-receipt', [StudentPolicyController::class, 'bulkPaperReceipt'])->middleware('permission:student_policies.manage');
+            Route::post('/assignments/{assignment}/paper-receipt', [StudentPolicyController::class, 'paperReceipt'])->middleware('permission:student_policies.manage');
+            Route::post('/assignments/{assignment}/scan', [StudentPolicyController::class, 'uploadScan'])->middleware('permission:student_policies.manage');
+            Route::get('/assignments/{assignment}/scan', [StudentPolicyController::class, 'downloadScan'])->middleware('permission.any:student_policies.view,student_policies.manage');
+            Route::delete('/assignments/{assignment}/scan', [StudentPolicyController::class, 'deleteScan'])->middleware('permission:student_policies.manage');
+        });
 
         // Every authenticated account owns one shared professional profile.
         // Role-specific CV/performance pages link to this identity rather than

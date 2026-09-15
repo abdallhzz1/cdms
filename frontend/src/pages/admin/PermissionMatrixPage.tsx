@@ -90,6 +90,7 @@ const MODULES: Record<string, { label: LocalizedLabel; icon: Icon }> = {
   Partnerships: { label: { ar: 'الشراكات السريرية', en: 'Clinical Partnerships' }, icon: ShieldCheck },
   GroupRegistration: { label: { ar: 'تسجيل مجموعات الطلبة', en: 'Student Group Registration' }, icon: GraduationCap },
   'Confidential Finance': { label: { ar: 'الخزنة المالية السرية', en: 'Confidential Finance Vault' }, icon: LockKeyhole },
+  'Student Policies': { label: { ar: 'سياسات وتعهدات الطلبة', en: 'Student Policies and Acknowledgements' }, icon: ClipboardCheck },
 };
 
 const PERMISSION_LABELS: Record<string, string> = {
@@ -192,6 +193,8 @@ const PERMISSION_LABELS: Record<string, string> = {
   'group_registration.override': 'تسجيل أو سحب طالب إداريًا',
   'group_registration.export': 'تصدير نتائج التسجيل',
   'confidential_finance.manage': 'دخول وإدارة الخزنة المالية السرية',
+  'student_policies.view': 'عرض سياسات وتعهدات الطلبة',
+  'student_policies.manage': 'إدارة سياسات وتعهدات الطلبة',
 };
 
 const ACTION_LABELS: Record<string, string> = {

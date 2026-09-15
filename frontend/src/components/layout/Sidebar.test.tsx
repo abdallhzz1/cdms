@@ -75,4 +75,13 @@ describe('Sidebar active navigation', () => {
     const link = await screen.findByRole('link', { name: /Departments & Leaders Management|إدارة أقسام الكلية والقيادات/i });
     expect(link).toHaveAttribute('aria-current', 'page');
   });
+
+  it('shows student policy workspace for either policy permission', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/auth/me')) return jsonResponse({ success: true, data: { id: 3, name: 'Policy Manager', roles: [], permissions: [{ code: 'student_policies.manage', scope: 'global' }] }, message: null, meta: {} });
+      throw new Error(`Unmocked fetch call to ${String(input)}`);
+    }));
+    renderWithProviders(<Sidebar />, { route: '/student-policies' });
+    expect(await screen.findByRole('link', { name: /Student Policies|سياسات وتعهدات الطلبة/i })).toHaveAttribute('aria-current', 'page');
+  });
 });

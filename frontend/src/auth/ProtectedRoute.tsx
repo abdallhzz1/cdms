@@ -7,6 +7,7 @@ import { NotFound } from '@/pages/NotFound';
 interface ProtectedRouteProps {
   children: ReactNode;
   requiredPermission?: string;
+  requiredAnyPermission?: string[];
   requiredRole?: string | string[];
 }
 
@@ -15,7 +16,7 @@ interface ProtectedRouteProps {
  * role/permission checks. If access is denied, stealthily renders <NotFound /> (404)
  * to avoid disclosing administrative route existence (Zero Info Disclosure).
  */
-export function ProtectedRoute({ children, requiredPermission, requiredRole }: ProtectedRouteProps) {
+export function ProtectedRoute({ children, requiredPermission, requiredAnyPermission, requiredRole }: ProtectedRouteProps) {
   const { isAuthenticated, isLoading, can, hasRole } = useAuth();
   const { t } = useI18n();
   const location = useLocation();
@@ -34,6 +35,10 @@ export function ProtectedRoute({ children, requiredPermission, requiredRole }: P
 
   // Stealth Access Control: Renders <NotFound /> for unauthorized users to prevent route disclosure
   if (requiredPermission && !can(requiredPermission)) {
+    return <NotFound />;
+  }
+
+  if (requiredAnyPermission?.length && !requiredAnyPermission.some(can)) {
     return <NotFound />;
   }
 

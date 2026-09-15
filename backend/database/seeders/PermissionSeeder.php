@@ -97,6 +97,8 @@ class PermissionSeeder extends Seeder
             ['code' => 'approval_workflows.manage', 'module' => 'Approval Workflows', 'action' => 'MANAGE', 'description_key' => 'permissions.approval_workflows_manage.description'],
             ['code' => 'approvals.view', 'module' => 'Approvals', 'action' => 'VIEW', 'description_key' => 'permissions.approvals_view.description'],
             ['code' => 'approvals.decide', 'module' => 'Approvals', 'action' => 'DECIDE', 'description_key' => 'permissions.approvals_decide.description'],
+            ['code' => 'student_policies.view', 'module' => 'Student Policies', 'action' => 'VIEW', 'description_key' => 'permissions.student_policies_view.description'],
+            ['code' => 'student_policies.manage', 'module' => 'Student Policies', 'action' => 'MANAGE', 'description_key' => 'permissions.student_policies_manage.description'],
         ];
 
         foreach ($permissions as $permission) {

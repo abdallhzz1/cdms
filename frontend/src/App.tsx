@@ -76,6 +76,9 @@ import { PublicQualitySurveyPage } from '@/pages/public/PublicQualitySurveyPage'
 import { PublicMeetingRepositoryPage } from '@/pages/public/PublicMeetingRepositoryPage';
 import { ProtectedFinancialDocumentPage } from '@/pages/public/ProtectedFinancialDocumentPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
+import { StudentPoliciesPage } from '@/pages/StudentPoliciesPage';
+import { StudentPolicyCampaignPage } from '@/pages/StudentPolicyCampaignPage';
+import { PublicStudentPolicyPage } from '@/pages/public/PublicStudentPolicyPage';
 
 function DefaultAuthenticatedHome() {
   const { user } = useAuth();
@@ -100,6 +103,7 @@ export function App() {
       <Route path="/public/student-registration/:publicId" element={<PublicStudentRegistrationPage />} />
       <Route path="/portal/clinical-schedule" element={<PublicClinicalSchedulePage />} />
       <Route path="/portal/student-lookup" element={<PublicClinicalSchedulePage />} />
+      <Route path="/portal/student-policies/:publicId" element={<PublicStudentPolicyPage />} />
       <Route
         path="/*"
         element={
@@ -119,6 +123,8 @@ export function App() {
                 <Route path="/directory" element={<DirectoryPage kind="students" />} />
                 <Route path="/students/:id" element={<StudentProfilePage />} />
                 <Route path="/students/groups" element={<StudentGroupsPage />} />
+                <Route path="/student-policies" element={<ProtectedRoute requiredAnyPermission={['student_policies.view','student_policies.manage']}><StudentPoliciesPage /></ProtectedRoute>} />
+                <Route path="/student-policies/:id" element={<ProtectedRoute requiredAnyPermission={['student_policies.view','student_policies.manage']}><StudentPolicyCampaignPage /></ProtectedRoute>} />
                 <Route path="/distribution/groups" element={<StudentGroupsPage />} />
                 <Route path="/staff/:id" element={<StaffProfilePage />} />
                 <Route path="/profile" element={<MyProfilePage />} />

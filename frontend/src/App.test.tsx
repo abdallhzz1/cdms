@@ -136,4 +136,16 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: /page not found/i })).toBeInTheDocument();
   });
+
+  it('opens student policy workspace for a user with manage permission', async () => {
+    const policyManager = { ...AUTHENTICATED_USER, data: { ...AUTHENTICATED_USER.data, permissions: [{ code: 'student_policies.manage', scope: 'global' }] } };
+    mockFetchByUrl({
+      '/auth/me': () => jsonResponse(policyManager),
+      '/student-policies': () => jsonResponse({ success: true, data: [], message: null, meta: {} }),
+      '/academic-years': () => jsonResponse({ success: true, data: [], message: null, meta: {} }),
+      '/health': () => jsonResponse(HEALTH_OK),
+    });
+    renderWithProviders(<App />, { route: '/student-policies' });
+    expect(await screen.findByRole('heading', { name: /سياسات وتعهدات الطلبة/ })).toBeInTheDocument();
+  });
 });

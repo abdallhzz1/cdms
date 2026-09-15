@@ -319,6 +319,8 @@ const en = {
     audit_view: { description: 'View audit logs' },
     settings_manage: { description: 'System settings' },
     confidential_finance_manage: { description: 'Access and manage the confidential finance vault' },
+    student_policies_view: { description: 'View student policies and acknowledgements' },
+    student_policies_manage: { description: 'Manage student policies and acknowledgements' },
   },
 };
 

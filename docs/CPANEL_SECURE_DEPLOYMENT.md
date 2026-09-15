@@ -81,3 +81,27 @@ curl -I https://cdms.alfajrhealth.com/api/v1/health
 
 The first four requests must return `403` or `404`. The health endpoint must
 return the application's expected successful response.
+
+## Student Code of Conduct controlled rollout
+
+After deploying the student-policy migration, confirm the two permissions
+`student_policies.view` and `student_policies.manage` appear in the permission
+matrix. The migration grants both to `SYS_ADMIN`; use the matrix to grant the
+minimum required access to the staff responsible for circulation and filing.
+
+Before publishing the real campaign:
+
+1. Obtain the externally approved bilingual PDF printed on the official College
+   of Medicine letterhead. Do not upload a draft or auto-translated version.
+2. Create a short test campaign for a controlled academic-year/level dataset.
+3. Verify OTP delivery from the production mail account, PDF opening, versioned
+   acknowledgement, paper-receipt recording, private scan download, and Excel
+   export.
+4. Confirm the signed scan appears in the student's Documents tab and that its
+   storage path is never returned by the API.
+5. Close the test campaign, upload the final immutable version, and publish the
+   real campaign. Corrections require a new version and campaign.
+
+The electronic acknowledgement proves that the student opened and acknowledged
+the exact stored document hash. It does not replace the required handwritten
+signature or the physical copy retained in the student file.

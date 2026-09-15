@@ -156,6 +156,11 @@ class Student extends Model
         return $this->hasMany(AdvisingRecord::class);
     }
 
+    public function policyAssignments(): HasMany
+    {
+        return $this->hasMany(StudentPolicyAssignment::class);
+    }
+
     /** @return BelongsTo<Person, $this> */
     public function academicAdvisor(): BelongsTo
     {

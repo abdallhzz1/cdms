@@ -72,6 +72,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
         items: [
           { path: '/', label: locale === 'ar' ? 'لوحة التحكم' : 'Dashboard', icon: LayoutDashboard },
           { path: '/directory', label: locale === 'ar' ? 'دليل الطلاب' : 'Students Directory', icon: Users, permission: 'students.view' },
+          { path: '/student-policies', label: locale === 'ar' ? 'سياسات وتعهدات الطلبة' : 'Student Policies', icon: ClipboardCheck, customCheck: () => can('student_policies.view') || can('student_policies.manage') },
           { path: '/distribution', label: locale === 'ar' ? 'التوزيع السريري' : 'Distribution', icon: Map, permission: 'distribution.view' },
           { path: '/distribution/groups', label: locale === 'ar' ? 'تسجيل مجموعات الطلبة' : 'Student Group Registration', icon: GraduationCap, permission: 'group_registration.view' },
           { path: '/clinical/schedule', label: locale === 'ar' ? 'الجدول السريري' : 'Clinical Schedule', icon: Calendar, permission: 'clinical_schedule.view' },

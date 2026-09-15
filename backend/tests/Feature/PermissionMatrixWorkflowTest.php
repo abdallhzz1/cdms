@@ -53,6 +53,8 @@ class PermissionMatrixWorkflowTest extends TestCase
         $codes = collect($response->json('data.permissions'))->pluck('code');
 
         $this->assertTrue($codes->contains('confidential_finance.manage'));
+        $this->assertTrue($codes->contains('student_policies.view'));
+        $this->assertTrue($codes->contains('student_policies.manage'));
 
         $this->assertEqualsCanonicalizing([
             'group_registration.view',

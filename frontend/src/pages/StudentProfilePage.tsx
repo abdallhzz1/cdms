@@ -32,6 +32,9 @@ interface StudentDoc {
   uploaded_by?: string;
   download_url: string;
   mime_type?: string;
+  is_policy_evidence?: boolean;
+  policy_version?: string;
+  paper_received_at?: string;
 }
 
 type RegistrationCycle = {
@@ -581,6 +584,7 @@ export function StudentProfilePage() {
                     <FileText className="w-5 h-5 text-teal-600 shrink-0" />
                     <div className="min-w-0">
                       <div className="font-bold text-slate-800 truncate">{doc.title}</div>
+                      {doc.is_policy_evidence && <div className="mt-1 inline-flex rounded-full bg-teal-100 px-2 py-0.5 text-[9px] font-black text-teal-800">{locale === 'ar' ? `مدونة سلوك موقعة · الإصدار ${doc.policy_version}` : `Signed Code of Conduct · ${doc.policy_version}`}</div>}
                       <div className="text-[10px] text-slate-400 mt-0.5">{String(doc.uploaded_at || '').slice(0, 10)} • {(Number(doc.size_bytes || 0) / (1024 * 1024)).toFixed(1)} MB</div>
                     </div>
                   </div>
@@ -596,7 +600,7 @@ export function StudentProfilePage() {
                         <Eye className="w-4 h-4" />
                       </a>
                     )}
-                    {can('students.update') && (
+                    {can('students.update') && !doc.is_policy_evidence && (
                       <button
                         onClick={() => handleDeleteDoc(doc.id)}
                         className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50"

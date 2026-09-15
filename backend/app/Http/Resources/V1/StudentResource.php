@@ -41,12 +41,26 @@ class StudentResource extends JsonResource
             'has_amboss_subscription' => $this->has_amboss_subscription,
             'notes' => $this->notes,
             'data_source' => $this->data_source,
-            'documents' => $this->when($request->routeIs('api.v1.students.show'), fn () => collect($this->documents ?: [])->map(function (array $document) {
-                unset($document['storage_path']);
-                $document['download_url'] = url("/api/v1/students/{$this->id}/documents/".($document['id'] ?? ''));
-
-                return $document;
-            })->values()),
+            'documents' => $this->when($request->routeIs('api.v1.students.show'), function () {
+                $regular = collect($this->documents ?: [])->map(function (array $document) {
+                    unset($document['storage_path']);
+                    $document['download_url'] = url("/api/v1/students/{$this->id}/documents/".($document['id'] ?? ''));
+                    return $document;
+                });
+                $policy = $this->relationLoaded('policyAssignments') ? $this->policyAssignments
+                    ->whereNotNull('scan_storage_path')->map(fn ($assignment) => [
+                        'id' => 'policy-assignment-'.$assignment->id,
+                        'title' => $assignment->campaign?->document?->title_ar ?: 'مدونة سلوك طلبة الطب',
+                        'category' => 'clinical_pledge', 'file_name' => $assignment->scan_original_name,
+                        'mime_type' => $assignment->scan_mime_type, 'size_bytes' => $assignment->scan_size_bytes,
+                        'uploaded_at' => $assignment->scan_uploaded_at?->toIso8601String(),
+                        'policy_version' => $assignment->campaign?->document?->version_label,
+                        'paper_received_at' => $assignment->paper_received_at?->toIso8601String(),
+                        'is_policy_evidence' => true, 'immutable' => true,
+                        'download_url' => url("/api/v1/student-policies/assignments/{$assignment->id}/scan"),
+                    ]) : collect();
+                return $policy->concat($regular)->values();
+            }),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
 

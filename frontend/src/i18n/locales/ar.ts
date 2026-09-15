@@ -308,6 +308,8 @@ const ar: typeof en = {
     audit_view: { description: 'عرض السجل' },
     settings_manage: { description: 'إعدادات النظام' },
     confidential_finance_manage: { description: 'دخول وإدارة الخزنة المالية السرية' },
+    student_policies_view: { description: 'عرض سياسات وتعهدات الطلبة' },
+    student_policies_manage: { description: 'إدارة سياسات وتعهدات الطلبة' },
   },
 };
 

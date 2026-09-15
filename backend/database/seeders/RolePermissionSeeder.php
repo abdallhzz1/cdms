@@ -76,6 +76,8 @@ class RolePermissionSeeder extends Seeder
             'clinical_supervisor_evaluations.create',
             'clinical_supervisor_evaluations.approve',
             'clinical_supervisor_evaluations.export',
+            'student_policies.view',
+            'student_policies.manage',
         ];
 
         foreach ($bootstrapGrants as $code) {
