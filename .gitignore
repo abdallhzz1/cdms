@@ -39,6 +39,7 @@ logs/
 *.tmp
 *.temp
 .cache/
+.worktrees/
 
 # IDE
 .vscode/*
