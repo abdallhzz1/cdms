@@ -65,4 +65,21 @@ class StudentPolicyWorkflowTest extends TestCase
             ->assertJsonPath('data.documents.0.category', 'clinical_pledge')
             ->assertJsonPath('data.documents.0.is_policy_evidence', true);
     }
+
+    public function test_policy_manager_can_load_campaign_academic_years_without_academic_year_permission(): void
+    {
+        $this->seed(PermissionSeeder::class);
+        $manager = User::factory()->create();
+        $manager->directPermissions()->attach(
+            Permission::where('code', 'student_policies.manage')->value('id'),
+            ['granted_by' => $manager->id],
+        );
+        AcademicYear::factory()->create(['code' => '2026/2027', 'is_current' => true]);
+
+        $this->actingAs($manager)
+            ->getJson('/api/v1/student-policies/options')
+            ->assertOk()
+            ->assertJsonPath('data.academic_years.0.code', '2026/2027')
+            ->assertJsonPath('data.academic_years.0.is_current', true);
+    }
 }

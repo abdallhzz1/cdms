@@ -11,8 +11,10 @@ export type PolicyAssignment = {
   scan_name?: string | null; scan_download_url?: string | null;
 };
 export type CampaignDetails = { campaign: PolicyCampaign; assignments: { data: PolicyAssignment[]; current_page: number; last_page: number; total: number } };
+export type PolicyCampaignOptions = { academic_years: Array<{ id: number; code: string; is_current: boolean }> };
 
 export const listPolicyCampaigns = () => apiFetch<PolicyCampaign[]>('/student-policies');
+export const getPolicyCampaignOptions = () => apiFetch<PolicyCampaignOptions>('/student-policies/options');
 export const getPolicyCampaign = (id: string, query = '') => apiFetch<CampaignDetails>(`/student-policies/campaigns/${id}${query}`);
 export const uploadPolicyDocument = (form: FormData) => apiFetch<{ id: number }>('/student-policies/documents', { method: 'POST', body: form });
 export const createPolicyCampaign = (body: unknown) => apiFetch<PolicyCampaign>('/student-policies/campaigns', { method: 'POST', body });

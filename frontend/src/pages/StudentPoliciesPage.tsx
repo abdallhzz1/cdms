@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { BookOpenCheck, CalendarDays, ChevronDown, FileCheck2, Plus, Settings2, ShieldCheck } from 'lucide-react';
-import { apiFetch } from '@/api/client';
-import { createPolicyCampaign, listPolicyCampaigns, uploadPolicyDocument } from '@/api/studentPolicies';
+import { createPolicyCampaign, getPolicyCampaignOptions, listPolicyCampaigns, uploadPolicyDocument } from '@/api/studentPolicies';
 import { useAuth } from '@/auth/AuthContext';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Modal } from '@/components/ui/Modal';
@@ -30,8 +29,8 @@ export function StudentPoliciesPage() {
   const [form, setForm] = useState({ title_ar: 'مدونة سلوك طلبة الطب', title_en: 'Medical Students’ Code of Conduct', version_label: '', effective_date: today(), academic_year_id: '', deadline: '', target_levels: ['fourth', 'fifth', 'sixth'] });
   const [file, setFile] = useState<File | null>(null);
   const campaigns = useQuery({ queryKey: ['student-policies'], queryFn: listPolicyCampaigns });
-  const years = useQuery({ queryKey: ['academic-years', 'policy'], queryFn: () => apiFetch<any>('/academic-years?per_page=100') });
-  const yearRows = Array.isArray(years.data) ? years.data : (years.data?.data ?? []);
+  const options = useQuery({ queryKey: ['student-policy-options'], queryFn: getPolicyCampaignOptions });
+  const yearRows = useMemo(() => options.data?.academic_years ?? [], [options.data]);
   const generatedVersion = useMemo(() => nextVersion(campaigns.data), [campaigns.data]);
   useEffect(() => {
     if (!open) return;

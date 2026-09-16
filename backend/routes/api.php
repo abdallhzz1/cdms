@@ -152,6 +152,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         Route::prefix('student-policies')->group(function () {
             Route::get('/', [StudentPolicyController::class, 'index'])->middleware('permission.any:student_policies.view,student_policies.manage');
+            Route::get('/options', [StudentPolicyController::class, 'options'])->middleware('permission:student_policies.manage');
             Route::post('/documents', [StudentPolicyController::class, 'storeDocument'])->middleware('permission:student_policies.manage');
             Route::post('/campaigns', [StudentPolicyController::class, 'storeCampaign'])->middleware('permission:student_policies.manage');
             Route::get('/campaigns/{campaign}', [StudentPolicyController::class, 'show'])->middleware('permission.any:student_policies.view,student_policies.manage');

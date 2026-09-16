@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\StudentPolicyCampaignResource;
 use App\Http\Responses\ApiResponse;
 use App\Models\AuditLog;
+use App\Models\AcademicYear;
 use App\Models\StudentPolicyAssignment;
 use App\Models\StudentPolicyCampaign;
 use App\Models\StudentPolicyDocument;
@@ -24,6 +25,15 @@ class StudentPolicyController extends Controller
     {
         $campaigns = $this->campaignQuery()->latest()->get();
         return ApiResponse::success(StudentPolicyCampaignResource::collection($campaigns));
+    }
+
+    public function options(): JsonResponse
+    {
+        return ApiResponse::success([
+            'academic_years' => AcademicYear::query()
+                ->orderByDesc('start_date')
+                ->get(['id', 'code', 'is_current']),
+        ]);
     }
 
     public function storeDocument(Request $request, SecureFileUploadService $files): JsonResponse

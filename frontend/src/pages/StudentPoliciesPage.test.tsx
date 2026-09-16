@@ -25,11 +25,12 @@ it('keeps campaign creation focused and hides generated document metadata by def
   vi.spyOn(window, 'fetch').mockImplementation(async (input) => {
     const url = String(input);
     if (url.includes('/auth/me')) return ok({ id: 1, name: 'Manager', roles: [], department_ids: [], permissions: [{ code: 'student_policies.manage' }] });
-    if (url.includes('/student-policies')) return ok([]);
-    if (url.includes('/academic-years')) return ok([
+    if (url.endsWith('/student-policies/options')) return ok({ academic_years: [
       { id: 8, code: '2025/2026', is_current: false },
       { id: 9, code: '2026/2027', is_current: true },
-    ]);
+    ] });
+    if (url.includes('/student-policies')) return ok([]);
+    if (url.includes('/academic-years')) return new Response(JSON.stringify({ success: false, data: null, message: 'Forbidden', errors: {}, meta: {} }), { status: 403, headers: { 'Content-Type': 'application/json' } });
     throw new Error(url);
   });
 
