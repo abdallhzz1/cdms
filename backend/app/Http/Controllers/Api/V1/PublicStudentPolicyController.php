@@ -36,27 +36,31 @@ class PublicStudentPolicyController extends Controller
 
     public function requestOtp(Request $request, StudentPolicyCampaign $campaign): JsonResponse
     {
-        $data = $request->validate(['university_number' => ['required', 'string', 'max:20', 'regex:/^[0-9]+$/']]);
+        $data = $request->validate(['university_number' => ['required', 'string', 'max:20', 'regex:/^[0-9]+$/']], [
+            'university_number.required' => 'أدخل الرقم الجامعي أولاً.',
+            'university_number.regex' => 'الرقم الجامعي يجب أن يحتوي على أرقام فقط.',
+            'university_number.max' => 'الرقم الجامعي المدخل أطول من المسموح.',
+        ]);
         abort_unless($campaign->status === 'published', 409, 'الحملة غير متاحة حالياً.');
         $student = Student::where('university_number', $data['university_number'])->first();
         $assignment = $student ? StudentPolicyAssignment::where('campaign_id', $campaign->id)->where('student_id', $student->id)->first() : null;
-        $generic = 'إذا كانت بياناتك مشمولة بالحملة فسيصل رمز التحقق إلى بريدك الجامعي.';
-        if (! $assignment || ! $student) {
-            return ApiResponse::success(['challenge_token' => Str::random(64), 'expires_in_seconds' => 600], $generic);
-        }
+        if (! $student) return ApiResponse::error('الرقم الجامعي غير موجود في النظام.', [], [], 404);
+        if (! $assignment) return ApiResponse::error('الطالب موجود لكنه غير مشمول بهذه الحملة.', [], [], 422);
+        $email = $student->resolvedUniversityEmail();
+        if (! filter_var($email, FILTER_VALIDATE_EMAIL)) return ApiResponse::error('لا يوجد بريد جامعي صالح مرتبط بالطالب.', [], [], 422);
 
         $otp = (string) random_int(100000, 999999);
         $challengeToken = Str::random(64);
         $challenge = StudentPolicyOtpChallenge::create(['challenge_token_hash' => hash('sha256', $challengeToken), 'campaign_id' => $campaign->id,
             'assignment_id' => $assignment->id, 'otp_hash' => hash('sha256', $otp), 'expires_at' => now()->addMinutes(10)]);
         try {
-            Mail::to($student->resolvedUniversityEmail())->send(new StudentPolicyOtpMail($otp, $campaign->document->title_ar));
+            Mail::to($email)->send(new StudentPolicyOtpMail($otp, $campaign->document->title_ar));
         } catch (\Throwable $exception) {
             $challenge->delete();
             Log::error('Student policy OTP delivery failed', ['campaign_id' => $campaign->id, 'student_id' => $student->id, 'exception' => $exception::class]);
             return ApiResponse::error('تعذر إرسال رمز التحقق حالياً. يرجى المحاولة لاحقاً.', ['code' => ['otp_delivery_failed']], [], 503);
         }
-        return ApiResponse::success(['challenge_token' => $challengeToken, 'email_hint' => substr($student->university_number, 0, 3).'***@students.hebron.edu', 'expires_in_seconds' => 600], $generic);
+        return ApiResponse::success(['challenge_token' => $challengeToken, 'email_hint' => substr($student->university_number, 0, 3).'***@students.hebron.edu', 'expires_in_seconds' => 600], 'تم التحقق من الرقم وإرسال رمز التحقق إلى بريدك الجامعي.');
     }
 
     public function verifyOtp(Request $request, StudentPolicyCampaign $campaign): JsonResponse

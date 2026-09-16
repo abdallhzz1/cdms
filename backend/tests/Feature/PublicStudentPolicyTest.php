@@ -52,12 +52,16 @@ class PublicStudentPolicyTest extends TestCase
         $this->assertSame(str_repeat('b', 64), $assignment->acknowledged_document_sha256_en);
     }
 
-    public function test_unknown_number_receives_enumeration_safe_response(): void
+    public function test_unknown_or_unassigned_number_receives_a_clear_message(): void
     {
         Mail::fake(); Storage::fake('local'); [$campaign] = $this->publishedCampaign();
         $response = $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/request-otp", ['university_number' => '99999999']);
-        $response->assertOk()->assertJsonPath('data.expires_in_seconds', 600);
-        $this->assertSame(64, strlen($response->json('data.challenge_token')));
+        $response->assertNotFound()->assertJsonPath('message', 'الرقم الجامعي غير موجود في النظام.');
+
+        $other = Student::factory()->create();
+        $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/request-otp", ['university_number' => $other->university_number])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'الطالب موجود لكنه غير مشمول بهذه الحملة.');
     }
 
     private function publishedCampaign(): array

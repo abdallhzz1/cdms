@@ -121,6 +121,33 @@ class StudentPolicyController extends Controller
         return ApiResponse::success(new StudentPolicyCampaignResource($campaign->fresh()->load(['document', 'academicYear', 'assignments'])), 'تم إغلاق الحملة.');
     }
 
+    public function destroy(Request $request, StudentPolicyCampaign $campaign): JsonResponse
+    {
+        $request->validate(['confirmation' => ['required', Rule::in(['حذف الحملة'])]]);
+
+        $result = DB::transaction(function () use ($campaign, $request): array {
+            $locked = StudentPolicyCampaign::query()->with('document')->lockForUpdate()->findOrFail($campaign->id);
+            $hasActivity = $locked->assignments()->where(function ($query) {
+                $query->whereNotNull('opened_at')->orWhereNotNull('opened_ar_at')->orWhereNotNull('opened_en_at')
+                    ->orWhereNotNull('acknowledged_at')->orWhereNotNull('paper_received_at')->orWhereNotNull('scan_storage_path');
+            })->exists();
+            if ($hasActivity) return ['blocked' => true, 'paths' => []];
+
+            $document = $locked->document;
+            $locked->assignments()->delete();
+            $locked->delete();
+            $deleteDocument = $document && ! $document->campaigns()->exists();
+            $paths = $deleteDocument ? array_values(array_filter([$document->storage_path, $document->storage_path_en])) : [];
+            if ($deleteDocument) $document->delete();
+            $this->audit($request, 'student_policy.deleted', $campaign->id, ['status' => $campaign->status]);
+            return ['blocked' => false, 'paths' => $paths];
+        });
+
+        if ($result['blocked']) return ApiResponse::error('لا يمكن حذف حملة بدأ الطلبة بالتفاعل معها. أغلق الحملة للاحتفاظ بسجلها الرسمي.', [], [], 409);
+        foreach ($result['paths'] as $path) Storage::disk('local')->delete($path);
+        return ApiResponse::success(null, 'تم حذف الحملة وملفاتها نهائيًا.');
+    }
+
     public function recordExport(Request $request, StudentPolicyCampaign $campaign): JsonResponse
     {
         $this->audit($request, 'student_policy.register_exported', $campaign->id, ['filters' => $request->only(['search', 'level', 'milestone'])]);

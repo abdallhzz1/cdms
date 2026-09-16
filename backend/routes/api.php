@@ -159,6 +159,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('/campaigns/{campaign}/document', [StudentPolicyController::class, 'document'])->middleware('permission.any:student_policies.view,student_policies.manage');
             Route::post('/campaigns/{campaign}/publish', [StudentPolicyController::class, 'publish'])->middleware('permission:student_policies.manage');
             Route::post('/campaigns/{campaign}/close', [StudentPolicyController::class, 'close'])->middleware('permission:student_policies.manage');
+            Route::delete('/campaigns/{campaign}', [StudentPolicyController::class, 'destroy'])->middleware('permission:student_policies.manage');
             Route::post('/campaigns/{campaign}/record-export', [StudentPolicyController::class, 'recordExport'])->middleware('permission.any:student_policies.view,student_policies.manage');
             Route::post('/assignments/bulk-paper-receipt', [StudentPolicyController::class, 'bulkPaperReceipt'])->middleware('permission:student_policies.manage');
             Route::post('/assignments/{assignment}/paper-receipt', [StudentPolicyController::class, 'paperReceipt'])->middleware('permission:student_policies.manage');

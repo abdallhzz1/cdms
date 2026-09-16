@@ -84,4 +84,28 @@ class StudentPolicyWorkflowTest extends TestCase
             ->assertJsonPath('data.academic_years.0.code', '2026/2027')
             ->assertJsonPath('data.academic_years.0.is_current', true);
     }
+
+    public function test_manager_can_delete_an_inactive_campaign_but_not_one_with_student_activity(): void
+    {
+        Storage::fake('local');
+        $this->seed(PermissionSeeder::class);
+        $manager = User::factory()->create();
+        $manager->directPermissions()->attach(Permission::where('code', 'student_policies.manage')->value('id'), ['granted_by' => $manager->id]);
+        $year = AcademicYear::factory()->create();
+        Storage::disk('local')->put('student-policies/ar.pdf', '%PDF ar');
+        Storage::disk('local')->put('student-policies/en.pdf', '%PDF en');
+        $document = StudentPolicyDocument::factory()->create(['storage_path' => 'student-policies/ar.pdf', 'storage_path_en' => 'student-policies/en.pdf']);
+        $campaign = StudentPolicyCampaign::factory()->for($document, 'document')->create(['academic_year_id' => $year->id]);
+
+        $this->actingAs($manager)->deleteJson("/api/v1/student-policies/campaigns/{$campaign->id}", ['confirmation' => 'حذف الحملة'])->assertOk();
+        $this->assertDatabaseMissing('student_policy_campaigns', ['id' => $campaign->id]);
+        Storage::disk('local')->assertMissing('student-policies/ar.pdf');
+        Storage::disk('local')->assertMissing('student-policies/en.pdf');
+
+        $activeDocument = StudentPolicyDocument::factory()->create();
+        $activeCampaign = StudentPolicyCampaign::factory()->for($activeDocument, 'document')->create(['academic_year_id' => $year->id, 'status' => 'published']);
+        StudentPolicyAssignment::factory()->for($activeCampaign, 'campaign')->create(['opened_at' => now(), 'opened_ar_at' => now()]);
+        $this->deleteJson("/api/v1/student-policies/campaigns/{$activeCampaign->id}", ['confirmation' => 'حذف الحملة'])->assertStatus(409);
+        $this->assertDatabaseHas('student_policy_campaigns', ['id' => $activeCampaign->id]);
+    }
 }

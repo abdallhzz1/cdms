@@ -20,6 +20,7 @@ export const uploadPolicyDocument = (form: FormData) => apiFetch<{ id: number }>
 export const createPolicyCampaign = (body: unknown) => apiFetch<PolicyCampaign>('/student-policies/campaigns', { method: 'POST', body });
 export const publishPolicyCampaign = (id: number) => apiFetch<PolicyCampaign>(`/student-policies/campaigns/${id}/publish`, { method: 'POST' });
 export const closePolicyCampaign = (id: number) => apiFetch<PolicyCampaign>(`/student-policies/campaigns/${id}/close`, { method: 'POST' });
+export const deletePolicyCampaign = (id: number, confirmation: string) => apiFetch(`/student-policies/campaigns/${id}`, { method: 'DELETE', body: { confirmation } });
 export const recordPolicyExport = (id: number) => apiFetch(`/student-policies/campaigns/${id}/record-export`, { method: 'POST' });
 export const recordPaperReceipt = (id: number) => apiFetch(`/student-policies/assignments/${id}/paper-receipt`, { method: 'POST' });
 export const bulkRecordPaperReceipt = (ids: number[]) => apiFetch('/student-policies/assignments/bulk-paper-receipt', { method: 'POST', body: { assignment_ids: ids } });
