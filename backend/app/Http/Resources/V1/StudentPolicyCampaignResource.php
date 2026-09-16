@@ -32,6 +32,7 @@ class StudentPolicyCampaignResource extends JsonResource
             'document' => $this->whenLoaded('document', fn () => [
                 'id' => $this->document->id, 'title_ar' => $this->document->title_ar, 'title_en' => $this->document->title_en,
                 'version_label' => $this->document->version_label, 'effective_date' => $this->document->effective_date?->toDateString(),
+                'has_english_document' => filled($this->document->storage_path_en),
             ]),
             'academic_year' => $this->whenLoaded('academicYear', fn () => ['id' => $this->academicYear->id, 'code' => $this->academicYear->code]),
             'counts' => (object) $counts,

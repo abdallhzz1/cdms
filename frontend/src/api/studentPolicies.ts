@@ -2,12 +2,12 @@ import { apiFetch, apiUrl } from './client';
 
 export type PolicyCampaign = {
   id: number; public_id: string; status: 'draft' | 'published' | 'closed'; deadline: string; target_levels: string[];
-  document: { id: number; title_ar: string; title_en: string; version_label: string; effective_date?: string };
+  document: { id: number; title_ar: string; title_en: string; version_label: string; effective_date?: string; has_english_document?: boolean };
   academic_year: { id: number; code: string }; counts: Record<string, number>;
 };
 export type PolicyAssignment = {
   id: number; student: { id: number; university_number: string; full_name_ar: string; full_name_en?: string; academic_level: string };
-  opened_at?: string | null; acknowledged_at?: string | null; paper_received_at?: string | null; scan_attached: boolean;
+  opened_at?: string | null; opened_ar_at?: string | null; opened_en_at?: string | null; acknowledged_at?: string | null; paper_received_at?: string | null; scan_attached: boolean;
   scan_name?: string | null; scan_download_url?: string | null;
 };
 export type CampaignDetails = { campaign: PolicyCampaign; assignments: { data: PolicyAssignment[]; current_page: number; last_page: number; total: number } };

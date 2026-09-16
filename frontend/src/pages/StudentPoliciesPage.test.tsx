@@ -38,7 +38,8 @@ it('keeps campaign creation focused and hides generated document metadata by def
   await userEvent.click(await screen.findByRole('button', { name: /إنشاء حملة/ }));
 
   expect(screen.getByLabelText('العام الأكاديمي')).toHaveValue('9');
-  expect(screen.getByLabelText('النسخة الرسمية PDF')).toBeVisible();
+  expect(screen.getByLabelText('النسخة العربية PDF')).toBeVisible();
+  expect(screen.getByLabelText('النسخة الإنجليزية PDF')).toBeVisible();
   expect(screen.getByRole('group', { name: 'السنوات المستهدفة' })).toBeVisible();
   expect(screen.getByLabelText('آخر موعد')).toBeVisible();
   expect(screen.queryByLabelText('العنوان العربي')).not.toBeInTheDocument();

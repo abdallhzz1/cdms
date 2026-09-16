@@ -47,8 +47,10 @@ class StudentPolicyWorkflowTest extends TestCase
         $documentId = $this->actingAs($manager)->post('/api/v1/student-policies/documents', [
             'title_ar' => 'مدونة سلوك طلبة الطب', 'title_en' => 'Medical Students Code of Conduct',
             'version_label' => '2026.1', 'effective_date' => '2026-09-15',
-            'file' => UploadedFile::fake()->createWithContent('conduct.pdf', '%PDF-1.4 approved'),
+            'file_ar' => UploadedFile::fake()->createWithContent('conduct-ar.pdf', '%PDF-1.4 Arabic approved'),
+            'file_en' => UploadedFile::fake()->createWithContent('conduct-en.pdf', '%PDF-1.4 English approved'),
         ])->assertCreated()->json('data.id');
+        $this->assertNotNull(StudentPolicyDocument::findOrFail($documentId)->storage_path_en);
         $campaignId = $this->postJson('/api/v1/student-policies/campaigns', [
             'student_policy_document_id' => $documentId, 'academic_year_id' => $year->id,
             'target_levels' => ['fourth'], 'deadline' => '2026-10-01',

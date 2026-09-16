@@ -41,15 +41,26 @@ class StudentPolicyController extends Controller
         $data = $request->validate([
             'title_ar' => ['required', 'string', 'max:200'], 'title_en' => ['required', 'string', 'max:200'],
             'version_label' => ['required', 'string', 'max:50', 'unique:student_policy_documents,version_label'],
-            'effective_date' => ['required', 'date'], 'file' => ['required', 'file', 'mimes:pdf', 'max:10240'],
+            'effective_date' => ['required', 'date'],
+            'file_ar' => ['required', 'file', 'mimes:pdf', 'max:10240'],
+            'file_en' => ['required', 'file', 'mimes:pdf', 'max:10240'],
         ]);
-        $stored = $files->storeDocument($request->file('file'), 'student-policies/documents');
-        abort_unless($stored['mime_type'] === 'application/pdf', 422, 'يجب رفع ملف PDF معتمد.');
-        unset($data['file']);
+        $storedAr = $files->storeDocument($request->file('file_ar'), 'student-policies/documents/ar');
+        try {
+            $storedEn = $files->storeDocument($request->file('file_en'), 'student-policies/documents/en');
+        } catch (\Throwable $exception) {
+            Storage::disk('local')->delete($storedAr['storage_path']);
+            throw $exception;
+        }
+        abort_unless($storedAr['mime_type'] === 'application/pdf' && $storedEn['mime_type'] === 'application/pdf', 422, 'يجب رفع ملفي PDF معتمدين.');
+        unset($data['file_ar'], $data['file_en']);
         $document = StudentPolicyDocument::create([
-            ...$data, 'storage_path' => $stored['storage_path'], 'original_name' => $request->file('file')->getClientOriginalName(),
-            'mime_type' => $stored['mime_type'], 'size_bytes' => $stored['size_bytes'],
-            'sha256' => hash_file('sha256', Storage::disk('local')->path($stored['storage_path'])), 'uploaded_by' => $request->user()->id,
+            ...$data, 'storage_path' => $storedAr['storage_path'], 'original_name' => $request->file('file_ar')->getClientOriginalName(),
+            'mime_type' => $storedAr['mime_type'], 'size_bytes' => $storedAr['size_bytes'],
+            'sha256' => hash_file('sha256', Storage::disk('local')->path($storedAr['storage_path'])),
+            'storage_path_en' => $storedEn['storage_path'], 'original_name_en' => $request->file('file_en')->getClientOriginalName(),
+            'mime_type_en' => $storedEn['mime_type'], 'size_bytes_en' => $storedEn['size_bytes'],
+            'sha256_en' => hash_file('sha256', Storage::disk('local')->path($storedEn['storage_path'])), 'uploaded_by' => $request->user()->id,
         ]);
         return ApiResponse::success($document, 'تم حفظ النسخة الرسمية.', [], 201);
     }
@@ -90,12 +101,14 @@ class StudentPolicyController extends Controller
         return ApiResponse::success(new StudentPolicyCampaignResource($service->publish($campaign, $request->user())), 'تم نشر الحملة وإنشاء سجل متابعة ثابت للطلبة.');
     }
 
-    public function document(StudentPolicyCampaign $campaign): BinaryFileResponse
+    public function document(Request $request, StudentPolicyCampaign $campaign): BinaryFileResponse
     {
         $campaign->loadMissing('document');
-        abort_unless(Storage::disk('local')->exists($campaign->document->storage_path), 404);
-        return response()->file(Storage::disk('local')->path($campaign->document->storage_path), [
-            'Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="code-of-conduct.pdf"',
+        $english = $request->query('language') === 'en';
+        $path = $english ? $campaign->document->storage_path_en : $campaign->document->storage_path;
+        abort_unless($path && Storage::disk('local')->exists($path), 404);
+        return response()->file(Storage::disk('local')->path($path), [
+            'Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="code-of-conduct-'.($english ? 'en' : 'ar').'.pdf"',
             'Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff',
         ]);
     }
@@ -165,6 +178,7 @@ class StudentPolicyController extends Controller
     {
         return ['id' => $a->id, 'student' => ['id' => $a->student?->id, 'university_number' => $a->student?->university_number, 'full_name_ar' => $a->student?->full_name_ar, 'full_name_en' => $a->student?->full_name_en, 'academic_level' => $a->student?->academic_level],
             'opened_at' => $a->opened_at?->toIso8601String(), 'acknowledged_at' => $a->acknowledged_at?->toIso8601String(),
+            'opened_ar_at' => $a->opened_ar_at?->toIso8601String(), 'opened_en_at' => $a->opened_en_at?->toIso8601String(),
             'paper_received_at' => $a->paper_received_at?->toIso8601String(), 'scan_attached' => (bool) $a->scan_storage_path,
             'scan_name' => $a->scan_original_name, 'scan_download_url' => $a->scan_storage_path ? url("/api/v1/student-policies/assignments/{$a->id}/scan") : null];
     }

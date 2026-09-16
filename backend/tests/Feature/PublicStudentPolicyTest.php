@@ -41,12 +41,15 @@ class PublicStudentPolicyTest extends TestCase
 
         $payload = ['access_token' => $accessToken, 'typed_name' => $student->full_name_ar, 'paper_signature_understood' => true];
         $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/acknowledge", $payload)->assertUnprocessable();
-        $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/document-opened", ['access_token' => $accessToken])->assertOk();
+        $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/document-opened", ['access_token' => $accessToken, 'language' => 'ar'])->assertOk();
+        $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/acknowledge", $payload)->assertUnprocessable();
+        $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/document-opened", ['access_token' => $accessToken, 'language' => 'en'])->assertOk();
         $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/acknowledge", $payload)->assertOk();
 
         $assignment = StudentPolicyAssignment::firstOrFail();
         $this->assertSame('2026.1', $assignment->acknowledged_version);
         $this->assertSame(str_repeat('a', 64), $assignment->acknowledged_document_sha256);
+        $this->assertSame(str_repeat('b', 64), $assignment->acknowledged_document_sha256_en);
     }
 
     public function test_unknown_number_receives_enumeration_safe_response(): void
@@ -60,9 +63,12 @@ class PublicStudentPolicyTest extends TestCase
     private function publishedCampaign(): array
     {
         Storage::disk('local')->put('student-policies/conduct.pdf', '%PDF-1.4 test');
+        Storage::disk('local')->put('student-policies/conduct-en.pdf', '%PDF-1.4 English test');
         $year = AcademicYear::factory()->create();
         $student = Student::factory()->create(['academic_year_id' => $year->id, 'academic_level' => 'fourth', 'registration_status' => 'active']);
-        $document = StudentPolicyDocument::factory()->create(['storage_path' => 'student-policies/conduct.pdf', 'version_label' => '2026.1', 'sha256' => str_repeat('a', 64)]);
+        $document = StudentPolicyDocument::factory()->create(['storage_path' => 'student-policies/conduct.pdf', 'version_label' => '2026.1', 'sha256' => str_repeat('a', 64),
+            'storage_path_en' => 'student-policies/conduct-en.pdf', 'original_name_en' => 'conduct-en.pdf', 'mime_type_en' => 'application/pdf',
+            'size_bytes_en' => 100, 'sha256_en' => str_repeat('b', 64)]);
         $campaign = StudentPolicyCampaign::factory()->for($document, 'document')->create(['academic_year_id' => $year->id, 'target_levels' => ['fourth'], 'status' => 'published', 'published_at' => now()]);
         StudentPolicyAssignment::factory()->for($campaign, 'campaign')->for($student)->create();
         return [$campaign->load('document'), $student];

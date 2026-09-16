@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -29,7 +30,8 @@ class PublicStudentPolicyController extends Controller
         return ApiResponse::success(['public_id' => $campaign->public_id, 'status' => $campaign->status,
             'deadline' => $campaign->deadline?->toDateString(), 'academic_year' => $campaign->academicYear?->code,
             'title_ar' => $campaign->document->title_ar, 'title_en' => $campaign->document->title_en,
-            'version_label' => $campaign->document->version_label]);
+            'version_label' => $campaign->document->version_label,
+            'has_english_document' => filled($campaign->document->storage_path_en)]);
     }
 
     public function requestOtp(Request $request, StudentPolicyCampaign $campaign): JsonResponse
@@ -72,23 +74,33 @@ class PublicStudentPolicyController extends Controller
         });
         return ApiResponse::success(['access_token' => $token, 'expires_in_seconds' => 1200,
             'student' => ['name' => $assignment->student->full_name_ar, 'university_number' => $assignment->student->university_number],
-            'opened' => (bool) $assignment->opened_at, 'acknowledged' => (bool) $assignment->acknowledged_at]);
+            'opened' => (bool) $assignment->opened_at, 'opened_ar' => (bool) ($assignment->opened_ar_at ?: $assignment->opened_at),
+            'opened_en' => (bool) $assignment->opened_en_at, 'has_english_document' => filled($assignment->campaign->document->storage_path_en),
+            'acknowledged' => (bool) $assignment->acknowledged_at]);
     }
 
     public function opened(Request $request, StudentPolicyCampaign $campaign, StudentPolicyAccessService $access): JsonResponse
     {
+        $data = $request->validate(['language' => ['required', Rule::in(['ar', 'en'])]]);
         $assignment = $access->assignmentForToken($campaign, $access->tokenFrom($request));
-        if (! $assignment->opened_at) $assignment->update(['opened_at' => now()]);
-        return ApiResponse::success(['opened_at' => $assignment->fresh()->opened_at?->toIso8601String()]);
+        $document = $assignment->campaign->document;
+        abort_if($data['language'] === 'en' && blank($document->storage_path_en), 404);
+        $field = $data['language'] === 'en' ? 'opened_en_at' : 'opened_ar_at';
+        if (! $assignment->{$field}) $assignment->update([$field => now()]);
+        $assignment->refresh();
+        $allOpened = (bool) $assignment->opened_ar_at && (blank($document->storage_path_en) || (bool) $assignment->opened_en_at);
+        if ($allOpened && ! $assignment->opened_at) $assignment->update(['opened_at' => now()]);
+        return ApiResponse::success(['opened_ar' => (bool) $assignment->opened_ar_at, 'opened_en' => (bool) $assignment->opened_en_at, 'all_opened' => $allOpened]);
     }
 
     public function document(Request $request, StudentPolicyCampaign $campaign, StudentPolicyAccessService $access): BinaryFileResponse
     {
         $assignment = $access->assignmentForToken($campaign, $access->tokenFrom($request));
-        abort_unless(Storage::disk('local')->exists($assignment->campaign->document->storage_path), 404);
-        if (! $assignment->opened_at) $assignment->update(['opened_at' => now()]);
-        return response()->file(Storage::disk('local')->path($assignment->campaign->document->storage_path), [
-            'Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="code-of-conduct.pdf"',
+        $english = $request->query('language') === 'en';
+        $path = $english ? $assignment->campaign->document->storage_path_en : $assignment->campaign->document->storage_path;
+        abort_unless($path && Storage::disk('local')->exists($path), 404);
+        return response()->file(Storage::disk('local')->path($path), [
+            'Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="code-of-conduct-'.($english ? 'en' : 'ar').'.pdf"',
             'Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff',
         ]);
     }
@@ -99,15 +111,17 @@ class PublicStudentPolicyController extends Controller
         abort_unless($campaign->status === 'published', 409, 'الحملة غير متاحة حالياً.');
         $assignment = $access->assignmentForToken($campaign, $access->tokenFrom($request));
         if ($assignment->acknowledged_at) return ApiResponse::success(['acknowledged_at' => $assignment->acknowledged_at->toIso8601String()], 'تم تسجيل إقرارك سابقاً.');
-        throw_unless($assignment->opened_at, ValidationException::withMessages(['document' => ['يجب فتح النسخة الرسمية وقراءتها أولاً.']]));
-        throw_unless($access->namesMatch($assignment, $data['typed_name']), ValidationException::withMessages(['typed_name' => ['يرجى كتابة اسمك مطابقاً لبيانات الطالب.']]));
         $document = $assignment->campaign->document;
+        throw_unless($assignment->opened_ar_at || ($assignment->opened_at && blank($document->storage_path_en)), ValidationException::withMessages(['document_ar' => ['يجب فتح النسخة العربية وقراءتها أولاً.']]));
+        throw_unless(blank($document->storage_path_en) || $assignment->opened_en_at, ValidationException::withMessages(['document_en' => ['يجب فتح النسخة الإنجليزية وقراءتها أولاً.']]));
+        throw_unless($access->namesMatch($assignment, $data['typed_name']), ValidationException::withMessages(['typed_name' => ['يرجى كتابة اسمك مطابقاً لبيانات الطالب.']]));
         $assignment->update(['acknowledged_at' => now(), 'acknowledged_name' => trim($data['typed_name']),
             'acknowledged_version' => $document->version_label, 'acknowledged_document_sha256' => $document->sha256,
+            'acknowledged_document_sha256_en' => $document->sha256_en,
             'acknowledged_ip_hash' => hash_hmac('sha256', (string) $request->ip(), (string) config('app.key')),
             'acknowledged_user_agent_hash' => hash('sha256', (string) $request->userAgent())]);
         AuditLog::create(['action' => 'student_policy.acknowledged', 'entity_type' => 'student_policy_assignment', 'entity_id' => $assignment->id,
-            'student_id' => $assignment->student_id, 'changes' => ['version' => $document->version_label, 'sha256' => $document->sha256]]);
+            'student_id' => $assignment->student_id, 'changes' => ['version' => $document->version_label, 'sha256_ar' => $document->sha256, 'sha256_en' => $document->sha256_en]]);
         return ApiResponse::success(['acknowledged_at' => $assignment->fresh()->acknowledged_at?->toIso8601String()], 'تم تسجيل إقرار القراءة. اطبع النسخة ووقّعها بخط اليد وسلمها للكلية.');
     }
 }
