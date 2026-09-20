@@ -62,6 +62,39 @@ class StudentTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    public function test_name_search_ignores_common_arabic_spelling_differences_and_extra_spaces(): void
+    {
+        $matching = Student::factory()->create(['full_name_ar' => 'أَحْمَد عبد الرَّحمن الزُّهور']);
+        Student::factory()->create(['full_name_ar' => 'محمد عبد الرحمن الزهور']);
+
+        $this->actingAs($this->admin)->getJson('/api/v1/students?search='.urlencode('  احمد   الزهور  '))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $matching->id);
+    }
+
+    public function test_exact_name_match_precedes_partial_name_match(): void
+    {
+        Student::factory()->create(['full_name_ar' => 'أحمد خالد سالم']);
+        $exact = Student::factory()->create(['full_name_ar' => 'أحمد خالد']);
+
+        $this->actingAs($this->admin)->getJson('/api/v1/students?search='.urlencode('احمد خالد'))
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $exact->id)
+            ->assertJsonPath('meta.total', 2);
+    }
+
+    public function test_university_number_search_still_finds_student(): void
+    {
+        $matching = Student::factory()->create(['university_number' => '22310455']);
+        Student::factory()->create(['university_number' => '22310456']);
+
+        $this->actingAs($this->admin)->getJson('/api/v1/students?search=22310455')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $matching->id);
+    }
+
     public function test_can_filter_students_by_main_registration_group(): void
     {
         $year = AcademicYear::factory()->create();

@@ -21,6 +21,7 @@ use App\Models\StudentGroupAssignment;
 use App\Models\StudentGroupRoster;
 use App\Models\User;
 use App\Services\SecureFileUploadService;
+use App\Services\Students\StudentDirectorySearch;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -137,14 +138,7 @@ class StudentController extends Controller
                 $request->integer('warning_count_min'),
                 fn ($q, $w) => $q->where('warning_count', '>=', $w)
             )
-            ->when($request->query('search'), function ($q, $s) {
-                $q->where(function ($sub) use ($s) {
-                    $sub->where('university_number', 'like', "%{$s}%")
-                        ->orWhere('full_name_ar', 'like', "%{$s}%")
-                        ->orWhere('full_name_en', 'like', "%{$s}%")
-                        ->orWhere('university_email', 'like', "%{$s}%");
-                });
-            })
+            ->when($request->query('search'), fn ($q, $s) => app(StudentDirectorySearch::class)->apply($q, (string) $s))
             ->orderBy('full_name_ar')
             ->paginate($request->integer('per_page', 25));
 

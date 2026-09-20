@@ -595,10 +595,26 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder={locale === 'ar' ? 'البحث بالاسم أو الرقم الجامعي...' : 'Search by name or university ID...'}
-              className="block w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 text-sm text-slate-800 transition-colors focus:border-teal-500 focus:bg-white focus:ring-1 focus:ring-teal-500 rtl:pr-10 ltr:pl-10"
+              placeholder={kind === 'students'
+                ? (locale === 'ar' ? 'اسم الطالب أو رقمه الجامعي' : 'Student name or university ID')
+                : (locale === 'ar' ? 'بحث...' : 'Search...')}
+              aria-label={kind === 'students'
+                ? (locale === 'ar' ? 'البحث في دليل الطلبة' : 'Search student directory')
+                : (locale === 'ar' ? 'بحث' : 'Search')}
+              className="block w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 text-sm text-slate-800 transition-colors focus:border-teal-500 focus:bg-white focus:ring-1 focus:ring-teal-500 rtl:pr-10 rtl:pl-10 ltr:pl-10 ltr:pr-10"
             />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={() => { setSearchInput(''); setDebouncedSearch(''); setPage(1); }}
+                aria-label={locale === 'ar' ? 'مسح البحث' : 'Clear search'}
+                className="absolute inset-y-0 left-0 flex items-center px-3 text-slate-400 transition-colors hover:text-slate-700 rtl:left-0 ltr:right-0 ltr:left-auto"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
+          {kind === 'students' && searchInput && <p className="text-xs text-slate-500 sm:hidden">{locale === 'ar' ? 'يمكنك كتابة الاسم الأول والعائلة دون الأسماء الوسطى.' : 'First and last name are enough.'}</p>}
           {kind === 'students' && (
             <select
               value={mainGroupFilter}
