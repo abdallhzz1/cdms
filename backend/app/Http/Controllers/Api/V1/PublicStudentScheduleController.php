@@ -12,6 +12,7 @@ use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentScheduleOtpChallenge;
 use App\Models\StudentSchedulePortalSetting;
+use App\Models\StudentScheduleTrustedDevice;
 use App\Services\Distribution\ClinicalScheduleDateCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +25,10 @@ use Illuminate\Validation\ValidationException;
 
 class PublicStudentScheduleController extends Controller
 {
+    private const TRUSTED_COOKIE = 'cdms_student_schedule';
+
+    private const TRUSTED_DAYS = 30;
+
     public function __construct(private ClinicalScheduleDateCalculator $dateCalculator) {}
 
     public function requestOtp(Request $request): JsonResponse
@@ -157,18 +162,21 @@ class PublicStudentScheduleController extends Controller
     public function schedule(Request $request): JsonResponse
     {
         $this->ensurePortalEnabled();
-        $data = $request->validate(['access_token' => ['required', 'string', 'size:80']]);
-        $challenge = StudentScheduleOtpChallenge::with('student')
-            ->where('access_token_hash', hash('sha256', $data['access_token']))
-            ->whereNotNull('verified_at')
-            ->where('access_expires_at', '>', now())
-            ->first();
+        $data = $request->validate(['access_token' => ['nullable', 'string', 'size:80']]);
+        if (!empty($data['access_token'])) {
+            $student = StudentScheduleOtpChallenge::with('student')
+                ->where('access_token_hash', hash('sha256', $data['access_token']))
+                ->whereNotNull('verified_at')
+                ->where('access_expires_at', '>', now())
+                ->first()?->student;
+        } else {
+            $student = $this->trustedDevice($request)?->student;
+        }
 
-        if (!$challenge) {
+        if (!$student) {
             abort(401, 'انتهت جلسة التحقق. يرجى طلب رمز جديد.');
         }
-        $student = $challenge->student;
-        if (!$student || $student->academic_registration_status !== 'registered') {
+        if ($student->academic_registration_status !== 'registered') {
             abort(403, 'لا يمكنك عرض الجدول. يرجى التواصل مع إدارة الدائرة السريرية.');
         }
 
@@ -349,6 +357,51 @@ class PublicStudentScheduleController extends Controller
             ]),
             'schedule' => $schedule,
         ]);
+    }
+
+    public function remember(Request $request): JsonResponse
+    {
+        $this->ensurePortalEnabled();
+        abort_unless(config('group_registration.otp_enabled'), 403);
+        $data = $request->validate(['access_token' => ['required', 'string', 'size:80']]);
+        $challenge = StudentScheduleOtpChallenge::with('student')
+            ->where('access_token_hash', hash('sha256', $data['access_token']))
+            ->whereNotNull('verified_at')
+            ->where('access_expires_at', '>', now())
+            ->first();
+        abort_unless($challenge?->student?->academic_registration_status === 'registered', 401);
+
+        $plainToken = Str::random(80);
+        StudentScheduleTrustedDevice::create([
+            'student_id' => $challenge->student_id,
+            'token_hash' => hash('sha256', $plainToken),
+            'expires_at' => now()->addDays(self::TRUSTED_DAYS),
+        ]);
+
+        return ApiResponse::success(['expires_in_days' => self::TRUSTED_DAYS])
+            ->cookie(cookie(self::TRUSTED_COOKIE, $plainToken, self::TRUSTED_DAYS * 24 * 60, '/', null, app()->isProduction() || $request->isSecure(), true, false, 'Lax'));
+    }
+
+    public function forget(Request $request): JsonResponse
+    {
+        $this->trustedDevice($request)?->update(['revoked_at' => now()]);
+
+        return ApiResponse::success(null, 'تم إلغاء حفظ الدخول على هذا المتصفح.')
+            ->cookie(cookie(self::TRUSTED_COOKIE, '', -1, '/', null, app()->isProduction() || $request->isSecure(), true, false, 'Lax'));
+    }
+
+    private function trustedDevice(Request $request): ?StudentScheduleTrustedDevice
+    {
+        $token = $request->cookie(self::TRUSTED_COOKIE);
+        if (!is_string($token) || strlen($token) !== 80) {
+            return null;
+        }
+
+        return StudentScheduleTrustedDevice::with('student')
+            ->where('token_hash', hash('sha256', $token))
+            ->whereNull('revoked_at')
+            ->where('expires_at', '>', now())
+            ->first();
     }
 
     private function ensurePortalEnabled(): void

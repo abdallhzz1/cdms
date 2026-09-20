@@ -131,12 +131,27 @@ export function PublicClinicalSchedulePage() {
   const [otp, setOtp] = useState("");
   const [emailHint, setEmailHint] = useState("");
   const [accessToken, setAccessToken] = useState("");
+  const [rememberPrompt, setRememberPrompt] = useState(false);
+  const [rememberedBrowser, setRememberedBrowser] = useState(false);
+  const [rememberError, setRememberError] = useState("");
   const [data, setData] = useState<StudentSchedule | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [otpSeconds, setOtpSeconds] = useState(0);
   const [periodId, setPeriodId] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    apiFetch<StudentSchedule>("/public/student-schedule", { method: "POST", body: {} })
+      .then((schedule) => {
+        if (!active) return;
+        setData(schedule);
+        setRememberedBrowser(true);
+      })
+      .catch(() => { /* No trusted browser yet; show the normal OTP form. */ });
+    return () => { active = false; };
+  }, []);
 
   const periods = useMemo(
     () =>
@@ -241,18 +256,44 @@ export function PublicClinicalSchedulePage() {
       );
       setData(schedule);
       setMessage(tr("تم التحقق من هويتك وتحميل جدولك المنشور.", "Your identity was verified and your published schedule was loaded."));
+      setRememberPrompt(true);
     } catch (exception) {
       fail(exception);
     } finally {
       setBusy(false);
     }
   };
-  const reset = () => {
+  const saveBrowser = async () => {
+    setBusy(true);
+    setRememberError("");
+    try {
+      await apiFetch("/public/student-schedule/remember", { method: "POST", body: { access_token: accessToken } });
+      setRememberedBrowser(true);
+      setRememberPrompt(false);
+      setMessage(tr("يمكنك فتح جدولك من هذا المتصفح لمدة 30 يومًا دون رمز جديد.", "This browser can open your schedule for 30 days without a new code."));
+    } catch (exception) {
+      setRememberError(exception instanceof ApiError ? exception.message : tr("تعذر حفظ الدخول. يمكنك المتابعة دون حفظ.", "Could not remember this browser. You can continue without saving."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const reset = async () => {
+    if (rememberedBrowser) {
+      try {
+        await apiFetch("/public/student-schedule/forget", { method: "POST", body: {} });
+      } catch (exception) {
+        fail(exception);
+        return;
+      }
+    }
     setNumber("");
     setChallenge("");
     setOtp("");
     setEmailHint("");
     setAccessToken("");
+    setRememberPrompt(false);
+    setRememberedBrowser(false);
+    setRememberError("");
     setData(null);
     setPeriodId("");
     setError("");
@@ -308,7 +349,7 @@ export function PublicClinicalSchedulePage() {
           </div>
         )}
 
-        {!challenge && (
+        {!challenge && !data && (
           <Card className="rounded-[28px] p-5 sm:p-7">
             <form onSubmit={requestOtp} className="space-y-4">
               <div>
@@ -647,6 +688,22 @@ export function PublicClinicalSchedulePage() {
               </p>
             </div>
           </section>
+        )}
+
+        {rememberPrompt && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4" role="presentation">
+            <div role="dialog" aria-modal="true" aria-labelledby="remember-browser-title" className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-xl sm:p-7">
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"><ShieldCheck className="h-6 w-6" /></div>
+              <h2 id="remember-browser-title" className="text-lg font-black">{tr("حفظ الدخول على هذا المتصفح؟", "Remember this browser?")}</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{tr("إذا كان هذا هاتفك الشخصي، يمكن فتح جدولك من هذا المتصفح لمدة 30 يومًا دون إدخال الرقم الجامعي أو رمز البريد مرة أخرى.", "If this is your personal phone, you can open your schedule from this browser for 30 days without entering your university number or email code again.")}</p>
+              <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">{tr("لا تحفظ الدخول على هاتف مشترك. يمكنك إلغاء الحفظ لاحقًا من زر «استعلام آخر».", "Do not save on a shared phone. You can remove access later using New lookup.")}</p>
+              {rememberError && <p role="alert" className="mt-3 text-xs font-bold text-red-700">{rememberError}</p>}
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+                <Button type="button" onClick={saveBrowser} isLoading={busy} className="min-h-11 flex-1 rounded-xl bg-teal-700 font-bold">{tr("حفظ الدخول 30 يومًا", "Remember for 30 days")}</Button>
+                <Button type="button" variant="outline" disabled={busy} onClick={() => { setRememberPrompt(false); setRememberError(""); }} className="min-h-11 flex-1 rounded-xl font-bold">{tr("المتابعة دون حفظ", "Continue without saving")}</Button>
+              </div>
+            </div>
+          </div>
         )}
 
         <footer className="py-3 text-center text-[11px] text-slate-400">

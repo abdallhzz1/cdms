@@ -119,6 +119,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('quality-surveys/{qualitySurvey:public_id}/submit', [QualitySurveyController::class, 'publicSubmit'])->middleware('throttle:operational-read');
         Route::post('student-schedule/request-otp', [PublicStudentScheduleController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
         Route::post('student-schedule/verify-otp', [PublicStudentScheduleController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
+        Route::post('student-schedule/remember', [PublicStudentScheduleController::class, 'remember'])->middleware('throttle:student-otp-verify');
+        Route::post('student-schedule/forget', [PublicStudentScheduleController::class, 'forget'])->middleware('throttle:operational-read');
         Route::post('student-schedule', [PublicStudentScheduleController::class, 'schedule'])->middleware('throttle:operational-read');
         Route::get('student-policies/{campaign:public_id}', [PublicStudentPolicyController::class, 'show'])->middleware('throttle:operational-read');
         Route::post('student-policies/{campaign:public_id}/request-otp', [PublicStudentPolicyController::class, 'requestOtp'])->middleware('throttle:student-otp-request');

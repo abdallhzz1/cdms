@@ -39,12 +39,15 @@ describe('clinical schedule profile photos', () => {
 
   it('shows enlargeable photos for the student, supervisor, and all group members in the public lookup', async () => {
     localStorage.setItem('cdms.locale', 'en');
+    let requested = false;
     vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes('/auth/me')) return envelope(null);
       if (url.includes('/sanctum/csrf-cookie')) return new Response(null, { status: 204 });
-      if (url.includes('/public/student-schedule/request-otp')) return envelope({ otp_required: false, access_token: 'x'.repeat(80), expires_in_seconds: 1200 });
-      if (url.endsWith('/public/student-schedule') && init?.method === 'POST') return envelope({ student: { name: 'طالب سريري', name_en: 'Clinical Student', university_number: '22310001', academic_level: 'fourth', photo_url: '/storage/students/4.jpg' }, group: { name: 'L' }, subgroup: { name: 'L1' }, members: [{ name: 'طالب سريري', name_en: 'Clinical Student', photo_url: '/storage/students/4.jpg', is_current_student: true }, { name: 'زميل', name_en: 'Teammate', photo_url: '/storage/students/5.jpg', is_current_student: false }], schedule: [item] });
+      if (url.includes('/public/student-schedule/request-otp')) { requested = true; return envelope({ otp_required: false, access_token: 'x'.repeat(80), expires_in_seconds: 1200 }); }
+      if (url.endsWith('/public/student-schedule') && init?.method === 'POST') return requested
+        ? envelope({ student: { name: 'طالب سريري', name_en: 'Clinical Student', university_number: '22310001', academic_level: 'fourth', photo_url: '/storage/students/4.jpg' }, group: { name: 'L' }, subgroup: { name: 'L1' }, members: [{ name: 'طالب سريري', name_en: 'Clinical Student', photo_url: '/storage/students/4.jpg', is_current_student: true }, { name: 'زميل', name_en: 'Teammate', photo_url: '/storage/students/5.jpg', is_current_student: false }], schedule: [item] })
+        : new Response(JSON.stringify({ success: false, data: null, message: 'Not verified', errors: {}, meta: {} }), { status: 401, headers: { 'Content-Type': 'application/json' } });
       throw new Error(`Unmocked request: ${url}`);
     });
     renderWithProviders(<PublicClinicalSchedulePage />, { route: '/portal/student-lookup' });

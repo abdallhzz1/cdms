@@ -260,6 +260,60 @@ class PublicStudentScheduleTest extends TestCase
             ->assertJsonMissing(['schedule', 'members']);
     }
 
+    public function test_verified_student_can_remember_this_browser_and_revoke_it(): void
+    {
+        $token = Str::random(80);
+        StudentScheduleOtpChallenge::create([
+            'student_id' => $this->student->id,
+            'challenge_token_hash' => hash('sha256', Str::random(64)),
+            'otp_hash' => Hash::make('123456'),
+            'expires_at' => now()->addMinutes(10),
+            'verified_at' => now(),
+            'consumed_at' => now(),
+            'access_token_hash' => hash('sha256', $token),
+            'access_expires_at' => now()->addMinutes(20),
+        ]);
+
+        $remember = $this->postJson('/api/v1/public/student-schedule/remember', ['access_token' => $token]);
+        $remember->assertOk()->assertCookie('cdms_student_schedule');
+        $cookie = collect($remember->headers->getCookies())->first(fn ($item) => $item->getName() === 'cdms_student_schedule');
+        $this->assertNotNull($cookie);
+        $this->assertDatabaseCount('student_schedule_trusted_devices', 1);
+
+        $this->withCookie('cdms_student_schedule', $cookie->getValue())
+            ->postJson('/api/v1/public/student-schedule', [])
+            ->assertOk()
+            ->assertJsonPath('data.student.university_number', '22210466');
+
+        $this->withCookie('cdms_student_schedule', $cookie->getValue())
+            ->postJson('/api/v1/public/student-schedule/forget', [])
+            ->assertOk();
+        $this->withCookie('cdms_student_schedule', $cookie->getValue())
+            ->postJson('/api/v1/public/student-schedule', [])
+            ->assertUnauthorized();
+    }
+
+    public function test_unverified_schedule_token_cannot_create_trusted_browser(): void
+    {
+        $this->postJson('/api/v1/public/student-schedule/remember', ['access_token' => Str::random(80)])
+            ->assertUnauthorized();
+        $this->assertDatabaseCount('student_schedule_trusted_devices', 0);
+    }
+
+    public function test_expired_trusted_browser_cannot_view_schedule(): void
+    {
+        $token = Str::random(80);
+        \App\Models\StudentScheduleTrustedDevice::create([
+            'student_id' => $this->student->id,
+            'token_hash' => hash('sha256', $token),
+            'expires_at' => now()->subMinute(),
+        ]);
+
+        $this->withCookie('cdms_student_schedule', $token)
+            ->postJson('/api/v1/public/student-schedule', [])
+            ->assertUnauthorized();
+    }
+
     public function test_legacy_bulk_public_schedule_endpoint_is_disabled(): void
     {
         $this->getJson('/api/v1/public/clinical-schedule')->assertNotFound();
