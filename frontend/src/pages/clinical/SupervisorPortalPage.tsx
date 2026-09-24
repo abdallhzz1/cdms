@@ -16,10 +16,10 @@ export function SupervisorPortalPage(){
   if(!can('supervisor.workspace.view'))return <ErrorState title={tr('الصلاحية غير مفعلة','Permission is disabled')}/>;
   if(query.isLoading)return <LoadingState/>;if(query.isError||!query.data)return <ErrorState onRetry={()=>query.refetch()}/>;
   const name=ar?query.data.supervisor.full_name_ar:query.data.supervisor.full_name_en||query.data.supervisor.full_name_ar;
-  return <div className="mx-auto max-w-7xl space-y-7 pb-16">
-    <header className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-slate-950 via-teal-950 to-teal-800 px-6 py-8 text-white shadow-xl shadow-teal-950/10 sm:px-9 sm:py-10">
+  return <div className="mx-auto w-full min-w-0 max-w-7xl space-y-4 pb-16 sm:space-y-7">
+    <header className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-950 via-teal-950 to-teal-800 px-4 py-4 text-white shadow-sm shadow-teal-950/10 sm:rounded-[2rem] sm:px-9 sm:py-10 sm:shadow-xl">
       <div className="absolute -start-16 -top-20 h-56 w-56 rounded-full bg-teal-400/10 blur-3xl"/><div className="absolute -bottom-24 end-0 h-64 w-64 rounded-full bg-cyan-300/10 blur-3xl"/>
-      <div className="relative"><span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] font-bold text-teal-50"><CheckCircle2 className="h-3.5 w-3.5"/>{tr('مساحة العمل السريرية','Clinical workspace')}</span><h1 className="mt-5 text-2xl font-black tracking-tight sm:text-3xl">{tr('مرحباً دكتور،','Welcome Doctor,')} {name}</h1></div>
+      <div className="relative"><span className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] font-bold text-teal-50 sm:inline-flex"><CheckCircle2 className="h-3.5 w-3.5"/>{tr('مساحة العمل السريرية','Clinical workspace')}</span><h1 className="text-lg font-black leading-7 tracking-tight sm:mt-5 sm:text-3xl">{tr('مرحباً دكتور،','Welcome Doctor,')} {name}</h1></div>
     </header>
     <SupervisorScheduleAgenda workspace={query.data}/>
   </div>;

@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { SupervisorPortalPage } from './SupervisorPortalPage';
 import { SupervisorAssessmentsPage } from './SupervisorAssessmentsPage';
 import { Sidebar } from '@/components/layout/Sidebar';
-import { sortAgendaByNextSession } from './SupervisorSchedulePage';
+import { agendaWeekStart, preferredAgendaWeek, sortAgendaByNextSession } from './SupervisorSchedulePage';
 
 const envelope=(data:unknown,status=200)=>new Response(JSON.stringify({success:status<400,data:status<400?data:null,message:status<400?null:'Forbidden',errors:{},meta:{}}),{status,headers:{'Content-Type':'application/json'}});
 const permissions=['supervisor.workspace.view','attendance.view','attendance.record','assessment.view','assessment.create'].map(code=>({code,scope:'global'}));
@@ -25,6 +25,12 @@ describe('clinical supervisor workspace',()=>{
     expect(ordered.map(item=>item.date)).toEqual([
       '2026-09-12','2026-09-13','2026-09-15','2026-09-10','2026-09-01',
     ]);
+  });
+
+  it('uses Sunday-based weeks and selects the nearest upcoming week on mobile',()=>{
+    expect(agendaWeekStart('2026-09-24')).toBe('2026-09-20');
+    expect(preferredAgendaWeek([{date:'2026-09-17'},{date:'2026-09-27'}],'2026-09-24')).toBe('2026-09-27');
+    expect(preferredAgendaWeek([{date:'2026-09-17'},{date:'2026-09-24'}],'2026-09-24')).toBe('2026-09-20');
   });
 
   it('keeps direct supervisor links for supervisor-only users',async()=>{
@@ -51,6 +57,17 @@ describe('clinical supervisor workspace',()=>{
     expect(screen.getAllByText('Assessment').length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith('/supervisor/attendance/qr?'))).toBe(true);
     expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith('/supervisor/assessments?'))).toBe(true);
+  });
+
+  it('shows one selected week in the phone table and lets the supervisor change weeks',async()=>{
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope(workspace));
+    renderWithProviders(<SupervisorPortalPage/>);
+    const weekSelect=await screen.findByRole('combobox',{name:'Choose week'});
+    const phoneTable=screen.getAllByRole('table')[0];
+    expect(within(phoneTable).getAllByRole('row')).toHaveLength(2);
+    await userEvent.selectOptions(weekSelect,'2026-08-23');
+    expect(within(phoneTable).getByText('27/08/2026')).toBeVisible();
+    expect(within(phoneTable).getAllByRole('link',{name:'Open QR attendance'})).toHaveLength(1);
   });
 
   it('submits one student assessment independently from its separate screen',async()=>{
