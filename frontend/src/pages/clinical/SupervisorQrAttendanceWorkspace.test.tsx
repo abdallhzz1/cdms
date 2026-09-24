@@ -3,15 +3,19 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { SupervisorQrAttendanceWorkspace } from './SupervisorQrAttendanceWorkspace';
 
-vi.mock('@/api/distribution', () => ({ getMySupervisorAssignments: vi.fn().mockResolvedValue([{ id: 8, student_subgroup_id: null, training_site: { name_ar: 'المستشفى التعليمي' } }]) }));
-vi.mock('@/api/clinicalQrAttendance', () => ({
-  getQrSessions: vi.fn().mockResolvedValue([]), openQrSession: vi.fn(), getQrSession: vi.fn(),
-  getQrPayload: vi.fn(), transitionQrSession: vi.fn(),
-}));
+const assignments = [
+  { id: 8, distribution_version_id: 1, rotation_block_id: 2, training_site_id: 3, student_subgroup_id: 4, student: { id: 11, full_name_ar: 'طالب أول', batch_year: 2026 }, student_subgroup: { name: 'أ', group: { name: 'المجموعة 5' } }, training_site: { name_ar: 'مستشفى الخليل' }, rotation_block: { block_code: 'B1', from_week: 1, to_week: 1, rotation: { name: 'دوران', start_date: '2026-09-21', course: { id: 9, name_ar: 'الباطني', code: 'MED' }, academic_year: { code: '2026/2027' } } }, scheduled_dates: ['2026-09-24'] },
+  { id: 9, distribution_version_id: 1, rotation_block_id: 2, training_site_id: 3, student_subgroup_id: 4, student: { id: 12, full_name_ar: 'طالب ثان', batch_year: 2026 }, student_subgroup: { name: 'أ', group: { name: 'المجموعة 5' } }, training_site: { name_ar: 'مستشفى الخليل' }, rotation_block: { block_code: 'B1', from_week: 1, to_week: 1, rotation: { name: 'دوران', start_date: '2026-09-21', course: { id: 9, name_ar: 'الباطني', code: 'MED' }, academic_year: { code: '2026/2027' } } }, scheduled_dates: ['2026-09-24'] },
+] as any[];
+
+vi.mock('@/api/client', () => ({ apiFetch: vi.fn((path: string) => path === '/operational/my-supervisor-workspace' ? Promise.resolve({ assignments }) : Promise.resolve([])) }));
+vi.mock('@/api/clinicalQrAttendance', () => ({ getQrSessions: vi.fn().mockResolvedValue([]), openQrSession: vi.fn(), getQrSession: vi.fn(), getQrPayload: vi.fn(), transitionQrSession: vi.fn() }));
 
 describe('SupervisorQrAttendanceWorkspace', () => {
-  it('renders supervisor assignments returned directly from the API envelope', async () => {
+  it('groups student assignments once and offers only scheduled work days', async () => {
     render(<QueryClientProvider client={new QueryClient()}><SupervisorQrAttendanceWorkspace /></QueryClientProvider>);
-    expect(await screen.findByRole('option', { name: 'تكليف #8 — المستشفى التعليمي' })).toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: 'الباطني — المجموعة 5 (أ) — مستشفى الخليل' })).toBeInTheDocument();
+    expect(screen.getAllByRole('option', { name: 'الباطني — المجموعة 5 (أ) — مستشفى الخليل' })).toHaveLength(1);
+    expect(screen.getByRole('option', { name: /الخميس/ })).toBeInTheDocument();
   });
 });
