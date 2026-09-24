@@ -79,6 +79,35 @@ describe('clinical supervisor workspace',()=>{
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessment-batches')&&String(init?.body).includes('"student_id":7')&&String(init?.body).includes('"score":9'))).toBe(true));
   });
 
+  it('shows score progress and names the student still missing a score',async()=>{
+    const secondAssignment={...workspace.assignments[0],id:22,student:{id:8,university_number:'22010002',full_name_ar:'طالب جديد',full_name_en:'New Student',batch_year:2026}};
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments:[workspace.assignments[0],secondAssignment]}));
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=1'});
+    const submit=await screen.findByRole('button',{name:'Submit group assessment'});
+    expect(submit).toBeDisabled();
+    expect(screen.getByText('0/2 ready')).toBeVisible();
+    expect(screen.getByText('Enter a score for Clinical Student before submitting.')).toBeVisible();
+    await userEvent.type(screen.getAllByRole('spinbutton')[0],'8');
+    expect(screen.getByText('1/2 ready')).toBeVisible();
+    expect(screen.getByText('Enter a score for New Student before submitting.')).toBeVisible();
+    await userEvent.type(screen.getAllByRole('spinbutton')[1],'9');
+    expect(submit).toBeEnabled();
+  });
+
+  it('shows private supervisor notes without copying them into the official assessment',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    const privateText='Needs more practice taking patient history';
+    const withNote={...workspace,student_notes:[{id:5,supervisor_person_id:9,student_id:7,student_clinical_assignment_id:21,note_date:'2026-08-27',note:privateText}]};
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(withNote);if(url.includes('/my-supervisor-assessment-batches'))return envelope({batch_uuid:'note-test',assessments:[{id:6,status:'submitted'}]});throw new Error(`Unmocked ${url} ${init?.method}`)});
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=1'});
+    expect(await screen.findByText(`Latest private note: ${privateText}`)).toBeVisible();
+    await userEvent.type(screen.getByRole('spinbutton'),'8');
+    await userEvent.click(screen.getByRole('button',{name:'Submit group assessment'}));
+    await waitFor(()=>expect(fetchSpy.mock.calls.some(([input])=>String(input).includes('/my-supervisor-assessment-batches'))).toBe(true));
+    const body=String(fetchSpy.mock.calls.find(([input])=>String(input).includes('/my-supervisor-assessment-batches'))?.[1]?.body);
+    expect(body).not.toContain(privateText);
+  });
+
   it('submits only a student added after the rest of the group was approved',async()=>{
     document.cookie='XSRF-TOKEN=test; path=/';
     const secondAssignment={...workspace.assignments[0],id:22,student:{id:8,university_number:'22010002',full_name_ar:'طالب جديد',full_name_en:'New Student',batch_year:2026}};
