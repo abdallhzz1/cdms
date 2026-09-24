@@ -29,7 +29,7 @@ return new class extends Migration
             $table->unsignedBigInteger('finalized_by_user_id')->nullable();
             $table->timestamps();
             $table->unique(['assignment_key', 'session_date', 'active_guard'], 'clinical_qr_active_session_unique');
-            $table->index(['supervisor_id', 'session_date', 'state']);
+            $table->index(['supervisor_id', 'session_date', 'state'], 'qr_session_supervisor_date_idx');
             $table->foreign('student_clinical_assignment_id', 'qr_attendance_assignment_fk')->references('id')->on('student_clinical_assignments')->cascadeOnDelete();
             $table->foreign('rotation_block_id', 'qr_attendance_block_fk')->references('id')->on('rotation_blocks')->restrictOnDelete();
             $table->foreign('training_site_id', 'qr_attendance_site_fk')->references('id')->on('training_sites')->restrictOnDelete();
@@ -51,7 +51,7 @@ return new class extends Migration
             $table->unsignedBigInteger('manual_actor_user_id')->nullable();
             $table->timestamps();
             $table->unique(['clinical_qr_attendance_session_id', 'student_id'], 'clinical_qr_roster_student_unique');
-            $table->index(['student_id', 'outcome']);
+            $table->index(['student_id', 'outcome'], 'qr_roster_student_outcome_idx');
             $table->foreign('clinical_qr_attendance_session_id', 'qr_roster_session_fk')->references('id')->on('clinical_qr_attendance_sessions')->cascadeOnDelete();
             $table->foreign('student_id', 'qr_roster_student_fk')->references('id')->on('students')->restrictOnDelete();
             $table->foreign('manual_actor_user_id', 'qr_roster_actor_fk')->references('id')->on('users')->nullOnDelete();
@@ -67,8 +67,8 @@ return new class extends Migration
             $table->string('ip_hash', 64)->nullable();
             $table->string('user_agent', 500)->nullable();
             $table->timestamp('occurred_at');
-            $table->index(['clinical_qr_attendance_session_id', 'occurred_at']);
-            $table->index(['student_id', 'occurred_at']);
+            $table->index(['clinical_qr_attendance_session_id', 'occurred_at'], 'qr_scan_session_time_idx');
+            $table->index(['student_id', 'occurred_at'], 'qr_scan_student_time_idx');
             $table->foreign('clinical_qr_attendance_session_id', 'qr_scan_session_fk')->references('id')->on('clinical_qr_attendance_sessions')->nullOnDelete();
             $table->foreign('student_id', 'qr_scan_student_fk')->references('id')->on('students')->nullOnDelete();
         });
