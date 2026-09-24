@@ -21,9 +21,9 @@ use Illuminate\Validation\ValidationException;
 
 class PublicClinicalQrAttendanceController extends Controller
 {
-    private function intentCacheKey(string $qrToken): string
+    private function intentCacheKey(string $intent): string
     {
-        return 'clinical_qr_attendance_intent:'.hash('sha256', $qrToken);
+        return 'clinical_qr_attendance_intent:'.hash('sha256', $intent);
     }
 
     public function begin(Request $request, QrTokenService $tokens): JsonResponse
@@ -32,7 +32,7 @@ class PublicClinicalQrAttendanceController extends Controller
         $tokens->validate($data['qr_token']);
 
         $intent = Str::random(80);
-        Cache::put($this->intentCacheKey($data['qr_token']), hash('sha256', $intent), now()->addMinutes(config('group_registration.otp_ttl_minutes')));
+        Cache::put($this->intentCacheKey($intent), hash('sha256', $data['qr_token']), now()->addMinutes(config('group_registration.otp_ttl_minutes')));
 
         return ApiResponse::success([
             'attendance_intent' => $intent,
@@ -45,8 +45,8 @@ class PublicClinicalQrAttendanceController extends Controller
         $data = $request->validate(['university_number' => ['required', 'string', 'max:20', 'regex:/^[0-9]+$/'], 'qr_token' => ['nullable', 'string', 'max:1000'], 'attendance_intent' => ['nullable', 'string', 'size:80']]);
         $pendingHash = null;
         if (!empty($data['qr_token'])) {
-            $intentHash = Cache::get($this->intentCacheKey($data['qr_token']));
-            $hasSavedIntent = !empty($data['attendance_intent']) && is_string($intentHash) && hash_equals($intentHash, hash('sha256', $data['attendance_intent']));
+            $intentHash = !empty($data['attendance_intent']) ? Cache::get($this->intentCacheKey($data['attendance_intent'])) : null;
+            $hasSavedIntent = is_string($intentHash) && hash_equals($intentHash, hash('sha256', $data['qr_token']));
             if (!$hasSavedIntent) $tokens->validate($data['qr_token']);
             $pendingHash = hash('sha256', $data['qr_token']);
         }
