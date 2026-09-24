@@ -126,6 +126,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   'attendance.view': 'عرض سجل الحضور والغياب',
   'attendance.review': 'مراجعة سجل الحضور الشامل',
   'attendance.record': 'تسجيل حضور الطلبة',
+  'attendance.qr.reopen_finalized': 'إعادة فتح جلسة QR معتمدة',
   'attendance.excuse': 'توثيق أعذار الغياب',
   'attendance.notify': 'إرسال إنذارات الغياب',
   'assessment.view': 'عرض بوابة التقييم السريري',

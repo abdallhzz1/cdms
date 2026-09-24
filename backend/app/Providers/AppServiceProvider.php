@@ -80,6 +80,10 @@ class AppServiceProvider extends ServiceProvider
             Limit::perHour(10)->by('otp-student:'.hash('sha256', (string) $request->input('university_number'))),
         ]);
         RateLimiter::for('student-otp-verify', fn (Request $request) => Limit::perMinute(10)->by('otp-verify:'.$request->ip()));
+        RateLimiter::for('clinical-attendance-scan', fn (Request $request) => [
+            Limit::perMinute(30)->by('clinical-scan-ip:'.$request->ip()),
+            Limit::perMinute(10)->by('clinical-scan-token:'.hash('sha256', (string) $request->input('access_token'))),
+        ]);
 
         RateLimiter::for('confidential-finance-unlock', fn (Request $request) => [
             Limit::perMinute(5)->by('confidential-finance:ip:'.$request->ip()),

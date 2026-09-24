@@ -16,7 +16,7 @@ class LogicalPermissionSeeder extends Seeder
                 'academic_years.view', 'academic_years.manage',
                 'advising.view', 'advising.export_pdf',
                 'assessment.view', 'assessment.review',
-                'attendance.view', 'attendance.review', 'attendance.excuse',
+                'attendance.view', 'attendance.review', 'attendance.excuse', 'attendance.qr.reopen_finalized',
                 'correspondence.view', 'correspondence.create', 'correspondence.submit', 'correspondence.forward', 'correspondence.approve', 'correspondence.close',
                 'course_report.manage', 'course_report.approve',
                 'courses.view', 'courses.manage',

@@ -39,7 +39,7 @@ export function SupervisorAttendancePage(){
   if(workspace.isLoading)return <LoadingState/>; if(workspace.isError||!workspace.data)return <ErrorState onRetry={()=>workspace.refetch()}/>;
   return <div className="mx-auto max-w-7xl space-y-5 pb-16">
     <Link to="/supervisor/portal" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold"><ArrowRight className="h-4 w-4"/>{tr('الرجوع للوحة المشرف','Back to dashboard')}</Link>
-    <PageHeader title={tr('الحضور والغياب','Attendance')} description={tr('اختر يوم التدريب، ثم سجّل حالة كل طالب واحفظ المجموعة.','Choose the training day, record each student status, then save the group.')}/>
+    <div className="flex flex-wrap items-center justify-between gap-3"><PageHeader title={tr('الحضور والغياب','Attendance')} description={tr('اختر يوم التدريب، ثم سجّل حالة كل طالب واحفظ المجموعة.','Choose the training day, record each student status, then save the group.')}/><Link to="/supervisor/attendance/qr" className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-black text-white"><Clock3 className="h-4 w-4"/>{tr('الحضور عبر QR','QR attendance')}</Link></div>
     {!dates.length?<ErrorState title={tr('لا توجد جلسات مجدولة','No scheduled sessions')} message={tr('يجب نشر الجدول وتحديد أيام عملك في الموقع التدريبي أولاً.','The schedule and your work days at the training site must be configured first.')}/>:<>
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_minmax(260px,1fr)] lg:items-end">

@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClinicalAssessmentController;
 use App\Http\Controllers\Api\V1\ClinicalAssessmentTemplateController;
 use App\Http\Controllers\Api\V1\ClinicalSessionController;
+use App\Http\Controllers\Api\V1\ClinicalQrAttendanceController;
 use App\Http\Controllers\Api\V1\ClinicalSupervisorController;
 use App\Http\Controllers\Api\V1\ClinicalSupervisorEvaluationController;
 use App\Http\Controllers\Api\V1\ConfidentialFinancialVaultController;
@@ -50,6 +51,7 @@ use App\Http\Controllers\Api\V1\PersonController;
 use App\Http\Controllers\Api\V1\PublicGroupRegistrationController;
 use App\Http\Controllers\Api\V1\PublicProfileImageController;
 use App\Http\Controllers\Api\V1\PublicStudentScheduleController;
+use App\Http\Controllers\Api\V1\PublicClinicalQrAttendanceController;
 use App\Http\Controllers\Api\V1\PublicStudentPolicyController;
 use App\Http\Controllers\Api\V1\QualityImprovementController;
 use App\Http\Controllers\Api\V1\QualityOperationsController;
@@ -122,6 +124,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('student-schedule/remember', [PublicStudentScheduleController::class, 'remember'])->middleware('throttle:student-otp-verify');
         Route::post('student-schedule/forget', [PublicStudentScheduleController::class, 'forget'])->middleware('throttle:operational-read');
         Route::post('student-schedule', [PublicStudentScheduleController::class, 'schedule'])->middleware('throttle:operational-read');
+        Route::post('clinical-attendance/identity', [PublicClinicalQrAttendanceController::class, 'identity'])->middleware('throttle:operational-read');
+        Route::post('clinical-attendance/request-otp', [PublicClinicalQrAttendanceController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
+        Route::post('clinical-attendance/verify-otp', [PublicClinicalQrAttendanceController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
+        Route::post('clinical-attendance/scan', [PublicClinicalQrAttendanceController::class, 'scan'])->middleware('throttle:clinical-attendance-scan');
         Route::get('student-policies/{campaign:public_id}', [PublicStudentPolicyController::class, 'show'])->middleware('throttle:operational-read');
         Route::post('student-policies/{campaign:public_id}/request-otp', [PublicStudentPolicyController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
         Route::post('student-policies/{campaign:public_id}/verify-otp', [PublicStudentPolicyController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
@@ -839,6 +845,14 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('operational/my-supervisor-attendance', [SupervisorController::class, 'recordAttendance'])
             ->middleware('permission:attendance.record')
             ->name('operational.my-supervisor-attendance');
+        Route::prefix('operational/clinical-qr-attendance')->middleware(['permission:attendance.record'])->group(function () {
+            Route::get('sessions', [ClinicalQrAttendanceController::class, 'index']);
+            Route::post('sessions', [ClinicalQrAttendanceController::class, 'store']);
+            Route::get('sessions/{session}', [ClinicalQrAttendanceController::class, 'show']);
+            Route::post('sessions/{session}/transition', [ClinicalQrAttendanceController::class, 'transition']);
+            Route::get('sessions/{session}/qr', [ClinicalQrAttendanceController::class, 'qr']);
+            Route::patch('sessions/{session}/roster/{roster}', [ClinicalQrAttendanceController::class, 'override']);
+        });
         Route::post('operational/my-supervisor-assessments', [SupervisorController::class, 'storeAssessment'])
             ->middleware('permission:assessment.create')
             ->name('operational.my-supervisor-assessments');

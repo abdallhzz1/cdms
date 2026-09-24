@@ -25,6 +25,7 @@ import { AttendanceMasterPage } from '@/pages/clinical/AttendanceMasterPage';
 import { AssessmentsMasterPage } from '@/pages/clinical/AssessmentsMasterPage';
 import { SupervisorPortalPage } from '@/pages/clinical/SupervisorPortalPage';
 import { SupervisorAttendancePage } from '@/pages/clinical/SupervisorAttendancePage';
+import { SupervisorQrAttendanceWorkspace } from '@/pages/clinical/SupervisorQrAttendanceWorkspace';
 import { SupervisorAssessmentsPage } from '@/pages/clinical/SupervisorAssessmentsPage';
 import { AssessmentCriteriaPage } from '@/pages/clinical/AssessmentCriteriaPage';
 import { DeptHeadProfilePage } from '@/pages/department/DeptHeadProfilePage';
@@ -79,6 +80,7 @@ import { NotificationsPage } from '@/pages/NotificationsPage';
 import { StudentPoliciesPage } from '@/pages/StudentPoliciesPage';
 import { StudentPolicyCampaignPage } from '@/pages/StudentPolicyCampaignPage';
 import { PublicStudentPolicyPage } from '@/pages/public/PublicStudentPolicyPage';
+import { PublicClinicalAttendancePage } from '@/pages/public/PublicClinicalAttendancePage';
 
 function DefaultAuthenticatedHome() {
   const { user } = useAuth();
@@ -103,6 +105,7 @@ export function App() {
       <Route path="/public/student-registration/:publicId" element={<PublicStudentRegistrationPage />} />
       <Route path="/portal/clinical-schedule" element={<PublicClinicalSchedulePage />} />
       <Route path="/portal/student-lookup" element={<PublicClinicalSchedulePage />} />
+      <Route path="/clinical-attendance" element={<PublicClinicalAttendancePage />} />
       <Route path="/portal/student-policies/:publicId" element={<PublicStudentPolicyPage />} />
       <Route
         path="/*"
@@ -202,6 +205,7 @@ export function App() {
                 <Route path="/supervisor/portal" element={<SupervisorPortalPage />} />
                 <Route path="/supervisor/schedule" element={<Navigate to="/supervisor/portal" replace />} />
                 <Route path="/supervisor/attendance" element={<SupervisorAttendancePage />} />
+                <Route path="/supervisor/attendance/qr" element={<SupervisorQrAttendanceWorkspace />} />
                 <Route path="/supervisor/assessments" element={<SupervisorAssessmentsPage />} />
                 <Route path="/assessments/criteria" element={<ProtectedRoute requiredPermission="assessment.criteria.manage"><AssessmentCriteriaPage /></ProtectedRoute>} />
                 {/* Legacy roster routes -> redirect to clinical schedule */}

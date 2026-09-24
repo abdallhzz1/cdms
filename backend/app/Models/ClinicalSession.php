@@ -24,4 +24,9 @@ class ClinicalSession extends Model
     {
         return $this->belongsTo(RotationBlock::class);
     }
+
+    public function qrAttendanceSessions()
+    {
+        return $this->hasMany(ClinicalQrAttendanceSession::class);
+    }
 }
