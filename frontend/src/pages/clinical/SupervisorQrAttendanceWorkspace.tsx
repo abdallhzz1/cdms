@@ -28,7 +28,7 @@ export function SupervisorQrAttendanceWorkspace() {
   useEffect(() => {
     if (!selected || !['check_in_open', 'check_out_open'].includes(selected.state)) return;
     let stopped = false;
-    const refresh = async () => { try { const payload = await getQrPayload(selected.id); if (!stopped) { setImage(await QRCode.toDataURL(payload.token, { margin: 1, width: 300, color: { dark: '#123743', light: '#ffffff' } })); setExpires(new Date(payload.expires_at).getTime()); } } catch { setImage(''); } };
+    const refresh = async () => { try { const payload = await getQrPayload(selected.id); const link = `${window.location.origin}/clinical-attendance?qr=${encodeURIComponent(payload.token)}`; if (!stopped) { setImage(await QRCode.toDataURL(link, { margin: 1, width: 300, color: { dark: '#123743', light: '#ffffff' } })); setExpires(new Date(payload.expires_at).getTime()); } } catch { setImage(''); } };
     void refresh(); const timer = window.setInterval(refresh, 15_000); return () => { stopped = true; window.clearInterval(timer); };
   }, [selected?.id, selected?.state]);
   useEffect(() => { if (!selected) return; const timer = window.setInterval(() => { if (!document.hidden) void getQrSession(selected.id).then(setSelected); }, 5_000); return () => window.clearInterval(timer); }, [selected?.id]);

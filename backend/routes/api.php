@@ -125,8 +125,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('student-schedule/forget', [PublicStudentScheduleController::class, 'forget'])->middleware('throttle:operational-read');
         Route::post('student-schedule', [PublicStudentScheduleController::class, 'schedule'])->middleware('throttle:operational-read');
         Route::post('clinical-attendance/identity', [PublicClinicalQrAttendanceController::class, 'identity'])->middleware('throttle:operational-read');
+        Route::post('clinical-attendance/begin', [PublicClinicalQrAttendanceController::class, 'begin'])->middleware('throttle:clinical-attendance-scan');
         Route::post('clinical-attendance/request-otp', [PublicClinicalQrAttendanceController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
         Route::post('clinical-attendance/verify-otp', [PublicClinicalQrAttendanceController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
+        Route::post('clinical-attendance/remember', [PublicClinicalQrAttendanceController::class, 'remember'])->middleware('throttle:student-otp-verify');
         Route::post('clinical-attendance/scan', [PublicClinicalQrAttendanceController::class, 'scan'])->middleware('throttle:clinical-attendance-scan');
         Route::get('student-policies/{campaign:public_id}', [PublicStudentPolicyController::class, 'show'])->middleware('throttle:operational-read');
         Route::post('student-policies/{campaign:public_id}/request-otp', [PublicStudentPolicyController::class, 'requestOtp'])->middleware('throttle:student-otp-request');

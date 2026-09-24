@@ -18,14 +18,14 @@ class QrTokenService
         return ['token' => $encoded.'.'.$signature, 'phase' => $claims['p'], 'expires_at' => now()->addSeconds($seconds)->toIso8601String()];
     }
 
-    public function validate(string $token): array
+    public function validate(string $token, bool $allowExpired = false): array
     {
         [$encoded, $signature] = array_pad(explode('.', $token, 2), 2, null);
         if (!$encoded || !$signature || !hash_equals(hash_hmac('sha256', $encoded, $this->key()), $signature)) abort(422, 'رمز الحضور غير صالح. وجّه الكاميرا إلى الرمز الحالي.');
         $json = base64_decode(strtr($encoded, '-_', '+/'), true);
         $claims = is_string($json) ? json_decode($json, true) : null;
         if (!is_array($claims) || !isset($claims['s'], $claims['p'], $claims['iat'], $claims['exp'], $claims['n']) || !in_array($claims['p'], ['check_in', 'check_out'], true)) abort(422, 'رمز الحضور غير صالح.');
-        if ((int) $claims['exp'] + max(0, (int) config('clinical_attendance.grace_seconds', 5)) < now()->timestamp) abort(422, 'انتهت صلاحية الرمز. انتظر الرمز التالي ثم امسحه.');
+        if (! $allowExpired && (int) $claims['exp'] + max(0, (int) config('clinical_attendance.grace_seconds', 5)) < now()->timestamp) abort(422, 'انتهت صلاحية الرمز. انتظر الرمز التالي ثم امسحه.');
         return $claims;
     }
 

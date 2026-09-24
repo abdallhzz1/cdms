@@ -16,6 +16,8 @@ class StudentScheduleOtpChallenge extends Model
         'verified_at',
         'access_token_hash',
         'access_expires_at',
+        'pending_clinical_qr_hash',
+        'pending_clinical_qr_expires_at',
         'consumed_at',
         'request_ip_hash',
     ];
@@ -28,6 +30,7 @@ class StudentScheduleOtpChallenge extends Model
             'expires_at' => 'datetime',
             'verified_at' => 'datetime',
             'access_expires_at' => 'datetime',
+            'pending_clinical_qr_expires_at' => 'datetime',
             'consumed_at' => 'datetime',
         ];
     }

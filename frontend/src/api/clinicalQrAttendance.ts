@@ -10,3 +10,4 @@ export const transitionQrSession=(id:number,action:string,reason?:string)=>apiFe
 export const getQrPayload=(id:number)=>apiFetch<{token:string;phase:string;expires_at:string}>(`/operational/clinical-qr-attendance/sessions/${id}/qr`);
 export const scanClinicalQr=(qr_token:string,access_token?:string)=>apiFetch<{operation:string;recorded_at:string;group:string|null;training_site:string|null;idempotent:boolean}>('/public/clinical-attendance/scan',{method:'POST',body:{qr_token,access_token}});
 export const clinicalAttendanceIdentity=(access_token?:string)=>apiFetch<{student:{name:string;university_number:string}}>('/public/clinical-attendance/identity',{method:'POST',body:{access_token}});
+export const rememberClinicalAttendanceBrowser=(access_token:string)=>apiFetch<{expires_in_days:number}>('/public/clinical-attendance/remember',{method:'POST',body:{access_token}});

@@ -61,10 +61,10 @@ class QrAttendanceService
         });
     }
 
-    public function scan(Request $request, Student $student, string $token): array
+    public function scan(Request $request, Student $student, string $token, bool $allowExpired = false): array
     {
         abort_unless(config('clinical_attendance.enabled'), 403, 'تسجيل الحضور عبر الكاميرا متوقف حالياً.');
-        $claims = $this->tokens->validate($token);
+        $claims = $this->tokens->validate($token, $allowExpired);
         return DB::transaction(function () use ($request, $student, $claims) {
             $session = ClinicalQrAttendanceSession::where('public_id', $claims['s'])->lockForUpdate()->first();
             if (!$session) abort(422, 'رمز الحضور غير صالح.');
