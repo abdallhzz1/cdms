@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import QRCode from 'qrcode';
+import { getQrPayload, getQrSessions } from '@/api/clinicalQrAttendance';
 import { SupervisorQrAttendanceWorkspace } from './SupervisorQrAttendanceWorkspace';
 
 const assignments = [
@@ -10,6 +12,7 @@ const assignments = [
 
 vi.mock('@/api/client', () => ({ apiFetch: vi.fn((path: string) => path === '/operational/my-supervisor-workspace' ? Promise.resolve({ assignments }) : Promise.resolve([])) }));
 vi.mock('@/api/clinicalQrAttendance', () => ({ getQrSessions: vi.fn().mockResolvedValue([]), openQrSession: vi.fn(), getQrSession: vi.fn(), getQrPayload: vi.fn(), transitionQrSession: vi.fn() }));
+vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,checkout') } }));
 
 describe('SupervisorQrAttendanceWorkspace', () => {
   it('groups student assignments once and offers only scheduled work days', async () => {
@@ -17,5 +20,15 @@ describe('SupervisorQrAttendanceWorkspace', () => {
     expect(await screen.findByRole('option', { name: 'الباطني — المجموعة 5 (أ) — مستشفى الخليل' })).toBeInTheDocument();
     expect(screen.getAllByRole('option', { name: 'الباطني — المجموعة 5 (أ) — مستشفى الخليل' })).toHaveLength(1);
     expect(screen.getByRole('option', { name: /الخميس/ })).toBeInTheDocument();
+  });
+
+  it('encodes checkout as a camera link with the checkout phase', async () => {
+    vi.mocked(getQrSessions).mockResolvedValueOnce([{ id: 51, public_id: 'session', student_clinical_assignment_id: 8, session_date: '2026-09-24', state: 'check_out_open', roster: [] }]);
+    vi.mocked(getQrPayload).mockResolvedValueOnce({ token: 'checkout-token', phase: 'check_out', expires_at: '2026-09-24T12:00:00Z' });
+
+    render(<QueryClientProvider client={new QueryClient()}><SupervisorQrAttendanceWorkspace /></QueryClientProvider>);
+
+    await waitFor(() => expect(QRCode.toDataURL).toHaveBeenCalled());
+    expect(vi.mocked(QRCode.toDataURL).mock.calls[0][0]).toContain('/clinical-attendance?qr=checkout-token&phase=check_out');
   });
 });
