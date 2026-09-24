@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import QRCode from 'qrcode';
-import { getQrPayload, getQrSessions } from '@/api/clinicalQrAttendance';
+import { getQrPayload, getQrSessions, transitionQrSession } from '@/api/clinicalQrAttendance';
 import { groupSupervisorAssignments } from './supervisorWorkspace';
 import { groupQrAssignments, SupervisorQrAttendanceWorkspace } from './SupervisorQrAttendanceWorkspace';
 
@@ -56,5 +56,19 @@ describe('SupervisorQrAttendanceWorkspace', () => {
     await userEvent.click(screen.getByRole('button', { name: 'تكبير الرمز' }));
     expect(screen.getByRole('dialog', { name: 'رمز الحضور المكبر' })).toBeVisible();
     expect(screen.getByRole('img', { name: 'رمز الحضور المكبر' })).toBeVisible();
+  });
+
+  it('offers opening check-out immediately after check-in closes, without choosing the day again', async () => {
+    const openSession = { id: 53, public_id: 'session', student_clinical_assignment_id: 8, session_date: '2026-09-24', state: 'check_in_open', roster: [] };
+    const previousCalls = vi.mocked(getQrSessions).mock.calls.length;
+    vi.mocked(getQrSessions).mockResolvedValueOnce([openSession] as any).mockResolvedValueOnce([]);
+    vi.mocked(transitionQrSession).mockResolvedValueOnce({ ...openSession, state: 'check_in_closed' } as any);
+
+    render(<MemoryRouter><QueryClientProvider client={new QueryClient()}><SupervisorQrAttendanceWorkspace /></QueryClientProvider></MemoryRouter>);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'إغلاق الدخول' }));
+    await waitFor(() => expect(vi.mocked(getQrSessions).mock.calls.length).toBeGreaterThanOrEqual(previousCalls + 2));
+    expect(screen.getByRole('button', { name: 'فتح الخروج' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'فتح تسجيل الدخول' })).not.toBeInTheDocument();
   });
 });

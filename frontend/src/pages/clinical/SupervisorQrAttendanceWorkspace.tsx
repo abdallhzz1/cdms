@@ -83,12 +83,15 @@ export function SupervisorQrAttendanceWorkspace() {
   const scheduledGroups = useMemo(() => groups.filter(group => group.scheduledDates.includes(date)), [groups, date]);
   const group = scheduledGroups.find(item => item.key === groupKey) ?? null;
   const existingSession = group && sessions.data?.find(session => session.session_date.slice(0, 10) === date && Object.values(group.studentAssignmentIds).includes(session.student_clinical_assignment_id));
+  const selectedMatchesDay = Boolean(selected && group && selected.session_date.slice(0, 10) === date && Object.values(group.studentAssignmentIds).includes(selected.student_clinical_assignment_id));
 
   useEffect(() => { if (days.length) setDate(current => requestedDate && days.includes(requestedDate) ? requestedDate : days.includes(current) ? current : preferredDate(days)); }, [days, requestedDate]);
   useEffect(() => { setGroupKey(current => scheduledGroups.some(group => group.key === current) ? current : scheduledGroups.find(group => group.key === requestedGroup || requestedGroup.startsWith(`${group.key}-`))?.key ?? scheduledGroups[0]?.key ?? ''); }, [scheduledGroups, requestedGroup]);
   useEffect(() => {
-    if (date && groupKey && sessions.data) setSelected(existingSession ?? null);
+    if (date && groupKey && sessions.data) setSelected(current => current ?? existingSession ?? null);
   }, [date, groupKey, sessions.data]);
+  const chooseDate = (nextDate: string) => { setSelected(null); setDate(nextDate); };
+  const chooseGroup = (nextGroup: string) => { setSelected(null); setGroupKey(nextGroup); };
   useEffect(() => setFilter('all'), [selected?.id, selected?.state]);
   useEffect(() => setQrExpanded(false), [selected?.id, selected?.state]);
   useEffect(() => { const timer = window.setInterval(() => setNowMs(Date.now()), 1_000); return () => window.clearInterval(timer); }, []);
@@ -148,10 +151,10 @@ export function SupervisorQrAttendanceWorkspace() {
 
     <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-5">
       <div className="grid min-w-0 gap-3 md:grid-cols-2">
-        <label className="block min-w-0 text-xs font-black text-slate-600"><span className="mb-1.5 flex items-center gap-1.5"><CalendarDays className="h-4 w-4 text-teal-700"/>يوم الدوام</span><select disabled={!days.length} value={date} onChange={event => setDate(event.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold disabled:bg-slate-50">{days.length ? days.map(day => <option key={day} value={day}>{formatWeekday(day, true)} — {formatDate(day, true)}</option>) : <option value="">لا توجد أيام دوام منشورة</option>}</select></label>
-        <label className="block min-w-0 text-xs font-black text-slate-600"><span className="mb-1.5 flex items-center gap-1.5"><Users className="h-4 w-4 text-teal-700"/>مجموعة هذا اليوم</span><select disabled={!scheduledGroups.length} value={groupKey} onChange={event => setGroupKey(event.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold disabled:bg-slate-50">{scheduledGroups.length ? scheduledGroups.map(item => <option key={item.key} value={item.key}>{groupLabel(item)}</option>) : <option value="">لا توجد مجموعة لهذا اليوم</option>}</select></label>
+        <label className="block min-w-0 text-xs font-black text-slate-600"><span className="mb-1.5 flex items-center gap-1.5"><CalendarDays className="h-4 w-4 text-teal-700"/>يوم الدوام</span><select disabled={!days.length} value={date} onChange={event => chooseDate(event.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold disabled:bg-slate-50">{days.length ? days.map(day => <option key={day} value={day}>{formatWeekday(day, true)} — {formatDate(day, true)}</option>) : <option value="">لا توجد أيام دوام منشورة</option>}</select></label>
+        <label className="block min-w-0 text-xs font-black text-slate-600"><span className="mb-1.5 flex items-center gap-1.5"><Users className="h-4 w-4 text-teal-700"/>مجموعة هذا اليوم</span><select disabled={!scheduledGroups.length} value={groupKey} onChange={event => chooseGroup(event.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold disabled:bg-slate-50">{scheduledGroups.length ? scheduledGroups.map(item => <option key={item.key} value={item.key}>{groupLabel(item)}</option>) : <option value="">لا توجد مجموعة لهذا اليوم</option>}</select></label>
       </div>
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600">{group ? `${group.students.length} طالب · ${group.siteAr}` : 'راجع الجدول المنشور وأيام عملك.'}</p>{(!existingSession || selected?.id !== existingSession.id) && <button disabled={!group || !date || open.isPending || sessions.isLoading} onClick={() => existingSession ? setSelected(existingSession) : open.mutate()} className="min-h-11 w-full rounded-xl bg-teal-700 px-5 py-2.5 text-sm font-black text-white disabled:opacity-50 sm:w-auto">{existingSession ? 'عرض جلسة هذا اليوم' : 'فتح تسجيل الدخول'}</button>}</div>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600">{group ? `${group.students.length} طالب · ${group.siteAr}` : 'راجع الجدول المنشور وأيام عملك.'}</p>{!selectedMatchesDay && <button disabled={!group || !date || open.isPending || sessions.isLoading} onClick={() => existingSession ? setSelected(existingSession) : open.mutate()} className="min-h-11 w-full rounded-xl bg-teal-700 px-5 py-2.5 text-sm font-black text-white disabled:opacity-50 sm:w-auto">{existingSession ? 'عرض جلسة هذا اليوم' : 'فتح تسجيل الدخول'}</button>}</div>
       {(workspace.isError || sessions.isError || open.isError) && <p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-700">{open.isError ? errorMessage(open.error) : 'تعذر تحميل جدولك أو الجلسات. حدّث الصفحة.'}</p>}
     </section>
 
