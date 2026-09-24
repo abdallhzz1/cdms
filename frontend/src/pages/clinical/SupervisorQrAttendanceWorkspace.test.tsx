@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import QRCode from 'qrcode';
@@ -41,5 +42,19 @@ describe('SupervisorQrAttendanceWorkspace', () => {
 
     await waitFor(() => expect(QRCode.toDataURL).toHaveBeenCalled());
     expect(vi.mocked(QRCode.toDataURL).mock.calls[0][0]).toContain('/clinical-attendance?qr=checkout-token&phase=check_out');
+  });
+
+  it('keeps the QR prominent and shows a compact student result with an enlarged view', async () => {
+    vi.mocked(getQrSessions).mockResolvedValueOnce([{ id: 52, public_id: 'session', student_clinical_assignment_id: 8, session_date: '2026-09-24', state: 'check_in_open', roster: [{ id: 1, student: { id: 11, full_name_ar: 'طالب أول', university_number: '20260011' }, checked_in_at: '2026-09-24T08:03:00Z', checked_out_at: null, outcome: 'present' }] }] as any);
+    vi.mocked(getQrPayload).mockResolvedValueOnce({ token: 'checkin-token', phase: 'check_in', expires_at: '2099-09-24T12:00:00Z' });
+
+    render(<MemoryRouter><QueryClientProvider client={new QueryClient()}><SupervisorQrAttendanceWorkspace /></QueryClientProvider></MemoryRouter>);
+
+    expect(await screen.findByRole('button', { name: 'تكبير الرمز' })).toBeVisible();
+    expect(screen.getByRole('article')).toHaveTextContent('طالب أول');
+    expect(screen.getByRole('article')).toHaveTextContent('سجل الدخول');
+    await userEvent.click(screen.getByRole('button', { name: 'تكبير الرمز' }));
+    expect(screen.getByRole('dialog', { name: 'رمز الحضور المكبر' })).toBeVisible();
+    expect(screen.getByRole('img', { name: 'رمز الحضور المكبر' })).toBeVisible();
   });
 });
