@@ -19,7 +19,9 @@ use App\Models\StudentSubgroup;
 use App\Models\SupervisorAvailability;
 use App\Models\TrainingSite;
 use App\Models\User;
+use App\Services\ClinicalAttendance\QrAttendanceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -444,7 +446,7 @@ class Phase5CTest extends TestCase
             ->assertJsonCount(1, 'data.assignments');
     }
 
-    public function test_supervisor_attendance_and_assessment_are_saved_in_official_tables(): void
+    public function test_supervisor_qr_attendance_and_assessment_are_saved_in_official_tables(): void
     {
         $this->supervisor1->update(['user_id' => $this->admin->id]);
         $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
@@ -454,11 +456,21 @@ class Phase5CTest extends TestCase
         $this->admin->roles()->attach($supervisorRole);
         $template = ClinicalAssessmentTemplate::where('is_active', true)->firstOrFail();
 
-        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/clinical-qr-attendance/sessions', [
             'assignment_id' => $this->assignment1->id,
             'session_date' => '2026-09-10',
-            'records' => [['student_id' => $this->student2->id, 'status' => 'present']],
-        ])->assertForbidden();
+        ])->assertCreated()->assertJsonCount(1, 'data.roster');
+
+        $sessionId = \App\Models\ClinicalQrAttendanceSession::query()->value('id');
+        $checkInToken = $this->actingAs($this->admin)->getJson('/api/v1/operational/clinical-qr-attendance/sessions/'.$sessionId.'/qr')
+            ->assertOk()->json('data.token');
+        app(QrAttendanceService::class)->scan(Request::create('/clinical-attendance', 'POST'), $this->student1, $checkInToken);
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/clinical-qr-attendance/sessions/'.$sessionId.'/transition', ['action' => 'close_check_in'])->assertOk();
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/clinical-qr-attendance/sessions/'.$sessionId.'/transition', ['action' => 'open_check_out'])->assertOk();
+        $checkOutToken = $this->actingAs($this->admin)->getJson('/api/v1/operational/clinical-qr-attendance/sessions/'.$sessionId.'/qr')
+            ->assertOk()->json('data.token');
+        app(QrAttendanceService::class)->scan(Request::create('/clinical-attendance', 'POST'), $this->student1, $checkOutToken);
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/clinical-qr-attendance/sessions/'.$sessionId.'/transition', ['action' => 'finalize'])->assertOk();
 
         $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
             'assignment_id' => $this->assignment1->id,
@@ -467,12 +479,6 @@ class Phase5CTest extends TestCase
             'template_id' => $template->id,
             'score' => 9,
         ])->assertForbidden();
-
-        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
-            'assignment_id' => $this->assignment1->id,
-            'session_date' => '2026-09-10',
-            'records' => [['student_id' => $this->student1->id, 'status' => 'present', 'excuse_note' => 'شارك بفاعلية في الجولة السريرية.']],
-        ])->assertOk();
 
         $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
             'assignment_id' => $this->assignment1->id,
@@ -484,8 +490,7 @@ class Phase5CTest extends TestCase
         ])->assertOk();
 
         $this->assertDatabaseHas('attendance_records', ['student_id' => $this->student1->id, 'status' => 'present']);
-        $this->assertDatabaseHas('attendance_records', ['student_id' => $this->student1->id, 'recorded_by_user_id' => $this->admin->id]);
-        $this->assertDatabaseHas('attendance_records', ['student_id' => $this->student1->id, 'excuse_note' => 'شارك بفاعلية في الجولة السريرية.']);
+        $this->assertDatabaseHas('attendance_records', ['student_id' => $this->student1->id, 'recorded_by_user_id' => $this->admin->id, 'recording_source' => 'qr']);
         $this->assertDatabaseHas('clinical_assessments', [
             'student_id' => $this->student1->id,
             'evaluator_person_id' => $this->supervisor1->id,
@@ -556,11 +561,10 @@ class Phase5CTest extends TestCase
         );
         $this->admin->roles()->attach($supervisorRole);
 
-        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/clinical-qr-attendance/sessions', [
             'assignment_id' => $this->assignment1->id,
             'session_date' => '2026-11-15',
-            'records' => [['student_id' => $this->student1->id, 'status' => 'present']],
-        ])->assertUnprocessable()->assertJsonValidationErrors('session_date');
+        ])->assertUnprocessable();
 
         $this->assertDatabaseCount('clinical_sessions', 0);
         $this->assertDatabaseCount('attendance_records', 0);

@@ -844,16 +844,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('operational/my-supervisor-workspace', [SupervisorController::class, 'workspace'])
             ->middleware('permission:supervisor.workspace.view')
             ->name('operational.my-supervisor-workspace');
-        Route::post('operational/my-supervisor-attendance', [SupervisorController::class, 'recordAttendance'])
-            ->middleware('permission:attendance.record')
-            ->name('operational.my-supervisor-attendance');
         Route::prefix('operational/clinical-qr-attendance')->middleware(['permission:attendance.record'])->group(function () {
             Route::get('sessions', [ClinicalQrAttendanceController::class, 'index']);
             Route::post('sessions', [ClinicalQrAttendanceController::class, 'store']);
             Route::get('sessions/{session}', [ClinicalQrAttendanceController::class, 'show']);
             Route::post('sessions/{session}/transition', [ClinicalQrAttendanceController::class, 'transition']);
             Route::get('sessions/{session}/qr', [ClinicalQrAttendanceController::class, 'qr']);
-            Route::patch('sessions/{session}/roster/{roster}', [ClinicalQrAttendanceController::class, 'override']);
         });
         Route::post('operational/my-supervisor-assessments', [SupervisorController::class, 'storeAssessment'])
             ->middleware('permission:assessment.create')

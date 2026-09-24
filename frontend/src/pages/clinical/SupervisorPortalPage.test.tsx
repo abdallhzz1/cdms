@@ -3,7 +3,6 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { SupervisorPortalPage } from './SupervisorPortalPage';
-import { SupervisorAttendancePage } from './SupervisorAttendancePage';
 import { SupervisorAssessmentsPage } from './SupervisorAssessmentsPage';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { sortAgendaByNextSession } from './SupervisorSchedulePage';
@@ -32,7 +31,7 @@ describe('clinical supervisor workspace',()=>{
     vi.spyOn(window,'fetch').mockImplementation(async()=>envelope(user));
     renderWithProviders(<Sidebar/>);
     expect(await screen.findByText('Supervisor Dashboard')).toBeVisible();
-    expect(screen.getByText('Attendance')).toBeVisible();
+    expect(screen.getByText('QR Attendance')).toBeVisible();
     expect(screen.getByText('Student Assessments')).toBeVisible();
   });
 
@@ -48,21 +47,10 @@ describe('clinical supervisor workspace',()=>{
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope(workspace));
     renderWithProviders(<SupervisorPortalPage/>);
     expect(await screen.findByText('My clinical schedule')).toBeVisible();
-    expect(screen.getAllByText('Attendance').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('QR attendance').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Assessment').length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith('/supervisor/attendance?'))).toBe(true);
+    expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith('/supervisor/attendance/qr?'))).toBe(true);
     expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith('/supervisor/assessments?'))).toBe(true);
-  });
-
-  it('records a whole group from the separate attendance table',async()=>{
-    document.cookie='XSRF-TOKEN=test; path=/';
-    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(workspace);if(url.includes('/my-supervisor-attendance'))return envelope({session_id:12});throw new Error(`Unmocked ${url} ${init?.method}`)});
-    renderWithProviders(<SupervisorAttendancePage/>,{route:'/supervisor/attendance'});
-    await screen.findByRole('heading',{name:'General Surgery — L (L1)'});
-    expect(screen.getAllByText(/Thursday —/).length).toBeGreaterThan(0);
-    await userEvent.click(screen.getByRole('button',{name:'Absent'}));
-    await userEvent.click(screen.getByRole('button',{name:'Save group'}));
-    await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-attendance')&&String(init?.body).includes('"status":"absent"'))).toBe(true));
   });
 
   it('submits one student assessment independently from its separate screen',async()=>{

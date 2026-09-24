@@ -242,6 +242,10 @@ class GradeAndRtaIntegrationTest extends TestCase
             ->assertJsonPath('data.students.0.totals.present', 1)
             ->assertJsonPath('data.students.0.totals.absent', 0)
             ->assertJsonPath('data.students.0.totals.recorded_days', 1);
+        $this->actingAs($rta)->getJson('/api/v1/attendance-records/group-summary?assignment_id='.$assignments['fourth']->id.'&week=1')
+            ->assertOk()
+            ->assertJsonPath('data.daily.0.date', '2026-09-01')
+            ->assertJsonPath('data.daily.0.students.0.status', 'present');
         $this->actingAs($rta)->getJson('/api/v1/attendance-records/gaps?date=2026-09-01&include_complete=1')
             ->assertOk()
             ->assertJsonCount(1, 'data')

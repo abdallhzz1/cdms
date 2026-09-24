@@ -9,7 +9,7 @@ function target(group:SupervisorGroup,date:string,screen:'attendance'|'assessmen
   const values=new URLSearchParams({group:group.key});
   if(screen==='attendance')values.set('date',date);
   else {const week=group.evaluationWeeks.find(item=>date>=item.start_date&&date<=item.end_date);if(week)values.set('week',String(week.number));}
-  return `/supervisor/${screen}?${values}`;
+  return screen === 'attendance' ? `/supervisor/attendance/qr?${values}` : `/supervisor/assessments?${values}`;
 }
 
 export function sortAgendaByNextSession<T extends {date:string}>(items:T[],currentDate=today()):T[]{
@@ -34,7 +34,7 @@ export function SupervisorScheduleAgenda({workspace}:{workspace:Workspace}){
           <span className={`w-fit rounded-lg px-2.5 py-1.5 text-[11px] font-black ${isToday?'bg-amber-100 text-amber-800':'border border-slate-200 bg-white text-slate-700'}`}>{isToday?`${tr('اليوم','Today')} · ${formatWeekday(date,ar)}`:formatWeekday(date,ar)}</span>
           <span dir="ltr" className="inline-flex w-fit whitespace-nowrap rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-black text-slate-800">{formatDate(date,ar)}</span>
           <div><h3 className="text-xs font-black text-slate-900">{groupName(group,ar)}</h3><p className="mt-1 flex flex-wrap gap-3 text-[10px] text-slate-500"><span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3"/>{ar?group.siteAr:group.siteEn}</span><span className="inline-flex items-center gap-1"><Users className="h-3 w-3"/>{group.students.length} {tr('طالب','students')}</span></p></div>
-          <div className="flex gap-2"><Link to={target(group,date,'attendance')} className="rounded-lg bg-teal-700 px-3 py-2 text-[11px] font-bold text-white hover:bg-teal-800">{tr('رصد الحضور','Attendance')}</Link><Link to={target(group,date,'assessments')} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700 hover:border-teal-300">{tr('التقييم الأسبوعي','Assessment')}</Link></div>
+          <div className="flex gap-2"><Link to={target(group,date,'attendance')} className="rounded-lg bg-teal-700 px-3 py-2 text-[11px] font-bold text-white hover:bg-teal-800">{tr('الحضور عبر QR','QR attendance')}</Link><Link to={target(group,date,'assessments')} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700 hover:border-teal-300">{tr('التقييم الأسبوعي','Assessment')}</Link></div>
         </article>})}</div>
       </div>
     </div>}

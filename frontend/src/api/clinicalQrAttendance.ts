@@ -2,7 +2,7 @@ import { apiFetch } from './client';
 
 export type QrAttendanceState = 'check_in_open' | 'check_in_closed' | 'check_out_open' | 'finalized';
 export interface QrRoster { id:number; student_id:number; checked_in_at:string|null; checked_out_at:string|null; outcome:string; recording_source:string; is_incomplete:boolean; manual_reason:string|null; student:{id:number; full_name_ar:string; university_number:string} }
-export interface QrSession { id:number; public_id:string; student_clinical_assignment_id:number; session_date:string; state:QrAttendanceState; training_site?:{name_ar:string}; roster:QrRoster[] }
+export interface QrSession { id:number; public_id:string; student_clinical_assignment_id:number; session_date:string; state:QrAttendanceState; check_in_opened_at?:string|null; check_in_closed_at?:string|null; check_out_opened_at?:string|null; finalized_at?:string|null; training_site?:{name_ar:string}; assignment?:{student_subgroup?:{name:string;group?:{name:string}}|null;rotation_block?:{rotation?:{course?:{name_ar?:string;name_en?:string}}}}; roster:QrRoster[] }
 export const getQrSessions=()=>apiFetch<QrSession[]>('/operational/clinical-qr-attendance/sessions');
 export const openQrSession=(assignment_id:number,session_date:string)=>apiFetch<QrSession>('/operational/clinical-qr-attendance/sessions',{method:'POST',body:{assignment_id,session_date}});
 export const getQrSession=(id:number)=>apiFetch<QrSession>(`/operational/clinical-qr-attendance/sessions/${id}`);

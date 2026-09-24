@@ -19,7 +19,6 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Str;
 
@@ -284,42 +283,6 @@ class SupervisorController extends Controller
         abort_unless((int) $note->supervisor_person_id === (int) $person->id, 404);
         $note->delete();
         return ApiResponse::success(null, 'Private supervisor note deleted.');
-    }
-
-    public function recordAttendance(Request $request): JsonResponse
-    {
-        [, $person] = $this->supervisorIdentity($request);
-        $data = $request->validate([
-            'assignment_id' => ['required', 'integer'],
-            'session_date' => ['required', 'date'],
-            'records' => ['required', 'array', 'min:1'],
-            'records.*.student_id' => ['required', 'integer', 'exists:students,id'],
-            'records.*.status' => ['required', Rule::in(AttendanceRecord::STATUSES)],
-            'records.*.excuse_note' => ['nullable', 'string', 'max:2000'],
-        ]);
-
-        $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
-        $allowedStudentIds = $this->assignmentGroupQuery($assignment)->pluck('student_id')->map(fn ($id) => (int) $id);
-        $requestedStudentIds = collect($data['records'])->pluck('student_id')->map(fn ($id) => (int) $id);
-        abort_if($requestedStudentIds->diff($allowedStudentIds)->isNotEmpty(), 403, 'You may only record attendance for students assigned to you.');
-        $this->ensureScheduledSession($person, $assignment, $data['session_date']);
-
-        $session = DB::transaction(function () use ($assignment, $data) {
-            $session = $this->resolveSession($assignment, $data['session_date']);
-            foreach ($data['records'] as $record) {
-                AttendanceRecord::updateOrCreate(
-                    ['clinical_session_id' => $session->id, 'student_id' => $record['student_id']],
-                    [
-                        'status' => $record['status'],
-                        'excuse_note' => $record['excuse_note'] ?? null,
-                        'recorded_by_user_id' => auth()->id(),
-                    ],
-                );
-            }
-            return $session;
-        });
-
-        return ApiResponse::success(['session_id' => $session->id], 'Attendance saved successfully.');
     }
 
     public function storeAssessment(Request $request, WorkflowTransitionService $workflow): JsonResponse

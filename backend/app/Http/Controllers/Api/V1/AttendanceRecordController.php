@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AttendanceRecord;
+use App\Models\ClinicalQrAttendanceSession;
 use App\Models\ClinicalSession;
 use App\Models\StudentClinicalAssignment;
 use App\Models\Student;
@@ -256,6 +257,58 @@ class AttendanceRecordController extends Controller
             ->whereHas('session', fn ($session) => $session->whereIn('rotation_block_id', $blockIds)->whereBetween('session_date', [$weekStart, $weekEnd]))
             ->get();
 
+        $qrSessions = ClinicalQrAttendanceSession::query()
+            ->whereIn('rotation_block_id', $weekAssignments->pluck('rotation_block_id')->unique())
+            ->whereHas('assignment', fn ($query) => $query
+                ->where('distribution_version_id', $reference->distribution_version_id)
+                ->where('student_subgroup_id', $reference->student_subgroup_id))
+            ->whereBetween('session_date', [$weekStart, $weekEnd])
+            ->latest('id')->get()->keyBy(fn (ClinicalQrAttendanceSession $session) => implode('|', [
+                $session->rotation_block_id, $session->training_site_id, $session->supervisor_id ?: 0, $session->session_date->toDateString(),
+            ]));
+        $daily = $schedule->flatMap(function (array $item) use ($weekAssignments, $students, $records, $qrSessions) {
+            $assignedIds = $weekAssignments->filter(fn (StudentClinicalAssignment $assignment) =>
+                (int) $assignment->rotation_block_id === (int) $item['rotation_block_id']
+                && (int) $assignment->training_site_id === (int) $item['training_site']?->id
+                && (int) $assignment->supervisor_id === (int) $item['supervisor']?->id
+            )->pluck('student_id')->unique();
+            return collect($item['scheduled_dates'])->map(function (string $date) use ($item, $assignedIds, $students, $records, $qrSessions) {
+                $qr = $qrSessions->get(implode('|', [$item['rotation_block_id'], $item['training_site']?->id ?: 0, $item['supervisor']?->id ?: 0, $date]));
+                $rows = $students->whereIn('id', $assignedIds)->map(function (Student $student) use ($item, $date, $records) {
+                    $record = $records->first(fn (AttendanceRecord $row) =>
+                        (int) $row->student_id === (int) $student->id
+                        && (int) $row->session?->rotation_block_id === (int) $item['rotation_block_id']
+                        && (int) $row->session?->training_site_id === (int) $item['training_site']?->id
+                        && $row->session?->session_date?->toDateString() === $date
+                    );
+                    return [
+                        'student' => $student,
+                        'status' => $record?->status,
+                        'check_in_at' => $record?->check_in_at,
+                        'check_out_at' => $record?->check_out_at,
+                        'recording_source' => $record?->recording_source,
+                        'is_incomplete' => (bool) $record?->is_incomplete,
+                        'note' => $record?->excuse_note,
+                    ];
+                })->values();
+                return [
+                    'date' => $date,
+                    'rotation_block_id' => $item['rotation_block_id'],
+                    'training_site' => $item['training_site'],
+                    'supervisor' => $item['supervisor'],
+                    'qr_session' => $qr ? [
+                        'state' => $qr->state,
+                        'check_in_opened_at' => $qr->check_in_opened_at,
+                        'check_in_closed_at' => $qr->check_in_closed_at,
+                        'check_out_opened_at' => $qr->check_out_opened_at,
+                        'finalized_at' => $qr->finalized_at,
+                    ] : null,
+                    'recorded_count' => $rows->whereNotNull('status')->count(),
+                    'students' => $rows,
+                ];
+            });
+        })->sortByDesc('date')->values();
+
         $studentRows = $students->map(function (Student $student) use ($records, $weekAssignments, $weekStart, $weekEnd, $selectedWeek) {
             $studentAssignments = $weekAssignments->where('student_id', $student->id);
             $plan = $studentAssignments->flatMap(function (StudentClinicalAssignment $assignment) use ($weekStart, $weekEnd) {
@@ -305,6 +358,7 @@ class AttendanceRecordController extends Controller
             ]),
             'selected_week' => ['number' => $selectedWeek, 'start_date' => $weekStart->toDateString(), 'end_date' => $weekEnd->toDateString()],
             'schedule' => $schedule,
+            'daily' => $daily,
             'students' => $studentRows,
         ]);
     }
@@ -442,20 +496,13 @@ class AttendanceRecordController extends Controller
         $user = $request->user();
         $roles = $user?->roles()->pluck('code') ?? collect();
         if ($this->isSupervisorOnly($roles)) {
-            $personId = $user?->person?->id;
-            $ownsStudent = StudentClinicalAssignment::query()
-                ->where('supervisor_id', $personId ?: 0)
-                ->where('student_id', $data['student_id'])
-                ->where('rotation_block_id', $session->rotation_block_id)
-                ->where(function ($query) use ($session) {
-                    $session->training_site_id
-                        ? $query->where('training_site_id', $session->training_site_id)
-                        : $query->whereNull('training_site_id');
-                })
-                ->whereHas('distributionVersion', fn ($distribution) => $distribution->where('status', 'published')->where('is_current', true))
-                ->exists();
-            abort_unless($ownsStudent, 403, 'You may only record attendance for students currently assigned to you.');
+            abort(403, 'يسجل المشرف السريري الحضور عبر جلسة QR فقط.');
         }
+
+        abort_if(AttendanceRecord::query()
+            ->where('clinical_session_id', $data['clinical_session_id'])
+            ->where('student_id', $data['student_id'])
+            ->whereNotNull('clinical_qr_attendance_roster_id')->exists(), 409, 'هذا السجل معتمد من جلسة QR ولا يمكن استبداله عبر الرصد اليدوي.');
 
         $data['recorded_by_user_id'] = $user?->id;
 

@@ -33,7 +33,14 @@ type GroupSummary = {
   weeks: WeekOption[];
   selected_week: WeekOption;
   schedule: ScheduleItem[];
+  daily?: DailyAttendance[];
   students: StudentSummary[];
+};
+type DailyAttendance = {
+  date: string; rotation_block_id: number; training_site?: Named | null; supervisor?: Supervisor;
+  qr_session?: { state: string; check_in_opened_at?: string | null; check_in_closed_at?: string | null; check_out_opened_at?: string | null; finalized_at?: string | null } | null;
+  recorded_count: number;
+  students: { student: StudentSummary['student']; status: 'present' | 'absent' | 'late' | 'excused' | null; check_in_at?: string | null; check_out_at?: string | null; recording_source?: string | null; is_incomplete?: boolean; note?: string | null }[];
 };
 type SentWarning = { id: number; sent_at: string; sent_by_user_id?: number | null } | null;
 type AttendanceWarning = {
@@ -63,7 +70,7 @@ export function AttendanceMasterPage() {
   const tr = (arabic: string, english: string) => ar ? arabic : english;
   const [selectedAssignment, setSelectedAssignment] = useState('');
   const [selectedWeek, setSelectedWeek] = useState('');
-  const [activeTab, setActiveTab] = useState<'register' | 'alerts'>('register');
+  const [activeTab, setActiveTab] = useState<'register' | 'details' | 'alerts'>('register');
   const [mailNotice, setMailNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
   const groupsQuery = useQuery({
@@ -165,12 +172,14 @@ export function AttendanceMasterPage() {
           </div>)}</div>}
         </section>
 
-        <div className="grid grid-cols-2 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+        <div className="grid grid-cols-3 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
           <Tab active={activeTab === 'register'} onClick={() => setActiveTab('register')}>{tr('سجل المجموعة','Group register')}</Tab>
+          <Tab active={activeTab === 'details'} onClick={() => setActiveTab('details')}>{tr('تفاصيل الأيام وQR','Daily QR details')}</Tab>
           <Tab active={activeTab === 'alerts'} onClick={() => setActiveTab('alerts')}>{tr(`تنبيهات الغياب (${warningStudents.length})`,`Absence alerts (${warningStudents.length})`)}</Tab>
         </div>
 
         {activeTab === 'register' && <WeeklyRegister summary={summary} ar={ar} tr={tr}/>}
+        {activeTab === 'details' && <DailyDetails days={summary.daily ?? []} ar={ar} tr={tr}/>}
         {activeTab === 'alerts' && <Alerts
           warnings={warningStudents}
           ar={ar}
@@ -210,6 +219,24 @@ function WeeklyRegister({ summary, ar, tr }: { summary: GroupSummary; ar: boolea
         <tbody className="divide-y divide-slate-100">{summary.students.map(row => <StudentRow key={row.student.id} row={row} ar={ar} tr={tr}/>)}</tbody>
       </table>
     </div>}
+  </section>;
+}
+
+function DailyDetails({ days, ar, tr }: { days: DailyAttendance[]; ar: boolean; tr: (a: string, e: string) => string }) {
+  const [selectedKey, setSelectedKey] = useState('');
+  const keyFor = (day: DailyAttendance) => `${day.date}|${day.rotation_block_id}|${day.training_site?.id ?? 0}|${day.supervisor?.id ?? 0}`;
+  const day = days.find(item => keyFor(item) === selectedKey) ?? days[0];
+  const time = (value?: string | null) => value ? new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', { hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '—';
+  const state = (value?: string | null) => ({ check_in_open: tr('الدخول مفتوح', 'Check-in open'), check_in_closed: tr('الدخول مغلق', 'Check-in closed'), check_out_open: tr('الخروج مفتوح', 'Check-out open'), finalized: tr('معتمدة', 'Finalized') })[value as 'check_in_open'] ?? tr('لم تُفتح جلسة QR', 'No QR session');
+  const status = (value: DailyAttendance['students'][number]['status']) => ({ present: tr('حاضر', 'Present'), absent: tr('غائب', 'Absent'), late: tr('متأخر', 'Late'), excused: tr('بعذر', 'Excused') })[value as 'present'] ?? tr('لم يُعتمد بعد', 'Not finalized');
+
+  if (!day) return <section className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-xs text-slate-500">{tr('لا توجد أيام دوام في الأسبوع المختار.', 'No scheduled days in the selected week.')}</section>;
+
+  return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <header className="grid gap-3 border-b border-slate-100 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"><label className="text-xs font-black text-slate-700">{tr('يوم التدريب', 'Training day')}<select value={keyFor(day)} onChange={event => setSelectedKey(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold">{days.map(item => <option key={keyFor(item)} value={keyFor(item)}>{dateLabel(item.date, ar)} · {ar ? item.training_site?.name_ar : item.training_site?.name_en || item.training_site?.name_ar} · {ar ? item.supervisor?.full_name_ar : item.supervisor?.full_name_en || item.supervisor?.full_name_ar}</option>)}</select></label><span className="rounded-lg bg-teal-50 px-3 py-2 text-xs font-black text-teal-800">{day.recorded_count}/{day.students.length} {tr('سجل معتمد', 'records finalized')}</span></header>
+    <div className="flex flex-wrap gap-x-5 gap-y-2 border-b border-slate-100 bg-slate-50 px-4 py-3 text-[11px] text-slate-600"><b className="text-teal-800">{state(day.qr_session?.state)}</b>{day.qr_session && <><span>{tr('فتح الدخول', 'Check-in opened')}: {time(day.qr_session.check_in_opened_at)}</span><span>{tr('إغلاق الدخول', 'Check-in closed')}: {time(day.qr_session.check_in_closed_at)}</span><span>{tr('فتح الخروج', 'Check-out opened')}: {time(day.qr_session.check_out_opened_at)}</span><span>{tr('الاعتماد', 'Finalized')}: {time(day.qr_session.finalized_at)}</span></>}</div>
+    {day.qr_session && day.qr_session.state !== 'finalized' && <p className="border-b border-slate-100 px-4 py-2 text-[11px] font-bold text-amber-700">{tr('الجلسة قيد العمل؛ من لم يمسح الرمز لا يُعد غائباً حتى الاعتماد.', 'Session in progress; students without a scan are not absent until finalization.')}</p>}
+    <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-start text-xs"><thead className="bg-slate-50 text-[10px] text-slate-500"><tr><th className="p-3 text-start">{tr('الطالب', 'Student')}</th><th className="p-3 text-start">{tr('الحالة', 'Status')}</th><th className="p-3 text-start">{tr('الدخول', 'Check-in')}</th><th className="p-3 text-start">{tr('الخروج', 'Check-out')}</th><th className="p-3 text-start">{tr('المصدر والملاحظات', 'Source and notes')}</th></tr></thead><tbody className="divide-y divide-slate-100">{day.students.map(row => <tr key={row.student.id}><td className="p-3"><div className="flex items-center gap-2"><SupervisorStudentPhoto student={row.student} ar={ar}/><span><b className="block text-slate-800">{ar ? row.student.full_name_ar : row.student.full_name_en || row.student.full_name_ar}</b><small dir="ltr" className="text-slate-400">{row.student.university_number}</small></span></div></td><td className="p-3"><b className={row.status === 'absent' ? 'text-rose-700' : row.status === 'late' ? 'text-amber-700' : row.status ? 'text-teal-700' : 'text-slate-500'}>{status(row.status)}</b>{row.is_incomplete && <small className="block text-amber-700">{tr('الخروج غير مسجل', 'Missing check-out')}</small>}</td><td className="p-3">{time(row.check_in_at)}</td><td className="p-3">{time(row.check_out_at)}</td><td className="p-3 text-[11px] text-slate-600">{row.recording_source === 'qr' ? 'QR' : row.recording_source === 'manual_override' ? tr('تعديل سابق', 'Prior adjustment') : row.recording_source ? tr('رصد إداري', 'Administrative') : '—'}{row.note && <small className="mt-1 block">{row.note}</small>}</td></tr>)}</tbody></table></div>
   </section>;
 }
 
