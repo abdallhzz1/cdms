@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import QRCode from 'qrcode';
-import { ArrowRight, CalendarDays, CheckCircle2, Expand, QrCode, Users, X } from 'lucide-react';
+import { ArrowRight, CalendarDays, Expand, QrCode, Users, X } from 'lucide-react';
 import { ApiError, apiFetch } from '@/api/client';
 import { getQrPayload, getQrSession, getQrSessions, openQrSession, transitionQrSession, type QrRoster, type QrSession } from '@/api/clinicalQrAttendance';
 import { SupervisorStudentPhoto } from '@/components/clinical/SupervisorStudentPhoto';
@@ -12,7 +12,7 @@ const actions: Record<string, string> = { check_in_open: 'close_check_in', check
 const actionLabels: Record<string, string> = { check_in_open: 'إغلاق الدخول', check_in_closed: 'فتح الخروج', check_out_open: 'اعتماد الجلسة' };
 const phaseLabels: Record<string, string> = { check_in_open: 'الدخول مفتوح', check_in_closed: 'الدخول مغلق', check_out_open: 'الخروج مفتوح', finalized: 'معتمدة' };
 type RowStatus = 'present' | 'late' | 'absent' | 'incomplete' | 'unscanned' | 'excused';
-type RosterFilter = 'all' | RowStatus;
+type RosterFilter = 'all' | 'checked_in' | 'not_checked_in' | 'late' | 'incomplete' | 'excused';
 
 /** QR sessions are keyed by assignment/block/site/subgroup, not by student cohort. */
 export function groupQrAssignments(groups: SupervisorGroup[]): SupervisorGroup[] {
@@ -125,15 +125,29 @@ export function SupervisorQrAttendanceWorkspace() {
   const finalized = selected?.state === 'finalized';
   const checkOutOpen = selected?.state === 'check_out_open';
   const totals = useMemo(() => ({
-    present: roster.filter(row => rowStatus(row, finalized, checkOutOpen) === 'present').length,
     late: roster.filter(row => rowStatus(row, finalized, checkOutOpen) === 'late').length,
     absent: roster.filter(row => rowStatus(row, finalized, checkOutOpen) === 'absent').length,
     unscanned: roster.filter(row => rowStatus(row, finalized, checkOutOpen) === 'unscanned').length,
     incomplete: roster.filter(row => Boolean(row.checked_in_at) && !row.checked_out_at).length,
+    excused: roster.filter(row => rowStatus(row, finalized, checkOutOpen) === 'excused').length,
     checkedIn: roster.filter(row => row.checked_in_at).length,
     checkedOut: roster.filter(row => row.checked_out_at).length,
   }), [roster, finalized, checkOutOpen]);
-  const visibleRows = roster.filter(row => filter === 'all' || (filter === 'incomplete' ? Boolean(row.checked_in_at && !row.checked_out_at) : rowStatus(row, finalized, checkOutOpen) === filter));
+  const filters: { value: RosterFilter; label: string; count: number }[] = [
+    { value: 'all', label: 'جميع الطلبة', count: roster.length },
+    { value: 'checked_in', label: 'سجلوا الدخول', count: totals.checkedIn },
+    { value: 'not_checked_in', label: finalized ? 'غائبون' : 'لم يمسحوا', count: finalized ? totals.absent : totals.unscanned },
+    ...(totals.late || filter === 'late' ? [{ value: 'late' as const, label: 'متأخرون', count: totals.late }] : []),
+    ...((checkOutOpen || finalized) && (totals.incomplete || filter === 'incomplete') ? [{ value: 'incomplete' as const, label: 'لم يسجلوا الخروج', count: totals.incomplete }] : []),
+    ...(totals.excused || filter === 'excused' ? [{ value: 'excused' as const, label: 'بعذر', count: totals.excused }] : []),
+  ];
+  const visibleRows = roster.filter(row => {
+    if (filter === 'all') return true;
+    if (filter === 'checked_in') return Boolean(row.checked_in_at);
+    if (filter === 'not_checked_in') return rowStatus(row, finalized, checkOutOpen) === (finalized ? 'absent' : 'unscanned');
+    if (filter === 'incomplete') return Boolean(row.checked_in_at && !row.checked_out_at);
+    return rowStatus(row, finalized, checkOutOpen) === filter;
+  });
   const visibleImage = imagePhase === selected?.state && expires > nowMs ? image : '';
   const seconds = Math.max(0, Math.ceil((expires - nowMs) / 1000));
   const canTransition = selected && Boolean(actions[selected.state]);
@@ -162,7 +176,7 @@ export function SupervisorQrAttendanceWorkspace() {
 
     {selected && <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <header className="border-b border-slate-100 p-3.5 sm:p-5">
-        <div className="flex min-w-0 items-start justify-between gap-2"><div className="min-w-0"><b className="block text-sm leading-6 text-slate-900">{sessionLabel(selected)}</b><p className="mt-1 text-xs text-slate-500">{roster.length} طالب في الجلسة</p></div><span className="shrink-0 rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-black text-teal-800">{phaseLabels[selected.state]}</span></div>
+        <div className="flex min-w-0 items-start justify-between gap-2"><div className="min-w-0"><b className="block text-sm leading-6 text-slate-900">{sessionLabel(selected)}</b><p className="mt-1 text-xs text-slate-500">{roster.length} طالب في الجلسة</p></div><div className="shrink-0 text-left"><span className="block rounded-full bg-teal-50 px-2.5 py-1 text-center text-[11px] font-black text-teal-800">{phaseLabels[selected.state]}</span>{finalized && <small className="mt-1 block text-[10px] text-slate-500">اعتمدت {timeLabel(selected.finalized_at)}</small>}</div></div>
         {canTransition && <button onClick={movePhase} disabled={transition.isPending} className="mt-3 min-h-11 w-full rounded-xl bg-teal-700 px-5 py-2.5 text-sm font-black text-white disabled:opacity-50 sm:w-auto">{actionLabels[selected.state]}</button>}
       </header>
       {transition.isError && <p className="m-3.5 rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-700">{errorMessage(transition.error)}</p>}
@@ -178,9 +192,12 @@ export function SupervisorQrAttendanceWorkspace() {
           </>}
         </div>}
         <div className="min-w-0">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><Stat title="الطلبة" value={roster.length}/><Stat title="سجلوا الدخول" value={totals.checkedIn}/><Stat title="سجلوا الخروج" value={totals.checkedOut}/><Stat title={finalized ? 'غائبون' : 'لم يمسحوا'} value={finalized ? totals.absent : totals.unscanned}/></div>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs"><span className="rounded-lg bg-amber-50 px-2.5 py-1.5 font-bold text-amber-800">متأخرون: {totals.late}</span><span className="rounded-lg bg-slate-100 px-2.5 py-1.5 font-bold text-slate-700">دخول دون خروج: {totals.incomplete}</span>{finalized && <span className="rounded-lg bg-teal-50 px-2.5 py-1.5 font-bold text-teal-800"><CheckCircle2 className="ml-1 inline h-3.5 w-3.5"/>اعتمدت {timeLabel(selected.finalized_at)}</span>}</div>
-          <div className="mt-4 flex min-w-0 gap-1.5 overflow-x-auto pb-1">{(['all', 'present', 'late', finalized ? 'absent' : 'unscanned', 'incomplete'] as RosterFilter[]).map(value => <button key={value} onClick={() => setFilter(value)} className={`shrink-0 whitespace-nowrap rounded-lg border px-3 py-2 text-[11px] font-bold ${filter === value ? 'border-teal-700 bg-teal-700 text-white' : 'border-slate-200 text-slate-600'}`}>{value === 'all' ? 'الكل' : value === 'present' && !finalized ? 'سجلوا' : statusLabel(value as RowStatus)}</button>)}</div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3 sm:px-4">
+            <div className="flex items-center justify-between gap-3 text-xs font-bold text-slate-700"><span>سجلوا الدخول</span><strong className="text-base font-black text-teal-800" dir="ltr">{totals.checkedIn} / {roster.length}</strong></div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label="نسبة تسجيل الدخول" aria-valuenow={totals.checkedIn} aria-valuemin={0} aria-valuemax={roster.length || 1}><div className="h-full rounded-full bg-teal-700" style={{ width: `${roster.length ? totals.checkedIn / roster.length * 100 : 0}%` }}/></div>
+            <p className="mt-2 text-[11px] leading-5 text-slate-600">{totals.checkedOut} سجلوا الخروج · {finalized ? `${totals.absent} غائبون` : `${totals.unscanned} لم يمسحوا`}{totals.late > 0 && ` · ${totals.late} متأخرون`}{(checkOutOpen || finalized) && totals.incomplete > 0 && ` · ${totals.incomplete} دون خروج`}{totals.excused > 0 && ` · ${totals.excused} بعذر`}</p>
+          </div>
+          <div className="mt-4 flex min-w-0 items-center justify-between gap-3"><h2 className="text-sm font-black text-slate-900">قائمة الطلبة</h2><label className="flex min-w-0 items-center gap-2 text-[11px] font-bold text-slate-600">عرض <select aria-label="عرض الطلبة" value={filter} onChange={event => setFilter(event.target.value as RosterFilter)} className="h-9 max-w-[190px] min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-800">{filters.map(item => <option key={item.value} value={item.value}>{item.label} ({item.count})</option>)}</select></label></div>
           <RosterResults rows={visibleRows} finalized={finalized} checkOutOpen={checkOutOpen}/>
         </div>
       </div>
@@ -193,10 +210,6 @@ export function SupervisorQrAttendanceWorkspace() {
     </div>}
     {!selected && !workspace.isLoading && !sessions.isLoading && <p className="rounded-xl border border-slate-200 bg-white p-5 text-center text-sm text-slate-500">اختر يوم الدوام لفتح جلسة QR، وستظهر هنا أسماء الطلبة ونتائجهم.</p>}
   </div>;
-}
-
-function Stat({ title, value }: { title: string; value: number }) {
-  return <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-2 py-2.5 text-center"><p className="text-lg font-black leading-none text-teal-900">{value}</p><p className="mt-1 text-[11px] font-bold text-teal-800">{title}</p></div>;
 }
 
 function RosterResults({ rows, finalized, checkOutOpen }: { rows: QrRoster[]; finalized: boolean; checkOutOpen: boolean }) {

@@ -71,4 +71,24 @@ describe('SupervisorQrAttendanceWorkspace', () => {
     expect(screen.getByRole('button', { name: 'فتح الخروج' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'فتح تسجيل الدخول' })).not.toBeInTheDocument();
   });
+
+  it('keeps the finalized summary compact and filters the student list accurately', async () => {
+    vi.mocked(getQrSessions).mockResolvedValueOnce([{
+      id: 54, public_id: 'session', student_clinical_assignment_id: 8, session_date: '2026-09-24', state: 'finalized', finalized_at: '2026-09-24T12:00:00Z',
+      roster: [
+        { id: 1, student: { id: 11, full_name_ar: 'طالب أول', university_number: '20260011' }, checked_in_at: '2026-09-24T08:03:00Z', checked_out_at: '2026-09-24T12:00:00Z', outcome: 'present' },
+        { id: 2, student: { id: 12, full_name_ar: 'طالب ثان', university_number: '20260012' }, checked_in_at: null, checked_out_at: null, outcome: 'absent' },
+        { id: 3, student: { id: 13, full_name_ar: 'طالب ثالث', university_number: '20260013' }, checked_in_at: null, checked_out_at: null, outcome: 'absent' },
+      ],
+    }] as any);
+
+    render(<MemoryRouter><QueryClientProvider client={new QueryClient()}><SupervisorQrAttendanceWorkspace /></QueryClientProvider></MemoryRouter>);
+
+    expect(await screen.findByRole('progressbar', { name: 'نسبة تسجيل الدخول' })).toHaveAttribute('aria-valuenow', '1');
+    expect(screen.getByText('1 سجلوا الخروج · 2 غائبون')).toBeVisible();
+    expect(screen.queryByRole('option', { name: /متأخرون/ })).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'عرض الطلبة' }), 'not_checked_in');
+    expect(screen.getAllByRole('article')).toHaveLength(2);
+    expect(screen.getAllByRole('article').map(article => article.textContent).join(' ')).not.toContain('طالب أول');
+  });
 });
