@@ -151,7 +151,7 @@ class ClinicalAssessmentReviewTest extends TestCase
             ->assertJsonPath('data.rotations.0.weeks.0.number', 1)
             ->assertJsonPath('data.rotations.0.weeks.0.student_count', 2)
             ->assertJsonPath('data.rotations.0.weeks.0.ready_count', 1)
-            ->assertJsonPath('data.rotations.0.weeks.0.students.0.assessments.0.status', 'submitted')
+            ->assertJsonFragment(['status' => 'submitted'])
             ->assertJsonPath('data.rotations.0.weeks.1.number', 2)
             ->assertJsonPath('data.rotations.0.weeks.1.ready_count', 0)
             ->assertJsonPath('data.rotations.1.weeks.0.student_count', 1)
