@@ -1,6 +1,7 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { ChevronDown, Search, Settings2 } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
@@ -8,58 +9,139 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { CheckCircle2, ClipboardCheck, Search, Settings2, Users } from 'lucide-react';
 
-type Assessment = any;
-type Payload = { items: Assessment[]; pagination: { current_page: number; last_page: number; total: number } };
-type Summary = { total: number; submitted: number; returned: number; approved: number; draft: number; batches: number; approved_average_percentage: number | null; clinical_periods:Array<{id:number;code:string;name_ar:string;name_en?:string|null;sequence:number}> };
-const input = 'h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
+type Named = { id: number; code?: string; name_ar?: string; name_en?: string | null };
+type Person = { id: number; full_name_ar: string; full_name_en?: string | null };
+type Student = { id: number; university_number: string; full_name_ar: string; full_name_en?: string | null };
+type ReviewSubgroup = { assignment_id: number; name: string | null; student_count: number; week_count: number };
+type ReviewGroup = {
+  key: string; academic_year: Named | null; course: Named | null; clinical_period?: Named | null; rotation_code?: string | null; group_name: string | null;
+  academic_level: string | null; batch_year: number | null; student_count: number; subgroups: ReviewSubgroup[];
+};
+type ReviewAssessment = {
+  id: number; status: string; score: string | number | null; max_score: string | number;
+  notes: string | null; submitted_at: string | null; evaluator: Person | null;
+};
+type ReviewStudent = { student: Student; supervisors: Person[]; assessments: ReviewAssessment[]; ready: boolean };
+type ReviewWeek = {
+  number: number; start_date: string | null; end_date: string | null;
+  student_count: number; ready_count: number; students: ReviewStudent[];
+};
+type ReviewDetail = {
+  assignment_id: number; academic_year: Named | null; course: Named | null; clinical_period?: Named | null; rotation_code?: string | null; group_name: string | null;
+  subgroup_name: string | null; batch_year: number | null; student_count: number; weeks: ReviewWeek[];
+};
+
+const inputClass = 'h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100';
+const dateLabel = (value: string | null, ar: boolean) => value
+  ? new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(`${value.slice(0, 10)}T12:00:00`))
+  : '—';
+const personName = (person: Person | null, ar: boolean) => person ? (ar ? person.full_name_ar : person.full_name_en || person.full_name_ar) : '—';
+const courseName = (course: Named | null, ar: boolean) => course ? (ar ? course.name_ar : course.name_en || course.name_ar) || course.code || '—' : '—';
 
 export function AssessmentsMasterPage() {
   const { can } = useAuth();
   const { locale } = useI18n();
   const ar = locale === 'ar';
-  const tr = (a: string, e: string) => ar ? a : e;
-  const [status, setStatus] = useState('submitted');
-  const [level, setLevel] = useState('');
-  const [periodId,setPeriodId]=useState('');
+  const tr = (arabic: string, english: string) => ar ? arabic : english;
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const deferredSearch = useDeferredValue(search.trim());
-  const params = useMemo(() => {
-    const value = new URLSearchParams({ page_payload: '1', per_page: '25', page: String(page) });
-    if (status) value.set('status', status);
-    if (level) value.set('academic_level', level);
-    if(periodId)value.set('clinical_period_id',periodId);
-    if (deferredSearch) value.set('search', deferredSearch);
-    return value.toString();
-  }, [status, level, periodId, deferredSearch, page]);
-  const list = useQuery({ queryKey: ['clinical-assessments', params], queryFn: () => apiFetch<Payload>(`/clinical-assessments?${params}`), enabled: can('assessment.review') });
-  const summary = useQuery({ queryKey: ['clinical-assessments-summary',params], queryFn: () => apiFetch<Summary>(`/clinical-assessments-summary?${params}`), enabled: can('assessment.review') });
-  if (!can('assessment.review')) return <ErrorState title={tr('لا تملك صلاحية مراجعة التقييمات', 'You do not have permission to review assessments')} />;
-  if (list.isLoading || summary.isLoading) return <LoadingState />;
-  if (list.isError || summary.isError) return <ErrorState onRetry={() => { list.refetch(); summary.refetch(); }} />;
-  const rawData = list.data as Payload | Assessment[] | undefined;
-  const data = Array.isArray(rawData)
-    ? { items: rawData, pagination: { current_page: 1, last_page: 1, total: rawData.length } }
-    : rawData ?? { items: [], pagination: { current_page: 1, last_page: 1, total: 0 } };
-  const stats = summary.data ?? { total: 0, submitted: 0, returned: 0, approved: 0, draft: 0, batches: 0, approved_average_percentage: null,clinical_periods:[] };
-  const grouped = groupItems(data.items);
-  const ready = stats.submitted + stats.approved;
+  const [groupKey, setGroupKey] = useState('');
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState(0);
+  const allowed = can('assessment.review');
 
-  return <div className="mx-auto max-w-[1280px] space-y-5 pb-12">
-    <PageHeader title={tr('سجل التقييمات السريرية', 'Clinical Assessment Records')} description={tr('تصل تقييمات المشرفين مباشرة إلى مساعد البحث والتدريس وتدخل تلقائياً في احتساب العلامة السريرية. الاعتماد يكون على كشف العلامات النهائي.', 'Supervisor assessments arrive directly and automatically contribute to the clinical score. Approval applies to the final grade sheet.')}>
-      {can('assessment.criteria.manage') && <Link to="/assessments/criteria" className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-teal-800"><Settings2 className="h-4 w-4" />{tr('إعداد نموذج التقييم', 'Assessment template')}</Link>}
+  const groupsQuery = useQuery({
+    queryKey: ['clinical-assessment-review-groups'],
+    queryFn: () => apiFetch<{ groups: ReviewGroup[] }>('/clinical-assessments/review-groups'),
+    enabled: allowed,
+  });
+  const groups = groupsQuery.data?.groups ?? [];
+  const visibleGroups = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase();
+    if (!term) return groups;
+    return groups.filter(group => [
+      group.academic_year?.code, group.course?.code, group.course?.name_ar, group.course?.name_en,
+      group.clinical_period?.code, group.clinical_period?.name_ar, group.rotation_code,
+      group.group_name, group.batch_year, ...group.subgroups.map(subgroup => subgroup.name),
+    ].some(value => String(value ?? '').toLocaleLowerCase().includes(term)));
+  }, [groups, search]);
+  const selectedGroup = visibleGroups.find(group => group.key === groupKey) ?? visibleGroups[0] ?? null;
+  const assignmentId = selectedGroup?.subgroups.some(subgroup => subgroup.assignment_id === selectedAssignmentId)
+    ? selectedAssignmentId : selectedGroup?.subgroups[0]?.assignment_id ?? 0;
+
+  const detailQuery = useQuery({
+    queryKey: ['clinical-assessment-review-subgroup', assignmentId],
+    queryFn: () => apiFetch<ReviewDetail>(`/clinical-assessments/review-subgroup?assignment_id=${assignmentId}`),
+    enabled: allowed && assignmentId > 0,
+  });
+  const detail = detailQuery.data;
+  const expected = detail?.weeks.reduce((total, week) => total + week.student_count, 0) ?? 0;
+  const ready = detail?.weeks.reduce((total, week) => total + week.ready_count, 0) ?? 0;
+  const today = new Date().toISOString().slice(0, 10);
+  const defaultWeek = [...(detail?.weeks ?? [])].reverse().find(week => week.start_date && week.start_date <= today)?.number
+    ?? detail?.weeks[0]?.number;
+
+  if (!allowed) return <ErrorState title={tr('لا تملك صلاحية مراجعة التقييمات', 'You do not have permission to review assessments')} />;
+  if (groupsQuery.isLoading) return <LoadingState />;
+  if (groupsQuery.isError) return <ErrorState onRetry={() => groupsQuery.refetch()} />;
+
+  return <div className="mx-auto w-full max-w-5xl space-y-4 pb-12">
+    <PageHeader title={tr('مراجعة التقييمات السريرية', 'Clinical assessment review')} description={tr(
+      'اختر المجموعة الفرعية لمراجعة تقييمات طلبتها في جميع أسابيع التكليف. التقييمات المرسلة تدخل كشف العلامات مباشرة.',
+      'Choose a subgroup to review its students across every assigned week. Submitted assessments feed the grade sheet directly.',
+    )}>
+      {can('assessment.criteria.manage') && <Link to="/assessments/criteria" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-teal-200 bg-white px-3 text-xs font-bold text-teal-800"><Settings2 className="h-4 w-4" />{tr('نموذج التقييم', 'Assessment template')}</Link>}
     </PageHeader>
-    <section className="rounded-2xl border border-slate-200 bg-white p-3"><select className={input} value={periodId} onChange={event=>{setPeriodId(event.target.value);setPage(1)}}><option value="">{tr('جميع الفترات السريرية','All clinical periods')}</option>{(stats.clinical_periods??[]).map(period=><option key={period.id} value={period.id}>{period.code} — {ar?period.name_ar:period.name_en||period.name_ar}</option>)}</select></section>
-    <section className="grid grid-cols-2 gap-3 lg:grid-cols-4"><Metric icon={CheckCircle2} label={tr('جاهزة لكشف العلامات', 'Ready for grade sheet')} value={ready} hint={tr('لا تحتاج اعتماداً منفصلاً', 'No separate approval required')} /><Metric icon={ClipboardCheck} label={tr('وصلت من المشرفين', 'Received from supervisors')} value={stats.submitted} hint={tr('مدخلات سريرية رسمية', 'Official clinical inputs')} /><Metric icon={Users} label={tr('حزم مجموعات', 'Group batches')} value={stats.batches} hint={`${stats.total} ${tr('تقييم', 'assessments')}`} /><Metric icon={Settings2} label={tr('مسودات أو معادة', 'Draft or returned')} value={stats.draft + stats.returned} hint={tr('لا تدخل كشف العلامات', 'Excluded from grade sheet')} /></section>
-    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 lg:grid-cols-[1fr_13rem_13rem_auto]"><label className="relative"><Search className={`absolute top-3.5 h-4 w-4 text-slate-400 ${ar ? 'right-3' : 'left-3'}`} /><input className={`${input} ${ar ? 'pr-10' : 'pl-10'}`} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder={tr('بحث بالطالب أو الرقم أو الطبيب أو المساق…', 'Search student, ID, evaluator, or course…')} /></label><select className={input} value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option value="">{tr('كل الحالات', 'All statuses')}</option><option value="submitted">{tr('جاهز لكشف العلامات', 'Ready for grade sheet')}</option><option value="returned">{tr('بحاجة لتصحيح', 'Needs correction')}</option><option value="approved">{tr('مرحّل سابقاً', 'Previously approved')}</option><option value="draft">{tr('مسودة', 'Draft')}</option></select><select className={input} value={level} onChange={e => { setLevel(e.target.value); setPage(1); }}><option value="">{tr('كل الدفعات المخولة', 'All authorized cohorts')}</option><option value="fourth">{tr('السنة الرابعة', 'Fourth year')}</option><option value="fifth">{tr('السنة الخامسة', 'Fifth year')}</option><option value="sixth">{tr('السنة السادسة', 'Sixth year')}</option></select><button className="h-11 rounded-xl border border-slate-200 px-4 text-xs font-bold text-slate-600" onClick={() => { setSearch(''); setStatus('submitted'); setLevel(''); setPage(1); }}>{tr('مسح', 'Clear')}</button></div><p className="mt-3 border-t border-slate-100 pt-3 text-[11px] text-slate-500">{tr(`النتائج: ${data.pagination.total}`, `${data.pagination.total} results`)}</p></section>
-    {!grouped.length ? <EmptyState message={tr('لا توجد تقييمات مطابقة للفلاتر.', 'No assessments match the filters.')} /> : <section className="space-y-3">{grouped.map(group => <GroupCard key={group.key} group={group} ar={ar} />)}</section>}
-    {data.pagination.last_page > 1 && <nav className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-3 text-xs"><button disabled={page <= 1} className="rounded-xl border border-slate-200 px-3 py-2 font-bold disabled:opacity-40" onClick={() => setPage(p => p - 1)}>{tr('السابق', 'Previous')}</button><span>{tr(`صفحة ${data.pagination.current_page} من ${data.pagination.last_page}`, `Page ${data.pagination.current_page} of ${data.pagination.last_page}`)}</span><button disabled={page >= data.pagination.last_page} className="rounded-xl border border-slate-200 px-3 py-2 font-bold disabled:opacity-40" onClick={() => setPage(p => p + 1)}>{tr('التالي', 'Next')}</button></nav>}
+
+    {!groups.length ? <EmptyState message={tr('لا توجد مجموعات في توزيع سريري منشور ضمن السنوات المكلّف بها.', 'No groups exist in a published clinical distribution within your assigned cohorts.')} /> : <>
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-sm font-black text-slate-900">{tr('نطاق المراجعة', 'Review scope')}</h2><span className="text-[11px] font-bold text-slate-500">{groups.length} {tr('مجموعة', 'groups')}</span></div>
+        <label className="relative block"><span className="sr-only">{tr('ابحث عن مجموعة', 'Search groups')}</span><Search className={`absolute top-3.5 h-4 w-4 text-slate-400 ${ar ? 'right-3' : 'left-3'}`} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder={tr('ابحث بالمساق أو المجموعة أو الدفعة', 'Search course, group, or cohort')} className={`${inputClass} ${ar ? 'pr-10' : 'pl-10'}`} /></label>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="block min-w-0 text-[11px] font-black text-slate-600"><span className="mb-1.5 block">{tr('المجموعة', 'Group')}</span><select aria-label={tr('المجموعة', 'Group')} value={selectedGroup?.key ?? ''} onChange={event => setGroupKey(event.target.value)} disabled={!visibleGroups.length} className={inputClass}>{visibleGroups.length ? visibleGroups.map(group => <option key={group.key} value={group.key}>{courseName(group.course, ar)} · {group.group_name || tr('دون مجموعة', 'Ungrouped')} · {group.academic_year?.code || '—'}{group.clinical_period?.code ? ` · ${group.clinical_period.code}` : ''}{group.rotation_code ? ` · ${group.rotation_code}` : ''}{group.batch_year ? ` · ${tr('دفعة', 'Cohort')} ${group.batch_year}` : ''}</option>) : <option value="">{tr('لا توجد نتائج', 'No matches')}</option>}</select></label>
+          <label className="block min-w-0 text-[11px] font-black text-slate-600"><span className="mb-1.5 block">{tr('المجموعة الفرعية', 'Subgroup')}</span><select aria-label={tr('المجموعة الفرعية', 'Subgroup')} value={assignmentId || ''} onChange={event => setSelectedAssignmentId(Number(event.target.value))} disabled={!selectedGroup?.subgroups.length} className={inputClass}>{selectedGroup?.subgroups.map(subgroup => <option key={subgroup.assignment_id} value={subgroup.assignment_id}>{subgroup.name || tr('دون مجموعة فرعية', 'No subgroup')} · {subgroup.student_count} {tr('طلاب', 'students')} · {subgroup.week_count} {tr('أسابيع', 'weeks')}</option>)}</select></label>
+        </div>
+      </section>
+
+      {!visibleGroups.length ? <EmptyState message={tr('لا توجد مجموعات تطابق البحث.', 'No groups match your search.')} /> : detailQuery.isError ? <ErrorState onRetry={() => detailQuery.refetch()} /> : !assignmentId || detailQuery.isLoading || !detail ? <LoadingState /> : <>
+        <section className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs shadow-sm">
+          <div className="min-w-0"><h2 className="font-black text-slate-900">{detail.group_name || tr('دون مجموعة', 'Ungrouped')} · {detail.subgroup_name || tr('دون مجموعة فرعية', 'No subgroup')}</h2><p className="mt-1 text-[11px] text-slate-500">{courseName(detail.course, ar)} · {detail.student_count} {tr('طلاب', 'students')} · {detail.weeks.length} {tr('أسابيع', 'weeks')}</p></div>
+          <p className="font-black text-teal-800">{ready} / {expected} {tr('تقييمات مرسلة', 'submitted assessments')}</p>
+        </section>
+
+        {!detail.weeks.length ? <EmptyState message={tr('لا توجد أسابيع تكليف لهذه المجموعة الفرعية.', 'This subgroup has no assigned weeks.')} /> : <section aria-label={tr('تقييمات جميع الأسابيع', 'Assessments for all weeks')} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {detail.weeks.map(week => <details key={`${assignmentId}-${week.number}`} open={week.number === defaultWeek} className="group border-b border-slate-100 last:border-b-0">
+            <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:hidden sm:px-5">
+              <span className="min-w-0"><strong className="block text-sm text-slate-900">{tr(`الأسبوع ${week.number}`, `Week ${week.number}`)}</strong><small className="mt-0.5 block text-[11px] text-slate-500" dir="ltr">{dateLabel(week.start_date, ar)} — {dateLabel(week.end_date, ar)}</small></span>
+              <span className="flex shrink-0 items-center gap-2"><span className="text-xs font-black text-teal-800">{week.ready_count}/{week.student_count}</span><ChevronDown className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-180" /></span>
+            </summary>
+            <div className="border-t border-slate-100 bg-slate-50/40">
+              {!week.students.length ? <p className="px-4 py-5 text-xs text-slate-500">{tr('لا يوجد طلبة مكلّفون في هذا الأسبوع.', 'No students are assigned this week.')}</p> : <div className="divide-y divide-slate-100">{week.students.map(row => <StudentAssessmentRow key={row.student.id} row={row} ar={ar} />)}</div>}
+            </div>
+          </details>)}
+        </section>}
+      </>}
+    </>}
   </div>;
 }
 
-function Metric({ icon: Icon, label, value, hint }: any) { return <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700"><Icon className="h-5 w-5" /></span><div><p className="text-[11px] font-bold text-slate-500">{label}</p><p className="text-xl font-black text-slate-900">{value}</p></div></div><p className="mt-3 border-t border-slate-100 pt-2 text-[10px] text-slate-400">{hint}</p></article>; }
-function groupItems(items: Assessment[]) { const map = new Map<string, any>(); items.forEach(item => { const key = item.assessment_batch_uuid || `single-${item.id}`; const group = map.get(key) || { key, first: item, items: [] }; group.items.push(item); map.set(key, group); }); return [...map.values()]; }
-function GroupCard({ group, ar }: any) { const tr = (a: string, e: string) => ar ? a : e; const first = group.first; const course = first.session?.rotation_block?.rotation?.course; const score = group.items.reduce((sum: number, item: any) => sum + (Number(item.max_score) ? Number(item.score) / Number(item.max_score) * 20 : 0), 0) / group.items.length; const status = statusLabel(first.status, ar); return <article className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><header className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-black text-slate-900">{first.assessment_batch_uuid ? tr(`تقييم مجموعة · ${group.items.length} طلاب`, `Group assessment · ${group.items.length} students`) : tr('تقييم طالب', 'Student assessment')}</h2><span className={`rounded-lg px-2 py-1 text-[10px] font-bold ${status.className}`}>{status.label}</span></div><p className="mt-1 truncate text-[11px] text-slate-500">{ar ? course?.name_ar : course?.name_en || course?.name_ar || '—'} {course?.code ? `· ${course.code}` : ''}</p><p className="mt-1 text-[10px] text-slate-400">{ar ? first.evaluator?.full_name_ar : first.evaluator?.full_name_en || first.evaluator?.full_name_ar || '—'} · {String(first.session?.session_date || first.submitted_at || first.created_at || '').slice(0, 10)}</p></div><span className="rounded-xl bg-teal-50 px-3 py-2 text-sm font-black text-teal-700">{score.toFixed(1)} / 20</span></header><div className="divide-y divide-slate-100">{group.items.map((item: any, index: number) => <div key={item.id} className="grid gap-3 px-4 py-3 sm:grid-cols-[2rem_1fr_7rem_1.2fr] sm:items-center"><span className="hidden h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-black text-slate-500 sm:flex">{index + 1}</span><div><p className="text-xs font-black text-slate-800">{ar ? item.student?.full_name_ar : item.student?.full_name_en || item.student?.full_name_ar || '—'}</p><p className="font-mono text-[10px] text-slate-500">{item.student?.university_number}</p></div><span className="w-fit rounded-xl bg-teal-50 px-3 py-1.5 text-sm font-black text-teal-700">{Number(item.score).toFixed(1)} / {Number(item.max_score).toFixed(0)}</span><p className="text-[11px] leading-5 text-slate-500">{item.notes || tr('لا توجد ملاحظات.', 'No notes.')}</p></div>)}</div></article>; }
-function statusLabel(status: string, ar: boolean) { const values: any = { draft: [ar ? 'مسودة' : 'Draft', 'bg-slate-100 text-slate-600'], submitted: [ar ? 'جاهز لكشف العلامات' : 'Ready for grade sheet', 'bg-teal-50 text-teal-700'], approved: [ar ? 'مرحّل سابقاً' : 'Previously approved', 'bg-teal-100 text-teal-800'], returned: [ar ? 'بحاجة لتصحيح' : 'Needs correction', 'bg-slate-100 text-slate-700'] }; const item = values[status] || values.draft; return { label: item[0], className: item[1] }; }
+function StudentAssessmentRow({ row, ar }: { row: ReviewStudent; ar: boolean }) {
+  const tr = (arabic: string, english: string) => ar ? arabic : english;
+  const name = ar ? row.student.full_name_ar : row.student.full_name_en || row.student.full_name_ar;
+
+  return <article className="bg-white px-4 py-3 sm:px-5">
+    <div className="flex min-w-0 items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-words text-xs font-black text-slate-900">{name}</h3><p dir="ltr" className="mt-0.5 text-start text-[10px] text-slate-500">{row.student.university_number}</p></div><span className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-bold ${row.ready ? 'bg-teal-50 text-teal-800' : 'bg-slate-100 text-slate-600'}`}>{row.ready ? tr('مرسل', 'Submitted') : row.assessments.length ? tr('غير مرسل', 'Not submitted') : tr('بانتظار التقييم', 'Awaiting assessment')}</span></div>
+    {!row.assessments.length ? <p className="mt-2 text-[11px] leading-5 text-slate-500">{tr('لم يصل تقييم بعد', 'No assessment received yet')}{row.supervisors.length ? ` · ${row.supervisors.map(person => personName(person, ar)).join('، ')}` : ''}</p> : <div className="mt-2 space-y-1.5">{row.assessments.map(assessment => <div key={assessment.id} className="min-w-0 rounded-lg bg-slate-50 px-3 py-2 text-[11px]">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1"><span className="min-w-0 break-words text-slate-600">{personName(assessment.evaluator, ar)}</span><span className="flex shrink-0 items-center gap-2"><b dir="ltr" className="text-xs text-slate-900">{assessment.score === null ? '—' : Number(assessment.score).toFixed(1)} / {Number(assessment.max_score).toFixed(0)}</b><span className={assessment.status === 'returned' ? 'font-bold text-amber-700' : assessment.status === 'draft' ? 'font-bold text-slate-500' : 'font-bold text-teal-800'}>{statusLabel(assessment.status, ar)}</span></span></div>
+      {assessment.notes && <details className="mt-1 text-slate-600"><summary className="cursor-pointer font-bold text-teal-800">{tr('ملاحظة المشرف', 'Supervisor note')}</summary><p className="mt-1 whitespace-pre-wrap leading-5">{assessment.notes}</p></details>}
+    </div>)}</div>}
+  </article>;
+}
+
+function statusLabel(status: string, ar: boolean): string {
+  const labels: Record<string, [string, string]> = {
+    submitted: ['مرسل', 'Submitted'], approved: ['معتمد', 'Approved'],
+    returned: ['معاد', 'Returned'], draft: ['مسودة', 'Draft'],
+  };
+  const value = labels[status] ?? labels.draft;
+  return ar ? value[0] : value[1];
+}

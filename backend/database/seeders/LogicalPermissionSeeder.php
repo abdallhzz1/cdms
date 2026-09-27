@@ -136,6 +136,7 @@ class LogicalPermissionSeeder extends Seeder
             'RTA' => [
                 'students.view', 'grades.view', 'grades.create', 'grades.update',
                 'attendance.view', 'attendance.review', 'attendance.record', 'courses.view',
+                'assessment.review',
                 'clinical_schedule.view', 'tasks.view',
                 'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward',
             ],

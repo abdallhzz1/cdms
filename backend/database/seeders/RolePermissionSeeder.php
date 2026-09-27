@@ -102,6 +102,7 @@ class RolePermissionSeeder extends Seeder
             'DEAN' => ['approval_workflows.view', 'approvals.view', 'approvals.decide'],
             'VICE_DEAN' => ['approvals.view', 'approvals.decide'],
             'DEPARTMENT_HEAD' => ['approvals.view', 'approvals.decide'],
+            'RTA' => ['assessment.review'],
         ];
         foreach ($defaultGrants as $roleCode => $codes) {
             $role = Role::where('code', $roleCode)->first();

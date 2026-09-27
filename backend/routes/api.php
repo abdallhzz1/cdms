@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\AttendanceWarningController;
 use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClinicalAssessmentController;
+use App\Http\Controllers\Api\V1\ClinicalAssessmentReviewController;
 use App\Http\Controllers\Api\V1\ClinicalAssessmentTemplateController;
 use App\Http\Controllers\Api\V1\ClinicalSessionController;
 use App\Http\Controllers\Api\V1\ClinicalQrAttendanceController;
@@ -353,6 +354,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('dashboard/overview', [DashboardOverviewController::class, 'show'])->middleware('throttle:operational-read');
         Route::get('clinical-assessments', [ClinicalAssessmentController::class, 'index'])->middleware('permission:assessment.review');
         Route::get('clinical-assessments-summary', [ClinicalAssessmentController::class, 'summary'])->middleware('permission:assessment.review');
+        Route::get('clinical-assessments/review-groups', [ClinicalAssessmentReviewController::class, 'groups'])->middleware('permission:assessment.review');
+        Route::get('clinical-assessments/review-subgroup', [ClinicalAssessmentReviewController::class, 'subgroup'])->middleware('permission:assessment.review');
         Route::post('clinical-assessments', [ClinicalAssessmentController::class, 'store'])->middleware('permission:assessment.create');
         Route::post('clinical-assessments/{clinicalAssessment}/submit', [ClinicalAssessmentController::class, 'submit'])->middleware('permission:assessment.submit');
         Route::get('clinical-assessment-templates', [ClinicalAssessmentTemplateController::class, 'index'])->middleware('permission:assessment.criteria.manage');
