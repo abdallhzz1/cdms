@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Award, BookOpen, Camera, CheckCircle2, Download, FileText, GraduationCap, KeyRound, Mail, MapPin, Pencil, Plus, Save, ShieldCheck, Trash2, UserRound } from 'lucide-react';
+import { Award, BookOpen, Camera, CheckCircle2, Download, FileText, KeyRound, Mail, Pencil, Plus, Save, ShieldCheck, Trash2, UserRound } from 'lucide-react';
 import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { Button } from '@/components/ui/Button';
@@ -53,7 +53,7 @@ function toBase64(file: File): Promise<string> {
 }
 
 function Detail({ label, value, ltr = false }: { label: string; value?: string | number | null; ltr?: boolean }) {
-  return <div className="flex min-h-14 flex-col justify-center border-b border-slate-100 py-3 last:border-b-0 sm:grid sm:grid-cols-[150px_1fr] sm:items-center sm:gap-4"><dt className="text-sm font-medium text-slate-500">{label}</dt><dd dir={ltr ? 'ltr' : undefined} className={`mt-1 text-sm font-bold text-slate-800 sm:mt-0 ${ltr ? 'text-start' : ''}`}>{value || '—'}</dd></div>;
+  return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] items-center gap-3 border-b border-slate-100 py-3.5 last:border-b-0 sm:grid-cols-[170px_minmax(0,1fr)] sm:py-4"><dt className="text-xs font-medium text-slate-500 sm:text-sm">{label}</dt><dd dir={ltr ? 'ltr' : undefined} className={`min-w-0 break-words text-sm font-bold leading-6 text-slate-800 ${ltr ? 'text-start' : ''}`}>{value || '—'}</dd></div>;
 }
 
 function EmptyBlock({ text }: { text: string }) {
@@ -121,8 +121,6 @@ export function MyProfilePage() {
     onSuccess: () => { setPasswordOpen(false); setPasswords({ current_password: '', password: '', password_confirmation: '' }); showNotice(tr('تم تغيير كلمة المرور بنجاح.', 'Password changed successfully.')); },
   });
 
-  const displayDepartment = useMemo(() => ar ? profile?.department?.name_ar : (profile?.department?.name_en || profile?.department?.name_ar), [profile, ar]);
-  const displaySite = useMemo(() => ar ? profile?.primary_site?.name_ar : (profile?.primary_site?.name_en || profile?.primary_site?.name_ar), [profile, ar]);
   const contractTypeLabel = (value?: string | null) => ({
     full_time: tr('دوام كامل', 'Full time'),
     part_time: tr('دوام جزئي', 'Part time'),
@@ -131,6 +129,19 @@ export function MyProfilePage() {
   })[value || ''] || value;
   if (profileQuery.isLoading) return <LoadingState />;
   if (profileQuery.isError || !profile) return <ErrorState title={tr('تعذر تحميل الملف الشخصي', 'Unable to load profile')} onRetry={() => profileQuery.refetch()} />;
+  const roleNames = profile.roles.map(role => roleLabel(role, locale));
+  const specialty = profile.specialty?.trim();
+  const showSpecialty = specialty && !roleNames.includes(specialty);
+  const academicDegree = profile.academic_degree?.trim();
+  const showAcademicDegree = academicDegree && academicDegree !== specialty && !roleNames.includes(academicDegree);
+  const employmentDetails = [
+    { label: tr('التخصص', 'Specialty'), value: showSpecialty ? specialty : null },
+    { label: tr('الدرجة الأكاديمية', 'Academic degree'), value: showAcademicDegree ? academicDegree : null },
+    { label: tr('رقم الترخيص', 'License number'), value: profile.employment?.license_number, ltr: true },
+    { label: tr('نوع العقد', 'Contract type'), value: contractTypeLabel(profile.employment?.contract_type) },
+    { label: tr('بداية العقد', 'Contract start'), value: profile.employment?.contract_start },
+    { label: tr('نهاية العقد', 'Contract end'), value: profile.employment?.contract_end },
+  ].filter(detail => detail.value !== null && detail.value !== undefined && String(detail.value).trim() !== '');
 
   const sectionOptions: Array<{ id: Section; label: string; icon: typeof UserRound; visible: boolean; count?: number }> = [
     { id: 'overview', label: tr('نظرة عامة', 'Overview'), icon: UserRound, visible: true },
@@ -145,39 +156,41 @@ export function MyProfilePage() {
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) { showNotice(tr('اختر صورة JPG أو PNG أو WebP بحجم لا يزيد عن 2MB.', 'Choose a JPG, PNG, or WebP image up to 2 MB.')); return; }
     avatarMutation.mutate(await toBase64(file));
   };
-  return <div className="w-full pb-6">
+  return <div className="mx-auto w-full min-w-0 max-w-6xl pb-8">
     {notice && <div className="fixed start-1/2 top-20 z-40 flex w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 items-center gap-3 rounded-2xl border border-teal-200 bg-white px-4 py-3 text-sm font-bold text-teal-800 shadow-xl"><CheckCircle2 className="h-5 w-5 shrink-0" /><span className="flex-1">{notice}</span><button onClick={() => setNotice('')} className="text-xs text-slate-500">{tr('إغلاق', 'Close')}</button></div>}
-    <div className="space-y-4">
-      <aside className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center gap-4 p-4 sm:flex-nowrap sm:px-5">
-            <div className="relative grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full bg-teal-50 text-xl font-black text-teal-700 ring-2 ring-white shadow-sm">
+    <div className="space-y-4 sm:space-y-5">
+      <header className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex min-w-0 items-start gap-3.5 p-4 sm:items-center sm:gap-5 sm:p-6">
+          <div className="relative shrink-0">
+            <div className="grid h-16 w-16 place-items-center overflow-hidden rounded-2xl bg-teal-50 text-xl font-black text-teal-700 sm:h-20 sm:w-20">
               {profile.avatar_url ? <img src={profile.avatar_url} alt={profile.name} className="h-full w-full object-cover" /> : profile.name.slice(0, 1)}
-              <label className="absolute bottom-0 end-0 grid h-7 w-7 cursor-pointer place-items-center rounded-full bg-teal-700 text-white ring-2 ring-white hover:bg-teal-800" title={tr('تحديث الصورة', 'Update photo')}>
-                <Camera className="h-3.5 w-3.5" />
-                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onPhotoSelect} disabled={avatarMutation.isPending} />
-              </label>
             </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-lg font-black text-slate-900">{profile.name}</h1>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">{profile.roles[0] && <p className="text-sm font-bold text-teal-700">{roleLabel(profile.roles[0], locale)}{profile.roles.length > 1 && <span className="ms-1 text-xs font-medium text-slate-400">+{profile.roles.length - 1}</span>}</p>}<p dir="ltr" className="truncate text-start text-sm text-slate-500">{profile.email}</p></div>
-            </div>
-            <div className="ms-auto flex shrink-0 items-center gap-3 text-sm"><span className="text-slate-500">{tr('اكتمال البيانات', 'Completion')}</span><span className="font-black text-teal-700">{profile.completion_percent}%</span>{profile.missing_fields.length > 0 && <button onClick={() => setProfileModalOpen(true)} className="font-bold text-amber-700 hover:underline">{tr('استكمال', 'Complete')}</button>}</div>
+            <label className="absolute -bottom-1 -end-1 grid h-8 w-8 cursor-pointer place-items-center rounded-full border-2 border-white bg-teal-700 text-white shadow-sm hover:bg-teal-800" title={tr('تحديث الصورة', 'Update photo')} aria-label={tr('تحديث الصورة', 'Update photo')}>
+              <Camera className="h-4 w-4" />
+              <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={onPhotoSelect} disabled={avatarMutation.isPending} aria-label={tr('تحديث الصورة', 'Update photo')} />
+            </label>
+          </div>
+          <div className="min-w-0 flex-1">
+            <h1 className="break-words text-base font-black leading-6 text-slate-900 sm:text-xl">{profile.name}</h1>
+            {profile.roles[0] && <p className="mt-1 text-xs font-bold text-teal-700 sm:text-sm">{roleLabel(profile.roles[0], locale)}{profile.roles.length > 1 && <span className="ms-1.5 text-slate-400">+{profile.roles.length - 1}</span>}</p>}
+            <p dir="ltr" className="mt-1.5 break-all text-start text-xs text-slate-500 sm:text-sm">{profile.email}</p>
+          </div>
         </div>
-        <nav className="grid grid-cols-2 gap-1 border-t border-slate-100 p-1.5 sm:grid-cols-4" aria-label={tr('أقسام الملف الشخصي', 'Profile sections')}>
-          {sections.map(section => <button key={section.id} onClick={() => selectSection(section.id)} className={`flex min-w-0 items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-sm font-bold transition ${activeSection === section.id ? 'bg-teal-50 text-teal-800' : 'text-slate-600 hover:bg-slate-50'}`}><section.icon className="h-4 w-4 shrink-0" /><span className="truncate">{section.label}</span>{section.count !== undefined && <span className="shrink-0 text-xs text-slate-400">{section.count}</span>}</button>)}
+        {avatarMutation.isError && <p className="px-4 pb-3 text-xs font-bold text-rose-600 sm:px-6">{errorMessage(avatarMutation.error)}</p>}
+        <nav className="grid grid-cols-2 gap-1.5 border-t border-slate-100 bg-slate-50/40 p-2 sm:grid-cols-4 sm:p-2.5" aria-label={tr('أقسام الملف الشخصي', 'Profile sections')}>
+          {sections.map(section => <button key={section.id} type="button" onClick={() => selectSection(section.id)} aria-current={activeSection === section.id ? 'page' : undefined} className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-xs font-bold transition sm:text-sm ${activeSection === section.id ? 'border border-teal-100 bg-white text-teal-800 shadow-sm' : 'text-slate-600 hover:bg-white'}`}><section.icon className="h-4 w-4 shrink-0" /><span className="min-w-0 truncate">{section.label}</span>{section.count !== undefined && section.count > 0 && <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] text-slate-500">{section.count}</span>}</button>)}
         </nav>
-      </aside>
+      </header>
 
       <main className="min-w-0 w-full">
-        <div className="mb-5 flex items-center justify-between gap-4">
-          <div><h2 className="text-xl font-black text-slate-900">{sections.find(section => section.id === activeSection)?.label}</h2>{activeSection === 'overview' && <p className="mt-1 text-sm text-slate-500">{tr('بياناتك المعتمدة في النظام.', 'Your verified system information.')}</p>}</div>
-          {activeSection === 'overview' && <Button variant="outline" onClick={() => setProfileModalOpen(true)}><Pencil className="me-2 h-4 w-4" />{tr('تعديل', 'Edit')}</Button>}
+        <div className="mb-3 flex min-w-0 items-center justify-between gap-3 sm:mb-5">
+          <h2 className="min-w-0 text-lg font-black text-slate-900 sm:text-xl">{sections.find(section => section.id === activeSection)?.label}</h2>
+          {activeSection === 'overview' && <Button variant="outline" onClick={() => setProfileModalOpen(true)} className="shrink-0"><Pencil className="me-1.5 h-4 w-4" />{tr('تعديل بياناتي', 'Edit details')}</Button>}
         </div>
 
     {activeSection === 'overview' && <div className="space-y-4">
-      <Card className="border border-slate-200 p-5 shadow-none sm:p-6"><h3 className="text-base font-black text-slate-900">{tr('المعلومات الأساسية', 'Basic information')}</h3><dl className="mt-3"><Detail label={tr('الاسم بالعربية', 'Arabic name')} value={profile.name} /><Detail label={tr('الاسم بالإنجليزية', 'English name')} value={profile.full_name_en} ltr /><Detail label={tr('رقم الهاتف', 'Phone number')} value={profile.phone} ltr /><Detail label={tr('الرقم الوظيفي', 'Staff code')} value={profile.staff_code} ltr /></dl></Card>
-      <Card className="border border-slate-200 p-5 shadow-none sm:p-6"><h3 className="text-base font-black text-slate-900">{tr('الارتباط الأكاديمي', 'Academic affiliation')}</h3><div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">{displayDepartment && <p className="flex items-center gap-2 text-slate-700"><GraduationCap className="h-4 w-4 text-slate-400" />{displayDepartment}</p>}{displaySite && <p className="flex items-center gap-2 text-slate-700"><MapPin className="h-4 w-4 text-slate-400" />{displaySite}</p>}{profile.training_sites.filter(site => !site.is_primary).map(site => <p key={site.id} className="flex items-center gap-2 text-slate-700"><MapPin className="h-4 w-4 text-slate-400" />{ar ? site.name_ar : (site.name_en || site.name_ar)}</p>)}{profile.assigned_levels.length > 0 && <div className="flex flex-wrap gap-2 sm:col-span-2">{profile.assigned_levels.map(level => <span key={level} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600">{ar ? `دفعة ${level === 'fourth' ? 'رابعة' : level === 'fifth' ? 'خامسة' : 'سادسة'}` : `${level} cohort`}</span>)}</div>}{!displayDepartment && !displaySite && !profile.training_sites.length && !profile.assigned_levels.length && <p className="text-slate-500">{tr('لا توجد ارتباطات مسندة.', 'No affiliations assigned.')}</p>}</div></Card>
-      {profile.employment && <Card className="border border-slate-200 p-5 shadow-none sm:p-6"><div className="flex items-center justify-between gap-3"><h3 className="text-base font-black text-slate-900">{tr('المعلومات الوظيفية', 'Employment information')}</h3><span className="text-xs font-medium text-slate-400">{tr('للعرض فقط', 'Read only')}</span></div><dl className="mt-3"><Detail label={tr('التخصص', 'Specialty')} value={profile.specialty} /><Detail label={tr('الدرجة الأكاديمية', 'Academic degree')} value={profile.academic_degree} /><Detail label={tr('رقم الترخيص', 'License number')} value={profile.employment.license_number} ltr /><Detail label={tr('نوع العقد', 'Contract type')} value={contractTypeLabel(profile.employment.contract_type)} /><Detail label={tr('بداية العقد', 'Contract start')} value={profile.employment.contract_start} /><Detail label={tr('نهاية العقد', 'Contract end')} value={profile.employment.contract_end} /></dl></Card>}
+      <Card className="min-w-0 border border-slate-200 p-4 shadow-none sm:p-6"><h3 className="text-sm font-black text-slate-900 sm:text-base">{tr('البيانات الشخصية', 'Personal details')}</h3><dl className="mt-2"><Detail label={tr('الاسم بالعربية', 'Arabic name')} value={profile.name} />{profile.full_name_en && <Detail label={tr('الاسم بالإنجليزية', 'English name')} value={profile.full_name_en} ltr />}{profile.phone && <Detail label={tr('رقم الهاتف', 'Phone number')} value={profile.phone} ltr />}</dl></Card>
+      {employmentDetails.length > 0 && <Card className="min-w-0 border border-slate-200 p-4 shadow-none sm:p-6"><h3 className="text-sm font-black text-slate-900 sm:text-base">{tr('المعلومات الوظيفية', 'Employment information')}</h3><dl className="mt-2">{employmentDetails.map(detail => <Detail key={detail.label} label={detail.label} value={detail.value} ltr={detail.ltr} />)}</dl></Card>}
     </div>}
 
     {activeSection === 'professional' && profile.professional && <Card className="border border-slate-200 p-5 sm:p-6"><div className="flex flex-col gap-3 border-b border-slate-100 pb-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="flex items-center gap-2 text-lg font-black text-slate-900"><Award className="h-5 w-5 text-teal-600" />{tr('السجل المهني', 'Professional record')}</h2><p className="mt-1 text-sm text-slate-500">{tr('سجل واحد يظهر في ملف المشرف ورئيس القسم.', 'One record shared across supervisor and department-head profiles.')}</p></div><Button variant={professionalEditing ? 'outline' : 'primary'} onClick={() => { setProfessionalForm(profile.professional!); setProfessionalEditing(value => !value); }}><Pencil className="me-2 h-4 w-4" />{professionalEditing ? tr('إلغاء التعديل', 'Cancel editing') : tr('تعديل السجل', 'Edit record')}</Button></div><section className="mt-5"><h3 className="text-sm font-black text-slate-800">{tr('النبذة المهنية', 'Professional summary')}</h3>{professionalEditing ? <textarea rows={4} className={`${inputClass} resize-none`} value={professionalForm.bio || ''} onChange={event => setProfessionalForm(current => ({ ...current, bio: event.target.value }))} placeholder={tr('اكتب نبذة مختصرة عن الخبرة ومجال العمل...', 'Write a concise summary of experience and practice...')} /> : <p className="mt-2 min-h-24 whitespace-pre-line rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-700">{profile.professional.bio || tr('لم تُضف نبذة مهنية بعد.', 'No professional summary added yet.')}</p>}</section><div className="mt-5 grid gap-5 lg:grid-cols-2"><ProfessionalList type="publications" editing={professionalEditing} ar={ar} items={professionalForm.publications} draft={newPublication} setDraft={setNewPublication} onChange={items => setProfessionalForm(current => ({ ...current, publications: items as Publication[] }))} /><ProfessionalList type="conferences" editing={professionalEditing} ar={ar} items={professionalForm.conferences} draft={newConference} setDraft={setNewConference} onChange={items => setProfessionalForm(current => ({ ...current, conferences: items as Conference[] }))} /></div>{professionalEditing && <div className="mt-5 flex justify-end border-t border-slate-100 pt-5"><Button onClick={() => professionalMutation.mutate()} isLoading={professionalMutation.isPending}><Save className="me-2 h-4 w-4" />{tr('حفظ السجل المهني', 'Save professional record')}</Button></div>}{professionalMutation.isError && <p className="mt-3 text-sm font-semibold text-red-600">{errorMessage(professionalMutation.error)}</p>}</Card>}
