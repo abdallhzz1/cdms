@@ -61,16 +61,16 @@ describe('AssessmentsMasterPage review', () => {
     expect([...groupSelect.querySelectorAll('option')].map(option => option.textContent)).toEqual(['Group Q · Fourth year · 2026/2027', 'Group L · Fourth year · 2026/2027']);
     expect(await screen.findByRole('heading', { name: 'Subgroup Q1' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Subgroup Q2' })).toBeVisible();
-    expect(screen.getByText('Student 3')).toBeVisible();
-    expect(screen.getAllByRole('button', { name: 'Enlarge student photo' })).toHaveLength(5);
-    expect(await screen.findByText('Internal Medicine')).toBeVisible();
-    expect(screen.getByText('Surgery')).toBeVisible();
+    expect(await screen.findByText('Student 3')).toBeVisible();
+    expect(screen.getAllByRole('button', { name: 'Enlarge student photo' })).toHaveLength(3);
+    expect(await screen.findByRole('columnheader', { name: 'Course: Internal Medicine' })).toBeVisible();
+    expect(screen.getByRole('columnheader', { name: 'Course: Surgery' })).toBeVisible();
     expect(screen.getAllByText('Week 1')).toHaveLength(2);
     expect(screen.getByText('Week 2')).toBeVisible();
 
-    const matrix = screen.getByRole('table', { name: 'Q1 · Internal Medicine' });
-    expect(within(matrix).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Student', '01/09Week 1', '08/09Week 2']);
-    const firstRow = within(matrix).getAllByRole('row')[1];
+    const matrix = screen.getByRole('table', { name: 'Q1' });
+    expect(within(matrix).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Student', 'Course: Internal Medicine', 'Course: Surgery', '01/09Week 1', '08/09Week 2', '01/10Week 1']);
+    const firstRow = within(matrix).getAllByRole('row')[2];
     expect(within(firstRow).getByRole('img', { name: 'Student 1' })).toHaveAttribute('src', 'https://example.test/1.jpg');
     expect(within(firstRow).getByRole('button', { name: 'Enlarge student photo' })).toHaveClass('rounded-full');
     expect(within(firstRow).getAllByRole('cell')[0]).toHaveTextContent('9');
@@ -80,9 +80,10 @@ describe('AssessmentsMasterPage review', () => {
     await userEvent.click(within(matrix).getByRole('button', { name: 'Student 2 · Week 1 · Q1 · Internal Medicine' }));
     expect(screen.getByText('No assessment received yet')).toBeVisible();
     await userEvent.keyboard('{Escape}');
-    await userEvent.click(screen.getByRole('button', { name: 'Weeks' }));
     expect(await screen.findByText('No published assignment weeks for this subgroup yet.')).toBeVisible();
     expect(fetchSpy.mock.calls.some(([input]) => String(input).includes('subgroup_id=12'))).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Weeks' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument();
   });
 
   it('keeps Arabic mobile labels focused on real groups and subgroups', async () => {
@@ -91,7 +92,7 @@ describe('AssessmentsMasterPage review', () => {
       const url = String(input);
       if (url.includes('/auth/me')) return envelope(reviewer);
       if (url.includes('/clinical-assessments/review-groups')) return envelope(groups);
-      if (url.includes('/clinical-assessments/review-subgroup')) return envelope(detail(11));
+      if (url.includes('/clinical-assessments/review-subgroup')) return envelope(detail(Number(new URL(url, 'http://localhost').searchParams.get('subgroup_id'))));
       throw new Error(`Unexpected request: ${url}`);
     });
     renderWithProviders(<AssessmentsMasterPage />, { route: '/assessments' });
@@ -99,9 +100,15 @@ describe('AssessmentsMasterPage review', () => {
     expect(groupSelect.querySelector('option')?.textContent).toBe('المجموعة Q · السنة الرابعة · 2026/2027');
     expect(screen.getByRole('heading', { name: 'المجموعة الفرعية Q1' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'المجموعة الفرعية Q2' })).toBeVisible();
-    expect(await screen.findByText('الباطني')).toBeVisible();
+    expect(await screen.findByRole('columnheader', { name: 'المساق: الباطني' })).toBeVisible();
     expect(screen.getAllByText('الأسبوع 1')).toHaveLength(2);
-    expect(screen.getByRole('table', { name: 'Q1 · الباطني' })).toHaveAttribute('dir', 'rtl');
+    expect(screen.getByRole('table', { name: 'Q1' })).toHaveAttribute('dir', 'rtl');
+    const matrix = screen.getByRole('table', { name: 'Q1' });
+    expect(within(matrix).getByText('22010001')).toHaveClass('text-right');
+    const subgroupTitle = screen.getByRole('heading', { name: 'المجموعة الفرعية Q1' });
+    expect(within(subgroupTitle).getByText('Q1')).toHaveClass('text-2xl');
+    expect(screen.getByRole('columnheader', { name: 'المساق: الباطني' })).toHaveClass('text-[11px]', 'font-medium');
+    expect(screen.queryByRole('button', { name: 'إخفاء' })).not.toBeInTheDocument();
   });
 
   it('orders weeks and preserves separate official scores without averaging or treating draft scores as submitted', async () => {
@@ -117,16 +124,40 @@ describe('AssessmentsMasterPage review', () => {
       const url = String(input);
       if (url.includes('/auth/me')) return envelope(reviewer);
       if (url.includes('/review-groups')) return envelope(groups);
-      if (url.includes('/review-subgroup')) return envelope(response);
+      if (url.includes('/review-subgroup')) return envelope(url.includes('subgroup_id=11') ? response : detail(12));
       throw new Error(`Unexpected request: ${url}`);
     });
     renderWithProviders(<AssessmentsMasterPage />, { route: '/assessments' });
-    const matrix = await screen.findByRole('table', { name: 'Q1 · Internal Medicine' });
+    const matrix = await screen.findByRole('table', { name: 'Q1' });
     const rows = within(matrix).getAllByRole('row');
-    expect(within(rows[0]).getAllByRole('columnheader')[1]).toHaveTextContent('Week 1');
-    expect(within(rows[1]).getAllByRole('cell')[0]).toHaveTextContent('9 · 7');
-    expect(within(rows[1]).getAllByRole('cell')[0]).not.toHaveTextContent('10');
-    expect(within(rows[2]).getAllByRole('cell')[0]).toHaveTextContent('0');
-    expect(within(rows[1]).getByRole('rowheader')).toHaveClass('sticky', 'start-0');
+    expect(within(rows[1]).getAllByRole('columnheader')[0]).toHaveTextContent('Week 1');
+    expect(within(rows[2]).getAllByRole('cell')[0]).toHaveTextContent('9 · 7');
+    expect(within(rows[2]).getAllByRole('cell')[0]).not.toHaveTextContent('10');
+    expect(within(rows[3]).getAllByRole('cell')[0]).toHaveTextContent('0');
+    expect(within(rows[2]).getByRole('rowheader')).toHaveClass('sticky', 'start-0');
+  });
+
+  it('loads every subgroup matrix immediately with a single screen-wide hint', async () => {
+    const response = detail(11);
+    const secondResponse = { subgroup_id: 12, rotations: [{
+      ...response.rotations[0], weeks: [{ ...response.rotations[0].weeks[0], students: [
+        { student: student(3), supervisors: [], ready: true, assessments: [{ ...response.rotations[0].weeks[0].students[0].assessments[0], id: 5, score: '8.00' }] },
+      ] }],
+    }] };
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return envelope(reviewer);
+      if (url.includes('/review-groups')) return envelope(groups);
+      if (url.includes('subgroup_id=11')) return envelope(response);
+      if (url.includes('subgroup_id=12')) return envelope(secondResponse);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    renderWithProviders(<AssessmentsMasterPage />, { route: '/assessments' });
+    expect(await screen.findByRole('table', { name: 'Q1' })).toBeVisible();
+    const secondMatrix = await screen.findByRole('table', { name: 'Q2' });
+    expect(within(secondMatrix).getByText('8')).toBeVisible();
+    expect(screen.getAllByText('Scroll horizontally for all weeks. Select a mark to view its details.')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Weeks' })).not.toBeInTheDocument();
   });
 });

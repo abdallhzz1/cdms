@@ -40,7 +40,7 @@ const ar: typeof en = {
     create: 'إنشاء تقييم',
     noAssessments: 'لا توجد تقييمات مسجلة حالياً.',
     matrix: {
-      student: 'الطالب', week: 'الأسبوع', enlargePhoto: 'تكبير صورة الطالب',
+      student: 'الطالب', week: 'الأسبوع', enlargePhoto: 'تكبير صورة الطالب', course: 'المساق:',
       hint: 'مرّر أفقيًا لعرض جميع الأسابيع. اضغط على العلامة لعرض تفاصيلها.',
       pending: 'بانتظار التقييم', notSubmitted: 'غير مرسل', notAssigned: 'غير مكلّف بهذا الأسبوع',
       noStudents: 'لا يوجد طلاب مسجلون في هذه المجموعة.',

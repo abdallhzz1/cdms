@@ -51,7 +51,7 @@ const en = {
     create: 'Create Assessment',
     noAssessments: 'No assessments recorded currently.',
     matrix: {
-      student: 'Student', week: 'Week', enlargePhoto: 'Enlarge student photo',
+      student: 'Student', week: 'Week', enlargePhoto: 'Enlarge student photo', course: 'Course:',
       hint: 'Scroll horizontally for all weeks. Select a mark to view its details.',
       pending: 'Pending', notSubmitted: 'Not submitted', notAssigned: 'Not assigned this week',
       noStudents: 'No students are registered in this subgroup.',
