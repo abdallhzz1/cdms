@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { AssessmentsMasterPage } from './AssessmentsMasterPage';
@@ -34,7 +34,30 @@ const detail = (id: number) => ({
   ],
 });
 
-afterEach(() => { vi.restoreAllMocks(); window.localStorage.removeItem('cdms.locale'); document.cookie = 'XSRF-TOKEN=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'; });
+const mockMatrixWidth = (initialWidth: number) => {
+  const listeners = new Set<(width: number) => void>();
+  vi.stubGlobal('ResizeObserver', class {
+    private notify?: (width: number) => void;
+    constructor(private callback: ResizeObserverCallback) {}
+    observe(target: Element) {
+      this.notify = width => this.callback([{ target, contentRect: { width } } as ResizeObserverEntry], this as unknown as ResizeObserver);
+      listeners.add(this.notify);
+      this.notify(initialWidth);
+    }
+    disconnect() { if (this.notify) listeners.delete(this.notify); }
+  });
+  return (width: number) => act(() => listeners.forEach(notify => notify(width)));
+};
+
+const mockReview = (response: ReturnType<typeof detail>) => vi.spyOn(window, 'fetch').mockImplementation(async input => {
+  const url = String(input);
+  if (url.includes('/auth/me')) return envelope(reviewer);
+  if (url.includes('/review-groups')) return envelope(groups);
+  if (url.includes('/review-subgroup')) return envelope(url.includes('subgroup_id=11') ? response : detail(12));
+  throw new Error(`Unexpected request: ${url}`);
+});
+
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); window.localStorage.removeItem('cdms.locale'); document.cookie = 'XSRF-TOKEN=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'; });
 
 describe('AssessmentsMasterPage review', () => {
   it('does not fetch review data without permission', async () => {
@@ -156,8 +179,75 @@ describe('AssessmentsMasterPage review', () => {
     expect(await screen.findByRole('table', { name: 'Q1' })).toBeVisible();
     const secondMatrix = await screen.findByRole('table', { name: 'Q2' });
     expect(within(secondMatrix).getByText('8')).toBeVisible();
-    expect(screen.getAllByText('Scroll horizontally for all weeks. Select a mark to view its details.')).toHaveLength(1);
+    expect(screen.getAllByText('Select a mark for details. A dash means no submitted mark.')).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Weeks' })).not.toBeInTheDocument();
+  });
+
+  it('fits twelve compact weeks at desktop width without week navigation', async () => {
+    mockMatrixWidth(1000);
+    const response = detail(11);
+    response.rotations = [response.rotations[0]];
+    response.rotations[0].weeks = Array.from({ length: 12 }, (_, index) => ({ ...response.rotations[0].weeks[0], number: index + 1 }));
+    mockReview(response);
+    renderWithProviders(<AssessmentsMasterPage />, { route: '/assessments' });
+    const matrix = await screen.findByRole('table', { name: 'Q1' });
+    expect(matrix).toHaveClass('table-fixed');
+    expect(within(matrix).getAllByRole('columnheader')).toHaveLength(14);
+    expect(within(matrix).getByText('Week 12')).toBeVisible();
+    expect(screen.queryByRole('group', { name: 'Assessment week navigation' })).not.toBeInTheDocument();
+    expect(within(matrix).getAllByRole('columnheader')[0]).not.toHaveClass('min-w-[240px]');
+    expect(within(matrix).getAllByText('Pending').every(element => element.classList.contains('sr-only'))).toBe(true);
+  });
+
+  it('pages phone weeks without hiding students, mixing courses or losing access to score details', async () => {
+    window.localStorage.setItem('cdms.locale', 'ar');
+    const resize = mockMatrixWidth(350);
+    const response = detail(11);
+    const first = response.rotations[0].weeks[0];
+    const surgery = response.rotations[1];
+    response.rotations[0].weeks = Array.from({ length: 3 }, (_, index) => ({ ...first, number: index + 1 }));
+    surgery.weeks = Array.from({ length: 4 }, (_, index) => ({ ...first, number: index + 1, students: [
+      { ...first.students[0], assessments: [{ ...first.students[0].assessments[0], id: 10 + index, score: '7.00' }] },
+      // Roster membership must not disappear when the current page has no assessment for this student.
+      { student: student(5), supervisors: [], ready: false, assessments: [] },
+    ] }));
+    mockReview(response);
+    renderWithProviders(<AssessmentsMasterPage />, { route: '/assessments' });
+    const matrix = await screen.findByRole('table', { name: 'Q1' });
+    expect(within(matrix).getAllByRole('columnheader')).toHaveLength(4);
+    expect(within(matrix).getByText('طالب 5')).toBeVisible();
+    const navigation = screen.getByRole('group', { name: 'التنقل بين أسابيع التقييم' });
+    const previous = within(navigation).getByRole('button', { name: 'الأسابيع السابقة' });
+    const next = within(navigation).getByRole('button', { name: 'الأسابيع التالية' });
+    expect(previous).toBeDisabled();
+    expect(within(navigation).getByText('1–2 / 7')).toBeVisible();
+    expect(within(matrix).getByText('22010001')).toHaveClass('text-right');
+
+    await userEvent.click(next);
+    expect(within(navigation).getByText('3–4 / 7')).toBeVisible();
+    expect(within(matrix).getByRole('columnheader', { name: 'المساق: الباطني' })).toHaveAttribute('colspan', '1');
+    expect(within(matrix).getByRole('columnheader', { name: 'المساق: الجراحة' })).toHaveAttribute('colspan', '1');
+    const firstStudent = within(matrix).getAllByRole('row')[2];
+    const cells = within(firstStudent).getAllByRole('cell');
+    expect(cells[0]).toHaveTextContent('9');
+    expect(cells[1]).toHaveTextContent('7');
+    await userEvent.click(within(matrix).getByRole('button', { name: 'طالب 1 · الأسبوع 1 · Q1 · الجراحة' }));
+    expect(screen.getByText('7.0 / 10')).toBeVisible();
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(next);
+    await userEvent.click(next);
+    expect(within(navigation).getByText('7–7 / 7')).toBeVisible();
+    expect(next).toBeDisabled();
+    expect(within(matrix).getByText('طالب 2')).toBeVisible();
+    await userEvent.click(previous);
+    expect(within(navigation).getByText('5–6 / 7')).toBeVisible();
+
+    resize(1000);
+    expect(screen.queryByRole('group', { name: 'التنقل بين أسابيع التقييم' })).not.toBeInTheDocument();
+    expect(within(matrix).getAllByRole('columnheader')).toHaveLength(10);
+    resize(350);
+    expect(within(matrix).getAllByRole('columnheader')).toHaveLength(4);
+    expect(screen.getByRole('group', { name: 'التنقل بين أسابيع التقييم' })).toBeVisible();
   });
 });

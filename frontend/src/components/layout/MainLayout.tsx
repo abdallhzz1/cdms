@@ -1,8 +1,11 @@
 import { useState, type ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 
 export function MainLayout({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  const isAssessmentMatrix = pathname.replace(/\/$/, '') === '/assessments';
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem('cdms.sidebar.collapsed') === '1');
 
@@ -22,7 +25,7 @@ export function MainLayout({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <Header onToggleMobileNav={() => setIsMobileNavOpen(prev => !prev)} />
         <main className="w-full min-w-0 flex-1 p-3 sm:p-5 lg:p-7">
-          <div className="mx-auto max-w-7xl w-full">
+          <div className={`mx-auto w-full min-w-0 ${isAssessmentMatrix ? '' : 'max-w-7xl'}`}>
             {children}
           </div>
         </main>

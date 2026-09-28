@@ -52,7 +52,8 @@ const en = {
     noAssessments: 'No assessments recorded currently.',
     matrix: {
       student: 'Student', week: 'Week', enlargePhoto: 'Enlarge student photo', course: 'Course:',
-      hint: 'Scroll horizontally for all weeks. Select a mark to view its details.',
+      hint: 'Select a mark for details. A dash means no submitted mark.',
+      weekNavigation: 'Assessment week navigation', previousWeeks: 'Previous weeks', nextWeeks: 'Next weeks', visibleColumns: 'Week columns',
       pending: 'Pending', notSubmitted: 'Not submitted', notAssigned: 'Not assigned this week',
       noStudents: 'No students are registered in this subgroup.',
     },
