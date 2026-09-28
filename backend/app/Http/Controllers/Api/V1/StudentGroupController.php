@@ -20,7 +20,8 @@ class StudentGroupController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $groups = StudentGroup::with(['academicYear', 'subgroups'])
+        $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+        $groups = $scope->groups(StudentGroup::query())->with(['academicYear', 'subgroups' => fn ($query) => $scope->subgroups($query)])
             ->when($request->query('academic_year_id'), fn ($q, $y) => $q->where('academic_year_id', $y))
             ->when($request->query('academic_level'), fn ($q, $l) => $q->where('academic_level', $l))
             ->orderBy('academic_level')
@@ -45,6 +46,8 @@ class StudentGroupController extends Controller
      */
     public function store(StoreStudentGroupRequest $request): JsonResponse
     {
+        // Cohort-wide membership is not owned by an individual course department.
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $data = $request->validated();
         $subgroupsData = $data['subgroups'] ?? [];
         unset($data['subgroups']);
@@ -73,9 +76,11 @@ class StudentGroupController extends Controller
      */
     public function show(StudentGroup $student_group): JsonResponse
     {
+        $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+        $scope->authorizeRecord($scope->groups(StudentGroup::query()), $student_group->id);
         return ApiResponse::success(
             new StudentGroupResource(
-                $student_group->load('subgroups', 'academicYear')
+                $student_group->load(['subgroups' => fn ($query) => $scope->subgroups($query), 'academicYear'])
             )
         );
     }

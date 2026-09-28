@@ -32,7 +32,7 @@ class OperationalReportService
      */
     private function baseAssignmentQuery(int $versionId): Builder
     {
-        return StudentClinicalAssignment::where('distribution_version_id', $versionId)
+        return app(\App\Services\DepartmentHeadCourseScope::class)->assignments(StudentClinicalAssignment::query())->where('distribution_version_id', $versionId)
             ->with([
                 'student',
                 'rotationBlock.rotation',
@@ -111,7 +111,7 @@ class OperationalReportService
      */
     public function getTrainingSiteCapacityData(int $versionId, int $rotationId, int $siteId = null, array $filters = []): array
     {
-        $query = StudentClinicalAssignment::where('distribution_version_id', $versionId)
+        $query = app(\App\Services\DepartmentHeadCourseScope::class)->assignments(StudentClinicalAssignment::query())->where('distribution_version_id', $versionId)
             ->join('rotation_blocks', 'student_clinical_assignments.rotation_block_id', '=', 'rotation_blocks.id');
 
         if ($siteId) {
@@ -136,6 +136,8 @@ class OperationalReportService
             ->get()->keyBy('training_site_id');
         
         $siteQuery = TrainingSite::query();
+        $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+        if ($scope->departmentIds() !== null) $siteQuery->whereIn('id', $scope->publishedAssignments()->select('training_site_id'));
         if ($siteId) {
             $siteQuery->where('id', $siteId);
         }
@@ -207,7 +209,7 @@ class OperationalReportService
         $assignedStudentIds = $assignments->pluck('student_id')->unique()->toArray();
         $unassignedIds = $this->approvalService->getUnassignedStudentIds($version, $assignedStudentIds);
         
-        $query = Student::whereIn('id', $unassignedIds);
+        $query = app(\App\Services\DepartmentHeadCourseScope::class)->students(Student::query())->whereIn('id', $unassignedIds);
 
         if (!empty($filters['search'])) {
             $search = '%' . $filters['search'] . '%';

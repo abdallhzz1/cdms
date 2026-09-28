@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, ApiError } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
+import { isDepartmentScopedHead } from "@/features/departments/courseOwnership";
 import { useI18n } from "@/i18n/I18nContext";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { LoadingState } from "@/components/ui/LoadingState";
@@ -84,7 +85,8 @@ export function ClinicalSchedulePage() {
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
   const hasAccess = can("clinical_schedule.view");
-  const canManagePortal = can("distribution.student_portal.manage");
+  const departmentScoped = isDepartmentScopedHead(user?.roles);
+  const canManagePortal = !departmentScoped && can("distribution.student_portal.manage");
 
   const params = new URLSearchParams({ page: String(page), per_page: "50" });
   if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
@@ -204,8 +206,8 @@ export function ClinicalSchedulePage() {
   );
   const visibleLevels = Object.entries(levels).filter(
     ([value]) =>
-      !user?.roles.includes("RTA") ||
-      (user.assigned_levels ?? []).includes(value),
+      departmentScoped ? (options?.rotations??[]).some(rotation=>rotation.academic_level===value) :
+      user?.roles.some(role=>['SYS_ADMIN','DEAN','VICE_DEAN','CLINICAL_DIRECTOR'].includes(role)) || !user?.roles.includes("RTA") || (user.assigned_levels ?? []).includes(value),
   );
   const formatDate = (value: string | null | undefined) =>
     value

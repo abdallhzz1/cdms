@@ -53,7 +53,7 @@ class DistributionVersionController extends Controller
         // Get total eligible students per rotation's academic year
         $rotationAcademicYears = $versions->pluck('rotation.academic_year_id')->filter()->unique()->values()->toArray();
 
-        $eligibleCounts = StudentGroupAssignment::query()
+        $eligibleCounts = app(\App\Services\DepartmentHeadCourseScope::class)->rosters(StudentGroupAssignment::query())
             ->join('students', 'students.id', '=', 'student_group_assignments.student_id')
             ->join('student_subgroups', 'student_subgroups.id', '=', 'student_group_assignments.student_subgroup_id')
             ->join('student_groups', 'student_groups.id', '=', 'student_subgroups.student_group_id')
@@ -103,12 +103,13 @@ class DistributionVersionController extends Controller
         ]);
 
         $rotation = Rotation::findOrFail($data['rotation_id']);
+        $this->authorizeRotationCourseAccess($rotation);
         $levelScope = $this->getEffectiveAcademicLevelScope();
         abort_if($levelScope !== null && ! in_array($rotation->academic_level, $levelScope, true), 404);
         // Distribution versions are department-owned records. An RTA may follow
         // their assigned cohort across operational screens, but a department-
         // scoped role must not create a version for another department.
-        $departmentId = $this->getUserDepartmentId();
+        $departmentId = $this->getLegacyDistributionDepartmentId();
         if ($departmentId && !$rotation->departments()->whereKey($departmentId)->exists()) {
             throw new \Illuminate\Auth\Access\AuthorizationException('This action is unauthorized.');
         }
@@ -141,6 +142,7 @@ class DistributionVersionController extends Controller
         $assignedStudentIds = $assignments->pluck('student_id')->unique()->toArray();
 
         $unassignedIds = $this->approvalService->getUnassignedStudentIds($version, $assignedStudentIds);
+        $unassignedIds = app(\App\Services\DepartmentHeadCourseScope::class)->visibleStudentIds($unassignedIds);
 
         $violations = $this->stateValidator->getViolations($version, $assignments->toArray());
 
@@ -194,7 +196,7 @@ class DistributionVersionController extends Controller
 
         $unassignedIds = $this->approvalService->getUnassignedStudentIds($version, $assignedStudentIds);
 
-        $students = Student::with(['groupAssignments' => function ($q) use ($version) {
+        $students = $this->applyStudentAccessScope(Student::query())->with(['groupAssignments' => function ($q) use ($version) {
             $q->where('academic_year_id', $version->rotation->academic_year_id)
               ->current()
               ->whereHas('subgroup.group', fn ($group) => $group->where('academic_level', $version->rotation->academic_level))
@@ -252,12 +254,13 @@ class DistributionVersionController extends Controller
 
     private function applyDistributionVersionScope($query): void
     {
+        app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation($query, 'rotation');
         $levelScope = $this->getEffectiveAcademicLevelScope();
         if ($levelScope !== null) {
             $query->whereHas('rotation', fn ($rotation) => $rotation->whereIn('academic_level', $levelScope));
         }
 
-        $departmentId = $this->getUserDepartmentId();
+        $departmentId = $this->getLegacyDistributionDepartmentId();
         if ($departmentId) {
             $query->whereHas('rotation.departments', fn ($q) => $q->whereKey($departmentId));
         }
@@ -267,9 +270,10 @@ class DistributionVersionController extends Controller
     {
         $version->loadMissing('rotation');
         $levelScope = $this->getEffectiveAcademicLevelScope();
+        if ($version->rotation) $this->authorizeRotationCourseAccess($version->rotation);
         abort_if($levelScope !== null && (! $version->rotation || ! in_array($version->rotation->academic_level, $levelScope, true)), 404);
 
-        $departmentId = $this->getUserDepartmentId();
+        $departmentId = $this->getLegacyDistributionDepartmentId();
         if ($departmentId && !$version->rotation()->whereHas(
             'departments',
             fn ($q) => $q->whereKey($departmentId)

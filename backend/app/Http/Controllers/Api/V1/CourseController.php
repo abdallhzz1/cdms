@@ -9,21 +9,39 @@ use App\Models\Course;
 use App\Models\CourseAssessmentComponent;
 use App\Models\CourseLearningOutcome;
 use App\Models\CourseProgramOutcomeMapping;
+use App\Models\Department;
+use App\Models\AuditLog;
+use App\Services\DepartmentHeadCourseScope;
+use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class CourseController extends Controller
 {
     use HasSafePagination;
+    use ScopesByDepartmentAndLevel;
+
+    public function departmentOptions(): JsonResponse
+    {
+        $ids = app(DepartmentHeadCourseScope::class)->departmentIds();
+        return ApiResponse::success([
+            'departments' => Department::query()->when($ids !== null, fn ($query) => $query->whereIn('id', $ids))
+                ->orderBy('name_ar')->get(['id', 'code', 'name_ar', 'name_en', 'is_active']),
+            'can_assign_departments' => $ids === null,
+            'department_scoped' => $ids !== null,
+            'academic_levels' => $this->applyCourseAccessScope(Course::query())->distinct()->orderBy('academic_level')->pluck('academic_level'),
+        ]);
+    }
 
     public function index(Request $request): JsonResponse {
         $perPage = $this->perPage($request, 100, 200);
         $hasSemester = Schema::hasColumn('courses', 'semester');
 
-        $query = Course::query()
+        $query = $this->applyCourseAccessScope(Course::query())->with('departments:id,code,name_ar,name_en')
             ->when($request->filled('search'), function ($q) use ($request) {
                 $search = $request->query('search');
                 $q->where(function ($s) use ($search) {
@@ -95,6 +113,8 @@ class CourseController extends Controller
             'course_type' => 'sometimes|string|in:major,minor',
             'is_active' => 'boolean',
             'description' => 'nullable|string',
+            'department_ids' => ['sometimes', 'array', 'max:20'],
+            'department_ids.*' => ['integer', 'distinct', 'exists:departments,id'],
         ];
         if ($hasSemester) {
             $rules['semester'] = 'sometimes|integer|in:1,2';
@@ -105,20 +125,33 @@ class CourseController extends Controller
         if ($hasSemester) {
             $validated['semester'] = null;
         }
-        $course = Course::create($validated);
+        $departmentIds = $validated['department_ids'] ?? [];
+        unset($validated['department_ids']);
+        $this->validateDepartmentOwnership($departmentIds);
+        $levels = $this->getEffectiveAcademicLevelScope();
+        abort_if($levels !== null && ! in_array($validated['academic_level'], $levels, true), 403);
+        $course = DB::transaction(function () use ($validated, $departmentIds) {
+            $course = Course::create($validated);
+            $this->syncDepartments($course, $departmentIds);
+            return $course->load('departments:id,code,name_ar,name_en');
+        });
         return ApiResponse::success($course, 'Course created.', [], 201);
     }
 
     public function show(Course $course): JsonResponse {
+        $this->authorizeCourseAccess($course);
         return ApiResponse::success(
-            $course->load(['assessmentComponents', 'learningOutcomes', 'programOutcomeMappings'])
+            $course->load(['departments:id,code,name_ar,name_en', 'assessmentComponents', 'learningOutcomes', 'programOutcomeMappings'])
         );
     }
 
     public function update(Request $request, Course $course): JsonResponse {
+        $this->authorizeCourseAccess($course);
         $hasSemester = Schema::hasColumn('courses', 'semester');
         $rules = [
             'code' => ['sometimes', 'required', 'string', 'max:30', Rule::unique('courses', 'code')->ignore($course->id)],
+            'department_ids' => ['sometimes', 'array', 'max:20'],
+            'department_ids.*' => ['integer', 'distinct', 'exists:departments,id'],
             'name_ar' => 'sometimes|required|string|max:255',
             'name_en' => 'nullable|string|max:255',
             'credit_hours' => 'sometimes|required|integer|min:1',
@@ -132,11 +165,21 @@ class CourseController extends Controller
         }
 
         $validated = $request->validate($rules);
-        $course->update($validated);
+        $departmentIds = $validated['department_ids'] ?? null;
+        unset($validated['department_ids']);
+        if ($departmentIds !== null) $this->validateDepartmentOwnership($departmentIds, $course);
+        $levels = $this->getEffectiveAcademicLevelScope();
+        abort_if($levels !== null && isset($validated['academic_level']) && ! in_array($validated['academic_level'], $levels, true), 403);
+        DB::transaction(function () use ($course, $validated, $departmentIds) {
+            $course->update($validated);
+            if ($departmentIds !== null) $this->syncDepartments($course, $departmentIds);
+        });
+        $course->load('departments:id,code,name_ar,name_en');
         return ApiResponse::success($course, 'Course updated successfully.');
     }
 
     public function destroy(Course $course): JsonResponse {
+        $this->authorizeCourseAccess($course);
         $course->update(['is_active' => false]);
         return ApiResponse::success($course->fresh(), 'Course archived safely.');
     }
@@ -145,6 +188,7 @@ class CourseController extends Controller
      * Assessment Components Sub-Resource API
      */
     public function addAssessmentComponent(Request $request, Course $course): JsonResponse {
+        $this->authorizeCourseAccess($course);
         throw ValidationException::withMessages([
             'assessment_components' => ['خطة التقييم موحدة: التقييم السريري 20%، وOSCE بنسبة 40%، والامتحان النظري 40%.'],
         ]);
@@ -152,6 +196,7 @@ class CourseController extends Controller
     }
 
     public function updateAssessmentComponent(Request $request, Course $course, int $componentId): JsonResponse {
+        $this->authorizeCourseAccess($course);
         $component = $course->assessmentComponents()->findOrFail($componentId);
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
@@ -174,6 +219,7 @@ class CourseController extends Controller
     }
 
     public function deleteAssessmentComponent(Course $course, int $componentId): JsonResponse {
+        $this->authorizeCourseAccess($course);
         $component = $course->assessmentComponents()->findOrFail($componentId);
         if (in_array($component->code, ['clinical', 'osce', 'written'], true)) {
             throw ValidationException::withMessages([
@@ -188,6 +234,7 @@ class CourseController extends Controller
      * Learning Outcomes (ILOs) Sub-Resource API
      */
     public function addLearningOutcome(Request $request, Course $course): JsonResponse {
+        $this->authorizeCourseAccess($course);
         $validated = $request->validate([
             'outcome_code' => ['required', 'string', 'max:50', Rule::unique('course_learning_outcomes', 'outcome_code')->where('course_id', $course->id)],
             'text_ar' => 'nullable|string',
@@ -203,6 +250,7 @@ class CourseController extends Controller
     }
 
     public function updateLearningOutcome(Request $request, Course $course, int $outcomeId): JsonResponse {
+        $this->authorizeCourseAccess($course);
         $outcome = $course->learningOutcomes()->findOrFail($outcomeId);
         $validated = $request->validate([
             'outcome_code' => ['sometimes', 'required', 'string', 'max:50', Rule::unique('course_learning_outcomes', 'outcome_code')->where('course_id', $course->id)->ignore($outcome->id)],
@@ -219,6 +267,7 @@ class CourseController extends Controller
     }
 
     public function deleteLearningOutcome(Course $course, int $outcomeId): JsonResponse {
+        $this->authorizeCourseAccess($course);
         $outcome = $course->learningOutcomes()->findOrFail($outcomeId);
         $outcome->delete();
         return ApiResponse::success(null, 'Learning outcome deleted.');
@@ -228,6 +277,7 @@ class CourseController extends Controller
      * Program Outcome Mappings (PLOs) Sub-Resource API
      */
     public function addProgramOutcomeMapping(Request $request, Course $course): JsonResponse {
+        $this->authorizeCourseAccess($course);
         $validated = $request->validate([
             'program_outcome_code' => ['required', 'string', 'max:50', Rule::exists('program_outcomes', 'code')->where('is_active', true)],
             'mapping_level' => ['nullable', Rule::in(['High', 'Medium', 'Low', 'Introduced', 'Reinforced', 'Mastered'])],
@@ -241,6 +291,7 @@ class CourseController extends Controller
     }
 
     public function deleteProgramOutcomeMapping(Course $course, int $mappingId): JsonResponse {
+        $this->authorizeCourseAccess($course);
         $mapping = $course->programOutcomeMappings()->findOrFail($mappingId);
         $mapping->delete();
         return ApiResponse::success(null, 'Program outcome mapping deleted.');
@@ -252,6 +303,7 @@ class CourseController extends Controller
      */
     public function bulkImport(Request $request): JsonResponse
     {
+        abort_if(app(DepartmentHeadCourseScope::class)->departmentIds() !== null, 403);
         $request->validate(['courses' => ['required', 'array', 'min:1', 'max:1000']]);
 
         $hasSemester = Schema::hasColumn('courses', 'semester');
@@ -338,6 +390,36 @@ class CourseController extends Controller
             'updated'  => $updated,
             'errors'   => $errors,
         ], "تمت معالجة " . ($imported + $updated) . " مساق بنجاح.");
+    }
+
+    private function validateDepartmentOwnership(array $ids, ?Course $course = null): void
+    {
+        $scope = app(DepartmentHeadCourseScope::class)->departmentIds();
+        if ($scope === null) return;
+        $ids = array_map('intval', $ids);
+        if ($course) {
+            $current = $course->departments()->pluck('departments.id')->map(fn ($id) => (int) $id)->all();
+            sort($current);
+            sort($ids);
+            abort_unless($ids === $current, 403);
+        } else {
+            abort_if(empty($ids) || array_diff($ids, $scope), 403);
+        }
+    }
+
+    private function syncDepartments(Course $course, array $ids): void
+    {
+        $old = $course->departments()->pluck('departments.id')->map(fn ($id) => (int) $id)->all();
+        $new = array_map('intval', $ids);
+        sort($old);
+        sort($new);
+        if ($old === $new) return;
+        $course->departments()->sync($new);
+        AuditLog::create([
+            'user_id' => auth()->id(), 'action' => 'course.departments.changed',
+            'entity_type' => Course::class, 'entity_id' => $course->id,
+            'changes' => ['old_department_ids' => $old, 'new_department_ids' => $new],
+        ]);
     }
 
     private function validateAssessmentWeight(Course $course, float $weight, ?int $exceptComponentId = null): void

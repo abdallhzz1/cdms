@@ -20,7 +20,7 @@ class ReportCenterService
 {
     public function catalog(): array
     {
-        return [
+        $catalog = [
             ['key' => 'student_directory', 'category' => 'academic', 'title' => 'دليل الطلبة الأكاديمي', 'description' => 'قائمة الطلبة حسب السنة والحالة الأكاديمية والمجموعة الرئيسية.'],
             ['key' => 'group_rosters', 'category' => 'clinical', 'title' => 'قوائم مجموعات الطلبة', 'description' => 'كشف الطلبة المسجلين في المجموعات الرئيسية لكل عام وسنة سريرية.'],
             ['key' => 'clinical_schedule', 'category' => 'clinical', 'title' => 'الجدول السريري المنشور', 'description' => 'أماكن دوام الطلبة والمجموعات والمستشفيات والأطباء في الجداول المنشورة.'],
@@ -32,6 +32,9 @@ class ReportCenterService
             ['key' => 'quality_plans', 'category' => 'quality', 'title' => 'خطط التحسين والجودة', 'description' => 'متابعة ملاحظات الجودة وإجراءات التحسين والمسؤوليات والمواعيد.'],
             ['key' => 'data_gaps', 'category' => 'monitoring', 'title' => 'نواقص البيانات والتشغيل', 'description' => 'تقرير رقابي يجمع الطلبة دون مجموعات أو توزيع، والمشرفين دون مستشفيات، والتكليفات دون طبيب.'],
         ];
+        // College-wide quality plans have no department owner to scope safely.
+        return app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null
+            ? $catalog : array_values(array_filter($catalog, fn ($report) => $report['key'] !== 'quality_plans'));
     }
 
     public function hasReport(string $key): bool
@@ -62,6 +65,7 @@ class ReportCenterService
         $vacantRows = CourseScheduleRow::query()
             ->where('row_type', 'vacancy')
             ->whereHas('version', fn ($query) => $query->where('status', 'published')->where('is_current', true));
+        app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation($vacantRows, 'version.rotation');
         $vacantRows->when($filters['academic_year_id'] ?? null, fn ($query, $year) => $query->whereHas('version.rotation', fn ($rotation) => $rotation->where('academic_year_id', $year)));
         $vacantRows->when($filters['academic_level'] ?? null, fn ($query, $level) => $query->whereHas('version.rotation', fn ($rotation) => $rotation->where('academic_level', $level)));
         $vacantRows->when($filters['clinical_period_id'] ?? null, fn ($query, $period) => $query->whereHas('version.rotation', fn ($rotation) => $rotation->where('clinical_period_id', $period)));
@@ -201,6 +205,7 @@ class ReportCenterService
     private function grades(array $filters): array
     {
         $query = GradeEntry::query()->with(['enrollment.student', 'enrollment.course', 'enrollment.academicYear']);
+        app(\App\Services\DepartmentHeadCourseScope::class)->grades($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->whereHas('enrollment', fn ($e) => $e->where('academic_year_id', $year)));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('enrollment.student', fn ($s) => $s->where('academic_level', $level)));
         $rows = $query->get()->map(fn (GradeEntry $grade) => [
@@ -222,6 +227,7 @@ class ReportCenterService
     private function attendance(array $filters): array
     {
         $query = AttendanceRecord::query()->with(['student', 'session.trainingSite', 'session.rotationBlock.rotation.clinicalPeriod']);
+        app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation($query, 'session.rotationBlock.rotation');
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->whereHas('student', fn ($s) => $s->where('academic_year_id', $year)));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('student', fn ($s) => $s->where('academic_level', $level)));
         $query->when($filters['clinical_period_id'] ?? null, fn ($q, $period) => $q->whereHas('session.rotationBlock.rotation', fn ($r) => $r->where('clinical_period_id', $period)));
@@ -242,6 +248,7 @@ class ReportCenterService
     private function clinicalAssessments(array $filters): array
     {
         $query = ClinicalAssessment::query()->with(['student', 'evaluator', 'session.rotationBlock.rotation.clinicalPeriod']);
+        app(\App\Services\DepartmentHeadCourseScope::class)->assessments($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->whereHas('student', fn ($s) => $s->where('academic_year_id', $year)));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('student', fn ($s) => $s->where('academic_level', $level)));
         $query->when($filters['clinical_period_id'] ?? null, fn ($q, $period) => $q->whereHas('session.rotationBlock.rotation', fn ($r) => $r->where('clinical_period_id', $period)));
@@ -334,23 +341,28 @@ class ReportCenterService
 
     private function supervisorsQuery()
     {
-        return Person::query()->whereHas('user.roles', fn ($query) => $query->where('code', 'CLINICAL_SUPERVISOR'));
+        $query = Person::query()->whereHas('user.roles', fn ($query) => $query->where('code', 'CLINICAL_SUPERVISOR'));
+        $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+        return $scope->departmentIds() === null ? $query : $query->whereIn('id', $scope->publishedAssignments()->select('supervisor_id'));
     }
 
     private function filterStudents($query, array $filters): void
     {
+        app(\App\Services\DepartmentHeadCourseScope::class)->students($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->where('academic_year_id', $year));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->where('academic_level', $level));
     }
 
     private function filterRosters($query, array $filters): void
     {
+        app(\App\Services\DepartmentHeadCourseScope::class)->rosters($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->whereHas('cycle', fn ($c) => $c->where('academic_year_id', $year)));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('cycle', fn ($c) => $c->where('academic_level', $level)));
     }
 
     private function filterAssignments($query, array $filters): void
     {
+        app(\App\Services\DepartmentHeadCourseScope::class)->assignments($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->whereHas('distributionVersion.rotation', fn ($r) => $r->where('academic_year_id', $year)));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('distributionVersion.rotation', fn ($r) => $r->where('academic_level', $level)));
         $query->when($filters['clinical_period_id'] ?? null, fn ($q, $period) => $q->whereHas('distributionVersion.rotation', fn ($r) => $r->where('clinical_period_id', $period)));
@@ -358,6 +370,7 @@ class ReportCenterService
 
     private function filterCourseReports($query, array $filters): void
     {
+        app(\App\Services\DepartmentHeadCourseScope::class)->courseRecords($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->where('academic_year_id', $year));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('course', fn ($c) => $c->where('academic_level', $level)));
     }

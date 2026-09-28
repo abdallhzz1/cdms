@@ -67,6 +67,11 @@ class Department extends Model
         return $this->belongsToMany(Rotation::class);
     }
 
+    public function courses()
+    {
+        return $this->belongsToMany(Course::class);
+    }
+
     public function rotationBlocks()
     {
         return $this->hasMany(RotationBlock::class);

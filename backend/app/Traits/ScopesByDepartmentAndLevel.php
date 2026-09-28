@@ -7,6 +7,9 @@ use App\Models\DepartmentHeadAssignment;
 use App\Models\Person;
 use App\Models\Student;
 use App\Models\User;
+use App\Models\Course;
+use App\Models\Rotation;
+use App\Services\DepartmentHeadCourseScope;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -33,6 +36,10 @@ trait ScopesByDepartmentAndLevel
 
         if ($roleCodes->intersect(['SYS_ADMIN', 'DEAN', 'VICE_DEAN', 'CLINICAL_DIRECTOR'])->isNotEmpty()) {
             return $query;
+        }
+
+        if ($roleCodes->contains('DEPARTMENT_HEAD')) {
+            return app(DepartmentHeadCourseScope::class)->students($query);
         }
 
         // A management/cohort role takes precedence over an additional personal
@@ -84,6 +91,10 @@ trait ScopesByDepartmentAndLevel
 
     protected function applyDepartmentAccessScope(Builder $query, string $column = 'department_id'): Builder
     {
+        $scope = app(DepartmentHeadCourseScope::class);
+        if ($scope->departmentIds() !== null && $query->getModel() instanceof \App\Models\StudentClinicalAssignment) {
+            return $scope->assignments($query);
+        }
         $departmentId = $this->getUserDepartmentId();
 
         return $departmentId ? $query->where($column, $departmentId) : $query;
@@ -91,6 +102,11 @@ trait ScopesByDepartmentAndLevel
 
     protected function authorizeDepartmentAccess(?int $departmentId): void
     {
+        $ids = app(DepartmentHeadCourseScope::class)->departmentIds();
+        if ($ids !== null) {
+            if ($departmentId === null || ! in_array($departmentId, $ids, true)) throw new AuthorizationException();
+            return;
+        }
         $scopedDepartmentId = $this->getUserDepartmentId();
         if ($scopedDepartmentId && $departmentId !== $scopedDepartmentId) {
             throw new AuthorizationException('This action is unauthorized.');
@@ -130,6 +146,12 @@ trait ScopesByDepartmentAndLevel
         // Global roles have unscoped access across all departments
         if ($roleCodes->intersect(['SYS_ADMIN', 'DEAN', 'VICE_DEAN', 'CLINICAL_DIRECTOR'])->isNotEmpty()) {
             return null;
+        }
+
+        if ($roleCodes->contains('DEPARTMENT_HEAD')) {
+            $ids = app(DepartmentHeadCourseScope::class)->departmentIds($user);
+            if (empty($ids)) throw new AuthorizationException();
+            return $ids[0];
         }
 
         // Users without a department-scoped role are global for record
@@ -190,6 +212,11 @@ trait ScopesByDepartmentAndLevel
 
         // RTA assignment is authoritative: without an explicit cohort the RTA
         // must not inherit every cohort served by the department.
+        if ($user->hasRole('DEPARTMENT_HEAD')) {
+            return $this->normalizeLevels(app(DepartmentHeadCourseScope::class)->courses(Course::query())
+                ->distinct()->pluck('academic_level')->all());
+        }
+
         if ($user->hasRole('RTA')) {
             return !empty($user->assigned_levels) && is_array($user->assigned_levels)
                 ? $this->normalizeLevels($user->assigned_levels)
@@ -254,7 +281,36 @@ trait ScopesByDepartmentAndLevel
             ? $user->roles->pluck('code')
             : $user->roles()->pluck('code');
 
-        return $roleCodes->contains('RTA') ? null : $this->getUserDepartmentId();
+        // Clinical scope for heads now follows explicit course ownership. Old
+        // placement.department_id may be null or stale; it is not authoritative.
+        return $roleCodes->contains('RTA') || $roleCodes->contains('DEPARTMENT_HEAD') ? null : $this->getUserDepartmentId();
+    }
+
+    protected function applyCourseAccessScope(Builder $query): Builder
+    {
+        $query = app(DepartmentHeadCourseScope::class)->courses($query);
+        $levels = $this->getEffectiveAcademicLevelScope();
+        return $levels === null ? $query : $query->whereIn('courses.academic_level', $levels);
+    }
+
+    protected function authorizeCourseAccess(Course $course): void
+    {
+        app(DepartmentHeadCourseScope::class)->authorizeCourse($course);
+        $levels = $this->getEffectiveAcademicLevelScope();
+        if ($levels !== null && ! in_array((string) $course->academic_level, $levels, true)) throw new AuthorizationException();
+    }
+
+    protected function getLegacyDistributionDepartmentId(): ?int
+    {
+        return app(DepartmentHeadCourseScope::class)->departmentIds() !== null
+            ? null : $this->getUserDepartmentId();
+    }
+
+    protected function authorizeRotationCourseAccess(Rotation $rotation): void
+    {
+        app(DepartmentHeadCourseScope::class)->authorizeRotation($rotation);
+        $levels = $this->getEffectiveAcademicLevelScope();
+        if ($levels !== null && ! in_array((string) $rotation->academic_level, $levels, true)) throw new AuthorizationException();
     }
 
     /**

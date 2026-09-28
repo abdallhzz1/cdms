@@ -12,6 +12,16 @@
  * plain `string` here is both simpler and correct.
  */
 const en = {
+  courseDepartments: {
+    title: 'Responsible departments',
+    hint: 'Department heads can only access these courses and their clinical records. Leave shared College courses unassigned.',
+    unassigned: 'College / unassigned',
+    loadingScope: 'Loading your department scope…',
+    scopeError: 'Could not load your department scope. Tap to retry.',
+    noStudents: 'No current students are assigned to your department’s published course schedules.',
+    scopedHint: 'Only courses owned by your assigned department are shown.',
+    readOnly: 'Department ownership is maintained by an authorized global course manager.',
+  },
 
   calendar: {
     title: 'Academic Calendar',

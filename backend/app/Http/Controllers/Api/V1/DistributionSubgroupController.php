@@ -22,10 +22,10 @@ class DistributionSubgroupController extends Controller
         $this->authorizeVersionAccess($version);
         $version->loadMissing('rotation');
 
-        $subgroups = StudentSubgroup::query()
+        $subgroups = app(\App\Services\DepartmentHeadCourseScope::class)->subgroups(StudentSubgroup::query())
             ->with([
                 'group',
-                'assignments' => fn ($query) => $query
+                'assignments' => fn ($query) => app(\App\Services\DepartmentHeadCourseScope::class)->rosters($query)
                     ->current()
                     ->where('academic_year_id', $version->rotation->academic_year_id)
                     ->whereHas('student', fn ($student) => $student->where('registration_status', 'active'))
@@ -108,6 +108,8 @@ class DistributionSubgroupController extends Controller
     public function store(Request $request, DistributionVersion $version, StudentSubgroup $subgroup): JsonResponse
     {
         $this->authorizeVersionAccess($version);
+        $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+        $scope->authorizeRecord($scope->subgroups(StudentSubgroup::query()), $subgroup->id);
         $data = $this->validated($request);
         $result = $this->service->create(
             $version,
@@ -124,6 +126,8 @@ class DistributionSubgroupController extends Controller
     public function update(Request $request, DistributionVersion $version, StudentSubgroup $subgroup): JsonResponse
     {
         $this->authorizeVersionAccess($version);
+        $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+        $scope->authorizeRecord($scope->subgroups(StudentSubgroup::query()), $subgroup->id);
         $data = $this->validated($request);
         $result = $this->service->update(
             $version,
@@ -158,7 +162,10 @@ class DistributionSubgroupController extends Controller
 
     private function authorizeVersionAccess(DistributionVersion $version): void
     {
-        $departmentId = $this->getUserDepartmentId();
+        $version->loadMissing('rotation');
+        abort_unless($version->rotation, 404);
+        $this->authorizeRotationCourseAccess($version->rotation);
+        $departmentId = $this->getLegacyDistributionDepartmentId();
         if ($departmentId && !$version->rotation()->whereHas(
             'departments',
             fn ($query) => $query->whereKey($departmentId),

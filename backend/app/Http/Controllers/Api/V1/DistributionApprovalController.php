@@ -84,5 +84,6 @@ class DistributionApprovalController extends Controller
         abort_unless($version->rotation, 404);
         $levelScope = $this->getEffectiveAcademicLevelScope();
         abort_if($levelScope !== null && ! in_array($version->rotation->academic_level, $levelScope, true), 404);
+        $this->authorizeRotationCourseAccess($version->rotation);
     }
 }

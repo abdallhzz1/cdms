@@ -10,6 +10,7 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
 import { Button } from '@/components/ui/Button';
 import { studentEditPath } from '@/features/students/studentEditModel';
+import { isDepartmentScopedHead, visibleDepartmentLevels } from '@/features/departments/courseOwnership';
 import { 
   Search, ChevronRight, ChevronLeft, UserPlus, X, 
   CheckCircle, AlertCircle, FileSpreadsheet, Download, UploadCloud, FileCheck,
@@ -113,7 +114,14 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const { can, user } = useAuth();
   const userRoles = (user?.roles ?? []).map(role => role.toUpperCase());
   const hasGlobalCohortRole = userRoles.some(role => ['SYS_ADMIN', 'DEAN', 'VICE_DEAN', 'CLINICAL_DIRECTOR'].includes(role));
-  const isCohortScopedRta = userRoles.includes('RTA') && !hasGlobalCohortRole;
+  const departmentScoped = isDepartmentScopedHead(userRoles);
+  const isCohortScopedRta = userRoles.includes('RTA') && !hasGlobalCohortRole && !departmentScoped;
+  const scopeQuery = useQuery({
+    queryKey: ['student-department-scope', user?.id],
+    queryFn: () => apiFetch<{ academic_levels: string[] }>('/students/scope-options'),
+    enabled: kind === 'students' && departmentScoped && can('students.view'),
+  });
+  const departmentLevels = visibleDepartmentLevels(scopeQuery.data?.academic_levels);
   const assignedRtaLevels = Array.from(new Set(
     (user?.assigned_levels ?? [])
       .map(normalizeAssignedLevel)
@@ -131,6 +139,15 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const [mainGroupFilter, setMainGroupFilter] = useState('');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState('50');
+
+  useEffect(() => {
+    if (kind !== 'students' || !departmentScoped || !scopeQuery.data) return;
+    if (!departmentLevels.includes(levelFilter)) {
+      setLevelFilter(departmentLevels[0] ?? '');
+      setMainGroupFilter('');
+      setPage(1);
+    }
+  }, [departmentLevels.join('|'), departmentScoped, kind, levelFilter, scopeQuery.data]);
 
   useEffect(() => {
     if (kind !== 'students' || !isCohortScopedRta) return;
@@ -236,7 +253,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const { data: registrationCycles = [] } = useQuery({
     queryKey: ['group-registration-cycles', 'student-directory'],
     queryFn: () => apiFetch<RegistrationCycle[]>('/group-registration-cycles'),
-    enabled: kind === 'students' && can('students.create') && can('group_registration.view'),
+    enabled: kind === 'students' && !departmentScoped && can('students.create') && can('group_registration.view'),
   });
 
   // Create Student Mutation
@@ -498,7 +515,9 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     { value: 'fifth', label_ar: 'الدفعة الخامسة (سنة 5)', label_en: '5th Year (Cohort 5)' },
     { value: 'sixth', label_ar: 'الدفعة السادسة (سنة 6)', label_en: '6th Year (Cohort 6)' },
   ];
-  const visibleCohorts = isCohortScopedRta
+  const visibleCohorts = departmentScoped
+    ? cohorts.filter(cohort => departmentLevels.includes(cohort.value))
+    : isCohortScopedRta
     ? cohorts.filter(cohort => cohort.value !== '' && assignedRtaLevels.includes(cohort.value))
     : cohorts;
 
@@ -516,7 +535,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
           </p>
         </div>
 
-        {kind === 'students' && can('students.create') && (
+        {kind === 'students' && !departmentScoped && can('students.create') && (
           <div className="flex items-center p-1 bg-white rounded-full border border-slate-200/80 shadow-xs gap-1 shrink-0">
             {/* 1. Download Template */}
             <button 
@@ -580,6 +599,9 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                   : 'No cohort is assigned to your account yet. Contact the Clinical Department Director.'}
               </div>
             )}
+            {departmentScoped && scopeQuery.isLoading && <p className="px-4 py-3 text-xs text-slate-500">{t('courseDepartments.loadingScope')}</p>}
+            {departmentScoped && scopeQuery.isError && <button onClick={() => scopeQuery.refetch()} className="px-4 py-3 text-xs text-red-700">{t('courseDepartments.scopeError')}</button>}
+            {departmentScoped && scopeQuery.isSuccess && visibleCohorts.length === 0 && <p className="w-full rounded-xl bg-slate-50 px-4 py-3 text-center text-xs text-slate-600">{t('courseDepartments.noStudents')}</p>}
           </div>
         </div>
       )}
@@ -665,7 +687,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                   {row.photo_url ? <img src={row.photo_url} alt={name(row)} className="h-full w-full object-cover"/> : name(row).substring(0,1)}
                 </div>
                 <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-black text-slate-800">{name(row)}</h3>{kind==='students'&&<p className="mt-1 font-mono text-[11px] text-slate-500">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span>}{getStatus(row)}</div></div>
-                {kind==='students'&&<div className="flex shrink-0 gap-1" onClick={event=>event.stopPropagation()}>{can('students.update')&&<button type="button" aria-label={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} title={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} onClick={event=>handleOpenEdit(row,event)} className="rounded-lg bg-slate-50 p-2 text-teal-600"><Pencil className="h-4 w-4"/></button>}{can('students.delete')&&<button type="button" aria-label={locale==='ar'?'حذف الطالب':'Delete student'} title={locale==='ar'?'حذف الطالب':'Delete student'} onClick={event=>handleDeleteStudent(row,event)} className="rounded-lg bg-red-50 p-2 text-red-500"><Trash2 className="h-4 w-4"/></button>}</div>}
+                {kind==='students'&&<div className="flex shrink-0 gap-1" onClick={event=>event.stopPropagation()}>{can('students.update')&&<button type="button" aria-label={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} title={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} onClick={event=>handleOpenEdit(row,event)} className="rounded-lg bg-slate-50 p-2 text-teal-600"><Pencil className="h-4 w-4"/></button>}{!departmentScoped && can('students.delete')&&<button type="button" aria-label={locale==='ar'?'حذف الطالب':'Delete student'} title={locale==='ar'?'حذف الطالب':'Delete student'} onClick={event=>handleDeleteStudent(row,event)} className="rounded-lg bg-red-50 p-2 text-red-500"><Trash2 className="h-4 w-4"/></button>}</div>}
               </div>
               {kind==='students'&&<div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]"><div><span className="text-slate-400">{locale==='ar'?'الدفعة':'Batch'}</span><p className="mt-1 font-bold text-slate-700">{getBatchLabel(row)}</p></div><div><span className="text-slate-400">{locale==='ar'?'المجموعة الرئيسية':'Main group'}</span><p className="mt-1 font-bold text-slate-700">{row.registration_main_group||'—'}</p></div></div>}
             </article>
@@ -760,7 +782,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                             <Pencil className="w-4 h-4" />
                           </button>
                         )}
-                        {can('students.delete') && (
+                        {!departmentScoped && can('students.delete') && (
                           <button
                             type="button"
                             onClick={(e) => handleDeleteStudent(row, e)}

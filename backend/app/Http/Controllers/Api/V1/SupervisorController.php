@@ -52,6 +52,8 @@ class SupervisorController extends Controller
      */
     public function reassign(Request $request, StudentClinicalAssignment $assignment): JsonResponse
     {
+        $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+        $scope->authorizeRecord($scope->assignments(StudentClinicalAssignment::query()), $assignment->id);
         $validated = $request->validate([
             'supervisor_id' => ['nullable', 'integer'],
         ]);
@@ -170,7 +172,7 @@ class SupervisorController extends Controller
      */
     public function supervisorAssignments(Person $person): JsonResponse
     {
-        $assignments = $this->reassignmentService->getSupervisorAssignments($person);
+        $assignments = $this->reassignmentService->getSupervisorAssignments($person, true);
 
         return response()->json([
             'success' => true,

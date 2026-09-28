@@ -146,9 +146,11 @@ class SupervisorReassignmentService
      * @param  Person  $supervisor
      * @return \Illuminate\Database\Eloquent\Collection
      */
-    public function getSupervisorAssignments(Person $supervisor): \Illuminate\Database\Eloquent\Collection
+    public function getSupervisorAssignments(Person $supervisor, bool $departmentScoped = false): \Illuminate\Database\Eloquent\Collection
     {
-        $assignments = StudentClinicalAssignment::where('supervisor_id', $supervisor->id)
+        $query = StudentClinicalAssignment::query();
+        if ($departmentScoped) app(\App\Services\DepartmentHeadCourseScope::class)->assignments($query);
+        $assignments = $query->where('supervisor_id', $supervisor->id)
             ->whereHas('distributionVersion', function ($q) {
                 $q->where('status', 'published')->where('is_current', true);
             })
@@ -164,7 +166,9 @@ class SupervisorReassignmentService
             ->get();
 
         if ($assignments->isEmpty()) {
-            $assignments = StudentClinicalAssignment::where('supervisor_id', $supervisor->id)
+            $query = StudentClinicalAssignment::query();
+            if ($departmentScoped) app(\App\Services\DepartmentHeadCourseScope::class)->assignments($query);
+            $assignments = $query->where('supervisor_id', $supervisor->id)
                 ->with([
                     'student',
                     'studentSubgroup.group',

@@ -26,5 +26,6 @@ class Course extends Model
     public function learningOutcomes(): HasMany { return $this->hasMany(CourseLearningOutcome::class); }
     public function programOutcomeMappings(): HasMany { return $this->hasMany(CourseProgramOutcomeMapping::class); }
     public function rotations(): HasMany { return $this->hasMany(Rotation::class); }
+    public function departments() { return $this->belongsToMany(Department::class); }
     public function reports(): HasMany { return $this->hasMany(CourseReport::class); }
 }

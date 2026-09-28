@@ -34,6 +34,7 @@ class OperationalDashboardService
         $versionQuery = DistributionVersion::query()
             ->where('status', 'published')
             ->where('is_current', true);
+        app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation($versionQuery, 'rotation');
 
         if ($request->filled('rotation_id')) {
             $versionQuery->where('rotation_id', (int) $request->input('rotation_id'));
@@ -62,6 +63,7 @@ class OperationalDashboardService
         // 2. Base Query for Current Published Assignments
         $assignmentQuery = StudentClinicalAssignment::query()
             ->whereIn('student_clinical_assignments.distribution_version_id', $versionIds);
+        app(\App\Services\DepartmentHeadCourseScope::class)->assignments($assignmentQuery);
 
         // Apply filters
         if ($request->filled('rotation_block_id')) {
@@ -78,7 +80,7 @@ class OperationalDashboardService
         }
 
         // 3. Student Coverage Calculations
-        $totalActiveStudents = Student::query()
+        $totalActiveStudents = app(\App\Services\DepartmentHeadCourseScope::class)->students(Student::query())
             ->where('registration_status', 'active')
             ->count();
 

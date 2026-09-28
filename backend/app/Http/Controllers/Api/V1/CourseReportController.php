@@ -17,8 +17,10 @@ use App\Models\User;
 
 class CourseReportController extends Controller
 {
+    use \App\Traits\ScopesByDepartmentAndLevel;
     public function exportCourseDetails(Course $course)
     {
+        $this->authorizeCourseAccess($course);
         $course->load(['assessmentComponents', 'learningOutcomes', 'programOutcomeMappings']);
         $programOutcomes = ProgramOutcome::query()
             ->whereIn('code', $course->programOutcomeMappings->pluck('program_outcome_code'))
@@ -38,6 +40,7 @@ class CourseReportController extends Controller
 
     public function index(Course $course): JsonResponse
     {
+        $this->authorizeCourseAccess($course);
         return ApiResponse::success([
             'reports' => $course->reports()->with([
                 'academicYear:id,code,start_date,end_date,is_current',
@@ -51,6 +54,7 @@ class CourseReportController extends Controller
 
     public function store(Request $request, Course $course): JsonResponse
     {
+        $this->authorizeCourseAccess($course);
         $data = $request->validate([
             'academic_year_id' => ['required', 'integer', 'exists:academic_years,id'],
             'summary' => ['nullable', 'string', 'max:10000'],
@@ -77,6 +81,7 @@ class CourseReportController extends Controller
 
     public function submit(Request $request, Course $course, CourseReport $report, ApprovalWorkflowService $approvals): JsonResponse
     {
+        $this->authorizeCourseAccess($course);
         $this->assertBelongsToCourse($course, $report);
         if (!in_array($report->status, ['draft', 'returned'], true)) {
             throw ValidationException::withMessages(['report' => ['هذا التقرير مرسل أو معتمد بالفعل.']]);
@@ -101,6 +106,7 @@ class CourseReportController extends Controller
 
     public function approve(Request $request, Course $course, CourseReport $report, ApprovalWorkflowService $approvals): JsonResponse
     {
+        $this->authorizeCourseAccess($course);
         $this->assertBelongsToCourse($course, $report);
         if ($report->status !== 'submitted') {
             throw ValidationException::withMessages(['report' => ['يمكن اعتماد التقارير المرسلة فقط.']]);
@@ -124,6 +130,7 @@ class CourseReportController extends Controller
 
     public function returnForRevision(Request $request, Course $course, CourseReport $report, ApprovalWorkflowService $approvals): JsonResponse
     {
+        $this->authorizeCourseAccess($course);
         $this->assertBelongsToCourse($course, $report);
         if ($report->status !== 'submitted') {
             throw ValidationException::withMessages(['report' => ['يمكن إعادة التقارير المرسلة فقط.']]);

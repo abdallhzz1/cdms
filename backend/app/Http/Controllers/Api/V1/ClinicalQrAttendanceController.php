@@ -29,6 +29,10 @@ class ClinicalQrAttendanceController extends Controller
 
     public function show(Request $request, ClinicalQrAttendanceSession $session): JsonResponse
     {
+        if ((int) $session->supervisor_id !== (int) $request->user()->person?->id) {
+            $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+            $scope->authorizeRecord($scope->throughRotation(ClinicalQrAttendanceSession::query(), 'assignment.rotationBlock.rotation'), $session->id);
+        }
         abort_unless((int) $session->supervisor_id === (int) $request->user()->person?->id || $request->user()->can('permission', ['attendance.review']), 403);
         return ApiResponse::success($session->load(['roster.student', 'trainingSite', 'assignment.studentSubgroup.group', 'assignment.rotationBlock.rotation.course']));
     }

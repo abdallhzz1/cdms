@@ -17,6 +17,7 @@ class ClinicalSessionController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = ClinicalSession::with(['trainingSite', 'rotationBlock.rotation.course', 'rotationBlock.rotation.clinicalPeriod']);
+        app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation($query, 'rotationBlock.rotation');
         $departmentId = $this->getClinicalOperationsDepartmentId();
         if ($departmentId) {
             $query->whereHas('rotationBlock', fn ($block) => $block->where('department_id', $departmentId));
@@ -59,6 +60,9 @@ class ClinicalSessionController extends Controller
 
         $levelScope = $this->getEffectiveAcademicLevelScope();
         if ($levelScope !== null) {
+            $block = !empty($data['rotation_block_id']) ? RotationBlock::with('rotation')->findOrFail($data['rotation_block_id']) : null;
+            abort_unless($block?->rotation, 403);
+            $this->authorizeRotationCourseAccess($block->rotation);
             $blockLevel = $data['rotation_block_id']
                 ? RotationBlock::with('rotation')->findOrFail($data['rotation_block_id'])->rotation?->academic_level
                 : null;

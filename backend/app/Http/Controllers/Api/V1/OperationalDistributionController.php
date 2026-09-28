@@ -45,7 +45,7 @@ class OperationalDistributionController extends Controller
 
     public function clinicalScheduleOptions(): JsonResponse
     {
-        $assignments = StudentClinicalAssignment::query()
+        $assignments = app(\App\Services\DepartmentHeadCourseScope::class)->assignments(StudentClinicalAssignment::query())
             ->whereHas('distributionVersion', fn ($query) => $query
                 ->where('status', 'published')->where('is_current', true));
 
@@ -64,7 +64,7 @@ class OperationalDistributionController extends Controller
 
         $siteIds = (clone $assignments)->distinct()->pluck('training_site_id')->filter();
 
-        $rotations = Rotation::query()
+        $rotations = app(\App\Services\DepartmentHeadCourseScope::class)->rotations(Rotation::query())
             ->whereHas('distributionVersions', fn ($query) => $query
                 ->where('status', 'published')->where('is_current', true))
             ->when($scopedDepartmentId, fn ($query, $departmentId) => $query
@@ -164,6 +164,7 @@ class OperationalDistributionController extends Controller
         $assignedStudentIds = $assignments->pluck('student_id')->unique()->toArray();
 
         $unassignedIds = $this->approvalService->getUnassignedStudentIds($currentVersion, $assignedStudentIds);
+        $unassignedIds = app(\App\Services\DepartmentHeadCourseScope::class)->visibleStudentIds($unassignedIds);
 
         $summary = [
             'current_version_id' => $currentVersion->id,
@@ -193,7 +194,7 @@ class OperationalDistributionController extends Controller
     public function studentSchedule(Student $student): JsonResponse
     {
         $this->authorizeStudentAccess($student);
-        $assignments = $this->scheduleQueryService->getStudentSchedule($student);
+        $assignments = $this->scheduleQueryService->getStudentSchedule($student, departmentScoped: true);
 
         return response()->json([
             'success' => true,
@@ -207,7 +208,9 @@ class OperationalDistributionController extends Controller
      */
     public function supervisorSchedule(Person $person): JsonResponse
     {
-        $this->authorizeDepartmentAccess($person->department_id ? (int) $person->department_id : null);
+        if (app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null) {
+            $this->authorizeDepartmentAccess($person->department_id ? (int) $person->department_id : null);
+        }
 
         $assignments = $this->applyDepartmentAccessScope(
             StudentClinicalAssignment::where('supervisor_id', $person->id),
@@ -238,7 +241,11 @@ class OperationalDistributionController extends Controller
     public function departmentDistribution(Department $department, Request $request): JsonResponse
     {
         $this->authorizeDepartmentAccess($department->id);
-        $assignments = StudentClinicalAssignment::where('department_id', $department->id)
+        $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+        $assignments = $scope->departmentIds() !== null
+            ? $scope->publishedAssignments()->whereHas('rotationBlock.rotation.course.departments', fn ($query) => $query->where('departments.id', $department->id))
+            : StudentClinicalAssignment::where('department_id', $department->id);
+        $assignments = $assignments
             ->whereHas('distributionVersion', function ($q) {
                 $q->where('status', 'published')->where('is_current', true);
             })
@@ -293,6 +300,7 @@ class OperationalDistributionController extends Controller
      */
     public function unassignedStudents(Rotation $rotation, Request $request): JsonResponse
     {
+        $this->authorizeRotationCourseAccess($rotation);
         $currentVersion = $this->currentResolver->resolveForRotation($rotation->id);
 
         if (!$currentVersion) {
@@ -311,7 +319,7 @@ class OperationalDistributionController extends Controller
 
         $unassignedIds = $this->approvalService->getUnassignedStudentIds($currentVersion, $assignedStudentIds);
 
-        $students = Student::with(['groupAssignments' => function ($q) use ($rotation) {
+        $students = $this->applyStudentAccessScope(Student::query())->with(['groupAssignments' => function ($q) use ($rotation) {
             $q->where('academic_year_id', $rotation->academic_year_id)
               ->with('subgroup.group');
         }])
@@ -371,6 +379,9 @@ class OperationalDistributionController extends Controller
 
     private function authorizePayloadKey(Request $request, string $key, bool $write): void
     {
+        // Legacy opaque JSON has no per-record scope. Heads use the normalized
+        // course APIs; never expose or mutate a college-wide saved payload.
+        abort_if(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() !== null, 403);
         $permission = match (true) {
             str_starts_with($key, 'cdms_grades_'),
             $key === 'cdms_student_grades',
@@ -397,7 +408,8 @@ class OperationalDistributionController extends Controller
 
     private function authorizeRotationAccess(Rotation $rotation): void
     {
-        $departmentId = $this->getUserDepartmentId();
+        $this->authorizeRotationCourseAccess($rotation);
+        $departmentId = $this->getLegacyDistributionDepartmentId();
         if ($departmentId && !$rotation->departments()->whereKey($departmentId)->exists()) {
             throw new \Illuminate\Auth\Access\AuthorizationException('This action is unauthorized.');
         }

@@ -39,6 +39,10 @@ class QrAttendanceService
 
     public function transition(User $actor, ClinicalQrAttendanceSession $session, string $action, ?string $reason = null): ClinicalQrAttendanceSession
     {
+        if ((int) $session->supervisor_id !== (int) $actor->person?->id) {
+            $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+            $scope->authorizeRecord($scope->throughRotation(ClinicalQrAttendanceSession::query(), 'assignment.rotationBlock.rotation'), $session->id);
+        }
         return DB::transaction(function () use ($actor, $session, $action, $reason) {
             $session = ClinicalQrAttendanceSession::lockForUpdate()->findOrFail($session->id);
             abort_unless((int) $session->supervisor_id === (int) $actor->person?->id || $actor->can('permission', ['attendance.qr.reopen_finalized']), 403);

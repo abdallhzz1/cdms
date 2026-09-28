@@ -17,6 +17,7 @@ use App\Models\ApprovalWorkflow;
 use App\Services\WorkflowTransitionService;
 use App\Services\Approvals\ApprovalWorkflowService;
 use App\Traits\ScopesByDepartmentAndLevel;
+use App\Services\DepartmentHeadCourseScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -30,7 +31,7 @@ class GradeEntryController extends Controller
     public function options(): JsonResponse
     {
         $levelScope = $this->getEffectiveAcademicLevelScope();
-        $courses = Course::query()
+        $courses = $this->applyCourseAccessScope(Course::query())
             ->with(['assessmentComponents' => fn ($query) => $query->select('id', 'course_id', 'code', 'name', 'weight', 'max_score')->orderBy('id')])
             ->when($levelScope !== null, function ($query) use ($levelScope) {
                 empty($levelScope)
@@ -67,7 +68,7 @@ class GradeEntryController extends Controller
         }
         $this->authorizeCourseDepartmentAccess($course);
 
-        $students = $this->applyStudentAccessScope(Student::query())
+        $students = app(DepartmentHeadCourseScope::class)->students($this->applyStudentAccessScope(Student::query()), $course->id, (int) $data['academic_year_id'])
             ->where('academic_level', $course->academic_level)
             ->whereIn('registration_status', ['active', 'registered'])
             ->orderBy('university_number')
@@ -135,6 +136,7 @@ class GradeEntryController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = GradeEntry::with('enrollment.course', 'enrollment.student');
+        $query->whereHas('enrollment.course', fn ($course) => $this->applyCourseAccessScope($course));
         $studentIds = $this->applyStudentAccessScope(Student::query())->select('students.id');
         $query->whereHas('enrollment', fn ($q) => $q->whereIn('student_id', $studentIds));
 
@@ -183,6 +185,7 @@ class GradeEntryController extends Controller
         $yearId = !empty($filters['academic_year_id'])
             ? (int) $filters['academic_year_id']
             : (!empty($filters['academic_year']) ? (int) AcademicYear::where('code', $filters['academic_year'])->value('id') : null);
+        if (!empty($filters['course_id'])) $this->authorizeCourseAccess(Course::findOrFail($filters['course_id']));
         $summary = $this->clinicalScores(
             $studentIds->pluck('id')->all(),
             !empty($filters['course_id']) ? (int) $filters['course_id'] : null,
@@ -209,6 +212,7 @@ class GradeEntryController extends Controller
             ->findOrFail($data['student_course_enrollment_id']);
         $this->authorizeStudentAccess($enrollment->student);
         $this->authorizeCourseDepartmentAccess($enrollment->course);
+        app(DepartmentHeadCourseScope::class)->authorizeStudentForCourse($enrollment->student_id, $enrollment->course_id, $enrollment->academic_year_id);
 
         if (isset($data['score']) && $data['score'] > $data['max_score']) {
             return ApiResponse::error('Score cannot exceed maximum score.', ['score' => ['Score cannot exceed maximum score.']], [], 422);
@@ -272,6 +276,7 @@ class GradeEntryController extends Controller
             }
             $student = Student::findOrFail($gradeData['student_id']);
             $this->authorizeStudentAccess($student);
+            app(DepartmentHeadCourseScope::class)->authorizeStudentForCourse($student->id, $course->id, $academicYearId);
         }
 
         $officialClinical = $this->clinicalScores(array_column($data['grades'], 'student_id'), $course->id, $academicYearId);
@@ -615,15 +620,7 @@ class GradeEntryController extends Controller
 
     private function authorizeCourseDepartmentAccess(Course $course): void
     {
-        $user = auth()->user();
-        if (! $user || (! $user->hasRole('RTA') && ! $user->hasRole('DEPARTMENT_HEAD'))) {
-            return;
-        }
-
-        $allowedLevels = $this->getUserScopedLevels();
-        if (! in_array((string) $course->academic_level, $allowedLevels, true)) {
-            throw new \Illuminate\Auth\Access\AuthorizationException('This action is unauthorized.');
-        }
+        $this->authorizeCourseAccess($course);
     }
 
     private function resolveAcademicYearId(array $data): int
@@ -641,7 +638,7 @@ class GradeEntryController extends Controller
             ? (float) (CourseAssessmentComponent::where('course_id', $courseId)->where('code', 'clinical')->value('max_score') ?: 20)
             : 20.0;
 
-        return ClinicalAssessment::query()
+        return app(DepartmentHeadCourseScope::class)->assessments(ClinicalAssessment::query())
             // A supervisor's submitted weekly assessment is the official
             // clinical input. Administrative approval applies to the final
             // grade sheet, not to each weekly clinical assessment.

@@ -185,13 +185,16 @@ class ApprovalWorkflowService
             User::query()->where('is_active', true)
                 ->whereKeyNot($actor->id)
                 ->whereHas('roles', fn ($query) => $query->whereIn('code', $currentStep->role_codes ?: []))
-                ->each(fn (User $user) => $user->notify(new LocalSystemNotification([
+                ->each(function (User $user) use ($request, $reason) {
+                    if (! app(\App\Services\DepartmentHeadCourseScope::class)->approvals(ApprovalRequest::query(), $user)->whereKey($request->id)->exists()) return;
+                    $user->notify(new LocalSystemNotification([
                     'event_key' => 'approval.withdrawn', 'category' => 'approvals', 'severity' => 'notice',
                     'title_ar' => 'تم سحب طلب اعتماد', 'title_en' => 'Approval request withdrawn',
                     'message_ar' => $request->title_ar.' — '.$reason,
                     'message_en' => $request->title_en.' — '.$reason,
                     'action_url' => '/approvals', 'approval_request_id' => $request->public_id,
-                ])));
+                    ]));
+                });
         }
 
         return $request;
@@ -219,6 +222,7 @@ class ApprovalWorkflowService
 
     private function authorizeCurrentStep(ApprovalRequest $request, User $actor): ApprovalWorkflowStep
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->approvals(ApprovalRequest::query(), $actor)->whereKey($request->id)->exists(), 403);
         $step = $request->workflow->steps->firstWhere('step_order', (int) $request->current_step_order);
         if (! $step) throw ValidationException::withMessages(['approval' => [$this->tr('مرحلة الاعتماد الحالية غير معرفة.', 'The current approval step is not configured.')]]);
         $actorRoles = $actor->roles()->pluck('code');
@@ -236,6 +240,7 @@ class ApprovalWorkflowService
         User::query()->where('is_active', true)->whereHas('roles', fn ($q) => $q->whereIn('code', $step->role_codes ?: []))
             ->when($request->workflow->prevent_requester_approval, fn ($query) => $query->whereKeyNot($request->requested_by))
             ->each(function (User $user) use ($request, $step) {
+                if (! app(\App\Services\DepartmentHeadCourseScope::class)->approvals(ApprovalRequest::query(), $user)->whereKey($request->id)->exists()) return;
                 $user->notify(new LocalSystemNotification([
                     'event_key' => 'approval.awaiting', 'category' => 'approvals', 'severity' => 'notice',
                     'title_ar' => 'طلب اعتماد جديد', 'title_en' => 'New approval request',

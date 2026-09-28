@@ -30,7 +30,7 @@ class ClinicalAssessmentReviewController extends Controller
             ])->orderBy('id')->get();
 
         $groupIds = $assignments->pluck('studentSubgroup.student_group_id')->filter()->unique()->values();
-        $registeredSubgroups = StudentSubgroup::query()->whereIn('student_group_id', $groupIds)->get()->groupBy('student_group_id');
+        $registeredSubgroups = app(\App\Services\DepartmentHeadCourseScope::class)->subgroups(StudentSubgroup::query())->whereIn('student_group_id', $groupIds)->get()->groupBy('student_group_id');
         $memberships = StudentGroupAssignment::query()->current()
             ->whereIn('student_group_id', $groupIds)
             ->whereIn('student_id', $this->reviewRosterStudents($request)->select('students.id'))
@@ -181,7 +181,7 @@ class ClinicalAssessmentReviewController extends Controller
 
     private function scopedAssignments(Request $request): Builder
     {
-        $query = StudentClinicalAssignment::query()
+        $query = app(\App\Services\DepartmentHeadCourseScope::class)->assignments(StudentClinicalAssignment::query())
             ->whereHas('distributionVersion', fn (Builder $version) => $version->where('status', 'published')->where('is_current', true))
             ->whereIn('student_id', $this->applyStudentAccessScope(Student::query())->select('students.id'));
 

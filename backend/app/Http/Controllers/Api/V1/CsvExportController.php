@@ -40,7 +40,7 @@ class CsvExportController extends Controller
         return $this->streamCsv('students.csv', [
             'University Number', 'Full Name (Ar)', 'Full Name (En)', 'Academic Level', 'GPA', 'Registration Status', 'Batch Year'
         ], function ($out) {
-            Student::query()->chunk(100, function ($records) use ($out) {
+            app(\App\Services\DepartmentHeadCourseScope::class)->students(Student::query())->chunk(100, function ($records) use ($out) {
                 foreach ($records as $record) {
                     fputcsv($out, [
                         $record->university_number,
@@ -61,7 +61,7 @@ class CsvExportController extends Controller
         return $this->streamCsv('staff.csv', [
             'Staff Code', 'Full Name (Ar)', 'Full Name (En)', 'Email', 'Specialty', 'Department Name'
         ], function ($out) {
-            Person::with('department')->chunk(100, function ($records) use ($out) {
+            app(\App\Services\DepartmentHeadCourseScope::class)->departments(Person::query())->with('department')->chunk(100, function ($records) use ($out) {
                 foreach ($records as $record) {
                     fputcsv($out, [
                         $record->staff_code,
@@ -81,7 +81,7 @@ class CsvExportController extends Controller
         return $this->streamCsv('attendance.csv', [
             'ID', 'Student', 'Session Date', 'Status', 'Notes'
         ], function ($out) {
-            AttendanceRecord::with(['student', 'session'])->chunk(100, function ($records) use ($out) {
+            app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation(AttendanceRecord::query(), 'session.rotationBlock.rotation')->with(['student', 'session'])->chunk(100, function ($records) use ($out) {
                 foreach ($records as $record) {
                     fputcsv($out, [
                         $record->id,
@@ -100,7 +100,7 @@ class CsvExportController extends Controller
         return $this->streamCsv('grades.csv', [
             'ID', 'Student', 'Course', 'Score', 'Max Score', 'Status'
         ], function ($out) {
-            GradeEntry::with(['enrollment.student', 'enrollment.course'])->chunk(100, function ($records) use ($out) {
+            app(\App\Services\DepartmentHeadCourseScope::class)->grades(GradeEntry::query())->with(['enrollment.student', 'enrollment.course'])->chunk(100, function ($records) use ($out) {
                 foreach ($records as $record) {
                     fputcsv($out, [
                         $record->id,
@@ -120,7 +120,7 @@ class CsvExportController extends Controller
         return $this->streamCsv('assessments.csv', [
             'ID', 'Student', 'Evaluator', 'Score', 'Max Score', 'Status'
         ], function ($out) {
-            ClinicalAssessment::with(['student', 'evaluator'])->chunk(100, function ($records) use ($out) {
+            app(\App\Services\DepartmentHeadCourseScope::class)->assessments(ClinicalAssessment::query())->with(['student', 'evaluator'])->chunk(100, function ($records) use ($out) {
                 foreach ($records as $record) {
                     fputcsv($out, [
                         $record->id,
@@ -137,6 +137,7 @@ class CsvExportController extends Controller
 
     public function correspondence()
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         return $this->streamCsv('correspondence.csv', [
             'Reference Number', 'Direction', 'Subject', 'Date', 'Status'
         ], function ($out) {
@@ -156,6 +157,7 @@ class CsvExportController extends Controller
 
     public function tasks()
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         return $this->streamCsv('tasks.csv', [
             'Title', 'Priority', 'Status', 'Due Date'
         ], function ($out) {
@@ -174,6 +176,7 @@ class CsvExportController extends Controller
 
     public function quality()
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         return $this->streamCsv('quality_plans.csv', [
             'Academic Year', 'Observation', 'Improvement Action', 'Priority', 'Due Date'
         ], function ($out) {
@@ -196,7 +199,7 @@ class CsvExportController extends Controller
         return $this->streamCsv('workloads.csv', [
             'Academic Year', 'Semester', 'Department', 'Total Hours'
         ], function ($out) {
-            SupervisorAnnualWorkload::with('department')->chunk(100, function ($records) use ($out) {
+            app(\App\Services\DepartmentHeadCourseScope::class)->departments(SupervisorAnnualWorkload::query())->with('department')->chunk(100, function ($records) use ($out) {
                 foreach ($records as $record) {
                     fputcsv($out, [
                         $record->academic_year,
@@ -214,7 +217,7 @@ class CsvExportController extends Controller
         return $this->streamCsv('allocations.csv', [
             'Day', 'Time Start', 'Time End', 'Department', 'Location'
         ], function ($out) {
-            WeeklySupervisorAllocation::with('department')->chunk(100, function ($records) use ($out) {
+            app(\App\Services\DepartmentHeadCourseScope::class)->departments(WeeklySupervisorAllocation::query())->with('department')->chunk(100, function ($records) use ($out) {
                 foreach ($records as $record) {
                     fputcsv($out, [
                         $record->day_of_week,

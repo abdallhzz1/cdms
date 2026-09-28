@@ -145,7 +145,7 @@ class AttendanceWarningController extends Controller
     /** @return Collection<int, array<string, mixed>> */
     private function summaries(Request $request): Collection
     {
-        $query = AttendanceRecord::query()
+        $query = app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation(AttendanceRecord::query(), 'session.rotationBlock.rotation')
             ->with([
                 'student:id,university_number,full_name_ar,full_name_en,university_email,academic_level',
                 'session:id,rotation_block_id,session_date',

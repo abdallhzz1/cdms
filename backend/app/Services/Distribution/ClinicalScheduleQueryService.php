@@ -32,7 +32,7 @@ class ClinicalScheduleQueryService
      */
     public function getAdministrativeSchedule(Request $request): LengthAwarePaginator
     {
-        $query = StudentClinicalAssignment::query()
+        $query = app(\App\Services\DepartmentHeadCourseScope::class)->assignments(StudentClinicalAssignment::query())
             ->whereHas('distributionVersion', function ($q) {
                 $q->where('status', 'published')->where('is_current', true);
             })
@@ -159,9 +159,11 @@ class ClinicalScheduleQueryService
      * @param Student $student
      * @return Collection
      */
-    public function getStudentSchedule(Student $student): Collection
+    public function getStudentSchedule(Student $student, bool $departmentScoped = false): Collection
     {
-        $assignments = StudentClinicalAssignment::where('student_id', $student->id)
+        $query = StudentClinicalAssignment::query();
+        if ($departmentScoped) app(\App\Services\DepartmentHeadCourseScope::class)->assignments($query);
+        $assignments = $query->where('student_id', $student->id)
             ->whereHas('distributionVersion', function ($q) {
                 $q->where('status', 'published')->where('is_current', true);
             })

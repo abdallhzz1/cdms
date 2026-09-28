@@ -24,6 +24,7 @@ class OperationalReportController extends Controller
 
     private function getVersion(Rotation $rotation): \App\Models\DistributionVersion
     {
+        app(\App\Services\DepartmentHeadCourseScope::class)->authorizeRotation($rotation);
         $version = $this->reportService->resolveCurrentVersion($rotation->id);
         if (!$version) {
             abort(409, 'No current published distribution exists for this rotation.');

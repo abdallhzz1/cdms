@@ -21,6 +21,7 @@ import {
 import { apiFetch, ApiError } from "@/api/client";
 import { approveVersion, publishVersion } from "@/api/distribution";
 import { useAuth } from "@/auth/AuthContext";
+import { isDepartmentScopedHead } from "@/features/departments/courseOwnership";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -251,7 +252,8 @@ export function DistributionPage() {
   const hasGlobalCohortRole = userRoles.some((role) =>
     ["SYS_ADMIN", "DEAN", "VICE_DEAN", "CLINICAL_DIRECTOR"].includes(role),
   );
-  const isCohortScopedRta = userRoles.includes("RTA") && !hasGlobalCohortRole;
+  const departmentScoped = isDepartmentScopedHead(userRoles);
+  const isCohortScopedRta = userRoles.includes("RTA") && !hasGlobalCohortRole && !departmentScoped;
   const assignedRtaLevels = Array.from(
     new Set(
       (user?.assigned_levels ?? [])
@@ -259,7 +261,7 @@ export function DistributionPage() {
         .filter((item): item is Level => item !== null),
     ),
   );
-  const visibleLevels = levelCodes.filter(
+  const cohortLevels = levelCodes.filter(
     (item) => !isCohortScopedRta || assignedRtaLevels.includes(item),
   );
   const queryClient = useQueryClient();
@@ -315,6 +317,8 @@ export function DistributionPage() {
   });
   const years = optionsQuery.data?.academic_years ?? [];
   const courses = optionsQuery.data?.courses ?? [];
+  const visibleLevels = departmentScoped ? levelCodes.filter(item=>courses.some(course=>course.academic_level===item)) : cohortLevels;
+  useEffect(()=>{if(departmentScoped&&visibleLevels.length&&!visibleLevels.includes(level)){setLevel(visibleLevels[0]);setCourseId('');}},[departmentScoped,visibleLevels.join('|'),level]);
   const periods = useMemo(
     () =>
       (optionsQuery.data?.clinical_periods ?? []).filter(

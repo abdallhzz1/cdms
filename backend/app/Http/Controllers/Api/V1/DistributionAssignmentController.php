@@ -188,7 +188,10 @@ class DistributionAssignmentController extends Controller
 
     private function authorizeVersionAccess(DistributionVersion $version): void
     {
-        $departmentId = $this->getUserDepartmentId();
+        $version->loadMissing('rotation');
+        abort_unless($version->rotation, 404);
+        $this->authorizeRotationCourseAccess($version->rotation);
+        $departmentId = $this->getLegacyDistributionDepartmentId();
         if ($departmentId && !$version->rotation()->whereHas(
             'departments',
             fn ($q) => $q->whereKey($departmentId)

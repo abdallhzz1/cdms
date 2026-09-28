@@ -30,6 +30,7 @@ class GroupRegistrationAdminController extends Controller
     {
         $levelScope = $this->getEffectiveAcademicLevelScope();
         $cycles = GroupRegistrationCycle::query()
+            ->when(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() !== null, fn ($query) => $query->whereHas('rosters.student', fn ($students) => $this->applyStudentAccessScope($students)))
             ->with('academicYear')
             ->withCount('rosters')
             ->when($levelScope !== null, fn ($q) => $q->whereIn('academic_level', $levelScope))
@@ -48,6 +49,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $data = $request->validate([
             'academic_year_id' => ['required', 'exists:academic_years,id'],
             'academic_level' => ['required', 'in:fourth,fifth,sixth'],
@@ -80,6 +82,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function generateSubgroups(Request $request, GroupRegistrationCycle $cycle): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $this->ensureCycleInUserScope($cycle);
         $data = $request->validate([
             'strategy' => ['required', 'in:fixed_count,target_capacity'],
@@ -102,7 +105,7 @@ class GroupRegistrationAdminController extends Controller
             ->orderBy('name')
             ->get();
 
-        $rosterCounts = StudentGroupRoster::query()
+        $rosterCounts = app(\App\Services\DepartmentHeadCourseScope::class)->rosters(StudentGroupRoster::query())
             ->where('group_registration_cycle_id', $cycle->id)
             ->whereHas('student', fn ($query) => $query->where('academic_level', $cycle->academic_level))
             ->selectRaw('student_group_id, COUNT(*) as students_count')
@@ -188,6 +191,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function update(Request $request, GroupRegistrationCycle $cycle): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $this->ensureCycleInUserScope($cycle);
         $data = $request->validate([
             'status' => ['sometimes', 'in:draft,open,closed,archived'],
@@ -210,6 +214,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function updateDetails(Request $request, GroupRegistrationCycle $cycle): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $this->ensureCycleInUserScope($cycle);
         $data = $request->validate([
             'academic_year_id' => ['sometimes', 'integer', 'exists:academic_years,id'],
@@ -304,6 +309,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function destroy(Request $request, GroupRegistrationCycle $cycle): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $this->ensureCycleInUserScope($cycle);
         if ($cycle->status === 'open') {
             throw ValidationException::withMessages([
@@ -334,6 +340,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function importRoster(Request $request, GroupRegistrationCycle $cycle): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $this->ensureCycleInUserScope($cycle);
         $data = $request->validate([
             'students' => ['required', 'array', 'min:1', 'max:1000'],
@@ -381,6 +388,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function storeSubgroup(Request $request, GroupRegistrationCycle $cycle, StudentGroup $group): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $this->ensureCycleInUserScope($cycle);
         $this->ensureCycleGroup($cycle, $group);
         $data = $request->validate(['name'=>['required','string','max:10'], 'capacity'=>['required','integer','min:1','max:30']]);
@@ -393,6 +401,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function updateSubgroup(Request $request, GroupRegistrationCycle $cycle, StudentSubgroup $subgroup): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $this->ensureCycleInUserScope($cycle);
         $this->ensureCycleGroup($cycle, $subgroup->group);
         $data = $request->validate(['name'=>['sometimes','string','max:10'], 'capacity'=>['sometimes','integer','min:1','max:30'], 'is_active'=>['sometimes','boolean']]);
@@ -408,6 +417,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function archiveSubgroup(Request $request, GroupRegistrationCycle $cycle, StudentSubgroup $subgroup): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $this->ensureCycleInUserScope($cycle);
         $this->ensureCycleGroup($cycle, $subgroup->group);
         if ($subgroup->assignments()->current()->exists()) {
@@ -429,6 +439,7 @@ class GroupRegistrationAdminController extends Controller
 
     public function overrideAssignment(Request $request, GroupRegistrationCycle $cycle, Student $student): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $this->ensureCycleInUserScope($cycle);
         $data = $request->validate([
             'student_subgroup_id' => ['nullable', 'integer', 'exists:student_subgroups,id'],
@@ -522,7 +533,7 @@ class GroupRegistrationAdminController extends Controller
     {
         $this->ensureCycleInUserScope($cycle);
         $cycle->load('academicYear');
-        $rosters = StudentGroupRoster::with(['student', 'group'])
+        $rosters = app(\App\Services\DepartmentHeadCourseScope::class)->rosters(StudentGroupRoster::query())->with(['student', 'group'])
             ->where('group_registration_cycle_id', $cycle->id)
             ->orderBy('student_group_id')->orderBy('student_id')->get();
         $assignments = StudentGroupAssignment::with('subgroup')
@@ -565,12 +576,12 @@ class GroupRegistrationAdminController extends Controller
             ->get()
             ->keyBy('student_group_id');
 
-        $groups = StudentGroup::where('academic_year_id', $cycle->academic_year_id)->where('academic_level', $cycle->academic_level)
+        $groups = app(\App\Services\DepartmentHeadCourseScope::class)->groups(StudentGroup::query())->where('academic_year_id', $cycle->academic_year_id)->where('academic_level', $cycle->academic_level)
             ->where('group_type', 'self_registration')
             ->whereIn('name', $cycle->mainGroupCodes())
-            ->with(['subgroups' => fn ($q) => $q
-                ->withCount(['assignments as current_students_count' => fn ($a) => $a->whereNull('valid_until')])
-                ->with(['assignments' => fn ($a) => $a->whereNull('valid_until')->with('student')->orderBy('created_at')])])
+            ->with(['subgroups' => fn ($q) => app(\App\Services\DepartmentHeadCourseScope::class)->subgroups($q)
+                ->withCount(['assignments as current_students_count' => fn ($a) => app(\App\Services\DepartmentHeadCourseScope::class)->rosters($a)->whereNull('valid_until')])
+                ->with(['assignments' => fn ($a) => app(\App\Services\DepartmentHeadCourseScope::class)->rosters($a)->whereNull('valid_until')->with('student')->orderBy('created_at')])])
             ->orderBy('name')->get()
             ->map(function (StudentGroup $group) use ($cycle, $rosterCounts) {
                 $studentsCount = (int) ($rosterCounts->get($group->id)?->students_count ?? 0);
@@ -601,7 +612,7 @@ class GroupRegistrationAdminController extends Controller
                 ])->values(),
                 ];
             })->values();
-        $rosters = StudentGroupRoster::with(['student', 'group'])
+        $rosters = app(\App\Services\DepartmentHeadCourseScope::class)->rosters(StudentGroupRoster::query())->with(['student', 'group'])
             ->where('group_registration_cycle_id', $cycle->id)
             ->whereHas('student', fn ($query) => $query->where('academic_level', $cycle->academic_level))
             ->orderBy('student_group_id')->orderBy('student_id')->get();
@@ -626,9 +637,9 @@ class GroupRegistrationAdminController extends Controller
         return [
             'id'=>$cycle->id, 'public_id'=>$cycle->public_id, 'academic_year_id'=>$cycle->academic_year_id,
             'academic_year'=>$cycle->academicYear, 'academic_level'=>$cycle->academic_level, 'status'=>$cycle->status,
-            'default_capacity'=>$cycle->default_capacity, 'main_group_codes'=>$cycle->main_group_codes ?: $groups->pluck('name')->values()->all(), 'opens_at'=>$cycle->opens_at, 'closes_at'=>$cycle->closes_at,
-            'rosters_count'=>$cycle->rosters()->whereHas('student', fn($q)=>$q->where('academic_level',$cycle->academic_level))->count(),
-            'registered_rosters_count'=>$cycle->rosters()->whereHas('student', fn($q)=>$q->where('academic_level',$cycle->academic_level)->where('academic_registration_status','registered'))->count(),
+            'default_capacity'=>$cycle->default_capacity, 'main_group_codes'=>app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() !== null ? $groups->pluck('name')->values()->all() : ($cycle->main_group_codes ?: $groups->pluck('name')->values()->all()), 'opens_at'=>$cycle->opens_at, 'closes_at'=>$cycle->closes_at,
+            'rosters_count'=>app(\App\Services\DepartmentHeadCourseScope::class)->rosters($cycle->rosters())->whereHas('student', fn($q)=>$q->where('academic_level',$cycle->academic_level))->count(),
+            'registered_rosters_count'=>app(\App\Services\DepartmentHeadCourseScope::class)->rosters($cycle->rosters())->whereHas('student', fn($q)=>$q->where('academic_level',$cycle->academic_level)->where('academic_registration_status','registered'))->count(),
             'public_url'=>'/student-registration/'.$cycle->public_id, 'groups'=>$groups, 'roster_students'=>$rosterStudents,
         ];
     }
@@ -668,6 +679,9 @@ class GroupRegistrationAdminController extends Controller
     private function ensureCycleInUserScope(GroupRegistrationCycle $cycle): void
     {
         $this->ensureAcademicLevelInUserScope($cycle->academic_level);
+        if (app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() !== null) {
+            abort_unless($cycle->rosters()->whereHas('student', fn ($students) => $this->applyStudentAccessScope($students))->exists(), 404);
+        }
     }
 
     private function ensureAcademicLevelInUserScope(string $academicLevel): void

@@ -98,6 +98,13 @@ class ClinicalAssessmentController extends Controller
         ]);
 
         $this->authorizeStudentAccess(Student::findOrFail($data['student_id']));
+        if (app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() !== null) {
+            abort_unless(!empty($data['clinical_session_id']), 403);
+            app(\App\Services\DepartmentHeadCourseScope::class)->authorizeRecord(
+                app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation(\App\Models\ClinicalSession::query(), 'rotationBlock.rotation'),
+                (int) $data['clinical_session_id'],
+            );
+        }
 
         if (isset($data['score']) && $data['score'] > $data['max_score']) {
             return ApiResponse::error('Score cannot exceed maximum score.', ['score' => ['Score cannot exceed maximum score.']], [], 422);
@@ -129,11 +136,14 @@ class ClinicalAssessmentController extends Controller
     private function authorizeAssessmentAccess(ClinicalAssessment $clinicalAssessment): void
     {
         $this->authorizeStudentAccess($clinicalAssessment->student);
+        app(\App\Services\DepartmentHeadCourseScope::class)->authorizeRecord(
+            app(\App\Services\DepartmentHeadCourseScope::class)->assessments(ClinicalAssessment::query()), $clinicalAssessment->id,
+        );
     }
 
     private function scopedQuery(Request $request, bool $applyFilters = true)
     {
-        $query = ClinicalAssessment::query()->whereIn(
+        $query = app(\App\Services\DepartmentHeadCourseScope::class)->assessments(ClinicalAssessment::query())->whereIn(
             'student_id',
             $this->applyStudentAccessScope(Student::query())->select('students.id')
         );

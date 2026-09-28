@@ -34,6 +34,14 @@ class StudentController extends Controller
 {
     use ScopesByDepartmentAndLevel;
 
+    public function scopeOptions(): JsonResponse
+    {
+        return ApiResponse::success([
+            'academic_levels' => $this->applyStudentAccessScope(Student::query())
+                ->distinct()->orderBy('academic_level')->pluck('academic_level')->values(),
+        ]);
+    }
+
     /**
      * Return the main-group values actually assigned to visible students.
      * The selected cohort is applied so each batch gets its own dynamic list.
@@ -160,6 +168,7 @@ class StudentController extends Controller
      */
     public function store(StoreStudentRequest $request): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $data = $request->validated();
         $cycleId = $data['group_registration_cycle_id'] ?? null;
         $mainGroupCode = $data['main_group_code'] ?? null;
@@ -306,9 +315,23 @@ class StudentController extends Controller
     {
         $this->authorizeStudentAccess($student);
 
+        $departmentScoped = app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() !== null;
+        if ($departmentScoped) {
+            foreach (['academic_level', 'academic_year_id'] as $field) {
+                abort_if($request->exists($field) && (string) $request->input($field) !== (string) $student->getAttribute($field), 403);
+            }
+            // These are roster metadata, not columns on the student model.
+            // Allow a normal profile form to echo them unchanged, but never
+            // reassign the college-wide roster through a department profile.
+            $roster = $student->groupRegistrationRosters()->with('group')->first();
+            foreach (['group_registration_cycle_id' => $roster?->group_registration_cycle_id, 'main_group_code' => $roster?->group?->name] as $field => $current) {
+                abort_if($request->exists($field) && (string) $request->input($field) !== (string) $current, 403);
+            }
+        }
+
         $data = $request->validated();
-        $shouldSyncRoster = $request->exists('group_registration_cycle_id')
-            || $request->exists('main_group_code');
+        $shouldSyncRoster = ! $departmentScoped && ($request->exists('group_registration_cycle_id')
+            || $request->exists('main_group_code'));
         $cycleId = $data['group_registration_cycle_id'] ?? null;
         $mainGroupCode = $data['main_group_code'] ?? null;
         unset($data['group_registration_cycle_id'], $data['main_group_code']);
@@ -421,6 +444,7 @@ class StudentController extends Controller
      */
     public function destroy(Request $request, Student $student): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $this->authorizeStudentAccess($student);
 
         $force = $request->boolean('force');
@@ -526,6 +550,7 @@ class StudentController extends Controller
      */
     public function bulkImport(Request $request): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $validated = $request->validate([
             'students' => ['required', 'array', 'min:1'],
             'students.*.university_number' => ['required', 'string', 'max:20'],

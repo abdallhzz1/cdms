@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Copy, Download, ExternalLink, Link2, Pencil, Plus, Save, Search, Settings2, Sparkles, Trash2, UserCog, UserRound, Users } from 'lucide-react';
 import { apiFetch, apiUrl, ApiError } from '@/api/client';
+import { isDepartmentScopedHead } from '@/features/departments/courseOwnership';
 import { useAuth } from '@/auth/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -38,7 +39,9 @@ function StudentAvatar({ student, small = false }: { student: RosterStudent; sma
 }
 
 export function StudentGroupsPage() {
-  const { can } = useAuth();
+  const { can: permission, user } = useAuth();
+  const departmentScoped = isDepartmentScopedHead(user?.roles);
+  const can = (code: string) => permission(code) && !(departmentScoped && ['group_registration.create','group_registration.manage_groups','group_registration.import','group_registration.override','group_registration.open_close'].includes(code));
   const { locale } = useI18n();
   const ar = locale === 'ar';
   const tr = (arabic: string, english: string) => ar ? arabic : english;

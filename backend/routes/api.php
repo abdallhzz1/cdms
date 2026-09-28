@@ -260,6 +260,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         // Students
         Route::prefix('students')->name('students.')->group(function () {
+            Route::get('/scope-options', [StudentController::class, 'scopeOptions'])
+                ->middleware('permission:students.view')->name('scope-options');
             Route::get('/', [StudentController::class, 'index'])
                 ->middleware('permission:students.view')->name('index');
             Route::get('/main-groups', [StudentController::class, 'mainGroups'])
@@ -301,6 +303,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->middleware('permission:groups.manage')->name('student-group-assignments.store');
 
         Route::get('courses', [CourseController::class, 'index'])->middleware('permission:courses.view');
+        Route::get('courses/department-options', [CourseController::class, 'departmentOptions'])->middleware('permission:courses.view');
         Route::post('courses', [CourseController::class, 'store'])->middleware('permission:courses.manage');
         Route::post('courses/bulk-import', [CourseController::class, 'bulkImport'])->middleware('permission:courses.manage');
         Route::get('program-outcomes', [ProgramOutcomeController::class, 'index'])->middleware('permission:courses.view');

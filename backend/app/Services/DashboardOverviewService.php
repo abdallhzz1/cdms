@@ -134,7 +134,7 @@ class DashboardOverviewService
 
     private function addAttendanceSection(Collection $studentIds, Collection $metrics, Collection $charts, Collection $attention): void
     {
-        $query = DB::table('attendance_records')->whereIn('student_id', $studentIds);
+        $query = app(DepartmentHeadCourseScope::class)->throughRotation(AttendanceRecord::query(), 'session.rotationBlock.rotation')->whereIn('student_id', $studentIds);
         $counts = (clone $query)->select('status', DB::raw('COUNT(*) as total'))->groupBy('status')->pluck('total', 'status');
         $recorded = (int) $counts->sum();
         $absent = (int) ($counts['absent'] ?? 0);
@@ -148,6 +148,7 @@ class DashboardOverviewService
 
         $months = collect(range(5, 0))->map(fn (int $offset) => Carbon::now()->startOfMonth()->subMonths($offset));
         $trendRows = DB::table('attendance_records')
+            ->whereIn('attendance_records.id', (clone $query)->select('attendance_records.id'))
             ->join('clinical_sessions', 'clinical_sessions.id', '=', 'attendance_records.clinical_session_id')
             ->whereIn('attendance_records.student_id', $studentIds)
             ->where('attendance_records.status', 'absent')
@@ -168,6 +169,8 @@ class DashboardOverviewService
         $query = DB::table('grade_entries')
             ->join('student_course_enrollments', 'student_course_enrollments.id', '=', 'grade_entries.student_course_enrollment_id')
             ->whereIn('student_course_enrollments.student_id', $studentIds);
+        $courseIds = app(DepartmentHeadCourseScope::class)->courseIds();
+        if ($courseIds !== null) $query->whereIn('student_course_enrollments.course_id', $courseIds);
         $counts = (clone $query)->select('grade_entries.status', DB::raw('COUNT(*) as total'))->groupBy('grade_entries.status')->pluck('total', 'grade_entries.status');
         $total = (int) $counts->sum();
         $approved = (int) (($counts['approved'] ?? 0) + ($counts['published'] ?? 0));
@@ -182,7 +185,7 @@ class DashboardOverviewService
 
     private function addAssessmentSection(Collection $studentIds, Collection $metrics, Collection $charts, Collection $attention, Collection $permissions): void
     {
-        $query = DB::table('clinical_assessments')->whereIn('student_id', $studentIds);
+        $query = app(DepartmentHeadCourseScope::class)->assessments(\App\Models\ClinicalAssessment::query())->whereIn('student_id', $studentIds);
         $counts = (clone $query)->select('status', DB::raw('COUNT(*) as total'))->groupBy('status')->pluck('total', 'status');
         $metrics->push($this->metric('assessments_total', 'التقييمات السريرية', 'Clinical assessments', (int) $counts->sum(), null, '/assessments'));
         $charts->push($this->chart('assessment_workflow', 'donut', 'حالة التقييمات السريرية', 'Clinical assessment status', $counts->map(
@@ -197,6 +200,9 @@ class DashboardOverviewService
             ->where('distribution_versions.status', 'published')
             ->where('distribution_versions.is_current', true)
             ->whereIn('student_clinical_assignments.student_id', $studentIds);
+        if (app(DepartmentHeadCourseScope::class)->departmentIds() !== null) {
+            $query->whereIn('student_clinical_assignments.id', app(DepartmentHeadCourseScope::class)->publishedAssignments()->select('student_clinical_assignments.id'));
+        }
         $placements = (clone $query)->count();
         $assignedStudents = (clone $query)->distinct()->count('student_clinical_assignments.student_id');
         $unsupervised = (clone $query)->whereNull('student_clinical_assignments.supervisor_id')->count();
@@ -218,6 +224,8 @@ class DashboardOverviewService
     {
         $levels = $this->getEffectiveAcademicLevelScope();
         $query = DB::table('courses')->where('is_active', true);
+        $courseIds = app(DepartmentHeadCourseScope::class)->courseIds();
+        if ($courseIds !== null) $query->whereIn('id', $courseIds);
         if ($levels !== null) {
             $english = collect($levels)->intersect(['fourth', 'fifth', 'sixth'])->values();
             $english->isEmpty() ? $query->whereRaw('1 = 0') : $query->whereIn('academic_level', $english);
@@ -229,6 +237,9 @@ class DashboardOverviewService
     {
         $levels = $this->getEffectiveAcademicLevelScope();
         $query = DB::table('group_registration_cycles');
+        if (app(DepartmentHeadCourseScope::class)->departmentIds() !== null) {
+            $query->whereIn('id', app(DepartmentHeadCourseScope::class)->rosters(\App\Models\StudentGroupRoster::query())->select('group_registration_cycle_id'));
+        }
         if ($levels !== null) {
             $english = collect($levels)->intersect(['fourth', 'fifth', 'sixth'])->values();
             $english->isEmpty() ? $query->whereRaw('1 = 0') : $query->whereIn('academic_level', $english);
@@ -295,6 +306,7 @@ class DashboardOverviewService
                 $q->orWhereJsonContains('approval_workflow_steps.role_codes', $role);
             }
         });
+        if (app(DepartmentHeadCourseScope::class)->departmentIds() !== null) $query->whereIn('approval_requests.id', app(DepartmentHeadCourseScope::class)->approvals(\App\Models\ApprovalRequest::query())->select('approval_requests.id'));
         $count = $query->count();
         $metrics->push($this->metric('approval_queue', 'طلبات الاعتماد بانتظارك', 'Approval requests awaiting you', $count, null, '/approvals'));
         $attention->push($this->attention('approval_queue', 'طلبات تحتاج قرار اعتماد', 'Requests need an approval decision', $count, '/approvals', 'review'));
@@ -353,7 +365,7 @@ class DashboardOverviewService
 
     private function absenceRiskCounts(Collection $studentIds): array
     {
-        $records = AttendanceRecord::query()
+        $records = app(DepartmentHeadCourseScope::class)->throughRotation(AttendanceRecord::query(), 'session.rotationBlock.rotation')
             ->with('session.rotationBlock.rotation.course:id,credit_hours')
             ->whereIn('student_id', $studentIds)
             ->where('status', 'absent')

@@ -13,7 +13,7 @@ class ApprovalInboxController extends Controller
     public function index(Request $request): JsonResponse
     {
         $roles = $request->user()->roles()->pluck('code')->all();
-        $items = ApprovalRequest::query()->with(['workflow.steps', 'requester:id,name', 'actions.actor:id,name', 'actions.step'])
+        $items = app(\App\Services\DepartmentHeadCourseScope::class)->approvals(ApprovalRequest::query())->with(['workflow.steps', 'requester:id,name', 'actions.actor:id,name', 'actions.step'])
             ->whereHas('workflow', fn ($workflow) => $workflow->where('code', '!=', 'correspondence'))
             ->when($request->query('scope') === 'mine', fn ($q) => $q->where('requested_by', $request->user()->id), function ($q) use ($roles, $request) {
                 $q->where('status', 'pending')->whereHas('workflow.steps', fn ($step) => $step

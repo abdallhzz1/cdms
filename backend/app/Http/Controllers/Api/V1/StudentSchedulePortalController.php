@@ -20,6 +20,7 @@ class StudentSchedulePortalController extends Controller
 
     public function update(Request $request): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $data = $request->validate(['is_enabled' => ['required', 'boolean']]);
         $setting = StudentSchedulePortalSetting::current();
         $previous = $setting->is_enabled;

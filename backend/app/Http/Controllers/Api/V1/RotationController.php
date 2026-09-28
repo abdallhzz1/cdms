@@ -32,7 +32,7 @@ class RotationController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $query = Rotation::query()->with(['academicYear', 'departments']);
+        $query = app(\App\Services\DepartmentHeadCourseScope::class)->rotations(Rotation::query())->with(['academicYear', 'departments']);
 
         if ($request->has('academic_year_id')) {
             $query->where('academic_year_id', $request->academic_year_id);
@@ -51,6 +51,8 @@ class RotationController extends Controller
 
     public function store(StoreRotationRequest $request): JsonResponse
     {
+        // This legacy form has no course identity; use course-distribution instead.
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $rotation = DB::transaction(function () use ($request) {
             $rotation = Rotation::create($request->validated());
 
@@ -74,6 +76,7 @@ class RotationController extends Controller
 
     public function show(Rotation $rotation): JsonResponse
     {
+        app(\App\Services\DepartmentHeadCourseScope::class)->authorizeRotation($rotation);
         $rotation->load(['academicYear', 'blocks', 'departments', 'siteCapacityRules']);
 
         return ApiResponse::success($rotation);
@@ -81,6 +84,7 @@ class RotationController extends Controller
 
     public function update(UpdateRotationRequest $request, Rotation $rotation): JsonResponse
     {
+        app(\App\Services\DepartmentHeadCourseScope::class)->authorizeRotation($rotation);
         $updatedRotation = DB::transaction(function () use ($request, $rotation) {
             $rotation->update($request->validated());
 
@@ -106,6 +110,7 @@ class RotationController extends Controller
 
     public function destroy(Rotation $rotation): JsonResponse
     {
+        app(\App\Services\DepartmentHeadCourseScope::class)->authorizeRotation($rotation);
         $rotation->delete();
         return ApiResponse::success(null, 'Rotation deleted successfully');
     }
@@ -116,6 +121,7 @@ class RotationController extends Controller
         \App\Services\Distribution\DistributionValidationService $validationService,
         \App\Services\Distribution\DistributionValidationContextBuilder $contextBuilder
     ): JsonResponse {
+        app(\App\Services\DepartmentHeadCourseScope::class)->authorizeRotation($rotation);
         $dtos = array_map(
             fn($data) => \App\DTOs\CandidateAssignmentDTO::fromArray($data),
             $request->validated('assignments')
@@ -131,6 +137,7 @@ class RotationController extends Controller
         Rotation $rotation,
         \App\Services\Distribution\DistributionCandidateGeneratorService $generatorService
     ): JsonResponse {
+        app(\App\Services\DepartmentHeadCourseScope::class)->authorizeRotation($rotation);
         $result = $generatorService->generate($rotation);
 
         return ApiResponse::success([
@@ -143,6 +150,7 @@ class RotationController extends Controller
         Rotation $rotation,
         \App\Services\Distribution\DistributionGenerationService $generationService
     ): JsonResponse {
+        app(\App\Services\DepartmentHeadCourseScope::class)->authorizeRotation($rotation);
         $result = $generationService->generate($rotation);
         
         return ApiResponse::success($result, 'Distribution generated successfully');

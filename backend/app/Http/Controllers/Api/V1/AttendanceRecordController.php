@@ -35,6 +35,7 @@ class AttendanceRecordController extends Controller
         ]);
 
         $query = AttendanceRecord::with(['student', 'session.trainingSite', 'session.rotationBlock.rotation.course', 'session.rotationBlock.rotation.clinicalPeriod', 'recorder:id,name,email']);
+        app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation($query, 'session.rotationBlock.rotation');
 
         $user = $request->user();
         $roles = $user?->roles()->pluck('code') ?? collect();
@@ -105,7 +106,7 @@ class AttendanceRecordController extends Controller
     public function options(Request $request): JsonResponse
     {
         $allowedStudentIds = $this->applyStudentAccessScope(Student::query())->select('students.id');
-        $query = ClinicalSession::query()
+        $query = app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation(ClinicalSession::query(), 'rotationBlock.rotation')
             ->with([
                 'trainingSite:id,name_ar,name_en',
                 'rotationBlock.rotation:id,academic_year_id,course_id,clinical_period_id,academic_level',
@@ -378,7 +379,7 @@ class AttendanceRecordController extends Controller
             : null;
         $includeComplete = $request->boolean('include_complete');
 
-        $assignments = StudentClinicalAssignment::query()
+        $assignments = app(\App\Services\DepartmentHeadCourseScope::class)->assignments(StudentClinicalAssignment::query())
             ->whereHas('distributionVersion', fn ($version) => $version->where('status', 'published')->where('is_current', true))
             ->whereIn('student_id', $this->applyStudentAccessScope(Student::query())->select('students.id'))
             ->when($request->filled('academic_year_id'), fn ($query) => $query->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $request->integer('academic_year_id'))))
@@ -487,6 +488,9 @@ class AttendanceRecordController extends Controller
         $student = Student::findOrFail($data['student_id']);
         $this->authorizeStudentAccess($student);
         $session = \App\Models\ClinicalSession::with('rotationBlock.rotation')->findOrFail($data['clinical_session_id']);
+        app(\App\Services\DepartmentHeadCourseScope::class)->authorizeRecord(
+            app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation(ClinicalSession::query(), 'rotationBlock.rotation'), $session->id,
+        );
         $levelScope = $this->getEffectiveAcademicLevelScope();
         if ($levelScope !== null) {
             $sessionLevel = (string) $session->rotationBlock?->rotation?->academic_level;
@@ -516,7 +520,7 @@ class AttendanceRecordController extends Controller
 
     private function scopedCurrentAssignments()
     {
-        $query = StudentClinicalAssignment::query()
+        $query = app(\App\Services\DepartmentHeadCourseScope::class)->assignments(StudentClinicalAssignment::query())
             ->whereHas('distributionVersion', fn ($version) => $version
                 ->where('status', 'published')
                 ->where('is_current', true))

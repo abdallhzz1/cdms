@@ -18,6 +18,7 @@ class StudentCourseEnrollmentController extends Controller
     {
         $query = StudentCourseEnrollment::with(['student:id,university_number,full_name_ar,full_name_en', 'course:id,code,name_ar,name_en', 'academicYear:id,code,name']);
         $query->whereIn('student_id', $this->applyStudentAccessScope(Student::query())->select('students.id'));
+        $query->whereHas('course', fn ($course) => $this->applyCourseAccessScope($course));
 
         if ($request->query('student_id')) {
             $query->where('student_id', $request->query('student_id'));
@@ -40,6 +41,9 @@ class StudentCourseEnrollmentController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate(['student_id' => ['required', 'exists:students,id'], 'course_id' => ['required', 'exists:courses,id'], 'academic_year_id' => ['required', 'exists:academic_years,id'], 'semester' => ['required', 'string', 'max:20'], 'status' => ['nullable', 'in:enrolled,dropped,completed']]);
+        $this->authorizeStudentAccess(Student::findOrFail($data['student_id']));
+        $this->authorizeCourseAccess(\App\Models\Course::findOrFail($data['course_id']));
+        app(\App\Services\DepartmentHeadCourseScope::class)->authorizeStudentForCourse((int) $data['student_id'], (int) $data['course_id'], (int) $data['academic_year_id']);
         $item = StudentCourseEnrollment::firstOrCreate(['student_id' => $data['student_id'], 'course_id' => $data['course_id'], 'academic_year_id' => $data['academic_year_id'], 'semester' => $data['semester']], ['status' => $data['status'] ?? 'enrolled']);
 
         return ApiResponse::success($item, 'Enrollment saved.', [], 201);

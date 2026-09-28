@@ -52,7 +52,7 @@ class CourseDistributionController extends Controller
             'clinical_periods' => ClinicalPeriod::query()
                 ->orderBy('academic_year_id')->orderBy('sequence')
                 ->get(['id', 'academic_year_id', 'code', 'name_ar', 'name_en', 'sequence', 'start_date', 'end_date', 'weeks_count', 'status']),
-            'courses' => Course::query()->where('is_active', true)
+            'courses' => $this->applyCourseAccessScope(Course::query())->where('is_active', true)
                 ->whereIn('academic_level', ['fourth', 'fifth', 'sixth'])
                 ->when($levelScope !== null, fn ($query) => $query->whereIn('academic_level', $levelScope))
                 ->orderBy('academic_level')->orderBy('semester')->orderBy('code')
@@ -89,6 +89,7 @@ class CourseDistributionController extends Controller
             'schedule_scope' => ['nullable', 'in:period,annual'],
         ]);
         $this->ensureAcademicLevelInUserScope($data['academic_level']);
+        $this->authorizeCourseAccess(Course::findOrFail($data['course_id']));
 
         $directory = $this->doctorDirectory();
         $rotation = Rotation::query()
@@ -193,6 +194,7 @@ class CourseDistributionController extends Controller
         $data['schedule_scope'] = $data['schedule_scope'] ?? 'annual';
         $this->ensureAcademicLevelInUserScope($data['academic_level']);
         $course = Course::findOrFail($data['course_id']);
+        $this->authorizeCourseAccess($course);
         if ($course->academic_level !== $data['academic_level']) {
             throw ValidationException::withMessages(['course_id' => ['المساق لا يتبع الدفعة المحددة.']]);
         }
@@ -277,6 +279,8 @@ class CourseDistributionController extends Controller
             throw ValidationException::withMessages(['course_schedule_row_id' => ['المشرف غير متاح للعمل في هذا المستشفى خلال الأسبوع المحدد. راجع جدول دوامه أولاً.']]);
         }
         $subgroups = StudentSubgroup::with('group')->whereIn('id', $subgroupIds)->get();
+        $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+        abort_if($scope->departmentIds() !== null && $scope->subgroups(StudentSubgroup::query())->whereIn('id', $subgroupIds)->count() !== count($subgroupIds), 403);
         foreach ($subgroups as $subgroup) {
             if (! $subgroup->is_active || ! $subgroup->group
                 || $subgroup->group->academic_year_id !== $version->rotation->academic_year_id
@@ -627,6 +631,7 @@ class CourseDistributionController extends Controller
     public function destroySchedule(Request $request, Rotation $rotation): JsonResponse
     {
         $this->ensureAcademicLevelInUserScope($rotation->academic_level);
+        $this->authorizeRotationCourseAccess($rotation);
         if ($rotation->distributionVersions()->where('status', 'published')->where('is_current', true)->exists()) {
             throw ValidationException::withMessages(['rotation' => ['يجب إلغاء نشر الجدول قبل حذفه.']]);
         }
@@ -648,6 +653,8 @@ class CourseDistributionController extends Controller
 
     public function storeDoctor(Request $request): JsonResponse
     {
+        // Account creation and hospital reassignment affect every department.
+        abort_if(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() !== null, 403);
         $data = $request->validate([
             'full_name_ar' => ['required', 'string', 'max:255'],
             'full_name_en' => ['nullable', 'string', 'max:255'],
@@ -697,6 +704,7 @@ class CourseDistributionController extends Controller
 
     public function assignDoctorHospital(Request $request, User $user): JsonResponse
     {
+        abort_if(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() !== null, 403);
         $data = $request->validate([
             'primary_site_id' => ['nullable', 'integer', 'exists:training_sites,id'],
         ]);
@@ -753,8 +761,8 @@ class CourseDistributionController extends Controller
 
     private function subgroups(int $academicYearId, string $academicLevel)
     {
-        return StudentSubgroup::query()->with('group:id,name')
-            ->withCount(['assignments as students_count' => fn ($query) => $query->current()->where('academic_year_id', $academicYearId)])
+        return app(\App\Services\DepartmentHeadCourseScope::class)->subgroups(StudentSubgroup::query())->with('group:id,name')
+            ->withCount(['assignments as students_count' => fn ($query) => app(\App\Services\DepartmentHeadCourseScope::class)->rosters($query)->current()->where('academic_year_id', $academicYearId)])
             ->where('is_active', true)
             ->whereHas('group', fn ($query) => $query->where('academic_year_id', $academicYearId)->where('academic_level', $academicLevel))
             ->get(['id', 'student_group_id', 'name', 'capacity'])->sortBy(fn ($group) => ($group->group?->name ?? '').$group->name)->values();
@@ -831,6 +839,7 @@ class CourseDistributionController extends Controller
         $version->loadMissing('rotation');
         abort_unless($version->rotation, 404);
         $this->ensureAcademicLevelInUserScope($version->rotation->academic_level);
+        $this->authorizeRotationCourseAccess($version->rotation);
     }
 
     private function ensureAcademicLevelInUserScope(string $academicLevel): void

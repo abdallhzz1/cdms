@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import { CheckCircle2, Clock3, Download, FileCheck2, GraduationCap, RotateCcw, Save, Search, Send } from 'lucide-react';
 import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { isDepartmentScopedHead } from '@/features/departments/courseOwnership';
 import { useI18n } from '@/i18n/I18nContext';
 
 type Level = 'fourth' | 'fifth' | 'sixth';
@@ -39,9 +40,10 @@ export function GradesPage() {
   const ar = locale === 'ar';
   const { user, can } = useAuth();
   const queryClient = useQueryClient();
-  const assigned = user?.roles.includes('RTA') ? (user.assigned_levels ?? []) : null;
-  const visibleLevels = levels.filter(item => !assigned || assigned.includes(item.key));
-  const [level, setLevel] = useState<Level>(visibleLevels[0]?.key ?? 'fourth');
+  const departmentScoped = isDepartmentScopedHead(user?.roles);
+  const globalRole = user?.roles.some(role => ['SYS_ADMIN','DEAN','VICE_DEAN','CLINICAL_DIRECTOR'].includes(role));
+  const assigned = user?.roles.includes('RTA') && !globalRole && !departmentScoped ? (user.assigned_levels ?? []) : null;
+  const [level, setLevel] = useState<Level>(levels.find(item => !assigned || assigned.includes(item.key))?.key ?? 'fourth');
   const [yearId, setYearId] = useState('');
   const [courseId, setCourseId] = useState('');
   const [search, setSearch] = useState('');
@@ -51,6 +53,8 @@ export function GradesPage() {
   const [withdrawReason, setWithdrawReason] = useState('');
 
   const optionsQuery = useQuery({ queryKey: ['grade-options'], queryFn: () => apiFetch<GradeOptions>('/grade-entries/options') });
+  const visibleLevels = levels.filter(item => departmentScoped ? (optionsQuery.data?.courses??[]).some(course=>course.academic_level===item.key) : !assigned || assigned.includes(item.key));
+  useEffect(()=>{if(departmentScoped&&visibleLevels.length&&!visibleLevels.some(item=>item.key===level)){setLevel(visibleLevels[0].key);setCourseId('');}},[departmentScoped,visibleLevels.map(item=>item.key).join('|'),level]);
   const years = optionsQuery.data?.academic_years ?? [];
   const courses = (optionsQuery.data?.courses ?? []).filter(course => course.academic_level === level && course.is_active !== false);
   useEffect(() => { if (!yearId && years.length) setYearId(String(years.find(year => year.is_current)?.id ?? years[0].id)); }, [years, yearId]);

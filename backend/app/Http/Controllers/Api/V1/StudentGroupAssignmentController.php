@@ -21,6 +21,7 @@ class StudentGroupAssignmentController extends Controller
      */
     public function store(StoreStudentGroupAssignmentRequest $request): JsonResponse
     {
+        abort_unless(app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null, 403);
         $data = $request->validated();
         $group = StudentGroup::findOrFail($data['student_group_id']);
 
