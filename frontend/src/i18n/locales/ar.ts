@@ -125,6 +125,7 @@ const ar: typeof en = {
 
     supervisorPortal: {
       title: 'بوابة المشرف',
+      actions: 'إجراءات المشرف السريري', attendance: 'الحضور والغياب', assessments: 'تقييم الطلبة',
       description: 'إدارة الطلبة الموكلين إليك في فترة التدريب الحالية.',
       current: 'الفترة الحالية',
       noProfile: 'ملف المشرف غير موجود',

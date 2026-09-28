@@ -136,6 +136,7 @@ const en = {
 
     supervisorPortal: {
       title: 'Supervisor Portal',
+      actions: 'Supervisor actions', attendance: 'QR attendance', assessments: 'Student assessments',
       description: 'Manage your assigned students for the current rotation block.',
       current: 'Current Block',
       noProfile: 'Supervisor Profile Not Found',

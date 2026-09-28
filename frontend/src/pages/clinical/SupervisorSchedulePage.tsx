@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CalendarDays, MapPin, Users } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nContext';
+import { useAuth } from '@/auth/AuthContext';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatDate, formatWeekday, groupName, groupSupervisorAssignments, today, type SupervisorGroup, type Workspace } from './supervisorWorkspace';
 
@@ -41,6 +42,7 @@ export function preferredAgendaWeek<T extends {date:string}>(items:T[],currentDa
 
 export function SupervisorScheduleAgenda({workspace}:{workspace:Workspace}){
   const {locale}=useI18n();const ar=locale==='ar';const tr=(a:string,e:string)=>ar?a:e;
+  const {can}=useAuth();const canRecordAttendance=can('attendance.record');const canAssessStudents=can('assessment.create');
   const [currentDate,setCurrentDate]=useState(today);
   const [selectedWeek,setSelectedWeek]=useState('');
   useEffect(()=>{const timer=window.setInterval(()=>setCurrentDate(value=>{const next=today();return next===value?value:next;}),60_000);return()=>window.clearInterval(timer);},[]);
@@ -59,7 +61,7 @@ export function SupervisorScheduleAgenda({workspace}:{workspace:Workspace}){
         <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <table className="w-full table-fixed text-right text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-black text-slate-500"><tr><th className="w-[92px] px-2.5 py-2.5">{tr('اليوم','Day')}</th><th className="px-2.5 py-2.5">{tr('المجموعة والتكليف','Group and assignment')}</th></tr></thead><tbody className="divide-y divide-slate-100">{mobileRows.map(({date,group})=>{const isToday=date===currentDate;const past=date<currentDate;return <tr key={`${date}-${group.key}`} className={isToday?'bg-teal-50/70':past?'bg-slate-50/40':''}>
             <td className="w-[92px] align-top px-2.5 py-3"><span className={`block w-fit rounded-lg px-2 py-1 text-[11px] font-black ${isToday?'bg-amber-100 text-amber-900':'bg-slate-100 text-slate-700'}`}>{isToday?tr('اليوم','Today'):formatWeekday(date,ar)}</span><span dir="ltr" className="mt-1.5 block text-[10px] font-bold text-slate-500">{formatDate(date,ar)}</span></td>
-            <td className="min-w-0 align-top px-2.5 py-3"><h3 className="break-words text-xs font-black leading-5 text-slate-900">{sharedCourse?`${group.group} (${group.subgroup})`:groupName(group,ar)}</h3><div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-0.5 text-[10px] leading-4 text-slate-500"><span className="inline-flex min-w-0 items-start gap-0.5"><MapPin className="mt-0.5 h-3 w-3 shrink-0"/><span className="min-w-0 break-words">{ar?group.siteAr:group.siteEn}</span></span><span className="inline-flex items-center gap-0.5"><Users className="h-3 w-3"/>{group.students.length} {tr('طالب','students')}</span></div><div className="mt-2 flex flex-wrap gap-1.5"><Link to={target(group,date,'attendance')} className={`rounded-lg px-2.5 py-1.5 text-[10px] font-black ${isToday?'bg-teal-700 text-white':'border border-teal-200 bg-white text-teal-800'}`}>{tr('فتح حضور QR','Open QR attendance')}</Link><Link to={target(group,date,'assessments')} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700">{tr('التقييم','Assessment')}</Link></div></td>
+            <td className="min-w-0 align-top px-2.5 py-3"><h3 className="break-words text-xs font-black leading-5 text-slate-900">{sharedCourse?`${group.group} (${group.subgroup})`:groupName(group,ar)}</h3><div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-0.5 text-[10px] leading-4 text-slate-500"><span className="inline-flex min-w-0 items-start gap-0.5"><MapPin className="mt-0.5 h-3 w-3 shrink-0"/><span className="min-w-0 break-words">{ar?group.siteAr:group.siteEn}</span></span><span className="inline-flex items-center gap-0.5"><Users className="h-3 w-3"/>{group.students.length} {tr('طالب','students')}</span></div>{(canRecordAttendance||canAssessStudents)&&<div className="mt-2 flex flex-wrap gap-1.5">{canRecordAttendance&&<Link to={target(group,date,'attendance')} className={`rounded-lg px-2.5 py-1.5 text-[10px] font-black ${isToday?'bg-teal-700 text-white':'border border-teal-200 bg-white text-teal-800'}`}>{tr('فتح حضور QR','Open QR attendance')}</Link>}{canAssessStudents&&<Link to={target(group,date,'assessments')} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700">{tr('التقييم','Assessment')}</Link>}</div>}</td>
           </tr>})}</tbody></table>
         </div>
       </div>
@@ -70,7 +72,7 @@ export function SupervisorScheduleAgenda({workspace}:{workspace:Workspace}){
           <span className={`w-fit rounded-lg px-2.5 py-1.5 text-[11px] font-black ${isToday?'bg-amber-100 text-amber-800':'border border-slate-200 bg-white text-slate-700'}`}>{isToday?`${tr('اليوم','Today')} · ${formatWeekday(date,ar)}`:formatWeekday(date,ar)}</span>
           <span dir="ltr" className="inline-flex w-fit whitespace-nowrap rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-black text-slate-800">{formatDate(date,ar)}</span>
           <div><h3 className="text-xs font-black text-slate-900">{groupName(group,ar)}</h3><p className="mt-1 flex flex-wrap gap-3 text-[10px] text-slate-500"><span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3"/>{ar?group.siteAr:group.siteEn}</span><span className="inline-flex items-center gap-1"><Users className="h-3 w-3"/>{group.students.length} {tr('طالب','students')}</span></p></div>
-          <div className="flex gap-2"><Link to={target(group,date,'attendance')} className="rounded-lg bg-teal-700 px-3 py-2 text-[11px] font-bold text-white hover:bg-teal-800">{tr('الحضور عبر QR','QR attendance')}</Link><Link to={target(group,date,'assessments')} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700 hover:border-teal-300">{tr('التقييم الأسبوعي','Assessment')}</Link></div>
+          <div className="flex gap-2">{canRecordAttendance&&<Link to={target(group,date,'attendance')} className="rounded-lg bg-teal-700 px-3 py-2 text-[11px] font-bold text-white hover:bg-teal-800">{tr('الحضور عبر QR','QR attendance')}</Link>}{canAssessStudents&&<Link to={target(group,date,'assessments')} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700 hover:border-teal-300">{tr('التقييم الأسبوعي','Assessment')}</Link>}</div>
         </article>})}</div>
       </div>
       </div>

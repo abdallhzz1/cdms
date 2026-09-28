@@ -57,6 +57,65 @@ describe('clinical supervisor workspace',()=>{
     expect(screen.getAllByText('Assessment').length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith('/supervisor/attendance/qr?'))).toBe(true);
     expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith('/supervisor/assessments?'))).toBe(true);
+    const actions=screen.getByRole('navigation',{name:'Supervisor actions'});
+    expect(within(actions).getByRole('link',{name:'QR attendance'})).toHaveAttribute('href','/supervisor/attendance/qr');
+    expect(within(actions).getByRole('link',{name:'Student assessments'})).toHaveAttribute('href','/supervisor/assessments');
+  });
+
+  it.each([
+    ['CLINICAL_DIRECTOR','CLINICAL_SUPERVISOR'],
+    ['CLINICAL_SUPERVISOR','CLINICAL_DIRECTOR'],
+    ['DEPARTMENT_HEAD','CLINICAL_SUPERVISOR'],
+  ])('shows direct attendance and assessment access for roles %s and %s',async(firstRole,secondRole)=>{
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope({...user,roles:[firstRole,secondRole]}):envelope(workspace));
+    renderWithProviders(<SupervisorPortalPage/>,{route:'/supervisor/portal'});
+    const actions=await screen.findByRole('navigation',{name:'Supervisor actions'});
+    expect(within(actions).getAllByRole('link')).toHaveLength(2);
+    expect(within(actions).getByRole('link',{name:'QR attendance'})).toHaveAttribute('href','/supervisor/attendance/qr');
+    expect(within(actions).getByRole('link',{name:'Student assessments'})).toHaveAttribute('href','/supervisor/assessments');
+    expect(actions).toHaveClass('grid-cols-2');
+    expect(actions.compareDocumentPosition(screen.getByRole('heading',{name:'My clinical schedule'}))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps two concise Arabic actions on mobile even when there are no scheduled sessions',async()=>{
+    window.localStorage.setItem('cdms.locale','ar');
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope({...user,roles:['CLINICAL_DIRECTOR','CLINICAL_SUPERVISOR']}):envelope({...workspace,assignments:[]}));
+    renderWithProviders(<SupervisorPortalPage/>,{route:'/supervisor/portal'});
+    const actions=await screen.findByRole('navigation',{name:'إجراءات المشرف السريري'});
+    expect(within(actions).getByRole('link',{name:'الحضور والغياب'})).toHaveClass('min-h-12');
+    expect(within(actions).getByRole('link',{name:'تقييم الطلبة'})).toHaveAttribute('href','/supervisor/assessments');
+    expect(screen.getByText('لا توجد جلسات ظاهرة. راجع التكليف المنشور وأيام العمل المحددة لك.')).toBeVisible();
+  });
+
+  it.each([
+    {operation:'attendance',permission:'attendance.record',path:'/supervisor/attendance/qr',otherPath:'/supervisor/assessments'},
+    {operation:'assessments',permission:'assessment.create',path:'/supervisor/assessments',otherPath:'/supervisor/attendance/qr'},
+  ])('only offers permitted $operation actions in the top navigation and schedule',async({permission,path,otherPath})=>{
+    const limitedUser={...user,roles:['CLINICAL_DIRECTOR','CLINICAL_SUPERVISOR'],permissions:permissions.filter(item=>['supervisor.workspace.view',permission].includes(item.code))};
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(limitedUser):envelope(workspace));
+    renderWithProviders(<SupervisorPortalPage/>,{route:'/supervisor/portal'});
+    const actions=await screen.findByRole('navigation',{name:'Supervisor actions'});
+    expect(within(actions).getAllByRole('link')).toHaveLength(1);
+    expect(within(actions).getByRole('link')).toHaveAttribute('href',path);
+    expect(actions).toHaveClass('grid-cols-1');
+    expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith(otherPath))).toBe(false);
+  });
+
+  it('shows the schedule without operational links when recording and assessment permissions are missing',async()=>{
+    const limitedUser={...user,roles:['CLINICAL_DIRECTOR','CLINICAL_SUPERVISOR'],permissions:permissions.filter(item=>item.code==='supervisor.workspace.view')};
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(limitedUser):envelope(workspace));
+    renderWithProviders(<SupervisorPortalPage/>,{route:'/supervisor/portal'});
+    expect(await screen.findByRole('heading',{name:'My clinical schedule'})).toBeVisible();
+    expect(screen.queryByRole('navigation',{name:'Supervisor actions'})).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
+  });
+
+  it('does not fetch the workspace or show actions without workspace permission',async()=>{
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope({...user,permissions:permissions.filter(item=>item.code!=='supervisor.workspace.view')}):envelope(workspace));
+    renderWithProviders(<SupervisorPortalPage/>,{route:'/supervisor/portal'});
+    expect(await screen.findByText('Permission is disabled')).toBeVisible();
+    expect(fetchSpy.mock.calls.some(([input])=>String(input).includes('/my-supervisor-workspace'))).toBe(false);
+    expect(screen.queryByRole('navigation',{name:'Supervisor actions'})).not.toBeInTheDocument();
   });
 
   it('shows one selected week in the phone table and lets the supervisor change weeks',async()=>{
