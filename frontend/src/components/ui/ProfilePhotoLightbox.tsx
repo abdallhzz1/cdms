@@ -8,14 +8,15 @@ type Props = {
   subtitle?: string | null;
   enlargeLabel: string;
   size?: 'sm' | 'md';
+  shape?: 'rounded' | 'circle';
 };
 
-export function ProfilePhotoLightbox({ photoUrl, name, subtitle, enlargeLabel, size = 'md' }: Props) {
+export function ProfilePhotoLightbox({ photoUrl, name, subtitle, enlargeLabel, size = 'md', shape = 'rounded' }: Props) {
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [photoUrl]);
   const photo = photoUrl && !failed ? photoUrl : null;
-  const sizeClass = size === 'sm' ? 'h-9 w-9 rounded-xl' : 'h-10 w-10 rounded-xl';
+  const sizeClass = `${size === 'sm' ? 'h-9 w-9' : 'h-10 w-10'} ${shape === 'circle' ? 'rounded-full' : 'rounded-xl'}`;
 
   if (!photo) return <span className={`grid shrink-0 place-items-center border border-teal-100 bg-teal-50 text-xs font-black text-teal-700 ${sizeClass}`}>{name.trim().charAt(0) || '—'}</span>;
 

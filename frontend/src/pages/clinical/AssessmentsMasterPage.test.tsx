@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { AssessmentsMasterPage } from './AssessmentsMasterPage';
@@ -62,15 +62,24 @@ describe('AssessmentsMasterPage review', () => {
     expect(await screen.findByRole('heading', { name: 'Subgroup Q1' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Subgroup Q2' })).toBeVisible();
     expect(screen.getByText('Student 3')).toBeVisible();
-    expect(screen.getAllByRole('button', { name: 'Enlarge student photo' })).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: 'Enlarge student photo' })).toHaveLength(5);
     expect(await screen.findByText('Internal Medicine')).toBeVisible();
     expect(screen.getByText('Surgery')).toBeVisible();
     expect(screen.getAllByText('Week 1')).toHaveLength(2);
     expect(screen.getByText('Week 2')).toBeVisible();
 
-    await userEvent.click(screen.getAllByText('Week 1')[0]);
+    const matrix = screen.getByRole('table', { name: 'Q1 · Internal Medicine' });
+    expect(within(matrix).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Student', '01/09Week 1', '08/09Week 2']);
+    const firstRow = within(matrix).getAllByRole('row')[1];
+    expect(within(firstRow).getByRole('img', { name: 'Student 1' })).toHaveAttribute('src', 'https://example.test/1.jpg');
+    expect(within(firstRow).getByRole('button', { name: 'Enlarge student photo' })).toHaveClass('rounded-full');
+    expect(within(firstRow).getAllByRole('cell')[0]).toHaveTextContent('9');
+    await userEvent.click(within(matrix).getByRole('button', { name: 'Student 1 · Week 1 · Q1 · Internal Medicine' }));
     expect(screen.getByText('9.0 / 10')).toBeVisible();
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(within(matrix).getByRole('button', { name: 'Student 2 · Week 1 · Q1 · Internal Medicine' }));
     expect(screen.getByText('No assessment received yet')).toBeVisible();
+    await userEvent.keyboard('{Escape}');
     await userEvent.click(screen.getByRole('button', { name: 'Weeks' }));
     expect(await screen.findByText('No published assignment weeks for this subgroup yet.')).toBeVisible();
     expect(fetchSpy.mock.calls.some(([input]) => String(input).includes('subgroup_id=12'))).toBe(true);
@@ -92,5 +101,32 @@ describe('AssessmentsMasterPage review', () => {
     expect(screen.getByRole('heading', { name: 'المجموعة الفرعية Q2' })).toBeVisible();
     expect(await screen.findByText('الباطني')).toBeVisible();
     expect(screen.getAllByText('الأسبوع 1')).toHaveLength(2);
+    expect(screen.getByRole('table', { name: 'Q1 · الباطني' })).toHaveAttribute('dir', 'rtl');
+  });
+
+  it('orders weeks and preserves separate official scores without averaging or treating draft scores as submitted', async () => {
+    const response = detail(11);
+    const firstWeek = response.rotations[0].weeks[0];
+    firstWeek.students[0].assessments.push(
+      { ...firstWeek.students[0].assessments[0], id: 2, score: '7.00', status: 'approved' },
+      { ...firstWeek.students[0].assessments[0], id: 3, score: '10.00', status: 'draft' },
+    );
+    firstWeek.students[1].assessments.push({ ...firstWeek.students[0].assessments[0], id: 4, score: '0.00' });
+    response.rotations[0].weeks.reverse();
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return envelope(reviewer);
+      if (url.includes('/review-groups')) return envelope(groups);
+      if (url.includes('/review-subgroup')) return envelope(response);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    renderWithProviders(<AssessmentsMasterPage />, { route: '/assessments' });
+    const matrix = await screen.findByRole('table', { name: 'Q1 · Internal Medicine' });
+    const rows = within(matrix).getAllByRole('row');
+    expect(within(rows[0]).getAllByRole('columnheader')[1]).toHaveTextContent('Week 1');
+    expect(within(rows[1]).getAllByRole('cell')[0]).toHaveTextContent('9 · 7');
+    expect(within(rows[1]).getAllByRole('cell')[0]).not.toHaveTextContent('10');
+    expect(within(rows[2]).getAllByRole('cell')[0]).toHaveTextContent('0');
+    expect(within(rows[1]).getByRole('rowheader')).toHaveClass('sticky', 'start-0');
   });
 });

@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Modal } from '@/components/ui/Modal';
 
 type Named = { id: number; code?: string; name_ar?: string; name_en?: string | null };
 type Person = { id: number; full_name_ar: string; full_name_en?: string | null };
@@ -52,7 +53,7 @@ export function AssessmentsMasterPage() {
   if (groupsQuery.isLoading) return <LoadingState />;
   if (groupsQuery.isError) return <ErrorState onRetry={() => groupsQuery.refetch()} />;
 
-  return <div className="mx-auto w-full max-w-5xl space-y-4 pb-12">
+  return <div className="mx-auto w-full max-w-6xl space-y-4 pb-12">
     <PageHeader title={tr('مراجعة التقييمات السريرية', 'Clinical assessment review')} description={tr('المجموعات الفرعية وطلبتها، ثم تقييم كل أسبوع في مكان واحد.', 'Subgroups and their students, followed by every assessment week in one place.')}>
       {can('assessment.criteria.manage') && <Link to="/assessments/criteria" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-teal-200 bg-white px-3 text-xs font-bold text-teal-800"><Settings2 className="h-4 w-4" />{tr('نموذج التقييم', 'Assessment template')}</Link>}
     </PageHeader>
@@ -88,23 +89,61 @@ function SubgroupSection({ subgroup, open, ar, onToggle }: { subgroup: ReviewSub
       <div className="min-w-0"><h2 className="text-base font-black text-slate-900">{tr('المجموعة الفرعية', 'Subgroup')} <b dir="ltr" className="inline-block text-teal-800">{subgroup.name}</b></h2><p className="mt-0.5 text-xs text-slate-500">{subgroup.student_count} {tr('طلاب', 'students')} · {subgroup.week_count} {tr('أسابيع تقييم', 'assessment weeks')}</p></div>
       <button type="button" aria-expanded={open} onClick={onToggle} className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-800"><span>{open ? tr('إخفاء', 'Hide') : tr('الأسابيع', 'Weeks')}</span><ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
     </div>
-    <div className="px-4 py-3 sm:px-5">
-      <h3 className="mb-2 text-xs font-black text-slate-600">{tr('الطلاب', 'Students')}</h3>
-      {!subgroup.students.length ? <p className="text-xs text-slate-500">{tr('لا يوجد طلاب مسجلون في هذه المجموعة.', 'No students are registered in this subgroup.')}</p> : <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{subgroup.students.map(student => <div key={student.id} className="flex min-w-0 items-center gap-2 rounded-xl bg-slate-50 px-2.5 py-2"><ProfilePhotoLightbox photoUrl={student.photo_url} name={studentName(student, ar)} subtitle={student.university_number} enlargeLabel={tr('تكبير صورة الطالب', 'Enlarge student photo')} size="sm" /><div className="min-w-0"><p className="truncate text-xs font-bold text-slate-900">{studentName(student, ar)}</p><p dir="ltr" className="text-start font-mono text-[10px] text-slate-500">{student.university_number}</p></div></div>)}</div>}
-    </div>
+    {!open && <AssessmentWeekTable students={subgroup.students} weeks={[]} ar={ar} label={subgroup.name} />}
     {open && <div className="border-t border-slate-100 bg-slate-50/50 px-4 py-4 sm:px-5">
-      {detailQuery.isLoading ? <LoadingState /> : detailQuery.isError ? <ErrorState onRetry={() => detailQuery.refetch()} /> : !detail?.rotations.length ? <p className="text-xs text-slate-500">{tr('لا توجد أسابيع تكليف منشورة لهذه المجموعة بعد.', 'No published assignment weeks for this subgroup yet.')}</p> : <>
+      {detailQuery.isLoading ? <LoadingState /> : detailQuery.isError ? <ErrorState onRetry={() => detailQuery.refetch()} /> : !detail?.rotations.length ? <><p className="mb-3 text-xs text-slate-500">{tr('لا توجد أسابيع تكليف منشورة لهذه المجموعة بعد.', 'No published assignment weeks for this subgroup yet.')}</p><AssessmentWeekTable students={subgroup.students} weeks={[]} ar={ar} label={subgroup.name} /></> : <>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-black text-slate-900">{tr('التقييمات الأسبوعية', 'Weekly assessments')}</h3><span className="text-xs font-bold text-teal-800">{totalReady}/{totalExpected} {tr('تقييمات مرسلة', 'submitted assessments')}</span></div>
         <div className="space-y-3">{detail.rotations.map(rotation => <section key={rotation.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <header className="border-b border-slate-100 px-3 py-3"><h4 className="text-xs font-black text-slate-900">{courseName(rotation.course, ar)}</h4>{rotation.clinical_period && <p className="mt-0.5 text-[11px] text-slate-500">{courseName(rotation.clinical_period, ar)}</p>}</header>
-          {!rotation.weeks.length ? <p className="p-3 text-xs text-slate-500">{tr('لا توجد أسابيع تقييم.', 'No assessment weeks.')}</p> : rotation.weeks.map(week => <details key={`${rotation.id}-${week.number}`} className="group border-b border-slate-100 last:border-0">
-            <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 marker:hidden"><span className="min-w-0"><b className="block text-xs text-slate-900">{tr(`الأسبوع ${week.number}`, `Week ${week.number}`)}</b><small dir="ltr" className="mt-0.5 block text-start text-[10px] text-slate-500">{dateLabel(week.start_date, ar)} — {dateLabel(week.end_date, ar)}</small></span><span className="flex shrink-0 items-center gap-2"><b className="text-xs text-teal-800">{week.ready_count}/{week.student_count}</b><ChevronDown className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-180" /></span></summary>
-            <div className="divide-y divide-slate-100 border-t border-slate-100">{week.students.map(row => <StudentAssessmentRow key={row.student.id} row={row} ar={ar} />)}</div>
-          </details>)}
+          <AssessmentWeekTable students={subgroup.students} weeks={rotation.weeks} ar={ar} label={`${subgroup.name} · ${courseName(rotation.course, ar)}`} />
         </section>)}</div>
       </>}
     </div>}
   </article>;
+}
+
+function AssessmentWeekTable({ students, weeks, ar, label }: { students: Student[]; weeks: ReviewWeek[]; ar: boolean; label: string }) {
+  const { t } = useI18n();
+  const [selection, setSelection] = useState<{ row: ReviewStudent; week: ReviewWeek } | null>(null);
+  const orderedWeeks = [...weeks].sort((a, b) => a.number - b.number);
+  const roster = [...new Map([...students, ...orderedWeeks.flatMap(week => week.students.map(row => row.student))].map(student => [student.id, student])).values()];
+  const studentColumn = 'sticky start-0 z-10 w-[180px] min-w-[180px] max-w-[180px] border-e border-slate-200 bg-white px-3 py-3 text-start sm:w-[240px] sm:min-w-[240px] sm:max-w-[240px]';
+
+  return <>
+    {orderedWeeks.length > 0 && <p className="border-b border-slate-100 px-3 py-2 text-[11px] text-slate-500">{t('assessments.matrix.hint')}</p>}
+    <div role="region" aria-label={label} tabIndex={0} className="overflow-x-auto overscroll-x-contain focus-visible:outline-2 focus-visible:outline-teal-500">
+      <table aria-label={label} dir={ar ? 'rtl' : 'ltr'} className="w-full border-separate border-spacing-0 text-xs">
+        <thead><tr>
+          <th scope="col" className={`${studentColumn} !bg-slate-50 text-slate-700`}>{t('assessments.matrix.student')}</th>
+          {orderedWeeks.map(week => <th key={week.number} scope="col" className="min-w-[76px] border-e border-slate-200 bg-teal-50 px-2 py-3 text-center last:border-e-0">
+            <span dir="ltr" className="mb-1 block text-[10px] font-medium text-slate-500" title={`${dateLabel(week.start_date, ar)} — ${dateLabel(week.end_date, ar)}`}>{dateLabel(week.start_date, ar)}</span>
+            <span className="block font-black text-slate-800">{t('assessments.matrix.week')} {week.number}</span>
+          </th>)}
+        </tr></thead>
+        <tbody>{roster.map(student => <tr key={student.id}>
+          <th scope="row" className={`${studentColumn} border-t border-slate-200 font-normal`}>
+            <div className="flex items-center gap-2"><ProfilePhotoLightbox photoUrl={student.photo_url} name={studentName(student, ar)} subtitle={student.university_number} enlargeLabel={t('assessments.matrix.enlargePhoto')} shape="circle" />
+              <div className="min-w-0"><span className="block break-words text-xs font-bold leading-5 text-slate-900">{studentName(student, ar)}</span><span dir="ltr" className="mt-0.5 block text-start font-mono text-[10px] text-slate-500">{student.university_number}</span></div>
+            </div>
+          </th>
+          {orderedWeeks.map(week => {
+            const row = week.students.find(item => item.student.id === student.id);
+            const official = row?.assessments.filter(assessment => ['submitted', 'approved'].includes(assessment.status)) ?? [];
+            return <td key={week.number} className={`border-e border-t border-slate-200 p-0 text-center last:border-e-0 ${row ? 'bg-teal-50/40' : 'bg-slate-50'}`}>
+              {row ? <button type="button" onClick={() => setSelection({ row, week })} aria-label={`${studentName(student, ar)} · ${t('assessments.matrix.week')} ${week.number} · ${label}`} className="flex min-h-16 w-full flex-col items-center justify-center gap-1 px-2 py-2 hover:bg-teal-100/60 focus-visible:outline-2 focus-visible:outline-teal-500">
+                <span dir="ltr" className="text-sm font-black tabular-nums text-slate-900">{official.length ? official.map(assessment => assessment.score === null ? '—' : Number(assessment.score).toString()).join(' · ') : '—'}</span>
+                {!official.length && <span className="text-[9px] text-slate-500">{row.assessments.length ? t('assessments.matrix.notSubmitted') : t('assessments.matrix.pending')}</span>}
+              </button> : <span className="block px-2 py-4 text-slate-400" title={t('assessments.matrix.notAssigned')}>—<span className="sr-only">{t('assessments.matrix.notAssigned')}</span></span>}
+            </td>;
+          })}
+        </tr>)}</tbody>
+      </table>
+      {!roster.length && <p className="p-4 text-xs text-slate-500">{t('assessments.matrix.noStudents')}</p>}
+    </div>
+    <Modal isOpen={Boolean(selection)} onClose={() => setSelection(null)} title={`${t('assessments.matrix.week')} ${selection?.week.number ?? ''} · ${label}`} backdropTone="light">
+      {selection && <StudentAssessmentRow row={selection.row} ar={ar} />}
+    </Modal>
+  </>;
 }
 
 function StudentAssessmentRow({ row, ar }: { row: ReviewStudent; ar: boolean }) {

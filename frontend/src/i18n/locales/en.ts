@@ -50,6 +50,12 @@ const en = {
     description: 'Forms and records for evaluating student performance in clinical training.',
     create: 'Create Assessment',
     noAssessments: 'No assessments recorded currently.',
+    matrix: {
+      student: 'Student', week: 'Week', enlargePhoto: 'Enlarge student photo',
+      hint: 'Scroll horizontally for all weeks. Select a mark to view its details.',
+      pending: 'Pending', notSubmitted: 'Not submitted', notAssigned: 'Not assigned this week',
+      noStudents: 'No students are registered in this subgroup.',
+    },
   },
   attendance: {
     title: 'Attendance',
