@@ -79,6 +79,23 @@ class AppServiceProvider extends ServiceProvider
             // control and prevents repeatedly mailing one university account.
             Limit::perHour(10)->by('otp-student:'.hash('sha256', (string) $request->input('university_number'))),
         ]);
+        // Hundreds of lecture attendees may share a campus NAT. Identity-level
+        // limits remain strict without imposing the clinical module's IP cap.
+        RateLimiter::for('basic-otp-request', fn (Request $r) => [
+            Limit::perMinute(1000)->by('basic-otp-ip:'.$r->ip()),
+            Limit::perHour(10)->by('basic-otp-number:'.hash('sha256', (string) $r->input('university_number'))),
+        ]);
+        RateLimiter::for('basic-otp-verify', fn (Request $r) => [
+            Limit::perMinute(1000)->by('basic-verify-ip:'.$r->ip()),
+            Limit::perMinute(10)->by('basic-verify-challenge:'.hash('sha256', (string) $r->input('challenge_token'))),
+        ]);
+        RateLimiter::for('basic-student-read', function (Request $r) {
+            $limits = [Limit::perMinute(3000)->by('basic-scan-ip:'.$r->ip())];
+            $device = (string) $r->cookie(\App\Services\BasicAttendanceService::COOKIE);
+            // Anonymous students on one campus IP are not one device.
+            if (strlen($device) === 80) $limits[] = Limit::perMinute(30)->by('basic-device:'.hash('sha256', $device));
+            return $limits;
+        });
         RateLimiter::for('student-otp-verify', fn (Request $request) => Limit::perMinute(10)->by('otp-verify:'.$request->ip()));
         RateLimiter::for('clinical-attendance-scan', fn (Request $request) => [
             Limit::perMinute(30)->by('clinical-scan-ip:'.$request->ip()),

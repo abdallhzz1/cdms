@@ -41,6 +41,15 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
   const [closedSections, setClosedSections] = useState<Set<number>>(new Set());
 
   const getNavigation = (): NavSection[] => {
+    const basicNavigation: NavSection = {
+      title: locale === 'ar' ? 'الدائرة الأساسية' : 'Basic Sciences',
+      items: [
+        { path: '/basic-attendance', label: locale === 'ar' ? 'حضور المحاضرات' : 'Lecture Attendance', icon: ClipboardCheck, permission: 'basic_attendance.view' },
+      ],
+    };
+    if (userRoles.length > 0 && userRoles.every(role => ['BASIC_LECTURER', 'BASIC_ATTENDANCE_ADMIN'].includes(role))) {
+      return [basicNavigation, { title: locale === 'ar' ? 'حسابي' : 'My Account', items: [{path:'/profile', label:locale==='ar'?'ملفي الشخصي':'My Profile',icon:Users}] }];
+    }
     // If user is purely a Supervisor and has no administrative roles
     const isOnlySupervisor = isClinicalSupervisor && userRoles.length === 1;
     if (isOnlySupervisor) {
@@ -67,6 +76,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
 
     // Full system navigation sections filtered strictly by dynamic permissions
     return [
+      basicNavigation,
       {
         title: locale === 'ar' ? 'الطلاب والتدريب السريري' : 'Students & Clinical',
         items: [

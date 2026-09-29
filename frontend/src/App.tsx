@@ -5,6 +5,8 @@ import { LoginPage } from '@/pages/LoginPage';
 import { NotFound } from '@/pages/NotFound';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 import { useAuth } from '@/auth/AuthContext';
+import { BasicAttendancePage, BasicLectureSessionPage } from '@/pages/basic/BasicAttendancePage';
+import { PublicLectureAttendancePage } from '@/pages/basic/PublicLectureAttendancePage';
 
 import { ClinicalDashboard } from '@/pages/ClinicalDashboard';
 import { ReportsDashboard } from '@/pages/ReportsDashboard';
@@ -85,6 +87,7 @@ import { PublicClinicalAttendancePage } from '@/pages/public/PublicClinicalAtten
 function DefaultAuthenticatedHome() {
   const { user } = useAuth();
   const roles = user?.roles ?? [];
+  if (roles.length > 0 && roles.every(role => ['BASIC_LECTURER', 'BASIC_ATTENDANCE_ADMIN'].includes(role))) return <Navigate to="/basic-attendance" replace />;
   const isSupervisorOnly = roles.length === 1 && roles.includes('CLINICAL_SUPERVISOR');
 
   return isSupervisorOnly
@@ -96,6 +99,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/lecture-attendance" element={<PublicLectureAttendancePage />} />
       <Route path="/public/student-registration" element={<PublicStudentRegistrationPage />} />
       <Route path="/survey/:publicId" element={<PublicQualitySurveyPage />} />
       <Route path="/shared/meeting-repositories/:token" element={<PublicMeetingRepositoryPage />} />
@@ -117,6 +121,8 @@ export function App() {
                 
                 {/* Academic Affairs & Plans */}
                 <Route path="/courses" element={<CoursesPage />} />
+                <Route path="/basic-attendance" element={<BasicAttendancePage />} />
+                <Route path="/basic-attendance/sessions/:sessionId" element={<BasicLectureSessionPage />} />
                 <Route path="/study-plans/*" element={<Navigate to="/courses" replace />} />
                 <Route path="/courses/:courseId" element={<CourseDetailsPage />} />
                 <Route path="/grades" element={<GradesPage />} />

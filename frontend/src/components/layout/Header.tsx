@@ -62,6 +62,8 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
     }
 
     const map: Record<string, { ar: string; en: string }> = {
+      BASIC_LECTURER: { ar: 'محاضر الدائرة الأساسية', en: 'Basic Sciences Lecturer' },
+      BASIC_ATTENDANCE_ADMIN: { ar: 'مسؤول حضور الدائرة الأساسية', en: 'Basic Attendance Administrator' },
       CLINICAL_DIRECTOR: { ar: 'مدير الدائرة السريرية', en: 'Clinical Director' },
       DEAN: { ar: 'عميد كلية الطب', en: 'Dean of Medicine' },
       VICE_DEAN: { ar: 'نائب العميد', en: 'Vice Dean' },
@@ -78,7 +80,7 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
     const rolePriority = [
       'SYS_ADMIN', 'SYSTEM_ADMIN', 'DEAN', 'VICE_DEAN', 
       'CLINICAL_DIRECTOR', 'DEPARTMENT_HEAD', 'ADMIN_ASSISTANT', 
-      'ACADEMIC_ADVISOR', 'CLINICAL_SUPERVISOR', 'RTA', 'STUDENT'
+      'ACADEMIC_ADVISOR', 'CLINICAL_SUPERVISOR', 'RTA', 'BASIC_ATTENDANCE_ADMIN', 'BASIC_LECTURER', 'STUDENT'
     ];
 
     const sorted = [...roleCodes].sort((a, b) => {

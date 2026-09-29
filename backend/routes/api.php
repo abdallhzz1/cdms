@@ -113,6 +113,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // Public Routes (No authentication required — for lobby displays & student self-lookup)
     // -------------------------------------------------------------------------
     Route::prefix('public')->name('public.')->group(function () {
+        Route::get('basic-attendance/identity', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'identity'])->middleware('throttle:basic-student-read');
+        Route::post('basic-attendance/prepare', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'prepare'])->middleware('throttle:basic-student-read');
+        Route::post('basic-attendance/forget', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'forget'])->middleware('throttle:basic-student-read');
+        Route::post('basic-attendance/request-otp', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'requestOtp'])->middleware('throttle:basic-otp-request');
+        Route::post('basic-attendance/verify-otp', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'verifyOtp'])->middleware('throttle:basic-otp-verify');
+        Route::post('basic-attendance/scan', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'scan'])->middleware('throttle:basic-student-read');
         Route::get('profile-images/{path}', PublicProfileImageController::class)
             ->where('path', '.*')
             ->middleware('throttle:operational-read')
@@ -160,6 +166,26 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // All routes: auth:sanctum (authentication) + permission:<code> (authorization)
     // -------------------------------------------------------------------------
     Route::middleware('auth:sanctum')->group(function () {
+        Route::prefix('basic-attendance')->middleware('permission:basic_attendance.view')->group(function () {
+            $controller = \App\Http\Controllers\Api\V1\BasicAttendanceController::class;
+            Route::get('sections', [$controller, 'sections']);
+            Route::get('sections/{section}/roster', [$controller, 'roster'])->whereNumber('section');
+            Route::get('sections/{section}/sessions', [$controller, 'sessions'])->whereNumber('section');
+            Route::get('sections/{section}/report', [$controller, 'report'])->whereNumber('section');
+            Route::get('sections/{section}/export', [$controller, 'export'])->whereNumber('section')->middleware(['permission:basic_attendance.export', 'throttle:export']);
+            Route::get('sessions/{session}', [$controller, 'show'])->whereNumber('session');
+            Route::get('sessions/{session}/qr', [$controller, 'qr'])->whereNumber('session')->middleware(['permission:basic_attendance.record', 'throttle:operational-read']);
+            Route::get('sessions/{session}/audit', [$controller, 'audit'])->whereNumber('session');
+            Route::post('sections/{section}/sessions', [$controller, 'start'])->whereNumber('section')->middleware('permission:basic_attendance.record');
+            Route::post('sessions/{session}/transition', [$controller, 'transition'])->whereNumber('session')->middleware('permission:basic_attendance.record');
+            Route::put('sessions/{session}/records/{student}', [$controller, 'correct'])->whereNumber(['session', 'student'])->middleware('permission:basic_attendance.record');
+            Route::get('options', [$controller, 'options'])->middleware('permission:basic_attendance.manage');
+            Route::post('courses', [$controller, 'storeCourse'])->middleware('permission:basic_attendance.manage');
+            Route::post('sections', [$controller, 'saveSection'])->middleware('permission:basic_attendance.manage');
+            Route::put('sections/{section}', [$controller, 'saveSection'])->whereNumber('section')->middleware('permission:basic_attendance.manage');
+            Route::post('sections/{section}/roster', [$controller, 'importRoster'])->whereNumber('section')->middleware('permission:basic_attendance.manage');
+            Route::delete('sections/{section}/roster/{student}', [$controller, 'removeEnrollment'])->whereNumber(['section', 'student'])->middleware('permission:basic_attendance.manage');
+        });
 
         Route::prefix('student-policies')->group(function () {
             Route::get('/', [StudentPolicyController::class, 'index'])->middleware('permission.any:student_policies.view,student_policies.manage');

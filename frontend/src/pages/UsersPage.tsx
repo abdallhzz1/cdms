@@ -12,10 +12,10 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
 
-const ROLE_LABELS:Record<string,{ar:string;en:string}>={SYS_ADMIN:{ar:'مدير النظام الفني',en:'System Admin'},DEAN:{ar:'عميد الكلية',en:'Dean'},VICE_DEAN:{ar:'نائب العميد',en:'Vice Dean'},CLINICAL_DIRECTOR:{ar:'مدير الدائرة السريرية',en:'Clinical Director'},ADMIN_ASSISTANT:{ar:'مساعد إداري',en:'Admin Assistant'},DEPARTMENT_HEAD:{ar:'رئيس القسم الأكاديمي',en:'Department Head'},RTA:{ar:'مساعد بحث وتدريس (TA)',en:'Teaching & Research Assistant'},CLINICAL_SUPERVISOR:{ar:'المشرف السريري',en:'Clinical Supervisor'},ACADEMIC_ADVISOR:{ar:'المرشد الأكاديمي',en:'Academic Advisor'},QUALITY:{ar:'مسؤول الجودة والاعتماد',en:'Quality Officer'}};
+const ROLE_LABELS:Record<string,{ar:string;en:string}>={BASIC_LECTURER:{ar:'محاضر الدائرة الأساسية',en:'Basic Sciences Lecturer'},BASIC_ATTENDANCE_ADMIN:{ar:'مسؤول حضور الدائرة الأساسية',en:'Basic Attendance Administrator'},SYS_ADMIN:{ar:'مدير النظام الفني',en:'System Admin'},DEAN:{ar:'عميد الكلية',en:'Dean'},VICE_DEAN:{ar:'نائب العميد',en:'Vice Dean'},CLINICAL_DIRECTOR:{ar:'مدير الدائرة السريرية',en:'Clinical Director'},ADMIN_ASSISTANT:{ar:'مساعد إداري',en:'Admin Assistant'},DEPARTMENT_HEAD:{ar:'رئيس القسم الأكاديمي',en:'Department Head'},RTA:{ar:'مساعد بحث وتدريس (TA)',en:'Teaching & Research Assistant'},CLINICAL_SUPERVISOR:{ar:'المشرف السريري',en:'Clinical Supervisor'},ACADEMIC_ADVISOR:{ar:'المرشد الأكاديمي',en:'Academic Advisor'},QUALITY:{ar:'مسؤول الجودة والاعتماد',en:'Quality Officer'}};
 type FormState={name:string;email:string;password?:string;roles:string[];department_id:string;is_active:boolean};
 type Department={id:number;name_ar:string;name_en?:string|null;code:string};
-const emptyForm:FormState={name:'',email:'',password:'',roles:['CLINICAL_SUPERVISOR'],department_id:'',is_active:true};
+const emptyForm:FormState={name:'',email:'',password:'',roles:[],department_id:'',is_active:true};
 const needsDepartment=(roles:string[])=>roles.some(role=>role==='DEPARTMENT_HEAD'||role==='RTA');
 
 export function UsersPage(){

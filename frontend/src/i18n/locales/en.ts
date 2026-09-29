@@ -12,6 +12,7 @@
  * plain `string` here is both simpler and correct.
  */
 const en = {
+  basicAttendance: { permissions: { view: 'View lecture attendance for assigned sections', record: 'Manage lecture check-in and corrections', manage: 'Manage basic courses, sections, rosters and lecturer assignments', export: 'Export lecture attendance for assigned sections' } },
   courseDepartments: {
     title: 'Responsible departments',
     hint: 'Department heads can only access these courses and their clinical records. Leave shared College courses unassigned.',
@@ -258,6 +259,8 @@ const en = {
     email: 'Enter a valid email address.',
   },
   roles: {
+    basic_lecturer: { name: 'Basic Sciences Lecturer', description: 'Lecture attendance for assigned sections only' },
+    basic_attendance_admin: { name: 'Basic Attendance Administrator', description: 'Manage basic sciences sections, rosters and attendance only' },
     sys_admin: { name: 'System Admin', description: 'System technical administration' },
     dean: { name: 'Dean', description: 'Faculty leadership and final approvals' },
     vice_dean: { name: 'Vice Dean', description: 'Academic and administrative oversight' },

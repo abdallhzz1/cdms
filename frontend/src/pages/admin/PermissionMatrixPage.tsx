@@ -46,6 +46,8 @@ type DirectAccessResponse = {
 type LocalizedLabel = { ar: string; en: string };
 
 const ROLE_LABELS: Record<string, { label: LocalizedLabel; icon: Icon }> = {
+  BASIC_LECTURER: { label: { ar: 'محاضر الدائرة الأساسية', en: 'Basic Sciences Lecturer' }, icon: GraduationCap },
+  BASIC_ATTENDANCE_ADMIN: { label: { ar: 'مسؤول حضور الدائرة الأساسية', en: 'Basic Attendance Administrator' }, icon: ClipboardCheck },
   SYS_ADMIN: { label: { ar: 'مدير النظام التقني', en: 'System Administrator' }, icon: Monitor },
   CLINICAL_DIRECTOR: { label: { ar: 'مدير الدائرة السريرية', en: 'Clinical Director' }, icon: ShieldCheck },
   DEPARTMENT_HEAD: { label: { ar: 'رئيس القسم الأكاديمي', en: 'Academic Department Head' }, icon: GraduationCap },
@@ -59,6 +61,7 @@ const ROLE_LABELS: Record<string, { label: LocalizedLabel; icon: Icon }> = {
 };
 
 const MODULES: Record<string, { label: LocalizedLabel; icon: Icon }> = {
+  BasicAttendance: { label: { ar: 'حضور محاضرات الدائرة الأساسية', en: 'Basic Sciences Lecture Attendance' }, icon: ClipboardCheck },
   People: { label: { ar: 'الكادر والمشرفون', en: 'Staff and Supervisors' }, icon: Users },
   Students: { label: { ar: 'شؤون الطلبة', en: 'Student Affairs' }, icon: GraduationCap },
   Grades: { label: { ar: 'العلامات الأكاديمية', en: 'Academic Grades' }, icon: ClipboardCheck },
