@@ -98,6 +98,7 @@ describe('Isolated basic lecture attendance', () => {
   });
   renderWithProviders(<Routes><Route path="/basic-attendance/sessions/:sessionId" element={<BasicLectureSessionPage />} /></Routes>, { route: '/basic-attendance/sessions/1' });
   await screen.findByAltText('Lecture attendance QR');
+  expect(screen.queryByRole('button', { name: 'End and finalize lecture' })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Large QR display' }));
   expect(screen.getByRole('dialog', { name: 'Large QR display' })).toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Close large display' }));

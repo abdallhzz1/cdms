@@ -5,7 +5,8 @@ import { LoginPage } from '@/pages/LoginPage';
 import { NotFound } from '@/pages/NotFound';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 import { useAuth } from '@/auth/AuthContext';
-import { BasicAttendancePage, BasicLectureSessionPage } from '@/pages/basic/BasicAttendancePage';
+import { BasicLectureSessionPage } from '@/pages/basic/BasicAttendancePage';
+import { BasicAttendanceHome, BasicAttendanceSection, BasicAttendanceSetup } from '@/pages/basic/BasicAttendanceWorkspace';
 import { PublicLectureAttendancePage } from '@/pages/basic/PublicLectureAttendancePage';
 
 import { ClinicalDashboard } from '@/pages/ClinicalDashboard';
@@ -121,7 +122,11 @@ export function App() {
                 
                 {/* Academic Affairs & Plans */}
                 <Route path="/courses" element={<CoursesPage />} />
-                <Route path="/basic-attendance" element={<BasicAttendancePage />} />
+                <Route path="/basic-attendance" element={<BasicAttendanceHome />} />
+                <Route path="/basic-attendance/setup/:kind" element={<BasicAttendanceSetup />} />
+                <Route path="/basic-attendance/sections/:sectionId" element={<BasicAttendanceSection />} />
+                <Route path="/basic-attendance/sections/:sectionId/roster" element={<BasicAttendanceSection />} />
+                <Route path="/basic-attendance/sections/:sectionId/report" element={<BasicAttendanceSection />} />
                 <Route path="/basic-attendance/sessions/:sessionId" element={<BasicLectureSessionPage />} />
                 <Route path="/study-plans/*" element={<Navigate to="/courses" replace />} />
                 <Route path="/courses/:courseId" element={<CourseDetailsPage />} />

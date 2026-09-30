@@ -25,6 +25,12 @@ No real staff accounts, real rosters or invented courses are seeded by deploymen
 
 ## Lecturer and student flow
 
+### Staff workspace update — 2026-09-30
+
+The attendance workspace now uses separate, bookmarkable screens. `/basic-attendance` lists the sections assigned to the current staff account. The basic administrator uses `/basic-attendance/setup/courses` to add courses and `/basic-attendance/setup/sections` to create or edit section/lecturer assignments. Each section has separate lecture, student-roster and attendance-report URLs; only the administrator can open its roster-management screen. This is a presentation split, not a change to permission scope or historical attendance data.
+
+On the roster screen, download the bilingual-guided `basic-attendance-students-template.xlsx`. Fill only the `Students` sheet with the exact headers `university_number`, `name`, `email`, optional `photo_url`; the second sheet explains accepted values. University numbers must be entered as text, especially if they begin with zero. The template has no example student row, so no fictional student can be imported accidentally. Before confirmation, the browser validates headers, 1–2000 populated rows, number/email format, duplicate identifiers and HTTPS photo links, shows row-specific errors and previews the first five students. Any browser-side error blocks the whole submission. Laravel remains authoritative and validates every row transactionally before writing; a browser preview is not a guarantee that existing-server collisions will pass. The import is additive and does not alter frozen lecture rosters.
+
 - Choose a section and open a lecture with its title, one-check or two-check mode, registration-window minutes and late-after minutes. Defaults 5 and 2 minutes are editable operational defaults, **not an official faculty lateness or absence sanction policy**. No scheduling/geolocation is used.
 - Opening a lecture snapshots the active section roster. Later imports/withdrawals do not change that lecture's members.
 - The QR is a public site link, signed for this basic lecture, version, phase and 15-second slot. It changes automatically and becomes invalid when expired, closed, finalized or moved to another phase. A three-second rotation grace is enforced server-side.
