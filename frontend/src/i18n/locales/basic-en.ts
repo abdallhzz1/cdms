@@ -152,8 +152,14 @@ export const basicAttendanceUi = {
   "text150": "Change student / forget browser",
   "text151": "Scan the current QR again, or contact the lecturer. Identity verification does not mean attendance was registered.",
   "text152": "Do not share the link or verification code. Rotating QR reduces misuse but cannot conclusively prove physical presence in the room.",
+  "text153": "The QR link is invalid. Reload the page for a fresh code.",
+  "text154": "Scan with the phone camera to open {v0} directly.",
   "workBack": "← Back",
   "workHomeIntro": "Choose a section to start or follow a lecture. Each section has its own roster and report.",
+  "workRosterDirectory": "Section Students",
+  "workRosterDirectoryHint": "Choose a section to view its students. Roster imports and withdrawals are available only to authorized administrators.",
+  "workReportsDirectory": "Attendance Reports",
+  "workReportsDirectoryHint": "Choose a section to view attendance by student and export its report.",
   "workSetup": "Set up courses and sections",
   "workCourses": "Courses",
   "workSections": "Sections and assignments",
@@ -189,5 +195,5 @@ export const basicAttendanceUi = {
   "workCurrentRoster": "Currently enrolled students",
   "workFindStudent": "Find by name or university number",
   "workWithdrawn": "Student withdrawn from future lectures only.",
-  "workEmptyRoster": "No students in this section yet. Download the template and import the roster."
+  "workEmptyRoster": "There are no students enrolled in this section yet."
 } as const;

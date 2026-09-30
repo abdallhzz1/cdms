@@ -33,11 +33,26 @@ describe('Basic attendance workspace separation', () => {
     expect(screen.queryByText('Import student roster')).not.toBeInTheDocument();
   });
 
-  it('restricts setup and roster from lecturer accounts', async () => {
+  it('hides basic-sciences setup from lecturer accounts', async () => {
     mock(lecturer);
     renderWithProviders(<Routes><Route path="/basic-attendance" element={<BasicAttendanceHome />} /></Routes>, { route: '/basic-attendance' });
     await screen.findByRole('link', { name: /Section 2/ });
     expect(screen.queryByRole('link', { name: 'Set up courses and sections' })).not.toBeInTheDocument();
+  });
+
+  it('lets lecturers view assigned students without roster mutation controls', async () => {
+    mock(lecturer);
+    renderWithProviders(<Routes><Route path="/basic-attendance/sections/:sectionId/roster" element={<BasicAttendanceSection />} /></Routes>, { route: '/basic-attendance/sections/3/roster' });
+    expect(await screen.findByText('Synthetic Student')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Download Excel template' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Withdraw enrollment' })).not.toBeInTheDocument();
+  });
+
+  it('opens the report directly from its own section chooser', async () => {
+    mock(lecturer);
+    renderWithProviders(<Routes><Route path="/basic-attendance/reports" element={<BasicAttendanceHome />} /></Routes>, { route: '/basic-attendance/reports' });
+    expect(await screen.findByRole('link', { name: /Section 2/ })).toHaveAttribute('href', '/basic-attendance/sections/3/report');
+    expect(screen.getByRole('heading', { name: 'Attendance Reports' })).toBeInTheDocument();
   });
 
   it('shows the roster template and preview only on the roster page', async () => {

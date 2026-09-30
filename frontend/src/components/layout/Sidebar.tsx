@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useI18n } from '@/i18n/I18nContext';
 import { useAuth } from '@/auth/AuthContext';
 import {
@@ -38,16 +38,21 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
   const { can, user } = useAuth();
   const userRoles = (user?.roles ?? []).map(r => String(r).toUpperCase());
   const isClinicalSupervisor = userRoles.includes('CLINICAL_SUPERVISOR');
+  const isBasicOnly = userRoles.length > 0 && userRoles.every(role => ['BASIC_LECTURER', 'BASIC_ATTENDANCE_ADMIN'].includes(role));
   const [closedSections, setClosedSections] = useState<Set<number>>(new Set());
 
   const getNavigation = (): NavSection[] => {
     const basicNavigation: NavSection = {
       title: locale === 'ar' ? 'الدائرة الأساسية' : 'Basic Sciences',
       items: [
-        { path: '/basic-attendance', label: locale === 'ar' ? 'حضور المحاضرات' : 'Lecture Attendance', icon: ClipboardCheck, permission: 'basic_attendance.view' },
+        { path: '/basic-attendance', label: locale === 'ar' ? 'المحاضرات والحضور' : 'Lectures & Attendance', icon: ClipboardCheck, permission: 'basic_attendance.view' },
+        { path: '/basic-attendance/students', label: locale === 'ar' ? 'طلبة الشعب' : 'Section Students', icon: Users, permission: 'basic_attendance.view' },
+        { path: '/basic-attendance/reports', label: locale === 'ar' ? 'تقارير الحضور' : 'Attendance Reports', icon: BarChart3, permission: 'basic_attendance.view' },
+        { path: '/basic-attendance/setup/courses', label: locale === 'ar' ? 'مساقات الدائرة الأساسية' : 'Basic Courses', icon: BookOpen, permission: 'basic_attendance.manage' },
+        { path: '/basic-attendance/setup/sections', label: locale === 'ar' ? 'الشعب وتكليف المحاضرين' : 'Sections & Lecturers', icon: Calendar, permission: 'basic_attendance.manage' },
       ],
     };
-    if (userRoles.length > 0 && userRoles.every(role => ['BASIC_LECTURER', 'BASIC_ATTENDANCE_ADMIN'].includes(role))) {
+    if (isBasicOnly) {
       return [basicNavigation, { title: locale === 'ar' ? 'حسابي' : 'My Account', items: [{path:'/profile', label:locale==='ar'?'ملفي الشخصي':'My Profile',icon:Users}] }];
     }
     // If user is purely a Supervisor and has no administrative roles
@@ -155,10 +160,15 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
   const visibleSections = sections
     .map(section => ({ ...section, items: section.items.filter(isItemVisible) }))
     .filter(section => section.items.length > 0);
-  const activeNavigationPath = visibleSections
+  const matchedNavigationPath = visibleSections
     .flatMap(section => section.items.map(item => item.path))
     .filter(path => path === '/' ? location.pathname === '/' : location.pathname === path || location.pathname.startsWith(`${path}/`))
     .sort((left, right) => right.length - left.length)[0] ?? null;
+  const activeNavigationPath = location.pathname.startsWith('/basic-attendance/sections/') && location.pathname.endsWith('/roster')
+    ? '/basic-attendance/students'
+    : location.pathname.startsWith('/basic-attendance/sections/') && location.pathname.endsWith('/report')
+      ? '/basic-attendance/reports'
+      : matchedNavigationPath;
 
   return (
     <>
@@ -180,7 +190,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
         <div className="flex h-18 shrink-0 items-center justify-between border-b border-slate-100 px-4">
           <NavLink to="/" onClick={onCloseMobile} className="flex min-w-0 items-center gap-2.5">
             <img src={hebronLogo} alt="" className="h-10 w-10 shrink-0 object-contain" />
-            {!isCollapsed && <span className="min-w-0"><strong className="block truncate text-sm font-black text-slate-900">{locale === 'ar' ? 'جامعة الخليل' : 'Hebron University'}</strong><span className="mt-0.5 block truncate text-[11px] font-bold text-teal-700">{locale === 'ar' ? 'إدارة الدائرة السريرية' : 'Clinical Department'}</span></span>}
+            {!isCollapsed && <span className="min-w-0"><strong className="block truncate text-sm font-black text-slate-900">{locale === 'ar' ? 'جامعة الخليل' : 'Hebron University'}</strong><span className="mt-0.5 block truncate text-[11px] font-bold text-teal-700">{isBasicOnly ? locale === 'ar' ? 'الدائرة الأساسية' : 'Basic Sciences' : locale === 'ar' ? 'إدارة الدائرة السريرية' : 'Clinical Department'}</span></span>}
           </NavLink>
           <button onClick={onCloseMobile} aria-label={locale === 'ar' ? 'إغلاق القائمة' : 'Close navigation'} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 md:hidden">
             <X className="h-5 w-5" />
@@ -201,29 +211,26 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
                 {(!isClosed || isCollapsed) && <div className="mt-1 space-y-0.5">
                   {section.items.map(item => {
                     const Icon = item.icon;
+                    const isSelected = activeNavigationPath === item.path;
                     return (
-                      <NavLink
+                      <Link
                         key={item.path}
                         to={item.path}
-                        end={activeNavigationPath !== item.path}
+                        aria-current={isSelected ? 'page' : undefined}
                         onClick={onCloseMobile}
                         title={isCollapsed ? item.label : undefined}
-                        className={({ isActive }) =>
+                        className={
                           `relative flex h-11 items-center rounded-xl text-sm font-bold transition-colors ${isCollapsed ? 'md:justify-center md:px-0 px-3 gap-3' : 'gap-3.5 px-3'} ${
-                            isActive
+                            isSelected
                               ? 'bg-teal-50 text-teal-800'
                               : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
                           }`
                         }
                       >
-                        {({ isActive }) => (
-                          <>
-                            {isActive && <span className="absolute inset-y-2 right-0 w-0.5 rounded-full bg-teal-600 rtl:right-0 ltr:right-auto ltr:left-0" />}
-                            <Icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-teal-800' : 'text-teal-600'}`} />
-                            <span className={`truncate ${isCollapsed ? 'md:hidden' : ''}`}>{item.label}</span>
-                          </>
-                        )}
-                      </NavLink>
+                        {isSelected && <span className="absolute inset-y-2 right-0 w-0.5 rounded-full bg-teal-600 rtl:right-0 ltr:right-auto ltr:left-0" />}
+                        <Icon className={`h-5 w-5 shrink-0 ${isSelected ? 'text-teal-800' : 'text-teal-600'}`} />
+                        <span className={`truncate ${isCollapsed ? 'md:hidden' : ''}`}>{item.label}</span>
+                      </Link>
                     );
                   })}
                 </div>}

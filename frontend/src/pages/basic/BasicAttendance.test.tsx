@@ -6,6 +6,7 @@ import { BasicAttendancePage, BasicLectureSessionPage } from './BasicAttendanceP
 import { PublicLectureAttendancePage } from './PublicLectureAttendancePage';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Route, Routes } from 'react-router-dom';
+import QRCode from 'qrcode';
 
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,cXI=') } }));
 const envelope = (data: unknown) => new Response(JSON.stringify({ success: true, data, message: null }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -37,7 +38,7 @@ describe('Isolated basic lecture attendance', () => {
  it('shows only basic attendance and the own profile in a basic-only navigation', async () => {
   mock(path => { throw Error(path); });
   renderWithProviders(<Sidebar />);
-  await screen.findByRole('link', { name: /Lecture Attendance/ });
+  await screen.findByRole('link', { name: /Lectures & Attendance/ });
   expect(screen.getByRole('link', { name: /My Profile/ })).toBeInTheDocument();
   expect(screen.queryByRole('link', { name: /Clinical Schedule|Student Directory|Grades/ })).not.toBeInTheDocument();
  });
@@ -98,6 +99,7 @@ describe('Isolated basic lecture attendance', () => {
   });
   renderWithProviders(<Routes><Route path="/basic-attendance/sessions/:sessionId" element={<BasicLectureSessionPage />} /></Routes>, { route: '/basic-attendance/sessions/1' });
   await screen.findByAltText('Lecture attendance QR');
+  expect(QRCode.toDataURL).toHaveBeenCalledWith(`${window.location.origin}/lecture-attendance?qr=fresh`, expect.any(Object));
   expect(screen.queryByRole('button', { name: 'End and finalize lecture' })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Large QR display' }));
   expect(screen.getByRole('dialog', { name: 'Large QR display' })).toBeInTheDocument();

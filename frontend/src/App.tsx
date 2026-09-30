@@ -123,6 +123,8 @@ export function App() {
                 {/* Academic Affairs & Plans */}
                 <Route path="/courses" element={<CoursesPage />} />
                 <Route path="/basic-attendance" element={<BasicAttendanceHome />} />
+                <Route path="/basic-attendance/students" element={<BasicAttendanceHome />} />
+                <Route path="/basic-attendance/reports" element={<BasicAttendanceHome />} />
                 <Route path="/basic-attendance/setup/:kind" element={<BasicAttendanceSetup />} />
                 <Route path="/basic-attendance/sections/:sectionId" element={<BasicAttendanceSection />} />
                 <Route path="/basic-attendance/sections/:sectionId/roster" element={<BasicAttendanceSection />} />
