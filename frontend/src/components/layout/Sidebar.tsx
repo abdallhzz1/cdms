@@ -45,11 +45,11 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
     const basicNavigation: NavSection = {
       title: locale === 'ar' ? 'الدائرة الأساسية' : 'Basic Sciences',
       items: [
-        { path: '/basic-attendance', label: locale === 'ar' ? 'المحاضرات والحضور' : 'Lectures & Attendance', icon: ClipboardCheck, permission: 'basic_attendance.view' },
-        { path: '/basic-attendance/students', label: locale === 'ar' ? 'طلبة الشعب' : 'Section Students', icon: Users, permission: 'basic_attendance.view' },
-        { path: '/basic-attendance/reports', label: locale === 'ar' ? 'تقارير الحضور' : 'Attendance Reports', icon: BarChart3, permission: 'basic_attendance.view' },
         { path: '/basic-attendance/setup/courses', label: locale === 'ar' ? 'مساقات الدائرة الأساسية' : 'Basic Courses', icon: BookOpen, permission: 'basic_attendance.manage' },
         { path: '/basic-attendance/setup/sections', label: locale === 'ar' ? 'الشعب وتكليف المحاضرين' : 'Sections & Lecturers', icon: Calendar, permission: 'basic_attendance.manage' },
+        { path: '/basic-attendance/students', label: locale === 'ar' ? 'طلبة الشعب' : 'Section Students', icon: Users, permission: 'basic_attendance.view' },
+        { path: '/basic-attendance', label: locale === 'ar' ? 'المحاضرات والحضور' : 'Lectures & Attendance', icon: ClipboardCheck, permission: 'basic_attendance.view' },
+        { path: '/basic-attendance/reports', label: locale === 'ar' ? 'تقارير الحضور' : 'Attendance Reports', icon: BarChart3, permission: 'basic_attendance.view' },
       ],
     };
     if (isBasicOnly) {
