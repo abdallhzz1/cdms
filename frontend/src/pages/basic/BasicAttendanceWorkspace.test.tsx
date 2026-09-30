@@ -66,6 +66,7 @@ describe('Basic attendance course → section workflow', () => {
     expect(await screen.findByRole('combobox', { name: 'Course' })).toHaveValue('1');
     expect(screen.getByRole('combobox', { name: 'Section' })).toHaveValue('3');
     expect(screen.getByRole('heading', { name: 'Attendance Reports' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export Excel report' })).toBeInTheDocument();
   });
 
   it('keeps the selected course and section when switching screens via the sidebar', async () => {
@@ -124,5 +125,16 @@ describe('Basic attendance course → section workflow', () => {
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Course' }), '2');
     expect(screen.getByRole('button', { name: /Section A/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Section 2/ })).not.toBeInTheDocument();
+  });
+
+  it('edits a section in a focused dialog instead of an always-open second panel', async () => {
+    mock(admin);
+    renderWithProviders(<Routes><Route path="/basic-attendance/setup/:kind" element={<BasicAttendanceSetup />} /></Routes>, { route: '/basic-attendance/setup/sections' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: /Section 2/ }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Section number' })).toHaveValue('2');
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Mail\Message;
 use Illuminate\Support\Facades\{DB, Mail};
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use Symfony\Component\Mime\Email;
 use Tests\TestCase;
 
@@ -303,8 +304,18 @@ class BasicLectureAttendanceTest extends TestCase
         for ($i = 0; $i < 7; $i++) $this->transition($this->start('single'), 'finalize');
         $this->getJson('/api/v1/basic-attendance/sections/'.$this->section.'/report')->assertJsonCount(7, 'data.sessions')->assertJsonPath('data.pagination.total', 8);
         $this->getJson('/api/v1/basic-attendance/sections/'.$this->section.'/report?offset=7')->assertJsonCount(1, 'data.sessions');
-        $csv = $this->get('/api/v1/basic-attendance/sections/'.$this->section.'/export')->assertOk()->streamedContent();
-        $this->assertStringContainsString('Student 100', $csv);
-        $this->assertStringContainsString('absent', $csv);
+        $download = $this->get('/api/v1/basic-attendance/sections/'.$this->section.'/export')->assertOk();
+        $this->assertStringContainsString('.xlsx', $download->headers->get('Content-Disposition'));
+        $book = IOFactory::load($download->baseResponse->getFile()->getPathname());
+        $sheet = $book->getActiveSheet();
+        $this->assertSame(__('basic_attendance.report_title'), $sheet->getCell('A1')->getValue());
+        $this->assertSame(__('basic_attendance.message15'), $sheet->getCell('A7')->getValue());
+        $this->assertSame('Student 100', $sheet->getCell('B8')->getValue());
+        $this->assertSame('2600100', $sheet->getCell('A8')->getValue());
+        $this->assertSame('s', $sheet->getCell('A8')->getDataType());
+        $this->assertSame(__('basic_attendance.status_absent'), $sheet->getCell('F8')->getValue());
+        $this->assertSame('C8', $sheet->getFreezePane());
+        $this->assertIsNumeric($sheet->getCell('D8')->getValue());
+        $book->disconnectWorksheets();
     }
 }

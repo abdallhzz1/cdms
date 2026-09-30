@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Exports\BasicAttendanceReportExport;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\User;
@@ -9,6 +10,7 @@ use App\Services\BasicAttendanceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Maatwebsite\Excel\Facades\Excel;
 
 class BasicAttendanceController extends Controller
 {
@@ -166,13 +168,20 @@ class BasicAttendanceController extends Controller
 
     public function export(Request $r, int $section)
     {
-        $this->service->section($r->user(), $section);
-        $rows = DB::table('basic_lecture_records as r')->join('basic_students as st', 'st.id', '=', 'r.student_id')->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')->where('s.section_id', $section)->select('st.university_number', 'st.name', 's.title', 's.opened_at', 's.state', 'r.status', 'r.check_in_at', 'r.check_out_at', 'r.is_late', 'r.source', 'r.reason')->orderBy('s.id')->orderBy('st.name');
-        return response()->streamDownload(function () use ($rows) {
-            $out = fopen('php://output', 'w'); fwrite($out, "\xEF\xBB\xBF");
-            fputcsv($out, [__('basic_attendance.message15'), __('basic_attendance.message16'), __('basic_attendance.message17'), __('basic_attendance.message18'), __('basic_attendance.message19'), __('basic_attendance.message20'), __('basic_attendance.message21'), __('basic_attendance.message22'), __('basic_attendance.message23'), __('basic_attendance.message24'), __('basic_attendance.message25')], ',', '"', '');
-            $rows->orderBy('r.id')->chunk(500, function ($chunk) use ($out) { foreach ($chunk as $row) fputcsv($out, array_map(fn ($v) => is_string($v) && preg_match('/^[=+\-@]/u', $v) ? "'".$v : $v, array_values((array) $row)), ',', '"', ''); }); fclose($out);
-        }, 'lecture-attendance-'.$section.'.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
+        $sectionData = $this->service->section($r->user(), $section);
+        $rows = DB::table('basic_lecture_records as r')
+            ->join('basic_students as st', 'st.id', '=', 'r.student_id')
+            ->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
+            ->where('s.section_id', $section)
+            ->select('st.university_number', 'st.name', 's.title', 's.opened_at', 's.state as session_state', 'r.status', 'r.check_in_at', 'r.check_out_at', 'r.is_late', 'r.source', 'r.reason')
+            ->orderBy('st.university_number')->orderBy('s.opened_at')->orderBy('s.id')->orderBy('r.id');
+        $code = preg_replace('/[^A-Za-z0-9_-]+/', '-', (string) $sectionData->course_code) ?: 'course';
+
+        return Excel::download(
+            new BasicAttendanceReportExport($sectionData, $rows, (clone $rows)->count()),
+            'basic-attendance-'.$code.'-section-'.$section.'.xlsx',
+            \Maatwebsite\Excel\Excel::XLSX,
+        );
     }
 
     public function audit(Request $r, int $session)
