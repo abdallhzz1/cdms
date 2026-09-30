@@ -99,6 +99,42 @@ class BasicAttendanceController extends Controller
         return ApiResponse::success(['count' => count($data['rows'])], __('basic_attendance.message12'));
     }
 
+    public function addRosterStudent(Request $r, int $section)
+    {
+        $this->service->section($r->user(), $section);
+        $data = $r->validate([
+            'university_number' => ['required', 'string', 'regex:/^[0-9]{6,20}$/'],
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255'],
+        ]);
+        $data['name'] = trim($data['name']);
+        $data['email'] = strtolower(trim($data['email']));
+        if ($data['name'] === '') throw ValidationException::withMessages(['name' => [__('validation.required', ['attribute' => __('basic_attendance.message16')])]]);
+
+        $result = DB::transaction(function () use ($data, $section, $r) {
+            DB::table('basic_sections')->where('id', $section)->lockForUpdate()->first();
+            $student = DB::table('basic_students')->where('university_number', $data['university_number'])->lockForUpdate()->first();
+            if ($student) {
+                if (! $student->is_active) throw ValidationException::withMessages(['university_number' => [__('basic_attendance.message41')]]);
+                if (strcasecmp($student->email, $data['email']) !== 0) throw ValidationException::withMessages(['email' => [__('basic_attendance.message38')]]);
+                $studentId = $student->id;
+            } else {
+                if (DB::table('basic_students')->where('email', $data['email'])->exists()) throw ValidationException::withMessages(['email' => [__('basic_attendance.message39')]]);
+                $studentId = DB::table('basic_students')->insertGetId($data + ['is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
+            }
+
+            $enrollment = DB::table('basic_enrollments')->where('section_id', $section)->where('student_id', $studentId)->first();
+            if ($enrollment?->is_active) throw ValidationException::withMessages(['university_number' => [__('basic_attendance.message40')]]);
+            if ($enrollment) DB::table('basic_enrollments')->where('id', $enrollment->id)->update(['is_active' => true, 'updated_at' => now()]);
+            else DB::table('basic_enrollments')->insert(['section_id' => $section, 'student_id' => $studentId, 'is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
+
+            $this->service->audit(null, $r->user()->id, 'enrollment.manual_added', ['section_id' => $section, 'student_id' => $studentId, 'existing_student' => (bool) $student]);
+            return ['id' => $studentId, 'existing_student' => (bool) $student];
+        });
+
+        return ApiResponse::success($result, __('basic_attendance.message42'), [], 201);
+    }
+
     public function removeEnrollment(Request $r, int $section, int $student)
     {
         $this->service->section($r->user(), $section);

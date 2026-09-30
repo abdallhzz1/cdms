@@ -184,6 +184,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::post('sections', [$controller, 'saveSection'])->middleware('permission:basic_attendance.manage');
             Route::put('sections/{section}', [$controller, 'saveSection'])->whereNumber('section')->middleware('permission:basic_attendance.manage');
             Route::post('sections/{section}/roster', [$controller, 'importRoster'])->whereNumber('section')->middleware('permission:basic_attendance.manage');
+            Route::post('sections/{section}/roster/student', [$controller, 'addRosterStudent'])->whereNumber('section')->middleware('permission:basic_attendance.manage');
             Route::delete('sections/{section}/roster/{student}', [$controller, 'removeEnrollment'])->whereNumber(['section', 'student'])->middleware('permission:basic_attendance.manage');
         });
 

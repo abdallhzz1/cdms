@@ -135,6 +135,30 @@ class BasicLectureAttendanceTest extends TestCase
         $this->assertSame(3, DB::table('basic_lecture_records')->where('session_id', $this->start())->count());
     }
 
+    public function test_manual_student_addition_preserves_existing_data_and_lecture_rosters(): void
+    {
+        $session = $this->start();
+        $url = '/api/v1/basic-attendance/sections/'.$this->section.'/roster/student';
+        $row = ['university_number' => '2600004', 'name' => 'طالب يدوي', 'email' => 'manual@example.edu'];
+
+        $this->actingAs($this->lecturer)->postJson($url, $row)->assertForbidden();
+        $this->actingAs($this->manager)->postJson($url, $row)->assertCreated()->assertJsonPath('data.existing_student', false);
+        $this->assertDatabaseHas('basic_students', $row);
+        $studentId = DB::table('basic_students')->where('university_number', $row['university_number'])->value('id');
+        $this->assertDatabaseHas('basic_enrollments', ['section_id' => $this->section, 'student_id' => $studentId, 'is_active' => true]);
+        $this->assertSame(3, DB::table('basic_lecture_records')->where('session_id', $session)->count());
+
+        $this->postJson($url, $row)->assertUnprocessable();
+        $this->postJson($url, array_replace($row, ['university_number' => '2600005']))->assertUnprocessable();
+        $this->postJson($url, array_replace($row, ['email' => 'different@example.edu']))->assertUnprocessable();
+
+        $otherUrl = '/api/v1/basic-attendance/sections/'.$this->otherSection.'/roster/student';
+        $this->postJson($otherUrl, ['university_number' => '2600001', 'name' => 'اسم مختلف', 'email' => 'basic1@example.edu'])
+            ->assertCreated()->assertJsonPath('data.existing_student', true);
+        $this->assertDatabaseHas('basic_students', ['university_number' => '2600001', 'name' => 'طالب اختبار 1', 'email' => 'basic1@example.edu']);
+        $this->assertDatabaseHas('basic_enrollments', ['section_id' => $this->otherSection, 'student_id' => $this->students[0], 'is_active' => true]);
+    }
+
     public function test_double_check_late_duplicate_and_final_states(): void
     {
         $id = $this->start(); $service = app(BasicAttendanceService::class);

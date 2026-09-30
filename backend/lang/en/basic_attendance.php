@@ -59,5 +59,10 @@ return [
     'message35' => 'The verification code is incorrect.',
     'message36' => 'The student record is inactive. Contact the administrator.',
     'message37' => 'Attendance registered successfully.',
+    'message38' => 'This university number has a different registered email. Review the student record; the email will not be changed automatically.',
+    'message39' => 'This university email belongs to another university number. Check the details before adding the student.',
+    'message40' => 'The student is already enrolled in this section.',
+    'message41' => 'This student record is inactive. Contact the administrator before enrolling the student.',
+    'message42' => 'Student added to the section. Previous lecture rosters are unchanged.',
     'email_body' => 'Basic Sciences lecture attendance code: :otp. Do not share it. Valid for five minutes.',
 ];
