@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { BookOpen, Plus, X } from 'lucide-react';
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, apiUrl } from '@/api/client';
@@ -84,6 +85,7 @@ export function BasicAttendanceSetup() {
   const sections = useSections();
   const options = useQuery({ queryKey: ['basic-options'], queryFn: () => apiFetch<{ courses: Course[]; lecturers: { id: number; name: string }[] }>('/basic-attendance/options'), enabled: can('basic_attendance.manage') });
   const [course, setCourse] = useState({ code: '', name: '', academic_level: 'first' });
+  const [showCourseForm, setShowCourseForm] = useState(false);
   const [form, setForm] = useState({ id: 0, course_id: 0, number: '', academic_year: '', semester: 'first', is_active: true, lecturer_ids: [] as number[] });
   const [selectedCourseId, setSelectedCourseId] = useState(0);
   const courseId = options.data?.courses.some(item => item.id === selectedCourseId) ? selectedCourseId : options.data?.courses[0]?.id ?? 0;
@@ -91,18 +93,38 @@ export function BasicAttendanceSetup() {
     .sort((a, b) => a.academic_year.localeCompare(b.academic_year) || a.number.localeCompare(b.number, basicLocale()));
   const emptySectionForm = (selectedId: number) => ({ id: 0, course_id: selectedId, number: '', academic_year: '', semester: 'first', is_active: true, lecturer_ids: [] as number[] });
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
-  async function save(action: () => Promise<unknown>) { setBusy(true); setError(''); setNotice(''); try { await action(); setNotice(bt('text014')); await Promise.all([qc.invalidateQueries({ queryKey: ['basic-options'] }), qc.invalidateQueries({ queryKey: ['basic-sections'] })]); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
+  async function save(action: () => Promise<unknown>): Promise<boolean> { setBusy(true); setError(''); setNotice(''); try { await action(); setNotice(bt('text014')); await Promise.all([qc.invalidateQueries({ queryKey: ['basic-options'] }), qc.invalidateQueries({ queryKey: ['basic-sections'] })]); return true; } catch (e) { setError((e as Error).message); return false; } finally { setBusy(false); } }
+  const levelLabel = (level: string) => level === 'first' ? bt('text035') : level === 'second' ? bt('text036') : bt('text037');
   if (!can('basic_attendance.manage')) return <ErrorState />;
   return <Shell title={mode === 'courses' ? bt('workCourses') : bt('workSections')} subtitle={mode === 'courses' ? bt('workCourseIntro') : bt('workSectionIntro')}>
-    {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
-    {options.isLoading ? <LoadingState /> : options.isError ? <ErrorState onRetry={() => options.refetch()} /> : mode === 'courses' ? <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)]">
-      <section className={surface + ' p-5'}><h2 className="font-bold">{bt('workCourses')}</h2><div className="mt-4 divide-y divide-slate-100">{options.data?.courses.map(c => <div key={c.id} className="flex items-center justify-between gap-3 py-3 text-sm"><div><b className="block text-slate-900">{c.name}</b><span dir="ltr" className="text-xs text-slate-500">{c.code}</span></div><span className="shrink-0 text-xs text-slate-500">{(sections.data ?? []).filter(item => item.course_id === c.id).length} {bt('workSectionsCount')}</span></div>)}{!options.data?.courses.length && <p className="py-3 text-sm text-slate-500">{bt('workNoCourses')}</p>}</div></section>
-      <form className={surface + ' space-y-4 p-5'} onSubmit={e => { e.preventDefault(); void save(async () => { await apiFetch('/basic-attendance/courses', { method: 'POST', body: course }); setCourse({ code: '', name: '', academic_level: 'first' }); }); }}><h2 className="font-bold">{bt('text038')}</h2>
-        <Field label={bt('text032')}><input className="input" required value={course.code} onChange={e => setCourse({ ...course, code: e.target.value })} /></Field>
-        <Field label={bt('text033')}><input className="input" required value={course.name} onChange={e => setCourse({ ...course, name: e.target.value })} /></Field>
-        <Field label={bt('text034')}><select className="input" value={course.academic_level} onChange={e => setCourse({ ...course, academic_level: e.target.value })}><option value="first">{bt('text035')}</option><option value="second">{bt('text036')}</option><option value="third">{bt('text037')}</option></select></Field>
-        <Button type="submit" disabled={busy}>{bt('text038')}</Button></form>
-    </div> : <div className="space-y-5">
+    {(mode !== 'courses' || !showCourseForm) && error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
+    {options.isLoading ? <LoadingState /> : options.isError ? <ErrorState onRetry={() => options.refetch()} /> : mode === 'courses' ? <>
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_16px_48px_-40px_rgba(15,23,42,0.5)]">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 bg-gradient-to-l from-teal-50/80 via-white to-white px-5 py-5 sm:px-7">
+          <div><p className="text-xs font-bold text-teal-700">{bt('workCourseCatalog')}</p><h2 className="mt-1 text-lg font-extrabold text-slate-900">{bt('workCourseCount', { count: options.data?.courses.length ?? 0 })}</h2></div>
+          <Button onClick={() => { setError(''); setShowCourseForm(true); }}><Plus className="me-2 h-4 w-4" aria-hidden="true" />{bt('text038')}</Button>
+        </div>
+        {options.data?.courses.length ? <div className="divide-y divide-slate-100">
+          {[...options.data.courses].sort((a, b) => ['first', 'second', 'third'].indexOf(a.academic_level) - ['first', 'second', 'third'].indexOf(b.academic_level) || a.name.localeCompare(b.name, basicLocale())).map(c => <div key={c.id} className="flex flex-wrap items-center gap-4 px-5 py-5 transition-colors hover:bg-slate-50/70 sm:flex-nowrap sm:px-7">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"><BookOpen size={20} aria-hidden="true" /></span>
+            <div className="min-w-0 flex-1"><h3 className="text-base font-bold leading-6 text-slate-900">{c.name}</h3><p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500"><span dir="ltr" className="font-semibold tracking-wide">{c.code}</span><span>{levelLabel(c.academic_level)}</span></p></div>
+            <span className="ms-auto rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600">{(sections.data ?? []).filter(item => item.course_id === c.id).length} {bt('workSectionsCount')}</span>
+          </div>)}
+        </div> : <div className="flex flex-col items-center px-5 py-12 text-center"><span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"><BookOpen size={24} aria-hidden="true" /></span><p className="mt-4 text-sm font-semibold text-slate-700">{bt('workNoCourses')}</p></div>}
+      </section>
+      {showCourseForm && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-200/75 p-4 backdrop-blur-sm" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setShowCourseForm(false); }}>
+        <section role="dialog" aria-modal="true" aria-labelledby="basic-add-course-title" onKeyDown={e => { if (e.key === 'Escape' && !busy) setShowCourseForm(false); }} className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-7">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4"><div><p className="text-xs font-bold text-teal-700">{bt('workCourses')}</p><h2 id="basic-add-course-title" className="mt-1 text-xl font-extrabold text-slate-900">{bt('text038')}</h2></div><button type="button" aria-label={bt('workClose')} onClick={() => setShowCourseForm(false)} disabled={busy} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"><X size={20} aria-hidden="true" /></button></div>
+          <form className="mt-5 space-y-4" onSubmit={e => { e.preventDefault(); void save(() => apiFetch('/basic-attendance/courses', { method: 'POST', body: course })).then(success => { if (success) { setCourse({ code: '', name: '', academic_level: 'first' }); setShowCourseForm(false); } }); }}>
+            {error && <Notice error>{error}</Notice>}
+            <Field label={bt('text032')}><input className="input" autoFocus required value={course.code} onChange={e => setCourse({ ...course, code: e.target.value })} /></Field>
+            <Field label={bt('text033')}><input className="input" required value={course.name} onChange={e => setCourse({ ...course, name: e.target.value })} /></Field>
+            <Field label={bt('text034')}><select className="input" value={course.academic_level} onChange={e => setCourse({ ...course, academic_level: e.target.value })}><option value="first">{bt('text035')}</option><option value="second">{bt('text036')}</option><option value="third">{bt('text037')}</option></select></Field>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-5"><Button type="button" variant="outline" onClick={() => setShowCourseForm(false)} disabled={busy}>{bt('workCancel')}</Button><Button type="submit" disabled={busy}>{bt('text038')}</Button></div>
+          </form>
+        </section>
+      </div>}
+    </> : <div className="space-y-5">
       <section className={surface + ' p-5'}><Field label={bt('text041')}><select className="input max-w-xl" value={courseId} onChange={e => { const id = Number(e.target.value); setSelectedCourseId(id); setForm(emptySectionForm(id)); setNotice(''); }}>{options.data?.courses.map(c => <option key={c.id} value={c.id}>{c.name} · {c.code}</option>)}</select></Field></section>
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
       <section className={surface + ' p-5'}><h2 className="font-bold">{bt('workSections')}</h2>{sections.isLoading ? <LoadingState /> : sections.isError ? <ErrorState onRetry={() => sections.refetch()} /> : <div className="mt-4 divide-y divide-slate-100">{courseSections.map(s => <button type="button" key={s.id} onClick={() => { setNotice(''); setForm({ id: s.id, course_id: s.course_id, number: s.number, academic_year: s.academic_year, semester: s.semester, is_active: s.is_active, lecturer_ids: s.lecturers.map(l => l.id) }); }} className={`block w-full py-3 text-start text-sm hover:text-teal-800 ${form.id === s.id ? 'text-teal-800' : ''}`}><b>{bt('workSectionNumber', { number: s.number })}</b><span className="block text-xs text-slate-500">{s.academic_year} · {s.students_count} {bt('text055')} · {s.lecturers.map(l => l.name).join(bt('text026'))}</span></button>)}{!courseSections.length && <p className="py-3 text-sm text-slate-500">{bt('workNoSections')}</p>}</div>}</section>

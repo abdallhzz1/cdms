@@ -12,11 +12,13 @@ const section = { id: 3, course_id: 1, course_name: 'Anatomy', course_code: 'B10
 const secondSection = { ...section, id: 4, course_id: 2, course_name: 'Biology', course_code: 'B102', number: 'A', students_count: 0 };
 
 function mock(account: typeof admin) {
-  vi.spyOn(window, 'fetch').mockImplementation(async input => {
+  const courses = [{ id: 1, code: 'B101', name: 'Anatomy', academic_level: 'first' }, { id: 2, code: 'B102', name: 'Biology', academic_level: 'first' }];
+  vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
     const path = new URL(String(input), window.location.origin).pathname.replace('/api/v1', '');
     if (path === '/auth/me') return envelope(account);
     if (path === '/basic-attendance/sections') return envelope([section, secondSection]);
-    if (path === '/basic-attendance/options') return envelope({ courses: [{ id: 1, code: 'B101', name: 'Anatomy', academic_level: 'first' }, { id: 2, code: 'B102', name: 'Biology', academic_level: 'first' }], lecturers: [{ id: 8, name: 'Lecturer' }] });
+    if (path === '/basic-attendance/options') return envelope({ courses, lecturers: [{ id: 8, name: 'Lecturer' }] });
+    if (path === '/basic-attendance/courses' && init?.method === 'POST') { courses.push({ id: 5, ...(JSON.parse(String(init.body)) as { code: string; name: string; academic_level: string }) }); return envelope({ id: 5 }); }
     if (path === '/basic-attendance/sections/3/roster') return envelope([{ id: 1, name: 'Synthetic Student', university_number: '123456', email: 'student@example.edu' }]);
     if (path === '/basic-attendance/sections/3/sessions') return envelope([]);
     if (path === '/basic-attendance/sections/4/sessions') return envelope([]);
@@ -91,8 +93,26 @@ describe('Basic attendance course → section workflow', () => {
     mock(admin);
     renderWithProviders(<Routes><Route path="/basic-attendance/setup/:kind" element={<BasicAttendanceSetup />} /></Routes>, { route: '/basic-attendance/setup/courses' });
     expect(await screen.findByRole('button', { name: 'Add course' })).toBeInTheDocument();
+    expect(screen.getByText('Anatomy')).toBeInTheDocument();
+    expect(screen.getByText('Biology')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save section' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Sections and assignments' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Add course' }));
+    expect(screen.getByRole('dialog', { name: 'Add course' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('creates a course from the overlay and returns to the full-width catalog', async () => {
+    mock(admin);
+    renderWithProviders(<Routes><Route path="/basic-attendance/setup/:kind" element={<BasicAttendanceSetup />} /></Routes>, { route: '/basic-attendance/setup/courses' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Add course' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Course code' }), 'B103');
+    await userEvent.type(screen.getByRole('textbox', { name: 'Course name' }), 'Chemistry');
+    await userEvent.click(screen.getByRole('dialog').querySelector('button[type="submit"]')!);
+    expect(await screen.findByText('Chemistry')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('shows only the chosen course sections in section management', async () => {
