@@ -150,7 +150,10 @@ describe('clinical supervisor workspace',()=>{
     const weekSelect=await screen.findByRole('combobox',{name:'Choose week'});
     const phoneTable=screen.getAllByRole('table')[0];
     expect(within(phoneTable).getAllByRole('row')).toHaveLength(8);
+    expect(screen.getByRole('option',{name:'Week starting 23/08'})).toBeInTheDocument();
+    expect(within(weekSelect).getAllByRole('option').every(option=>!option.textContent?.includes('–'))).toBe(true);
     await userEvent.selectOptions(weekSelect,'2026-08-23');
+    expect(screen.getByText('23/08/2026 – 29/08/2026')).toBeVisible();
     expect(within(phoneTable).getByText('27/08/2026')).toBeVisible();
     expect(within(phoneTable).getAllByRole('link',{name:'QR attendance'})).toHaveLength(1);
   });

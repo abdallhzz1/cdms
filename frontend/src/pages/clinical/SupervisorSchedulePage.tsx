@@ -93,6 +93,15 @@ export function SupervisorScheduleAgenda({workspace}:{workspace:Workspace}){
   const weeks=useMemo(()=>[...new Set(agenda.map(item=>agendaWeekStart(item.date)))],[agenda]);
   const activeWeek=selectedWeek&&weeks.includes(selectedWeek)?selectedWeek:preferredAgendaWeek(agenda.filter(item=>item.duties.length),currentDate);
   const rows=agenda.filter(item=>agendaWeekStart(item.date)===activeWeek);
+  const currentWeek=agendaWeekStart(currentDate);
+  const weekLabel=(week:string)=>{
+    const shortDate=formatDate(week,ar).slice(0,5);
+    const label=week===currentWeek?tr('هذا الأسبوع','This week')
+      :week===addDays(currentWeek,7)?tr('الأسبوع القادم','Next week')
+      :week===addDays(currentWeek,-7)?tr('الأسبوع الماضي','Last week')
+      :null;
+    return label?`${label} · ${shortDate}`:`${tr('أسبوع يبدأ في','Week starting')} ${shortDate}`;
+  };
 
   const dutyContent=(duty:AgendaDuty,date:string)=>(
     <div key={String(duty.siteId)} className="rounded-xl border border-teal-100 bg-teal-50/50 px-3 py-2.5">
@@ -111,7 +120,10 @@ export function SupervisorScheduleAgenda({workspace}:{workspace:Workspace}){
   return <section className="min-w-0 space-y-3 sm:space-y-4">
     <div><h2 className="text-lg font-black text-slate-900 sm:text-xl">{tr('جدولي السريري','My clinical schedule')}</h2><p className="mt-1 text-xs text-slate-500">{tr('الأسبوع كاملًا، مع جميع مراكز دوامك والمجموعات المكلف بها.','Your full week, including every work site and assigned group.')}</p></div>
     {!agenda.length?<EmptyState message={tr('لا توجد جلسات ظاهرة. راجع التكليف المنشور وأيام العمل المحددة لك.','No sessions are available. Review the published assignment and your configured work days.')}/>:<>
-      <label className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 sm:max-w-sm"><CalendarDays className="h-4 w-4 shrink-0 text-teal-700"/><span className="shrink-0">{tr('الأسبوع','Week')}</span><select aria-label={tr('اختيار الأسبوع','Choose week')} value={activeWeek} onChange={event=>setSelectedWeek(event.target.value)} className="min-w-0 flex-1 bg-transparent py-1 text-xs font-bold text-slate-800 outline-none">{weeks.map(week=><option key={week} value={week}>{week===agendaWeekStart(currentDate)?tr('هذا الأسبوع','This week'):''} {formatDate(week,ar)} – {formatDate(agendaWeekEnd(week),ar)}</option>)}</select></label>
+      <div className="w-full min-w-0 space-y-1.5 sm:max-w-sm">
+        <label className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"><CalendarDays className="h-4 w-4 shrink-0 text-teal-700"/><span className="shrink-0">{tr('الأسبوع','Week')}</span><select aria-label={tr('اختيار الأسبوع','Choose week')} value={activeWeek} onChange={event=>setSelectedWeek(event.target.value)} className="min-w-0 flex-1 bg-transparent py-1 text-xs font-bold text-slate-800 outline-none">{weeks.map(week=><option key={week} value={week}>{weekLabel(week)}</option>)}</select></label>
+        <p className="px-1 text-[11px] font-medium text-slate-500">{tr('الفترة','Dates')}: <span dir="ltr" className="inline-block font-bold text-slate-700">{formatDate(activeWeek,ar)} – {formatDate(agendaWeekEnd(activeWeek),ar)}</span></p>
+      </div>
       <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
         <table className="w-full table-fixed text-right text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-black text-slate-500"><tr><th className="w-[94px] px-2.5 py-3 sm:w-[180px] sm:px-5">{tr('اليوم','Day')}</th><th className="px-2.5 py-3 sm:px-5">{tr('المركز والمجموعة','Site and group')}</th></tr></thead>
           <tbody className="divide-y divide-slate-100">{rows.map(({date,duties})=>{const isToday=date===currentDate;return <tr key={date} className={isToday?'bg-teal-50/40':''}>
