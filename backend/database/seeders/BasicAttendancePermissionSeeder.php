@@ -11,7 +11,7 @@ class BasicAttendancePermissionSeeder extends Seeder
     public function run(): void
     {
         $ids = [];
-        foreach (['view', 'record', 'manage', 'export'] as $action) {
+        foreach (['view', 'record', 'manage', 'export', 'delete'] as $action) {
             $ids[$action] = Permission::firstOrCreate(['code' => 'basic_attendance.'.$action], ['module' => 'BasicAttendance', 'action' => strtoupper($action), 'description_key' => 'basicAttendance.permissions.'.$action])->id;
         }
         foreach (['BASIC_LECTURER' => ['view', 'record', 'export'], 'BASIC_ATTENDANCE_ADMIN' => array_keys($ids)] as $code => $actions) {

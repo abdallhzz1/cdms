@@ -182,12 +182,16 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::post('sessions/{session}/transition', [$controller, 'transition'])->whereNumber('session')->middleware('permission:basic_attendance.record');
             Route::put('sessions/{session}/records/{student}', [$controller, 'correct'])->whereNumber(['session', 'student'])->middleware('permission:basic_attendance.record');
             Route::get('options', [$controller, 'options'])->middleware('permission:basic_attendance.manage');
+            Route::get('monthly-overview', [$controller, 'monthlyOverview'])->middleware('permission:basic_attendance.manage');
             Route::post('courses', [$controller, 'storeCourse'])->middleware('permission:basic_attendance.manage');
+            Route::delete('courses/{course}', [$controller, 'archiveCourse'])->whereNumber('course')->middleware('permission:basic_attendance.delete');
             Route::post('sections', [$controller, 'saveSection'])->middleware('permission:basic_attendance.manage');
             Route::put('sections/{section}', [$controller, 'saveSection'])->whereNumber('section')->middleware('permission:basic_attendance.manage');
+            Route::delete('sections/{section}', [$controller, 'archiveSection'])->whereNumber('section')->middleware('permission:basic_attendance.delete');
+            Route::delete('sessions/{session}', [$controller, 'archiveSession'])->whereNumber('session')->middleware('permission:basic_attendance.delete');
             Route::post('sections/{section}/roster', [$controller, 'importRoster'])->whereNumber('section')->middleware('permission:basic_attendance.manage');
             Route::post('sections/{section}/roster/student', [$controller, 'addRosterStudent'])->whereNumber('section')->middleware('permission:basic_attendance.manage');
-            Route::delete('sections/{section}/roster/{student}', [$controller, 'removeEnrollment'])->whereNumber(['section', 'student'])->middleware('permission:basic_attendance.manage');
+            Route::delete('sections/{section}/roster/{student}', [$controller, 'removeEnrollment'])->whereNumber(['section', 'student'])->middleware('permission:basic_attendance.delete');
         });
 
         Route::prefix('student-policies')->group(function () {

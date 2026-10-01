@@ -24,14 +24,14 @@ class BasicAttendanceController extends Controller
         $ids = $rows->pluck('id');
         $counts = DB::table('basic_enrollments as e')->join('basic_students as st', 'st.id', '=', 'e.student_id')->whereIn('e.section_id', $ids)->where('e.is_active', true)->where('st.is_active', true)->selectRaw('e.section_id, COUNT(*) as total')->groupBy('e.section_id')->pluck('total', 'section_id');
         $lecturers = DB::table('basic_section_lecturers as l')->join('users as u', 'u.id', '=', 'l.user_id')->whereIn('l.section_id', $ids)->select('l.section_id', 'u.id', 'u.name')->get()->groupBy('section_id');
-        $active = DB::table('basic_lecture_sessions')->whereIn('section_id', $ids)->where('active_guard', 1)->get()->keyBy('section_id');
+        $active = DB::table('basic_lecture_sessions')->whereIn('section_id', $ids)->whereNull('archived_at')->where('active_guard', 1)->get()->keyBy('section_id');
         foreach ($rows as $row) { $row->students_count = (int) ($counts[$row->id] ?? 0); $row->lecturers = $lecturers[$row->id] ?? []; $row->active_session = $active[$row->id] ?? null; }
         return ApiResponse::success($rows);
     }
 
     public function options()
     {
-        return ApiResponse::success(['courses' => DB::table('basic_courses')->orderBy('name')->get(), 'lecturers' => User::query()->where('is_active', true)->whereHas('roles', fn ($q) => $q->where('code', 'BASIC_LECTURER'))->orderBy('name')->get(['id', 'name', 'email'])]);
+        return ApiResponse::success(['courses' => DB::table('basic_courses')->whereNull('archived_at')->orderBy('name')->get(), 'lecturers' => User::query()->where('is_active', true)->whereHas('roles', fn ($q) => $q->where('code', 'BASIC_LECTURER'))->orderBy('name')->get(['id', 'name', 'email'])]);
     }
 
     public function storeCourse(Request $r)
@@ -45,7 +45,7 @@ class BasicAttendanceController extends Controller
     public function saveSection(Request $r, ?int $section = null)
     {
         if ($section) $this->service->section($r->user(), $section);
-        $data = $r->validate(['course_id' => ['required', 'integer', 'exists:basic_courses,id'], 'number' => ['required', 'string', 'max:30'], 'academic_year' => ['required', 'string', 'max:30'], 'semester' => ['required', 'in:first,second,summer'], 'is_active' => ['sometimes', 'boolean'], 'lecturer_ids' => ['required', 'array', 'min:1', 'max:30'], 'lecturer_ids.*' => ['required', 'integer', 'distinct', 'exists:users,id']]);
+        $data = $r->validate(['course_id' => ['required', 'integer', \Illuminate\Validation\Rule::exists('basic_courses', 'id')->whereNull('archived_at')], 'number' => ['required', 'string', 'max:30'], 'academic_year' => ['required', 'string', 'max:30'], 'semester' => ['required', 'in:first,second,summer'], 'is_active' => ['sometimes', 'boolean'], 'lecturer_ids' => ['required', 'array', 'min:1', 'max:30'], 'lecturer_ids.*' => ['required', 'integer', 'distinct', 'exists:users,id']]);
         $eligible = User::whereIn('id', $data['lecturer_ids'])->where('is_active', true)->whereHas('roles', fn ($q) => $q->where('code', 'BASIC_LECTURER'))->count();
         if ($eligible !== count($data['lecturer_ids'])) throw ValidationException::withMessages(['lecturer_ids' => [__('basic_attendance.message07')]]);
         $duplicates = DB::table('basic_sections')->where('course_id', $data['course_id'])->where('number', $data['number'])->where('academic_year', $data['academic_year'])->where('semester', $data['semester'])->when($section, fn ($q) => $q->where('id', '!=', $section))->exists();
@@ -54,13 +54,19 @@ class BasicAttendanceController extends Controller
             $ids = $data['lecturer_ids']; unset($data['lecturer_ids']);
             if ($section) {
                 DB::table('basic_sections')->where('id', $section)->lockForUpdate()->first();
+                $course = DB::table('basic_courses')->where('id', $data['course_id'])->lockForUpdate()->first();
+                abort_unless($course && ! $course->archived_at, 409);
                 // Preserve the meaning of existing historical sessions.
                 $old = DB::table('basic_sections')->find($section);
                 if (DB::table('basic_lecture_sessions')->where('section_id', $section)->exists()) {
                     foreach (['course_id', 'number', 'academic_year', 'semester'] as $field) if ((string) $data[$field] !== (string) $old->$field) throw ValidationException::withMessages([$field => [__('basic_attendance.message09')]]);
                 }
                 DB::table('basic_sections')->where('id', $section)->update($data + ['updated_at' => now()]); $id = $section;
-            } else $id = DB::table('basic_sections')->insertGetId($data + ['is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
+            } else {
+                $course = DB::table('basic_courses')->where('id', $data['course_id'])->lockForUpdate()->first();
+                abort_unless($course && ! $course->archived_at, 409);
+                $id = DB::table('basic_sections')->insertGetId($data + ['is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
+            }
             DB::table('basic_section_lecturers')->where('section_id', $id)->delete();
             DB::table('basic_section_lecturers')->insert(array_map(fn ($user) => ['section_id' => $id, 'user_id' => $user], $ids));
             $this->service->audit(null, $r->user()->id, 'section.saved', ['section_id' => $id, 'lecturer_ids' => $ids]);
@@ -140,20 +146,66 @@ class BasicAttendanceController extends Controller
     public function removeEnrollment(Request $r, int $section, int $student)
     {
         $this->service->section($r->user(), $section);
-        DB::table('basic_enrollments')->where('section_id', $section)->where('student_id', $student)->update(['is_active' => false, 'updated_at' => now()]);
+        $changed = DB::table('basic_enrollments')->where('section_id', $section)->where('student_id', $student)->where('is_active', true)->update(['is_active' => false, 'updated_at' => now()]);
+        abort_unless($changed, 404);
         $this->service->audit(null, $r->user()->id, 'enrollment.withdrawn', ['section_id' => $section, 'student_id' => $student]);
         return ApiResponse::success(null, __('basic_attendance.message13'));
+    }
+
+    public function archiveCourse(Request $r, int $course)
+    {
+        $data = $r->validate(['confirm' => ['required', 'string'], 'reason' => ['required', 'string', 'min:5', 'max:500']]);
+        DB::transaction(function () use ($r, $course, $data) {
+            $item = DB::table('basic_courses')->where('id', $course)->whereNull('archived_at')->lockForUpdate()->first();
+            abort_unless($item, 404);
+            if ($data['confirm'] !== $item->code) throw ValidationException::withMessages(['confirm' => [__('basic_attendance.archive_confirm_mismatch')]]);
+            $active = DB::table('basic_lecture_sessions as lecture')->join('basic_sections as section', 'section.id', '=', 'lecture.section_id')->where('section.course_id', $course)->where('lecture.active_guard', 1)->whereNull('lecture.archived_at')->exists();
+            if ($active) throw ValidationException::withMessages(['course' => [__('basic_attendance.archive_active_session')]]);
+            DB::table('basic_courses')->where('id', $course)->update(['archived_at' => now(), 'updated_at' => now()]);
+            $this->service->audit(null, $r->user()->id, 'course.archived', ['course_id' => $course, 'code' => $item->code, 'reason' => $data['reason']]);
+        });
+        return ApiResponse::success(null, __('basic_attendance.archive_done'));
+    }
+
+    public function archiveSection(Request $r, int $section)
+    {
+        $this->service->section($r->user(), $section);
+        $data = $r->validate(['confirm' => ['required', 'string'], 'reason' => ['required', 'string', 'min:5', 'max:500']]);
+        DB::transaction(function () use ($r, $section, $data) {
+            $item = DB::table('basic_sections')->where('id', $section)->whereNull('archived_at')->lockForUpdate()->first();
+            abort_unless($item, 404);
+            if ($data['confirm'] !== $item->number) throw ValidationException::withMessages(['confirm' => [__('basic_attendance.archive_confirm_mismatch')]]);
+            if (DB::table('basic_lecture_sessions')->where('section_id', $section)->where('active_guard', 1)->whereNull('archived_at')->exists()) throw ValidationException::withMessages(['section' => [__('basic_attendance.archive_active_session')]]);
+            DB::table('basic_sections')->where('id', $section)->update(['archived_at' => now(), 'updated_at' => now()]);
+            $this->service->audit(null, $r->user()->id, 'section.archived', ['section_id' => $section, 'number' => $item->number, 'reason' => $data['reason']]);
+        });
+        return ApiResponse::success(null, __('basic_attendance.archive_done'));
+    }
+
+    public function archiveSession(Request $r, int $session)
+    {
+        $this->service->session($r->user(), $session);
+        $data = $r->validate(['confirm' => ['required', 'string'], 'reason' => ['required', 'string', 'min:5', 'max:500']]);
+        DB::transaction(function () use ($r, $session, $data) {
+            $item = DB::table('basic_lecture_sessions')->where('id', $session)->whereNull('archived_at')->lockForUpdate()->first();
+            abort_unless($item, 404);
+            if ($data['confirm'] !== $item->title) throw ValidationException::withMessages(['confirm' => [__('basic_attendance.archive_confirm_mismatch')]]);
+            if ($item->active_guard) throw ValidationException::withMessages(['session' => [__('basic_attendance.archive_active_session')]]);
+            DB::table('basic_lecture_sessions')->where('id', $session)->update(['archived_at' => now(), 'version' => $item->version + 1, 'updated_at' => now()]);
+            $this->service->audit($session, $r->user()->id, 'session.archived', ['title' => $item->title, 'reason' => $data['reason']]);
+        });
+        return ApiResponse::success(null, __('basic_attendance.archive_done'));
     }
 
     public function sessions(Request $r, int $section)
     {
         $this->service->section($r->user(), $section);
-        return ApiResponse::success(DB::table('basic_lecture_sessions')->where('section_id', $section)->orderByDesc('id')->limit(100)->get()->map(fn ($s) => $this->service->dates($s)));
+        return ApiResponse::success(DB::table('basic_lecture_sessions')->where('section_id', $section)->whereNull('archived_at')->orderByDesc('id')->limit(100)->get()->map(fn ($s) => $this->service->dates($s)));
     }
 
     public function start(Request $r, int $section)
     {
-        $data = $r->validate(['title' => ['required', 'string', 'max:150'], 'mode' => ['required', 'in:single,double'], 'window_minutes' => ['required', 'integer', 'min:1', 'max:30'], 'late_after_minutes' => ['required', 'integer', 'min:0', 'max:30']]);
+        $data = $r->validate(['title' => ['required', 'string', 'max:150'], 'mode' => ['required', 'in:single,double'], 'window_minutes' => ['required', 'integer', 'min:1', 'max:30'], 'late_after_minutes' => ['required', 'integer', 'min:0', 'max:30'], 'lecturer_id' => ['nullable', 'integer', 'exists:users,id']]);
         return ApiResponse::success(['id' => $this->service->start($r->user(), $section, $data)], null, [], 201);
     }
 
@@ -196,7 +248,7 @@ class BasicAttendanceController extends Controller
     {
         $this->service->section($r->user(), $section);
         $r->validate(['offset' => ['sometimes', 'integer', 'min:0', 'max:100000']]);
-        $all = DB::table('basic_lecture_sessions')->where('section_id', $section);
+        $all = DB::table('basic_lecture_sessions')->where('section_id', $section)->whereNull('archived_at');
         $total = (clone $all)->count(); $offset = $r->integer('offset');
         $sessions = $all->orderByDesc('id')->offset($offset)->limit(7)->get()->reverse()->values();
         $records = DB::table('basic_lecture_records as r')->join('basic_students as st', 'st.id', '=', 'r.student_id')->whereIn('r.session_id', $sessions->pluck('id'))->select('r.*', 'st.name', 'st.university_number', 'st.photo_url')->get();
@@ -212,23 +264,49 @@ class BasicAttendanceController extends Controller
         return ApiResponse::success($this->monthlySummaryData($section, $month));
     }
 
+    public function monthlyOverview(Request $r)
+    {
+        $data = $r->validate(['month' => ['nullable', 'date_format:Y-m']]);
+        $month = $data['month'] ?? now()->format('Y-m');
+        $start = \Carbon\Carbon::createFromFormat('!Y-m', $month)->startOfMonth();
+        $end = $start->copy()->addMonth();
+        $sections = $this->service->sections($r->user())->select('s.id', 's.number', 's.academic_year', 's.course_id', 'c.code as course_code', 'c.name as course_name')->orderBy('c.name')->orderBy('s.number')->get();
+        $ids = $sections->pluck('id');
+        $assigned = DB::table('basic_section_lecturers as lecturer')->join('users as person', 'person.id', '=', 'lecturer.user_id')->whereIn('lecturer.section_id', $ids)->select('lecturer.section_id', 'person.id', 'person.name')->get()->groupBy('section_id');
+        $counts = DB::table('basic_enrollments')->whereIn('section_id', $ids)->where('is_active', true)->selectRaw('section_id, COUNT(*) as total')->groupBy('section_id')->pluck('total', 'section_id');
+        $lectures = DB::table('basic_lecture_sessions as lecture')->leftJoin('basic_lecture_records as record', 'record.session_id', '=', 'lecture.id')->leftJoin('users as lecturer', 'lecturer.id', '=', DB::raw('COALESCE(lecture.lecturer_id, lecture.created_by)'))
+            ->whereIn('lecture.section_id', $ids)->whereNull('lecture.archived_at')->where('lecture.state', 'finalized')->where('lecture.opened_at', '>=', $start)->where('lecture.opened_at', '<', $end)
+            ->selectRaw("lecture.section_id, COALESCE(lecture.lecturer_id, lecture.created_by) as lecturer_id, lecturer.name as lecturer_name, COUNT(DISTINCT lecture.id) as lectures, SUM(CASE WHEN record.status = 'present' THEN 1 ELSE 0 END) as present, SUM(CASE WHEN record.status = 'absent' THEN 1 ELSE 0 END) as absent, SUM(CASE WHEN record.status = 'excused' THEN 1 ELSE 0 END) as excused, SUM(CASE WHEN record.is_late = 1 THEN 1 ELSE 0 END) as late")
+            ->groupBy('lecture.section_id', DB::raw('COALESCE(lecture.lecturer_id, lecture.created_by)'), 'lecturer.name')->get()->groupBy('section_id');
+        $rows = $sections->map(function ($section) use ($assigned, $counts, $lectures) {
+            $section->students_count = (int) ($counts[$section->id] ?? 0);
+            $section->assigned_lecturers = ($assigned[$section->id] ?? collect())->map(fn ($person) => ['id' => $person->id, 'name' => $person->name])->values();
+            $section->lecturers = ($lectures[$section->id] ?? collect())->map(function ($item) {
+                foreach (['lectures', 'present', 'absent', 'excused', 'late'] as $field) $item->$field = (int) $item->$field;
+                return $item;
+            })->values();
+            return $section;
+        });
+        return ApiResponse::success(['month' => $month, 'sections' => $rows]);
+    }
+
     private function monthlySummaryData(int $section, string $month): array
     {
         $start = \Carbon\Carbon::createFromFormat('!Y-m', $month)->startOfMonth();
         $end = $start->copy()->addMonth();
 
-        $sessions = DB::table('basic_lecture_sessions')->where('section_id', $section)->where('state', 'finalized')
+        $sessions = DB::table('basic_lecture_sessions')->where('section_id', $section)->whereNull('archived_at')->where('state', 'finalized')
             ->where('opened_at', '>=', $start)->where('opened_at', '<', $end)->count();
         $monthly = DB::table('basic_lecture_records as r')->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
-            ->where('s.section_id', $section)->where('s.state', 'finalized')->where('s.opened_at', '>=', $start)->where('s.opened_at', '<', $end)
+            ->where('s.section_id', $section)->whereNull('s.archived_at')->where('s.state', 'finalized')->where('s.opened_at', '>=', $start)->where('s.opened_at', '<', $end)
             ->selectRaw("r.student_id, COUNT(*) AS sessions, SUM(CASE WHEN r.status = 'present' THEN 1 ELSE 0 END) AS present, SUM(CASE WHEN r.status = 'absent' THEN 1 ELSE 0 END) AS absent, SUM(CASE WHEN r.status = 'excused' THEN 1 ELSE 0 END) AS excused, SUM(CASE WHEN r.status = 'incomplete' THEN 1 ELSE 0 END) AS incomplete, SUM(CASE WHEN r.is_late = 1 THEN 1 ELSE 0 END) AS late")
             ->groupBy('r.student_id')->get()->keyBy('student_id');
         $allAbsences = DB::table('basic_lecture_records as r')->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
-            ->where('s.section_id', $section)->where('s.state', 'finalized')->where('r.status', 'absent')
+            ->where('s.section_id', $section)->whereNull('s.archived_at')->where('s.state', 'finalized')->where('r.status', 'absent')
             ->selectRaw('r.student_id, COUNT(*) AS total')->groupBy('r.student_id')->pluck('total', 'student_id');
         $currentIds = DB::table('basic_enrollments')->where('section_id', $section)->where('is_active', true)->pluck('student_id');
         $historyIds = DB::table('basic_lecture_records as r')->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
-            ->where('s.section_id', $section)->distinct()->pluck('r.student_id');
+            ->where('s.section_id', $section)->whereNull('s.archived_at')->distinct()->pluck('r.student_id');
         $studentIds = $currentIds->merge($historyIds)->unique()->values();
         $sent = DB::table('basic_absence_notifications')->where('section_id', $section)->whereIn('student_id', $studentIds)
             ->get(['student_id', 'threshold', 'sent_at'])->groupBy('student_id');
@@ -255,7 +333,7 @@ class BasicAttendanceController extends Controller
             abort_unless($person && $person->is_active && DB::table('basic_enrollments')->where('section_id', $section)->where('student_id', $student)->where('is_active', true)->exists(), 404);
             if (! $person->email) throw ValidationException::withMessages(['student' => [__('basic_attendance.warning_missing_email')]]);
             $count = DB::table('basic_lecture_records as record')->join('basic_lecture_sessions as session', 'session.id', '=', 'record.session_id')
-                ->where('session.section_id', $section)->where('session.state', 'finalized')->where('record.student_id', $student)->where('record.status', 'absent')->count();
+                ->where('session.section_id', $section)->whereNull('session.archived_at')->where('session.state', 'finalized')->where('record.student_id', $student)->where('record.status', 'absent')->count();
             if ($count < $threshold) throw ValidationException::withMessages(['student' => [__('basic_attendance.warning_not_eligible')]]);
             if (DB::table('basic_absence_notifications')->where('section_id', $section)->where('student_id', $student)->where('threshold', $threshold)->exists())
                 throw ValidationException::withMessages(['student' => [__('basic_attendance.warning_already_sent')]]);
@@ -288,7 +366,7 @@ class BasicAttendanceController extends Controller
         $rows = DB::table('basic_lecture_records as r')
             ->join('basic_students as st', 'st.id', '=', 'r.student_id')
             ->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
-            ->where('s.section_id', $section)
+            ->where('s.section_id', $section)->whereNull('s.archived_at')
             ->select('st.university_number', 'st.name', 's.title', 's.opened_at', 's.state as session_state', 'r.status', 'r.check_in_at', 'r.check_out_at', 'r.is_late', 'r.source', 'r.reason')
             ->orderBy('st.university_number')->orderBy('s.opened_at')->orderBy('s.id')->orderBy('r.id');
 

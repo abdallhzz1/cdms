@@ -8,6 +8,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { BasicLectureSessionPage } from '@/pages/basic/BasicAttendancePage';
 import { BasicAttendanceLegacyRedirect, BasicAttendanceSetup } from '@/pages/basic/BasicAttendanceWorkspace';
 import { BasicAttendanceCatalogPage } from '@/pages/basic/BasicAttendanceCatalogPage';
+import { BasicAttendanceOverviewPage } from '@/pages/basic/BasicAttendanceOverviewPage';
 import { PublicLectureAttendancePage } from '@/pages/basic/PublicLectureAttendancePage';
 
 import { ClinicalDashboard } from '@/pages/ClinicalDashboard';
@@ -124,6 +125,7 @@ export function App() {
                 {/* Academic Affairs & Plans */}
                 <Route path="/courses" element={<CoursesPage />} />
                 <Route path="/basic-attendance" element={<BasicAttendanceCatalogPage />} />
+                 <Route path="/basic-attendance/monthly-report" element={<BasicAttendanceOverviewPage />} />
                 <Route path="/basic-attendance/courses/:courseId" element={<BasicAttendanceCatalogPage />} />
                 <Route path="/basic-attendance/students" element={<Navigate to="/basic-attendance" replace />} />
                 <Route path="/basic-attendance/reports" element={<Navigate to="/basic-attendance" replace />} />

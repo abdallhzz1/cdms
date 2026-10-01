@@ -41,8 +41,10 @@ class PublicBasicAttendanceController extends Controller
             try { $ticket = json_decode(Crypt::decryptString($data['scan_ticket']), true, 512, JSON_THROW_ON_ERROR); }
             catch (\Throwable $e) { $ticket = null; }
             if (! is_array($ticket) || ($ticket['purpose'] ?? '') !== 'basic-otp-scan' || ($ticket['expires'] ?? 0) <= now()->timestamp) throw ValidationException::withMessages(['qr' => [__('basic_attendance.message26')]]);
-            $s = DB::table('basic_lecture_sessions')->find($ticket['id'] ?? 0);
+            $s = DB::table('basic_lecture_sessions')->whereNull('archived_at')->find($ticket['id'] ?? 0);
             if (! $s || (int) $s->version !== ($ticket['version'] ?? null) || $s->state !== ($ticket['state'] ?? null) || ! $this->service->accepting($s)) throw ValidationException::withMessages(['qr' => [__('basic_attendance.message27')]]);
+            $visible = DB::table('basic_sections as section')->join('basic_courses as course', 'course.id', '=', 'section.course_id')->where('section.id', $s->section_id)->whereNull('section.archived_at')->whereNull('course.archived_at')->exists();
+            if (! $visible) throw ValidationException::withMessages(['qr' => [__('basic_attendance.message27')]]);
             return $s;
         }
         return empty($data['qr']) ? null : $this->service->validateToken($data['qr']);

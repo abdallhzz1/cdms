@@ -27,7 +27,7 @@ class BasicAttendanceService
 
     public function sections(User $user)
     {
-        $query = DB::table('basic_sections as s')->join('basic_courses as c', 'c.id', '=', 's.course_id');
+        $query = DB::table('basic_sections as s')->join('basic_courses as c', 'c.id', '=', 's.course_id')->whereNull('s.archived_at')->whereNull('c.archived_at');
         if (! $this->manager($user)) $query->whereExists(fn ($q) => $q->selectRaw('1')->from('basic_section_lecturers as l')->whereColumn('l.section_id', 's.id')->where('l.user_id', $user->id));
         return $query;
     }
@@ -41,7 +41,7 @@ class BasicAttendanceService
 
     public function session(User $user, int $id): object
     {
-        $session = DB::table('basic_lecture_sessions')->where('id', $id)->first();
+        $session = DB::table('basic_lecture_sessions')->where('id', $id)->whereNull('archived_at')->first();
         abort_unless($session, 404); $this->section($user, $session->section_id);
         return $session;
     }
@@ -56,15 +56,19 @@ class BasicAttendanceService
         $this->section($user, $sectionId);
         return DB::transaction(function () use ($user, $sectionId, $data) {
             $section = DB::table('basic_sections')->where('id', $sectionId)->lockForUpdate()->first();
-            abort_unless($section->is_active && DB::table('basic_courses')->where('id', $section->course_id)->value('is_active'), 409);
+            $course = $section ? DB::table('basic_courses')->where('id', $section->course_id)->lockForUpdate()->first() : null;
+            abort_unless($section && ! $section->archived_at && $section->is_active && $course && ! $course->archived_at && $course->is_active, 409);
+            $lecturerIds = DB::table('basic_section_lecturers')->where('section_id', $sectionId)->pluck('user_id');
+            $lecturerId = $this->manager($user) ? ($data['lecturer_id'] ?? ($lecturerIds->count() === 1 ? $lecturerIds->first() : null)) : $user->id;
+            if (! $lecturerId || ! $lecturerIds->contains((int) $lecturerId)) throw ValidationException::withMessages(['lecturer_id' => [__('basic_attendance.lecturer_assignment_required')]]);
             if (DB::table('basic_lecture_sessions')->where('section_id', $sectionId)->where('active_guard', 1)->exists()) {
                 throw ValidationException::withMessages(['session' => [__('basic_attendance.message01')]]);
             }
             $studentIds = DB::table('basic_enrollments as e')->join('basic_students as st', 'st.id', '=', 'e.student_id')->where('e.section_id', $sectionId)->where('e.is_active', true)->where('st.is_active', true)->pluck('st.id');
             if ($studentIds->isEmpty()) throw ValidationException::withMessages(['roster' => [__('basic_attendance.message02')]]);
-            $id = DB::table('basic_lecture_sessions')->insertGetId(['public_id' => (string) Str::uuid(), 'section_id' => $sectionId, 'created_by' => $user->id, 'title' => $data['title'], 'mode' => $data['mode'], 'window_minutes' => $data['window_minutes'], 'late_after_minutes' => $data['late_after_minutes'], 'state' => 'check_in', 'active_guard' => 1, 'version' => 1, 'opened_at' => now(), 'phase_expires_at' => now()->addMinutes($data['window_minutes']), 'created_at' => now(), 'updated_at' => now()]);
+            $id = DB::table('basic_lecture_sessions')->insertGetId(['public_id' => (string) Str::uuid(), 'section_id' => $sectionId, 'created_by' => $user->id, 'lecturer_id' => $lecturerId, 'title' => $data['title'], 'mode' => $data['mode'], 'window_minutes' => $data['window_minutes'], 'late_after_minutes' => $data['late_after_minutes'], 'state' => 'check_in', 'active_guard' => 1, 'version' => 1, 'opened_at' => now(), 'phase_expires_at' => now()->addMinutes($data['window_minutes']), 'created_at' => now(), 'updated_at' => now()]);
             foreach ($studentIds->chunk(500) as $chunk) DB::table('basic_lecture_records')->insert($chunk->map(fn ($student) => ['session_id' => $id, 'student_id' => $student, 'status' => 'pending', 'source' => 'qr', 'created_at' => now(), 'updated_at' => now()])->all());
-            $this->audit($id, $user->id, 'session.opened', ['roster_count' => $studentIds->count()]);
+            $this->audit($id, $user->id, 'session.opened', ['roster_count' => $studentIds->count(), 'lecturer_id' => $lecturerId]);
             return $id;
         });
     }
@@ -106,7 +110,7 @@ class BasicAttendanceService
         if (! is_array($payload) || count($payload) !== 4 || ! is_int($payload[3])) $this->invalidQr();
         $age = now()->timestamp - $payload[3] * 15;
         if ($age < 0 || $age > 18) $this->invalidQr();
-        $s = DB::table('basic_lecture_sessions')->where('public_id', $payload[0])->first();
+        $s = DB::table('basic_lecture_sessions as lecture')->join('basic_sections as section', 'section.id', '=', 'lecture.section_id')->join('basic_courses as course', 'course.id', '=', 'section.course_id')->where('lecture.public_id', $payload[0])->whereNull('lecture.archived_at')->whereNull('section.archived_at')->whereNull('course.archived_at')->select('lecture.*')->first();
         if (! $s || (int) $s->version !== $payload[2] || $s->state !== $payload[1] || ! $this->accepting($s)) $this->invalidQr();
         return $s;
     }
@@ -132,8 +136,10 @@ class BasicAttendanceService
     public function scan(int $student, object $expected): array
     {
         return DB::transaction(function () use ($student, $expected) {
-            $s = DB::table('basic_lecture_sessions')->where('id', $expected->id)->lockForUpdate()->first();
+            $s = DB::table('basic_lecture_sessions')->where('id', $expected->id)->whereNull('archived_at')->lockForUpdate()->first();
             if (! $s || (int) $s->version !== (int) $expected->version || $s->state !== $expected->state || ! $this->accepting($s)) $this->invalidQr();
+            $visible = DB::table('basic_sections as section')->join('basic_courses as course', 'course.id', '=', 'section.course_id')->where('section.id', $s->section_id)->whereNull('section.archived_at')->whereNull('course.archived_at')->exists();
+            if (! $visible) $this->invalidQr();
             $row = DB::table('basic_lecture_records')->where('session_id', $s->id)->where('student_id', $student)->lockForUpdate()->first();
             if (! $row) throw ValidationException::withMessages(['student' => [__('basic_attendance.message04')]]);
             if ($row->source === 'manual') throw ValidationException::withMessages(['student' => [__('basic_attendance.message05')]]);
