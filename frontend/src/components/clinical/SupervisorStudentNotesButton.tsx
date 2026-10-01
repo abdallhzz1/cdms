@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { formatDate, formatWeekday, workspaceQueryKey, type Student, type SupervisorGroup, type SupervisorStudentNote } from '@/pages/clinical/supervisorWorkspace';
 
-type Props = { student: Student; group: SupervisorGroup; notes: SupervisorStudentNote[] };
+type Props = { student: Student; group: SupervisorGroup; notes: SupervisorStudentNote[]; appearance?: 'default' | 'quiet' };
 
-export function SupervisorStudentNotesButton({ student, group, notes }: Props) {
+export function SupervisorStudentNotesButton({ student, group, notes, appearance = 'default' }: Props) {
   const { locale } = useI18n();
   const ar = locale === 'ar';
   const tr = (arabic: string, english: string) => ar ? arabic : english;
@@ -37,10 +37,10 @@ export function SupervisorStudentNotesButton({ student, group, notes }: Props) {
   });
 
   return <>
-    <button type="button" onClick={() => { resetForm(); setOpen(true); }} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-800 transition hover:bg-amber-100" title={tr('مفكرة خاصة لا تظهر للطالب أو لمشرف آخر', 'Private notes hidden from students and other supervisors')}>
+    <button type="button" onClick={() => { resetForm(); setOpen(true); }} className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1 text-[10px] font-black transition ${appearance === 'quiet' ? 'text-slate-500 hover:bg-slate-50 hover:text-teal-800' : 'border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'}`} title={tr('مفكرة خاصة لا تظهر للطالب أو لمشرف آخر', 'Private notes hidden from students and other supervisors')}>
       <NotebookPen className="h-3.5 w-3.5" />
       {tr('ملاحظاتي', 'My notes')}
-      {relevantNotes.length > 0 && <span className="rounded-full bg-amber-700 px-1.5 py-0.5 text-[9px] text-white">{relevantNotes.length}</span>}
+      {relevantNotes.length > 0 && <span className={`rounded-full px-1.5 py-0.5 text-[9px] text-white ${appearance === 'quiet' ? 'bg-slate-500' : 'bg-amber-700'}`}>{relevantNotes.length}</span>}
     </button>
     <Modal isOpen={open} onClose={() => setOpen(false)} title={`${tr('ملاحظاتي الخاصة —', 'My private notes —')} ${ar ? student.full_name_ar : student.full_name_en || student.full_name_ar}`} maxWidth="lg">
       <div className="space-y-4">

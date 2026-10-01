@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { SupervisorAttendancePage } from './SupervisorAttendancePage';
@@ -35,12 +35,15 @@ describe('manual clinical attendance', () => {
     });
     renderWithProviders(<SupervisorAttendancePage />, { route: '/supervisor/attendance?date=2026-09-24' });
     const save = await screen.findByRole('button', { name: 'Save group attendance' });
+    const mobileSave = within(screen.getByRole('complementary', { name: 'Mobile attendance save' })).getByRole('button', { name: 'Save group' });
     expect(save).toBeDisabled();
+    expect(mobileSave).toBeDisabled();
     await userEvent.click(screen.getByRole('button', { name: 'Mark all present' }));
     expect(save).toBeEnabled();
+    expect(mobileSave).toBeEnabled();
     await userEvent.click(screen.getAllByRole('button', { name: 'Add official note' })[0]);
     await userEvent.type(screen.getByRole('textbox', { name: 'Note for First Student' }), 'Reviewed by supervisor');
-    await userEvent.click(save);
+    await userEvent.click(mobileSave);
     await waitFor(() => expect(payload).toMatchObject({ records: [
       { student_id: 7, status: 'present', excuse_note: 'Reviewed by supervisor' },
       { student_id: 8, status: 'present', excuse_note: null },
