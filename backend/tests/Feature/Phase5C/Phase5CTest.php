@@ -427,6 +427,32 @@ class Phase5CTest extends TestCase
             ->assertJsonPath('data.schedule_configured', false);
     }
 
+    public function test_supervisor_workspace_includes_every_work_site_even_without_a_group_at_the_second_site(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $this->admin->roles()->attach(Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail());
+        $secondSite = TrainingSite::factory()->create(['name_ar' => 'مركز تدريب ثانٍ']);
+        SupervisorAvailability::create([
+            'person_id' => $this->supervisor1->id,
+            'training_site_id' => $secondSite->id,
+            'day' => 'monday',
+            'available_from' => '2026-09-01',
+            'available_until' => '2026-09-28',
+            'status' => 'work',
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->getJson(route('api.v1.operational.my-supervisor-workspace'))
+            ->assertOk()
+            ->assertJsonCount(2, 'data.work_schedules')
+            ->assertJsonCount(1, 'data.assignments');
+
+        $sites = collect($response->json('data.work_schedules'))->pluck('training_site_id')->all();
+        $this->assertEqualsCanonicalizing([$this->site1->id, $secondSite->id], $sites);
+        $this->assertContains('2026-09-03', $response->json('data.assignments.0.scheduled_dates'));
+        $this->assertNotContains('2026-09-07', $response->json('data.assignments.0.scheduled_dates'));
+    }
+
     public function test_supervisor_workspace_does_not_require_administrative_distribution_access(): void
     {
         $supervisorUser = User::factory()->create();

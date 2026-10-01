@@ -5,11 +5,11 @@ import { renderWithProviders } from '@/test/renderWithProviders';
 import { SupervisorPortalPage } from './SupervisorPortalPage';
 import { SupervisorAssessmentsPage } from './SupervisorAssessmentsPage';
 import { Sidebar } from '@/components/layout/Sidebar';
-import { agendaWeekStart, preferredAgendaWeek, sortAgendaByNextSession } from './SupervisorSchedulePage';
+import { agendaWeekStart, buildSupervisorAgenda, preferredAgendaWeek, sortAgendaByNextSession } from './SupervisorSchedulePage';
 
 const envelope=(data:unknown,status=200)=>new Response(JSON.stringify({success:status<400,data:status<400?data:null,message:status<400?null:'Forbidden',errors:{},meta:{}}),{status,headers:{'Content-Type':'application/json'}});
 const permissions=['supervisor.workspace.view','attendance.view','attendance.record','assessment.view','assessment.create'].map(code=>({code,scope:'global'}));
-const workspace={supervisor:{person_id:9,user_id:1,full_name_ar:'د. أحمد المشرف',full_name_en:'Dr Ahmad Supervisor'},assignments:[{id:21,distribution_version_id:3,rotation_block_id:4,training_site_id:5,student_subgroup_id:6,session_start_date:'2026-08-24',session_end_date:'2026-09-06',scheduled_dates:['2026-08-27','2026-09-03'],evaluation_weeks:[{number:1,start_date:'2026-08-24',end_date:'2026-08-30'},{number:2,start_date:'2026-08-31',end_date:'2026-09-06'}],student:{id:7,university_number:'22010001',full_name_ar:'طالب سريري',full_name_en:'Clinical Student',batch_year:2026},student_subgroup:{id:6,name:'L1',group:{id:2,name:'L'}},rotation_block:{id:4,block_code:'W1',from_week:1,to_week:2,rotation:{name:'Surgery',start_date:'2026-08-23T21:00:00.000000Z',course:{id:10,name_ar:'الجراحة العامة',name_en:'General Surgery'},academic_year:{code:'2026-2027'}}},training_site:{id:5,name_ar:'المستشفى الأهلي',name_en:'Al Ahli Hospital'},department:{id:8,name_ar:'قسم الجراحة',name_en:'Surgery Department'}}],attendance_records:[],assessments:[],student_notes:[],assessment_templates:[{id:31,name_ar:'التقييم الأسبوعي',name_en:'Weekly assessment',course_id:10,batch_year:2026,total_score:10,is_active:true,criteria:[{id:1,name_ar:'المهنية',name_en:'Professionalism',max_score:10}]}],schedule_configured:true};
+const workspace={supervisor:{person_id:9,user_id:1,full_name_ar:'د. أحمد المشرف',full_name_en:'Dr Ahmad Supervisor'},assignments:[{id:21,distribution_version_id:3,rotation_block_id:4,training_site_id:5,student_subgroup_id:6,session_start_date:'2026-08-24',session_end_date:'2026-09-06',scheduled_dates:['2026-08-27','2026-09-03'],evaluation_weeks:[{number:1,start_date:'2026-08-24',end_date:'2026-08-30'},{number:2,start_date:'2026-08-31',end_date:'2026-09-06'}],student:{id:7,university_number:'22010001',full_name_ar:'طالب سريري',full_name_en:'Clinical Student',batch_year:2026},student_subgroup:{id:6,name:'L1',group:{id:2,name:'L'}},rotation_block:{id:4,block_code:'W1',from_week:1,to_week:2,rotation:{name:'Surgery',start_date:'2026-08-23T21:00:00.000000Z',course:{id:10,name_ar:'الجراحة العامة',name_en:'General Surgery'},academic_year:{code:'2026-2027'}}},training_site:{id:5,name_ar:'المستشفى الأهلي',name_en:'Al Ahli Hospital'},department:{id:8,name_ar:'قسم الجراحة',name_en:'Surgery Department'}}],attendance_records:[],assessments:[],student_notes:[],assessment_templates:[{id:31,name_ar:'التقييم الأسبوعي',name_en:'Weekly assessment',course_id:10,batch_year:2026,version:1,total_score:10,is_active:true,criteria:[{id:1,code:'professionalism',name_ar:'المهنية',name_en:'Professionalism',max_score:10}]}],schedule_configured:true};
 const user={id:1,name:'Supervisor',email:'doctor@hebron.edu',roles:['CLINICAL_SUPERVISOR'],permissions};
 afterEach(()=>{vi.restoreAllMocks();document.cookie='XSRF-TOKEN=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'});
 
@@ -31,6 +31,32 @@ describe('clinical supervisor workspace',()=>{
     expect(agendaWeekStart('2026-09-24')).toBe('2026-09-20');
     expect(preferredAgendaWeek([{date:'2026-09-17'},{date:'2026-09-27'}],'2026-09-24')).toBe('2026-09-27');
     expect(preferredAgendaWeek([{date:'2026-09-17'},{date:'2026-09-24'}],'2026-09-24')).toBe('2026-09-20');
+  });
+
+  it('fills all seven days and includes a second work site without a student assignment there',()=>{
+    const agenda=buildSupervisorAgenda({...workspace,work_schedules:[
+      {training_site_id:5,training_site:{name_ar:'المستشفى الأهلي',name_en:'Al Ahli Hospital'},valid_from:'2026-08-23',valid_until:'2026-08-29',days:[{day:'thursday',status:'work'}]},
+      {training_site_id:8,training_site:{name_ar:'مركز تدريب ثانٍ',name_en:'Second Training Centre'},valid_from:'2026-08-23',valid_until:'2026-08-29',days:[{day:'monday',status:'work'}]},
+    ]},'2026-08-24');
+    const firstWeek=agenda.filter(item=>agendaWeekStart(item.date)==='2026-08-23');
+    expect(firstWeek).toHaveLength(7);
+    expect(firstWeek.find(item=>item.date==='2026-08-23')?.duties).toHaveLength(0);
+    expect(firstWeek.find(item=>item.date==='2026-08-24')?.duties).toMatchObject([{siteId:8,siteEn:'Second Training Centre',groups:[]}]);
+    expect(firstWeek.find(item=>item.date==='2026-08-27')?.duties[0].groups).toHaveLength(1);
+  });
+
+  it('shows every day, a no-duty label, and the second site in the portal week',async()=>{
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,work_schedules:[
+      {training_site_id:5,training_site:{name_ar:'المستشفى الأهلي',name_en:'Al Ahli Hospital'},valid_from:'2026-08-23',valid_until:'2026-08-29',days:[{day:'thursday',status:'work'}]},
+      {training_site_id:8,training_site:{name_ar:'مركز تدريب ثانٍ',name_en:'Second Training Centre'},valid_from:'2026-08-23',valid_until:'2026-08-29',days:[{day:'monday',status:'work'}]},
+    ]}));
+    renderWithProviders(<SupervisorPortalPage/>);
+    const weekSelect=await screen.findByRole('combobox',{name:'Choose week'});
+    await userEvent.selectOptions(weekSelect,'2026-08-23');
+    const table=screen.getByRole('table');
+    expect(within(table).getAllByRole('row')).toHaveLength(8);
+    expect(within(table).getByText('Second Training Centre')).toBeVisible();
+    expect(within(table).getAllByText('No duty')).toHaveLength(5);
   });
 
   it('keeps direct supervisor links for supervisor-only users',async()=>{
@@ -123,10 +149,10 @@ describe('clinical supervisor workspace',()=>{
     renderWithProviders(<SupervisorPortalPage/>);
     const weekSelect=await screen.findByRole('combobox',{name:'Choose week'});
     const phoneTable=screen.getAllByRole('table')[0];
-    expect(within(phoneTable).getAllByRole('row')).toHaveLength(2);
+    expect(within(phoneTable).getAllByRole('row')).toHaveLength(8);
     await userEvent.selectOptions(weekSelect,'2026-08-23');
     expect(within(phoneTable).getByText('27/08/2026')).toBeVisible();
-    expect(within(phoneTable).getAllByRole('link',{name:'Open QR attendance'})).toHaveLength(1);
+    expect(within(phoneTable).getAllByRole('link',{name:'QR attendance'})).toHaveLength(1);
   });
 
   it('submits one student assessment independently from its separate screen',async()=>{

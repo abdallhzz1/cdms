@@ -14,6 +14,7 @@ use App\Models\StudentClinicalAssignment;
 use App\Models\SupervisorStudentNote;
 use App\Models\WorkflowTransitionLog;
 use App\Services\Distribution\SupervisorReassignmentService;
+use App\Services\SupervisorWorkScheduleService;
 use App\Services\WorkflowTransitionService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -42,6 +43,7 @@ class SupervisorController extends Controller
 {
     public function __construct(
         private SupervisorReassignmentService $reassignmentService,
+        private SupervisorWorkScheduleService $workScheduleService,
     ) {}
 
     /**
@@ -232,6 +234,7 @@ class SupervisorController extends Controller
                 'full_name_en' => $person->full_name_en ?: $user->name,
             ],
             'assignments' => $assignments,
+            'work_schedules' => $this->workScheduleService->schedules($person),
             'attendance_records' => $attendance,
             'assessments' => $assessments,
             'student_notes' => $studentNotes,

@@ -28,16 +28,59 @@ export function agendaWeekStart(date:string):string{
   return day.toISOString().slice(0,10);
 }
 
-function agendaWeekEnd(start:string):string{
-  const day=new Date(`${start}T12:00:00Z`);
-  day.setUTCDate(day.getUTCDate()+6);
+function addDays(value:string,count:number):string{
+  const day=new Date(`${value}T12:00:00Z`);
+  day.setUTCDate(day.getUTCDate()+count);
   return day.toISOString().slice(0,10);
 }
+
+function agendaWeekEnd(start:string):string{return addDays(start,6);}
 
 export function preferredAgendaWeek<T extends {date:string}>(items:T[],currentDate=today()):string{
   const weeks=[...new Set(items.map(item=>agendaWeekStart(item.date)))].sort();
   const current=agendaWeekStart(currentDate);
   return weeks.includes(current)?current:weeks.find(week=>week>current)??weeks.at(-1)??'';
+}
+
+export type AgendaDuty={siteId:number|null;siteAr:string;siteEn:string;groups:SupervisorGroup[]};
+export type AgendaDay={date:string;duties:AgendaDuty[]};
+
+/** Work sites are independent of student assignments: a site without a group must still appear. */
+export function buildSupervisorAgenda(workspace:Workspace,currentDate=today()):AgendaDay[]{
+  const groups=groupSupervisorAssignments(workspace.assignments??[]);
+  const duties=new Map<string,Map<string,AgendaDuty>>();
+  const addDuty=(date:string,siteId:number|null,siteAr:string,siteEn:string)=>{
+    if(!duties.has(date))duties.set(date,new Map());
+    const sites=duties.get(date)!;
+    const key=String(siteId??'unknown');
+    if(!sites.has(key))sites.set(key,{siteId,siteAr,siteEn,groups:[]});
+    return sites.get(key)!;
+  };
+
+  const weekdays=['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  for(const schedule of workspace.work_schedules??[]){
+    const workDays=new Set((schedule.days??[]).filter(day=>day.status==='work').map(day=>day.day.toLowerCase()));
+    if(!workDays.size)continue;
+    // Open-ended legacy schedules are shown around the current week; dated schedules retain their real bounds.
+    const start=schedule.valid_from??agendaWeekStart(currentDate);
+    const end=schedule.valid_until??agendaWeekEnd(agendaWeekStart(currentDate));
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(start)||!/^\d{4}-\d{2}-\d{2}$/.test(end)||start>end)continue;
+    for(let date=start;date<=end;date=addDays(date,1)){
+      const weekday=weekdays[new Date(`${date}T12:00:00Z`).getUTCDay()];
+      if(workDays.has(weekday))addDuty(date,schedule.training_site_id,schedule.training_site?.name_ar??'غير محدد',schedule.training_site?.name_en??schedule.training_site?.name_ar??'Not specified');
+    }
+  }
+
+  for(const group of groups)for(const date of group.scheduledDates){
+    const duty=addDuty(date,group.siteId,group.siteAr,group.siteEn);
+    if(!duty.groups.some(item=>item.key===group.key))duty.groups.push(group);
+  }
+
+  const weeks=[...new Set([...duties.keys()].map(agendaWeekStart))].sort();
+  return weeks.flatMap(week=>Array.from({length:7},(_,index)=>{
+    const date=addDays(week,index);
+    return {date,duties:[...(duties.get(date)?.values()??[])].sort((a,b)=>a.siteAr.localeCompare(b.siteAr,'ar'))};
+  }));
 }
 
 export function SupervisorScheduleAgenda({workspace}:{workspace:Workspace}){
@@ -46,35 +89,36 @@ export function SupervisorScheduleAgenda({workspace}:{workspace:Workspace}){
   const [currentDate,setCurrentDate]=useState(today);
   const [selectedWeek,setSelectedWeek]=useState('');
   useEffect(()=>{const timer=window.setInterval(()=>setCurrentDate(value=>{const next=today();return next===value?value:next;}),60_000);return()=>window.clearInterval(timer);},[]);
-  const agenda=useMemo(()=>sortAgendaByNextSession(groupSupervisorAssignments(workspace.assignments??[]).flatMap(group=>group.scheduledDates.map(date=>({date,group}))),currentDate),[workspace.assignments,currentDate]);
-  const weeks=useMemo(()=>[...new Set(agenda.map(item=>agendaWeekStart(item.date)))].sort(),[agenda]);
-  const activeWeek=selectedWeek&&weeks.includes(selectedWeek)?selectedWeek:preferredAgendaWeek(agenda,currentDate);
-  const mobileRows=agenda.filter(item=>agendaWeekStart(item.date)===activeWeek);
-  const sharedCourse=mobileRows.length>1&&new Set(mobileRows.map(({group})=>ar?group.courseAr:group.courseEn)).size===1
-    ? (ar?mobileRows[0].group.courseAr:mobileRows[0].group.courseEn) : null;
+  const agenda=useMemo(()=>buildSupervisorAgenda(workspace,currentDate),[workspace,currentDate]);
+  const weeks=useMemo(()=>[...new Set(agenda.map(item=>agendaWeekStart(item.date)))],[agenda]);
+  const activeWeek=selectedWeek&&weeks.includes(selectedWeek)?selectedWeek:preferredAgendaWeek(agenda.filter(item=>item.duties.length),currentDate);
+  const rows=agenda.filter(item=>agendaWeekStart(item.date)===activeWeek);
+
+  const dutyContent=(duty:AgendaDuty,date:string)=>(
+    <div key={String(duty.siteId)} className="rounded-xl border border-teal-100 bg-teal-50/50 px-3 py-2.5">
+      <p className="flex items-start gap-1.5 text-xs font-black leading-5 text-teal-900"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0"/>{ar?duty.siteAr:duty.siteEn}</p>
+      {!duty.groups.length?<p className="mt-1 text-[11px] text-slate-600">{tr('دوام في المركز · لا توجد مجموعة مكلفة لهذا اليوم','On duty at this site · no group assigned for this day')}</p>:duty.groups.map(group=><div key={group.key} className="mt-2 border-t border-teal-100 pt-2 first:mt-0 first:border-0 first:pt-0">
+        <p className="text-xs font-bold leading-5 text-slate-900">{groupName(group,ar)}</p>
+        <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-slate-500"><Users className="h-3 w-3"/>{group.students.length} {tr('طالب','students')}</p>
+        {(canRecordAttendance||canAssessStudents)&&<div className="mt-2 flex flex-wrap gap-1.5">
+          {canRecordAttendance&&<Link to={target(group,date,'attendance')} className="rounded-lg bg-teal-700 px-2.5 py-1.5 text-[10px] font-black text-white hover:bg-teal-800">{tr('حضور QR','QR attendance')}</Link>}
+          {canAssessStudents&&<Link to={target(group,date,'assessments')} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700">{tr('التقييم','Assessment')}</Link>}
+        </div>}
+      </div>)}
+    </div>
+  );
+
   return <section className="min-w-0 space-y-3 sm:space-y-4">
-    <div><h2 className="text-lg font-black text-slate-900 sm:text-xl">{tr('جدولي السريري','My clinical schedule')}</h2><p className="mt-1 text-xs text-slate-500">{tr('أيام عملك المنشورة وروابط الحضور والتقييم.','Your published work days and direct attendance and assessment links.')}</p></div>
+    <div><h2 className="text-lg font-black text-slate-900 sm:text-xl">{tr('جدولي السريري','My clinical schedule')}</h2><p className="mt-1 text-xs text-slate-500">{tr('الأسبوع كاملًا، مع جميع مراكز دوامك والمجموعات المكلف بها.','Your full week, including every work site and assigned group.')}</p></div>
     {!agenda.length?<EmptyState message={tr('لا توجد جلسات ظاهرة. راجع التكليف المنشور وأيام العمل المحددة لك.','No sessions are available. Review the published assignment and your configured work days.')}/>:<>
-      <div className="min-w-0 space-y-2 md:hidden">
-        <label className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"><CalendarDays className="h-4 w-4 shrink-0 text-teal-700"/><span className="shrink-0">{tr('الأسبوع','Week')}</span><select aria-label={tr('اختيار الأسبوع','Choose week')} value={activeWeek} onChange={event=>setSelectedWeek(event.target.value)} className="min-w-0 flex-1 bg-transparent py-1 text-xs font-bold text-slate-800 outline-none">{weeks.map(week=><option key={week} value={week}>{week===agendaWeekStart(currentDate)?tr('هذا الأسبوع','This week'):''} {formatDate(week,ar)} – {formatDate(agendaWeekEnd(week),ar)}</option>)}</select></label>
-        {sharedCourse&&<p className="px-1 text-xs font-bold text-slate-600">{tr('المساق','Course')}: {sharedCourse}</p>}
-        <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full table-fixed text-right text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-black text-slate-500"><tr><th className="w-[92px] px-2.5 py-2.5">{tr('اليوم','Day')}</th><th className="px-2.5 py-2.5">{tr('المجموعة والتكليف','Group and assignment')}</th></tr></thead><tbody className="divide-y divide-slate-100">{mobileRows.map(({date,group})=>{const isToday=date===currentDate;const past=date<currentDate;return <tr key={`${date}-${group.key}`} className={isToday?'bg-teal-50/70':past?'bg-slate-50/40':''}>
-            <td className="w-[92px] align-top px-2.5 py-3"><span className={`block w-fit rounded-lg px-2 py-1 text-[11px] font-black ${isToday?'bg-amber-100 text-amber-900':'bg-slate-100 text-slate-700'}`}>{isToday?tr('اليوم','Today'):formatWeekday(date,ar)}</span><span dir="ltr" className="mt-1.5 block text-[10px] font-bold text-slate-500">{formatDate(date,ar)}</span></td>
-            <td className="min-w-0 align-top px-2.5 py-3"><h3 className="break-words text-xs font-black leading-5 text-slate-900">{sharedCourse?`${group.group} (${group.subgroup})`:groupName(group,ar)}</h3><div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-0.5 text-[10px] leading-4 text-slate-500"><span className="inline-flex min-w-0 items-start gap-0.5"><MapPin className="mt-0.5 h-3 w-3 shrink-0"/><span className="min-w-0 break-words">{ar?group.siteAr:group.siteEn}</span></span><span className="inline-flex items-center gap-0.5"><Users className="h-3 w-3"/>{group.students.length} {tr('طالب','students')}</span></div>{(canRecordAttendance||canAssessStudents)&&<div className="mt-2 flex flex-wrap gap-1.5">{canRecordAttendance&&<Link to={target(group,date,'attendance')} className={`rounded-lg px-2.5 py-1.5 text-[10px] font-black ${isToday?'bg-teal-700 text-white':'border border-teal-200 bg-white text-teal-800'}`}>{tr('فتح حضور QR','Open QR attendance')}</Link>}{canAssessStudents&&<Link to={target(group,date,'assessments')} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700">{tr('التقييم','Assessment')}</Link>}</div>}</td>
-          </tr>})}</tbody></table>
-        </div>
-      </div>
-      <div className="hidden overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm md:block">
-      <div className="min-w-[760px]">
-        <div className="grid grid-cols-[100px_120px_minmax(260px,1fr)_220px] border-b border-slate-200 bg-slate-50 px-4 py-3 text-[10px] font-black text-slate-500"><span>{tr('اليوم','Day')}</span><span>{tr('التاريخ','Date')}</span><span>{tr('المجموعة والتكليف','Group and assignment')}</span><span>{tr('الإجراءات','Actions')}</span></div>
-        <div className="divide-y divide-slate-100">{agenda.map(({date,group})=>{const past=date<currentDate,isToday=date===currentDate;return <article key={`${date}-${group.key}`} className={`grid grid-cols-[100px_120px_minmax(260px,1fr)_220px] items-center gap-0 px-4 py-3.5 text-[11px] transition hover:bg-slate-50 ${past?'opacity-65':''} ${isToday?'bg-teal-50/70':''}`}>
-          <span className={`w-fit rounded-lg px-2.5 py-1.5 text-[11px] font-black ${isToday?'bg-amber-100 text-amber-800':'border border-slate-200 bg-white text-slate-700'}`}>{isToday?`${tr('اليوم','Today')} · ${formatWeekday(date,ar)}`:formatWeekday(date,ar)}</span>
-          <span dir="ltr" className="inline-flex w-fit whitespace-nowrap rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-black text-slate-800">{formatDate(date,ar)}</span>
-          <div><h3 className="text-xs font-black text-slate-900">{groupName(group,ar)}</h3><p className="mt-1 flex flex-wrap gap-3 text-[10px] text-slate-500"><span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3"/>{ar?group.siteAr:group.siteEn}</span><span className="inline-flex items-center gap-1"><Users className="h-3 w-3"/>{group.students.length} {tr('طالب','students')}</span></p></div>
-          <div className="flex gap-2">{canRecordAttendance&&<Link to={target(group,date,'attendance')} className="rounded-lg bg-teal-700 px-3 py-2 text-[11px] font-bold text-white hover:bg-teal-800">{tr('الحضور عبر QR','QR attendance')}</Link>}{canAssessStudents&&<Link to={target(group,date,'assessments')} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700 hover:border-teal-300">{tr('التقييم الأسبوعي','Assessment')}</Link>}</div>
-        </article>})}</div>
-      </div>
+      <label className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 sm:max-w-sm"><CalendarDays className="h-4 w-4 shrink-0 text-teal-700"/><span className="shrink-0">{tr('الأسبوع','Week')}</span><select aria-label={tr('اختيار الأسبوع','Choose week')} value={activeWeek} onChange={event=>setSelectedWeek(event.target.value)} className="min-w-0 flex-1 bg-transparent py-1 text-xs font-bold text-slate-800 outline-none">{weeks.map(week=><option key={week} value={week}>{week===agendaWeekStart(currentDate)?tr('هذا الأسبوع','This week'):''} {formatDate(week,ar)} – {formatDate(agendaWeekEnd(week),ar)}</option>)}</select></label>
+      <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
+        <table className="w-full table-fixed text-right text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-black text-slate-500"><tr><th className="w-[94px] px-2.5 py-3 sm:w-[180px] sm:px-5">{tr('اليوم','Day')}</th><th className="px-2.5 py-3 sm:px-5">{tr('المركز والمجموعة','Site and group')}</th></tr></thead>
+          <tbody className="divide-y divide-slate-100">{rows.map(({date,duties})=>{const isToday=date===currentDate;return <tr key={date} className={isToday?'bg-teal-50/40':''}>
+            <td className="align-top px-2.5 py-3 sm:px-5"><span className={`block w-fit rounded-lg px-2 py-1 text-[11px] font-black ${isToday?'bg-amber-100 text-amber-900':'bg-slate-100 text-slate-700'}`}>{isToday?`${tr('اليوم','Today')} · ${formatWeekday(date,ar)}`:formatWeekday(date,ar)}</span><span dir="ltr" className="mt-1.5 block text-[10px] font-bold text-slate-500">{formatDate(date,ar)}</span></td>
+            <td className="min-w-0 align-top px-2.5 py-2.5 sm:px-5">{duties.length?<div className="space-y-2">{duties.map(duty=>dutyContent(duty,date))}</div>:<span className="inline-flex rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-500">{tr('لا يوجد دوام','No duty')}</span>}</td>
+          </tr>})}</tbody>
+        </table>
       </div>
     </>}
   </section>;
