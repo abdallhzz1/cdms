@@ -6,7 +6,8 @@ import { NotFound } from '@/pages/NotFound';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 import { useAuth } from '@/auth/AuthContext';
 import { BasicLectureSessionPage } from '@/pages/basic/BasicAttendancePage';
-import { BasicAttendanceHome, BasicAttendanceLegacyRedirect, BasicAttendanceSetup } from '@/pages/basic/BasicAttendanceWorkspace';
+import { BasicAttendanceLegacyRedirect, BasicAttendanceSetup } from '@/pages/basic/BasicAttendanceWorkspace';
+import { BasicAttendanceCatalogPage } from '@/pages/basic/BasicAttendanceCatalogPage';
 import { PublicLectureAttendancePage } from '@/pages/basic/PublicLectureAttendancePage';
 
 import { ClinicalDashboard } from '@/pages/ClinicalDashboard';
@@ -122,13 +123,15 @@ export function App() {
                 
                 {/* Academic Affairs & Plans */}
                 <Route path="/courses" element={<CoursesPage />} />
-                <Route path="/basic-attendance" element={<BasicAttendanceHome />} />
-                <Route path="/basic-attendance/students" element={<BasicAttendanceHome />} />
-                <Route path="/basic-attendance/reports" element={<BasicAttendanceHome />} />
+                <Route path="/basic-attendance" element={<BasicAttendanceCatalogPage />} />
+                <Route path="/basic-attendance/courses/:courseId" element={<BasicAttendanceCatalogPage />} />
+                <Route path="/basic-attendance/students" element={<Navigate to="/basic-attendance" replace />} />
+                <Route path="/basic-attendance/reports" element={<Navigate to="/basic-attendance" replace />} />
                 <Route path="/basic-attendance/setup/:kind" element={<BasicAttendanceSetup />} />
-                <Route path="/basic-attendance/sections/:sectionId" element={<BasicAttendanceLegacyRedirect />} />
+                <Route path="/basic-attendance/sections/:sectionId" element={<BasicAttendanceCatalogPage />} />
+                <Route path="/basic-attendance/sections/:sectionId/lectures" element={<BasicAttendanceCatalogPage />} />
                 <Route path="/basic-attendance/sections/:sectionId/roster" element={<BasicAttendanceLegacyRedirect />} />
-                <Route path="/basic-attendance/sections/:sectionId/report" element={<BasicAttendanceLegacyRedirect />} />
+                <Route path="/basic-attendance/sections/:sectionId/report" element={<BasicAttendanceCatalogPage />} />
                 <Route path="/basic-attendance/sessions/:sessionId" element={<BasicLectureSessionPage />} />
                 <Route path="/study-plans/*" element={<Navigate to="/courses" replace />} />
                 <Route path="/courses/:courseId" element={<CourseDetailsPage />} />

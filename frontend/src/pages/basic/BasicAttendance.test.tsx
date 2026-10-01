@@ -38,7 +38,7 @@ describe('Isolated basic lecture attendance', () => {
  it('shows only basic attendance and the own profile in a basic-only navigation', async () => {
   mock(path => { throw Error(path); });
   renderWithProviders(<Sidebar />);
-  await screen.findByRole('link', { name: /Lectures & Attendance/ });
+  await screen.findByRole('link', { name: /Basic Sciences Courses/ });
   expect(screen.getByRole('link', { name: /My Profile/ })).toBeInTheDocument();
   expect(screen.queryByRole('link', { name: /Clinical Schedule|Student Directory|Grades/ })).not.toBeInTheDocument();
  });

@@ -26,6 +26,7 @@ function mock(account: typeof admin) {
     if (path === '/basic-attendance/sections/4/sessions') return envelope([]);
     if (path === '/basic-attendance/sections/3/report') return envelope({ sessions: [], students: [], records: [], pagination: { offset: 0, total: 0, per_page: 7 } });
     if (path === '/basic-attendance/sections/4/report') return envelope({ sessions: [], students: [], records: [], pagination: { offset: 0, total: 0, per_page: 7 } });
+    if (path.endsWith('/monthly-summary')) return envelope({ month: '2026-09', finalized_sessions: 0, students: [] });
     throw new Error(path);
   });
 }
@@ -39,12 +40,12 @@ describe('Basic attendance course → section workflow', () => {
     renderWithProviders(<Routes><Route path="/basic-attendance" element={<BasicAttendanceHome />} /></Routes>, { route: '/basic-attendance' });
     expect(await screen.findByRole('combobox', { name: 'Course' })).toHaveValue('1');
     expect(screen.getByRole('combobox', { name: 'Section' })).toHaveValue('3');
-    expect(screen.getByRole('heading', { name: 'Section 2' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Section 2/ })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Sections and assignments' })).not.toBeInTheDocument();
     expect(screen.queryByText('Import student roster')).not.toBeInTheDocument();
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Course' }), '2');
     expect(screen.getByRole('combobox', { name: 'Section' })).toHaveValue('4');
-    expect(screen.getByRole('heading', { name: 'Section A' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Section A/ })).toBeInTheDocument();
   });
 
   it('hides basic-sciences setup from lecturer accounts', async () => {
@@ -69,7 +70,7 @@ describe('Basic attendance course → section workflow', () => {
     expect(await screen.findByRole('combobox', { name: 'Course' })).toHaveValue('1');
     expect(screen.getByRole('combobox', { name: 'Section' })).toHaveValue('3');
     expect(screen.getByRole('heading', { name: 'Attendance Reports' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Export Excel report' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export monthly summary' })).toBeInTheDocument();
   });
 
   it('keeps the selected course and section when switching screens via the sidebar', async () => {

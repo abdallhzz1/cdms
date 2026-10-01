@@ -40,14 +40,14 @@ function mockFetchByUrl(routes: Record<string, () => Response>) {
 }
 
 describe('App', () => {
-  it('sends a basic-only lecturer directly to lecture attendance, without a clinical dashboard', async () => {
+  it('sends a basic-only lecturer directly to basic-sciences courses, without a clinical dashboard', async () => {
     localStorage.setItem('cdms.locale', 'en');
     mockFetchByUrl({
       '/auth/me': () => jsonResponse({ success: true, data: { id: 40, name: 'Basic Lecturer', email: 'basic@example.edu', roles: ['BASIC_LECTURER'], permissions: [{ code: 'basic_attendance.view', scope: 'global' }] } }),
       '/basic-attendance/sections': () => jsonResponse({ success: true, data: [] }),
     });
     renderWithProviders(<App />, { route: '/' });
-    expect(await screen.findByRole('heading', { name: 'Lecture Attendance' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Courses' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /My clinical schedule|Welcome,/ })).not.toBeInTheDocument();
     localStorage.removeItem('cdms.locale');
   });

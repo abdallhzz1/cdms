@@ -85,17 +85,15 @@ describe('Sidebar active navigation', () => {
     expect(await screen.findByRole('link', { name: /Student Policies|سياسات وتعهدات الطلبة/i })).toHaveAttribute('aria-current', 'page');
   });
 
-  it('shows separate basic-sciences destinations and selects roster on a section roster URL', async () => {
+  it('shows one basic-sciences destination for the course hierarchy', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes('/auth/me')) return jsonResponse({ success: true, data: { id: 4, name: 'Basic Administrator', roles: ['BASIC_ATTENDANCE_ADMIN'], permissions: ['view', 'manage', 'export'].map(action => ({ code: `basic_attendance.${action}`, scope: 'global' })) }, message: null, meta: {} });
       throw new Error(`Unmocked fetch call to ${String(input)}`);
     }));
     renderWithProviders(<Sidebar />, { route: '/basic-attendance/sections/3/roster' });
-    const students = await screen.findByRole('link', { name: 'Section Students' });
-    expect(students).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: 'Lectures & Attendance' })).not.toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: 'Attendance Reports' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Basic Courses' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Sections & Lecturers' })).toBeInTheDocument();
+    const courses = await screen.findByRole('link', { name: 'Basic Sciences Courses' });
+    expect(courses).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByRole('link', { name: 'Section Students' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Attendance Reports' })).not.toBeInTheDocument();
   });
 });

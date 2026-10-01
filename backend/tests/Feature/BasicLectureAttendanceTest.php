@@ -155,8 +155,11 @@ class BasicLectureAttendanceTest extends TestCase
         $otherUrl = '/api/v1/basic-attendance/sections/'.$this->otherSection.'/roster/student';
         $this->postJson($otherUrl, ['university_number' => '2600001', 'name' => 'اسم مختلف', 'email' => 'basic1@example.edu'])
             ->assertCreated()->assertJsonPath('data.existing_student', true);
+        $this->postJson($otherUrl, ['university_number' => '2600002'])
+            ->assertCreated()->assertJsonPath('data.existing_student', true);
         $this->assertDatabaseHas('basic_students', ['university_number' => '2600001', 'name' => 'طالب اختبار 1', 'email' => 'basic1@example.edu']);
         $this->assertDatabaseHas('basic_enrollments', ['section_id' => $this->otherSection, 'student_id' => $this->students[0], 'is_active' => true]);
+        $this->assertDatabaseHas('basic_enrollments', ['section_id' => $this->otherSection, 'student_id' => $this->students[1], 'is_active' => true]);
     }
 
     public function test_double_check_late_duplicate_and_final_states(): void
@@ -340,6 +343,51 @@ class BasicLectureAttendanceTest extends TestCase
         $this->assertSame(__('basic_attendance.status_absent'), $sheet->getCell('F8')->getValue());
         $this->assertSame('C8', $sheet->getFreezePane());
         $this->assertIsNumeric($sheet->getCell('D8')->getValue());
+        $book->disconnectWorksheets();
+    }
+
+    public function test_monthly_summary_and_manual_absence_warnings_use_finalized_lectures_only(): void
+    {
+        $path = '/api/v1/basic-attendance/sections/'.$this->section;
+        for ($n = 0; $n < 3; $n++) {
+            $session = $this->start('single');
+            $this->transition($session, 'finalize');
+        }
+        $student = $this->students[0];
+        $warning = $path.'/students/'.$student.'/absence-warning';
+        $this->actingAs($this->lecturer)->postJson($warning, ['threshold' => 4])->assertUnprocessable();
+        $summary = $this->getJson($path.'/monthly-summary?month=2026-09')->assertOk();
+        $this->assertSame(3, $summary->json('data.finalized_sessions'));
+        $this->assertSame(3, $summary->json('data.students.0.total_absent'));
+        $this->assertSame(3, $summary->json('data.students.0.absent'));
+
+        $session = $this->start('single');
+        $this->transition($session, 'finalize');
+        $sent = [];
+        Mail::shouldReceive('raw')->twice()->andReturnUsing(function ($body) use (&$sent) { $sent[] = $body; });
+        $this->actingAs($this->other)->postJson($warning, ['threshold' => 4])->assertNotFound();
+        $this->actingAs($this->lecturer)->postJson($warning, ['threshold' => 4])->assertOk();
+        $this->postJson($warning, ['threshold' => 4])->assertUnprocessable();
+        $this->assertDatabaseHas('basic_absence_notifications', ['section_id' => $this->section, 'student_id' => $student, 'threshold' => 4, 'absence_count' => 4]);
+
+        for ($n = 0; $n < 2; $n++) {
+            $session = $this->start('single');
+            $this->transition($session, 'finalize');
+        }
+        $this->actingAs($this->manager)->postJson($warning, ['threshold' => 6])->assertOk();
+        $this->assertCount(2, $sent);
+        $this->assertStringContainsString('4', $sent[0]);
+        $this->assertStringContainsString('6', $sent[1]);
+        $this->getJson($path.'/monthly-summary?month=2026-09')->assertJsonPath('data.students.0.total_absent', 6)->assertJsonPath('data.students.0.notifications.6', now()->toDateTimeString());
+
+        $download = $this->get($path.'/export?month=2026-09')->assertOk();
+        $book = IOFactory::load($download->baseResponse->getFile()->getPathname());
+        $sheet = $book->getActiveSheet();
+        $this->assertSame(__('basic_attendance.report_monthly_title'), $sheet->getCell('A1')->getValue());
+        $this->assertSame('2600001', $sheet->getCell('A8')->getValue());
+        $this->assertSame('s', $sheet->getCell('A8')->getDataType());
+        $this->assertSame(6, $sheet->getCell('I8')->getValue());
+        $this->assertSame('C8', $sheet->getFreezePane());
         $book->disconnectWorksheets();
     }
 }

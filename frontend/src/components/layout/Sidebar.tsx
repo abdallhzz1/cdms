@@ -45,11 +45,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
     const basicNavigation: NavSection = {
       title: locale === 'ar' ? 'الدائرة الأساسية' : 'Basic Sciences',
       items: [
-        { path: '/basic-attendance/setup/courses', label: locale === 'ar' ? 'مساقات الدائرة الأساسية' : 'Basic Courses', icon: BookOpen, permission: 'basic_attendance.manage' },
-        { path: '/basic-attendance/setup/sections', label: locale === 'ar' ? 'الشعب وتكليف المحاضرين' : 'Sections & Lecturers', icon: Calendar, permission: 'basic_attendance.manage' },
-        { path: '/basic-attendance/students', label: locale === 'ar' ? 'طلبة الشعب' : 'Section Students', icon: Users, permission: 'basic_attendance.view' },
-        { path: '/basic-attendance', label: locale === 'ar' ? 'المحاضرات والحضور' : 'Lectures & Attendance', icon: ClipboardCheck, permission: 'basic_attendance.view' },
-        { path: '/basic-attendance/reports', label: locale === 'ar' ? 'تقارير الحضور' : 'Attendance Reports', icon: BarChart3, permission: 'basic_attendance.view' },
+        { path: '/basic-attendance', label: locale === 'ar' ? 'مساقات الدائرة الأساسية' : 'Basic Sciences Courses', icon: BookOpen, permission: 'basic_attendance.view' },
       ],
     };
     if (isBasicOnly) {
@@ -164,11 +160,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
     .flatMap(section => section.items.map(item => item.path))
     .filter(path => path === '/' ? location.pathname === '/' : location.pathname === path || location.pathname.startsWith(`${path}/`))
     .sort((left, right) => right.length - left.length)[0] ?? null;
-  const activeNavigationPath = location.pathname.startsWith('/basic-attendance/sections/') && location.pathname.endsWith('/roster')
-    ? '/basic-attendance/students'
-    : location.pathname.startsWith('/basic-attendance/sections/') && location.pathname.endsWith('/report')
-      ? '/basic-attendance/reports'
-      : matchedNavigationPath;
+  const activeNavigationPath = location.pathname.startsWith('/basic-attendance') ? '/basic-attendance' : matchedNavigationPath;
 
   return (
     <>

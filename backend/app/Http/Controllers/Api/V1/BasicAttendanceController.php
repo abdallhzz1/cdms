@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Exports\BasicAttendanceReportExport;
+use App\Exports\BasicAttendanceMonthlyExport;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\User;
 use App\Services\BasicAttendanceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -104,21 +106,21 @@ class BasicAttendanceController extends Controller
         $this->service->section($r->user(), $section);
         $data = $r->validate([
             'university_number' => ['required', 'string', 'regex:/^[0-9]{6,20}$/'],
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255'],
+            'name' => ['nullable', 'string', 'max:255'],
+            'email' => ['nullable', 'email', 'max:255'],
         ]);
-        $data['name'] = trim($data['name']);
-        $data['email'] = strtolower(trim($data['email']));
-        if ($data['name'] === '') throw ValidationException::withMessages(['name' => [__('validation.required', ['attribute' => __('basic_attendance.message16')])]]);
+        $data['name'] = trim($data['name'] ?? '');
+        $data['email'] = strtolower(trim($data['email'] ?? ''));
 
         $result = DB::transaction(function () use ($data, $section, $r) {
             DB::table('basic_sections')->where('id', $section)->lockForUpdate()->first();
             $student = DB::table('basic_students')->where('university_number', $data['university_number'])->lockForUpdate()->first();
             if ($student) {
                 if (! $student->is_active) throw ValidationException::withMessages(['university_number' => [__('basic_attendance.message41')]]);
-                if (strcasecmp($student->email, $data['email']) !== 0) throw ValidationException::withMessages(['email' => [__('basic_attendance.message38')]]);
                 $studentId = $student->id;
             } else {
+                if ($data['name'] === '') throw ValidationException::withMessages(['name' => [__('validation.required', ['attribute' => __('basic_attendance.message16')])]]);
+                if ($data['email'] === '') throw ValidationException::withMessages(['email' => [__('validation.required', ['attribute' => __('basic_attendance.student_email')])]]);
                 if (DB::table('basic_students')->where('email', $data['email'])->exists()) throw ValidationException::withMessages(['email' => [__('basic_attendance.message39')]]);
                 $studentId = DB::table('basic_students')->insertGetId($data + ['is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
             }
@@ -202,16 +204,93 @@ class BasicAttendanceController extends Controller
         return ApiResponse::success(['section' => $this->service->section($r->user(), $section), 'sessions' => $sessions, 'students' => $records->unique('student_id')->map(fn ($st) => ['id' => $st->student_id, 'name' => $st->name, 'university_number' => $st->university_number, 'photo_url' => $st->photo_url])->sortBy('name')->values(), 'records' => $records, 'pagination' => ['offset' => $offset, 'total' => $total, 'per_page' => 7]]);
     }
 
+    public function monthlySummary(Request $r, int $section)
+    {
+        $this->service->section($r->user(), $section);
+        $data = $r->validate(['month' => ['nullable', 'date_format:Y-m']]);
+        $month = $data['month'] ?? now()->format('Y-m');
+        return ApiResponse::success($this->monthlySummaryData($section, $month));
+    }
+
+    private function monthlySummaryData(int $section, string $month): array
+    {
+        $start = \Carbon\Carbon::createFromFormat('!Y-m', $month)->startOfMonth();
+        $end = $start->copy()->addMonth();
+
+        $sessions = DB::table('basic_lecture_sessions')->where('section_id', $section)->where('state', 'finalized')
+            ->where('opened_at', '>=', $start)->where('opened_at', '<', $end)->count();
+        $monthly = DB::table('basic_lecture_records as r')->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
+            ->where('s.section_id', $section)->where('s.state', 'finalized')->where('s.opened_at', '>=', $start)->where('s.opened_at', '<', $end)
+            ->selectRaw("r.student_id, COUNT(*) AS sessions, SUM(CASE WHEN r.status = 'present' THEN 1 ELSE 0 END) AS present, SUM(CASE WHEN r.status = 'absent' THEN 1 ELSE 0 END) AS absent, SUM(CASE WHEN r.status = 'excused' THEN 1 ELSE 0 END) AS excused, SUM(CASE WHEN r.status = 'incomplete' THEN 1 ELSE 0 END) AS incomplete, SUM(CASE WHEN r.is_late = 1 THEN 1 ELSE 0 END) AS late")
+            ->groupBy('r.student_id')->get()->keyBy('student_id');
+        $allAbsences = DB::table('basic_lecture_records as r')->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
+            ->where('s.section_id', $section)->where('s.state', 'finalized')->where('r.status', 'absent')
+            ->selectRaw('r.student_id, COUNT(*) AS total')->groupBy('r.student_id')->pluck('total', 'student_id');
+        $currentIds = DB::table('basic_enrollments')->where('section_id', $section)->where('is_active', true)->pluck('student_id');
+        $historyIds = DB::table('basic_lecture_records as r')->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
+            ->where('s.section_id', $section)->distinct()->pluck('r.student_id');
+        $studentIds = $currentIds->merge($historyIds)->unique()->values();
+        $sent = DB::table('basic_absence_notifications')->where('section_id', $section)->whereIn('student_id', $studentIds)
+            ->get(['student_id', 'threshold', 'sent_at'])->groupBy('student_id');
+        $students = DB::table('basic_students')->whereIn('id', $studentIds)->orderBy('name')->get(['id', 'name', 'university_number', 'email', 'photo_url', 'is_active'])
+            ->map(function ($student) use ($monthly, $allAbsences, $sent, $currentIds) {
+                $row = $monthly[$student->id] ?? null;
+                foreach (['sessions', 'present', 'absent', 'excused', 'incomplete', 'late'] as $field) $student->$field = (int) ($row->$field ?? 0);
+                $student->total_absent = (int) ($allAbsences[$student->id] ?? 0);
+                $student->is_enrolled = (bool) $student->is_active && $currentIds->contains($student->id);
+                $student->notifications = ($sent[$student->id] ?? collect())->mapWithKeys(fn ($notice) => [(string) $notice->threshold => $notice->sent_at]);
+                return $student;
+            });
+        return ['month' => $month, 'finalized_sessions' => $sessions, 'students' => $students];
+    }
+
+    public function sendAbsenceWarning(Request $r, int $section, int $student)
+    {
+        $sectionData = $this->service->section($r->user(), $section);
+        $data = $r->validate(['threshold' => ['required', 'integer', 'in:4,6']]);
+        $threshold = (int) $data['threshold'];
+
+        DB::transaction(function () use ($section, $sectionData, $student, $threshold, $r) {
+            $person = DB::table('basic_students')->where('id', $student)->lockForUpdate()->first();
+            abort_unless($person && $person->is_active && DB::table('basic_enrollments')->where('section_id', $section)->where('student_id', $student)->where('is_active', true)->exists(), 404);
+            if (! $person->email) throw ValidationException::withMessages(['student' => [__('basic_attendance.warning_missing_email')]]);
+            $count = DB::table('basic_lecture_records as record')->join('basic_lecture_sessions as session', 'session.id', '=', 'record.session_id')
+                ->where('session.section_id', $section)->where('session.state', 'finalized')->where('record.student_id', $student)->where('record.status', 'absent')->count();
+            if ($count < $threshold) throw ValidationException::withMessages(['student' => [__('basic_attendance.warning_not_eligible')]]);
+            if (DB::table('basic_absence_notifications')->where('section_id', $section)->where('student_id', $student)->where('threshold', $threshold)->exists())
+                throw ValidationException::withMessages(['student' => [__('basic_attendance.warning_already_sent')]]);
+            $variables = ['student' => $person->name, 'course' => $sectionData->course_name, 'section' => $sectionData->number, 'count' => $count];
+            try {
+                Mail::raw(__('basic_attendance.warning_body_'.$threshold, $variables), fn ($mail) => $mail->to($person->email)->subject(__('basic_attendance.warning_subject_'.$threshold)));
+            } catch (\Throwable $e) {
+                report($e);
+                throw ValidationException::withMessages(['email' => [__('basic_attendance.warning_send_failed')]]);
+            }
+            DB::table('basic_absence_notifications')->insert(['section_id' => $section, 'student_id' => $student, 'threshold' => $threshold, 'absence_count' => $count, 'sent_by' => $r->user()->id, 'sent_at' => now()]);
+            $this->service->audit(null, $r->user()->id, 'absence.warning_sent', ['section_id' => $section, 'student_id' => $student, 'threshold' => $threshold, 'absence_count' => $count]);
+        });
+        return ApiResponse::success(null, __('basic_attendance.warning_sent'));
+    }
+
     public function export(Request $r, int $section)
     {
         $sectionData = $this->service->section($r->user(), $section);
+        $data = $r->validate(['month' => ['nullable', 'date_format:Y-m']]);
+        $code = preg_replace('/[^A-Za-z0-9_-]+/', '-', (string) $sectionData->course_code) ?: 'course';
+        if (isset($data['month'])) {
+            $summary = $this->monthlySummaryData($section, $data['month']);
+            return Excel::download(
+                new BasicAttendanceMonthlyExport($sectionData, $summary),
+                'basic-attendance-'.$code.'-section-'.$section.'-'.$data['month'].'.xlsx',
+                \Maatwebsite\Excel\Excel::XLSX,
+            );
+        }
         $rows = DB::table('basic_lecture_records as r')
             ->join('basic_students as st', 'st.id', '=', 'r.student_id')
             ->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
             ->where('s.section_id', $section)
             ->select('st.university_number', 'st.name', 's.title', 's.opened_at', 's.state as session_state', 'r.status', 'r.check_in_at', 'r.check_out_at', 'r.is_late', 'r.source', 'r.reason')
             ->orderBy('st.university_number')->orderBy('s.opened_at')->orderBy('s.id')->orderBy('r.id');
-        $code = preg_replace('/[^A-Za-z0-9_-]+/', '-', (string) $sectionData->course_code) ?: 'course';
 
         return Excel::download(
             new BasicAttendanceReportExport($sectionData, $rows, (clone $rows)->count()),
