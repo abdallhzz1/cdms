@@ -883,6 +883,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('operational/my-supervisor-workspace', [SupervisorController::class, 'workspace'])
             ->middleware('permission:supervisor.workspace.view')
             ->name('operational.my-supervisor-workspace');
+        Route::get('operational/my-supervisor-attendance', [SupervisorController::class, 'attendanceDay'])
+            ->middleware('permission:attendance.record')
+            ->name('operational.my-supervisor-attendance.show');
+        Route::post('operational/my-supervisor-attendance', [SupervisorController::class, 'recordAttendance'])
+            ->middleware('permission:attendance.record')
+            ->name('operational.my-supervisor-attendance');
         Route::prefix('operational/clinical-qr-attendance')->middleware(['permission:attendance.record'])->group(function () {
             Route::get('sessions', [ClinicalQrAttendanceController::class, 'index']);
             Route::post('sessions', [ClinicalQrAttendanceController::class, 'store']);

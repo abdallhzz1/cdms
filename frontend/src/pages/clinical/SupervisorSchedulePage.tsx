@@ -10,7 +10,7 @@ function target(group:SupervisorGroup,date:string,screen:'attendance'|'assessmen
   const values=new URLSearchParams({group:group.key});
   if(screen==='attendance')values.set('date',date);
   else {const week=group.evaluationWeeks.find(item=>date>=item.start_date&&date<=item.end_date);if(week)values.set('week',String(week.number));}
-  return screen === 'attendance' ? `/supervisor/attendance/qr?${values}` : `/supervisor/assessments?${values}`;
+  return screen === 'attendance' ? `/supervisor/attendance?${values}` : `/supervisor/assessments?${values}`;
 }
 
 export function sortAgendaByNextSession<T extends {date:string}>(items:T[],currentDate=today()):T[]{
@@ -110,7 +110,7 @@ export function SupervisorScheduleAgenda({workspace}:{workspace:Workspace}){
         <p className="text-xs font-bold leading-5 text-slate-900">{groupName(group,ar)}</p>
         <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-slate-500"><Users className="h-3 w-3"/>{group.students.length} {tr('طالب','students')}</p>
         {(canRecordAttendance||canAssessStudents)&&<div className="mt-2 flex flex-wrap gap-1.5">
-          {canRecordAttendance&&<Link to={target(group,date,'attendance')} className="rounded-lg bg-teal-700 px-2.5 py-1.5 text-[10px] font-black text-white hover:bg-teal-800">{tr('حضور QR','QR attendance')}</Link>}
+          {canRecordAttendance&&<Link to={target(group,date,'attendance')} className="rounded-lg bg-teal-700 px-2.5 py-1.5 text-[10px] font-black text-white hover:bg-teal-800">{tr('تسجيل الحضور','Record attendance')}</Link>}
           {canAssessStudents&&<Link to={target(group,date,'assessments')} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700">{tr('التقييم','Assessment')}</Link>}
         </div>}
       </div>)}

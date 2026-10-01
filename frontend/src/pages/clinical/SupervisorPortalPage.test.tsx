@@ -63,7 +63,7 @@ describe('clinical supervisor workspace',()=>{
     vi.spyOn(window,'fetch').mockImplementation(async()=>envelope(user));
     renderWithProviders(<Sidebar/>);
     expect(await screen.findByText('Supervisor Dashboard')).toBeVisible();
-    expect(screen.getByText('QR Attendance')).toBeVisible();
+    expect(screen.getByText('Attendance')).toBeVisible();
     expect(screen.getByText('Student Assessments')).toBeVisible();
   });
 
@@ -79,12 +79,12 @@ describe('clinical supervisor workspace',()=>{
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope(workspace));
     renderWithProviders(<SupervisorPortalPage/>);
     expect(await screen.findByText('My clinical schedule')).toBeVisible();
-    expect(screen.getAllByText('QR attendance').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Attendance').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Assessment').length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith('/supervisor/attendance/qr?'))).toBe(true);
+    expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith('/supervisor/attendance?'))).toBe(true);
     expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith('/supervisor/assessments?'))).toBe(true);
     const actions=screen.getByRole('navigation',{name:'Supervisor actions'});
-    expect(within(actions).getByRole('link',{name:'QR attendance'})).toHaveAttribute('href','/supervisor/attendance/qr');
+    expect(within(actions).getByRole('link',{name:'Attendance'})).toHaveAttribute('href','/supervisor/attendance');
     expect(within(actions).getByRole('link',{name:'Student assessments'})).toHaveAttribute('href','/supervisor/assessments');
   });
 
@@ -97,7 +97,7 @@ describe('clinical supervisor workspace',()=>{
     renderWithProviders(<SupervisorPortalPage/>,{route:'/supervisor/portal'});
     const actions=await screen.findByRole('navigation',{name:'Supervisor actions'});
     expect(within(actions).getAllByRole('link')).toHaveLength(2);
-    expect(within(actions).getByRole('link',{name:'QR attendance'})).toHaveAttribute('href','/supervisor/attendance/qr');
+    expect(within(actions).getByRole('link',{name:'Attendance'})).toHaveAttribute('href','/supervisor/attendance');
     expect(within(actions).getByRole('link',{name:'Student assessments'})).toHaveAttribute('href','/supervisor/assessments');
     expect(actions).toHaveClass('grid-cols-2');
     expect(actions.compareDocumentPosition(screen.getByRole('heading',{name:'My clinical schedule'}))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -114,8 +114,8 @@ describe('clinical supervisor workspace',()=>{
   });
 
   it.each([
-    {operation:'attendance',permission:'attendance.record',path:'/supervisor/attendance/qr',otherPath:'/supervisor/assessments'},
-    {operation:'assessments',permission:'assessment.create',path:'/supervisor/assessments',otherPath:'/supervisor/attendance/qr'},
+    {operation:'attendance',permission:'attendance.record',path:'/supervisor/attendance',otherPath:'/supervisor/assessments'},
+    {operation:'assessments',permission:'assessment.create',path:'/supervisor/assessments',otherPath:'/supervisor/attendance'},
   ])('only offers permitted $operation actions in the top navigation and schedule',async({permission,path,otherPath})=>{
     const limitedUser={...user,roles:['CLINICAL_DIRECTOR','CLINICAL_SUPERVISOR'],permissions:permissions.filter(item=>['supervisor.workspace.view',permission].includes(item.code))};
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(limitedUser):envelope(workspace));
@@ -155,7 +155,7 @@ describe('clinical supervisor workspace',()=>{
     await userEvent.selectOptions(weekSelect,'2026-08-23');
     expect(screen.getByText('23/08/2026 – 29/08/2026')).toBeVisible();
     expect(within(phoneTable).getByText('27/08/2026')).toBeVisible();
-    expect(within(phoneTable).getAllByRole('link',{name:'QR attendance'})).toHaveLength(1);
+    expect(within(phoneTable).getAllByRole('link',{name:'Record attendance'})).toHaveLength(1);
   });
 
   it('submits one student assessment independently from its separate screen',async()=>{

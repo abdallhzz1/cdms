@@ -158,9 +158,9 @@ export function SupervisorQrAttendanceWorkspace() {
 
   return <div dir="rtl" className="mx-auto w-full min-w-0 max-w-6xl space-y-4 pb-14">
     <header className="space-y-2">
-      <Link to="/supervisor/portal" className="inline-flex items-center gap-1.5 text-xs font-bold text-teal-800"><ArrowRight className="h-4 w-4"/>لوحة المشرف</Link>
+      <Link to="/supervisor/attendance" className="inline-flex items-center gap-1.5 text-xs font-bold text-teal-800"><ArrowRight className="h-4 w-4"/>الحضور والغياب</Link>
       <h1 className="text-xl font-black text-slate-900">الحضور السريري عبر QR</h1>
-      <p className="text-xs leading-5 text-slate-500 sm:text-sm">اختر يوم الدوام والمجموعة، واعرض الرمز للطلبة ليمسحوه بكاميرا الهاتف.</p>
+      <p className="text-xs leading-5 text-slate-500 sm:text-sm">خيار بديل للتسجيل اليدوي: اختر يوم الدوام والمجموعة واعرض الرمز للطلبة. لا يمكن استخدام الطريقتين للمجموعة واليوم نفسيهما.</p>
     </header>
 
     <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-5">

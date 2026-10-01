@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, ClipboardCheck, QrCode } from 'lucide-react';
+import { CheckCircle2, ClipboardCheck, ClipboardList } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
@@ -26,7 +26,7 @@ export function SupervisorPortalPage(){
       <div className="relative"><span className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] font-bold text-teal-50 sm:inline-flex"><CheckCircle2 className="h-3.5 w-3.5"/>{tr('مساحة العمل السريرية','Clinical workspace')}</span><h1 className="text-lg font-black leading-7 tracking-tight sm:mt-5 sm:text-3xl">{tr('مرحباً دكتور،','Welcome Doctor,')} {name}</h1></div>
     </header>
     {(canRecordAttendance||canAssessStudents)&&<nav aria-label={t('supervisorPortal.actions')} className={`grid w-full gap-2 sm:max-w-xl ${canRecordAttendance&&canAssessStudents?'grid-cols-2':'grid-cols-1'}`}>
-      {canRecordAttendance&&<Link to="/supervisor/attendance/qr" className={actionClass}><QrCode aria-hidden="true" className="h-5 w-5 shrink-0"/><span>{t('supervisorPortal.attendance')}</span></Link>}
+      {canRecordAttendance&&<Link to="/supervisor/attendance" className={actionClass}><ClipboardList aria-hidden="true" className="h-5 w-5 shrink-0"/><span>{t('supervisorPortal.attendance')}</span></Link>}
       {canAssessStudents&&<Link to="/supervisor/assessments" className={actionClass}><ClipboardCheck aria-hidden="true" className="h-5 w-5 shrink-0"/><span>{t('supervisorPortal.assessments')}</span></Link>}
     </nav>}
     <SupervisorScheduleAgenda workspace={query.data}/>

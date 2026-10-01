@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AttendanceRecord;
+use App\Models\AuditLog;
 use App\Models\ClinicalAssessment;
 use App\Models\ClinicalAssessmentTemplate;
+use App\Models\ClinicalQrAttendanceSession;
 use App\Models\ClinicalSession;
 use App\Models\DistributionVersion;
 use App\Models\Person;
@@ -20,6 +22,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Str;
 
@@ -242,6 +245,103 @@ class SupervisorController extends Controller
                 ->where('is_active', true)->with('criteria')->orderByRaw('course_id IS NULL DESC')->get(),
             'schedule_configured' => $person->availabilities()->exists(),
         ]);
+    }
+
+    /** The complete official register for one of this supervisor's scheduled groups. */
+    public function attendanceDay(Request $request): JsonResponse
+    {
+        [, $person] = $this->supervisorIdentity($request);
+        $data = $request->validate([
+            'assignment_id' => ['required', 'integer'],
+            'session_date' => ['required', 'date_format:Y-m-d'],
+        ]);
+        $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
+        $this->ensureScheduledSession($person, $assignment, $data['session_date']);
+        $studentIds = $this->assignmentGroupQuery($assignment)->pluck('student_id');
+        $session = ClinicalSession::query()
+            ->where('rotation_block_id', $assignment->rotation_block_id)
+            ->where('training_site_id', $assignment->training_site_id)
+            ->whereDate('session_date', $data['session_date'])->first();
+        $records = $session
+            ? AttendanceRecord::query()->where('clinical_session_id', $session->id)
+                ->whereIn('student_id', $studentIds)->get(['id', 'student_id', 'status', 'excuse_note', 'recording_source', 'recorded_by_user_id', 'updated_at'])
+            : collect();
+        $qr = $this->attendanceQrSession($assignment, $data['session_date']);
+
+        return ApiResponse::success([
+            'records' => $records,
+            'qr_session' => $qr ? ['id' => $qr->id, 'state' => $qr->state] : null,
+        ]);
+    }
+
+    /** Manual entry is the primary workflow; QR sessions are mutually exclusive for the same group/day. */
+    public function recordAttendance(Request $request): JsonResponse
+    {
+        [$user, $person] = $this->supervisorIdentity($request);
+        $data = $request->validate([
+            'assignment_id' => ['required', 'integer'],
+            'session_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
+            'records' => ['required', 'array', 'min:1', 'max:250'],
+            'records.*.student_id' => ['required', 'integer', 'distinct', 'exists:students,id'],
+            'records.*.status' => ['required', Rule::in(AttendanceRecord::STATUSES)],
+            'records.*.excuse_note' => ['nullable', 'string', 'max:2000'],
+        ]);
+        $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
+        $this->ensureScheduledSession($person, $assignment, $data['session_date']);
+        foreach ($data['records'] as $index => $row) {
+            if ($row['status'] === 'excused' && ! filled(trim((string) ($row['excuse_note'] ?? '')))) {
+                throw ValidationException::withMessages(["records.$index.excuse_note" => ['سبب العذر مطلوب عند اختيار «بعذر».']]);
+            }
+        }
+
+        $result = DB::transaction(function () use ($assignment, $data, $user) {
+            // QR opening takes the same group lock. Only one method can claim this group/day.
+            $groupAssignments = $this->assignmentGroupQuery($assignment)->orderBy('id')->lockForUpdate()->get();
+            $allowed = $groupAssignments->pluck('student_id')->map(fn ($id) => (int) $id)->sort()->values()->all();
+            $submitted = collect($data['records'])->pluck('student_id')->map(fn ($id) => (int) $id)->sort()->values()->all();
+            if ($allowed !== $submitted) {
+                throw ValidationException::withMessages(['records' => ['يجب تحديد حالة لكل طالب في المجموعة مرة واحدة قبل الحفظ.']]);
+            }
+            abort_if($this->attendanceQrSession($assignment, $data['session_date']), 409, 'توجد جلسة QR لهذه المجموعة واليوم؛ راجع نتائجها من شاشة QR.');
+
+            $session = $this->resolveSession($assignment, $data['session_date']);
+            $existing = AttendanceRecord::query()->where('clinical_session_id', $session->id)
+                ->whereIn('student_id', $allowed)->lockForUpdate()->get()->keyBy('student_id');
+            abort_if($existing->contains(fn (AttendanceRecord $record) => $record->clinical_qr_attendance_roster_id !== null), 409, 'لا يمكن استبدال سجلات QR بالتسجيل اليدوي.');
+
+            foreach ($data['records'] as $row) {
+                $before = $existing->get((int) $row['student_id']);
+                $note = trim((string) ($row['excuse_note'] ?? '')) ?: null;
+                $record = AttendanceRecord::updateOrCreate(
+                    ['clinical_session_id' => $session->id, 'student_id' => (int) $row['student_id']],
+                    [
+                        'status' => $row['status'],
+                        'excuse_note' => $note,
+                        'recording_source' => 'manual',
+                        'recorded_by_user_id' => $user->id,
+                    ],
+                );
+                if (! $before || $before->status !== $row['status'] || $before->excuse_note !== $note) {
+                    AuditLog::create([
+                        'user_id' => $user->id,
+                        'action' => 'clinical_attendance.manual_recorded',
+                        'entity_type' => AttendanceRecord::class,
+                        'entity_id' => $record->id,
+                        'student_id' => (int) $row['student_id'],
+                        'changes' => [
+                            'previous_status' => $before?->status,
+                            'status' => $row['status'],
+                            'previous_note' => $before?->excuse_note,
+                            'note' => $note,
+                            'session_date' => $data['session_date'],
+                        ],
+                    ]);
+                }
+            }
+            return $session;
+        });
+
+        return ApiResponse::success(['session_id' => $result->id], 'تم حفظ حضور المجموعة وملاحظاتها في السجل الرسمي.');
     }
 
     public function storeStudentNote(Request $request): JsonResponse
@@ -585,6 +685,19 @@ class SupervisorController extends Controller
             'session_date' => $date,
             'title' => 'Clinical training session',
         ]);
+    }
+
+    private function attendanceQrSession(StudentClinicalAssignment $assignment, string $date): ?ClinicalQrAttendanceSession
+    {
+        $key = implode('|', [
+            $assignment->distribution_version_id,
+            $assignment->rotation_block_id,
+            $assignment->training_site_id,
+            $assignment->supervisor_id,
+            $assignment->student_subgroup_id ?? 0,
+        ]);
+        return ClinicalQrAttendanceSession::query()
+            ->where('assignment_key', $key)->whereDate('session_date', $date)->first();
     }
 
     private function ensureSessionDateWithinAssignment(StudentClinicalAssignment $assignment, string $date): void

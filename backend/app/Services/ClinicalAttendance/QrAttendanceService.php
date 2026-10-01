@@ -26,12 +26,21 @@ class QrAttendanceService
         return DB::transaction(function () use ($person, $assignmentId, $date) {
             $assignment = $this->ownedAssignment($person, $assignmentId);
             $this->ensureScheduledDate($person, $assignment, $date);
+            $groupAssignments = $this->groupAssignments($assignment)->orderBy('id')->lockForUpdate()->get(['id', 'student_id']);
             $key = $this->assignmentKey($assignment);
             $existing = ClinicalQrAttendanceSession::where(['assignment_key' => $key, 'session_date' => $date])
                 ->orderByDesc('active_guard')->latest('id')->lockForUpdate()->first();
             if ($existing) return $existing->load('roster.student', 'trainingSite');
+            $manualRecords = AttendanceRecord::query()
+                ->whereIn('student_id', $groupAssignments->pluck('student_id'))
+                ->whereHas('session', fn ($query) => $query
+                    ->where('rotation_block_id', $assignment->rotation_block_id)
+                    ->where('training_site_id', $assignment->training_site_id)
+                    ->whereDate('session_date', $date))
+                ->whereNull('clinical_qr_attendance_roster_id')->exists();
+            abort_if($manualRecords, 409, 'حُفظ الحضور اليدوي لهذه المجموعة واليوم؛ لا يمكن فتح QR فوق السجل المعتمد.');
             $session = ClinicalQrAttendanceSession::create(['public_id' => (string) Str::uuid(), 'assignment_key' => $key, 'student_clinical_assignment_id' => $assignment->id, 'rotation_block_id' => $assignment->rotation_block_id, 'training_site_id' => $assignment->training_site_id, 'supervisor_id' => $person->id, 'session_date' => $date, 'state' => 'check_in_open', 'active_guard' => 1, 'check_in_opened_at' => now()]);
-            $this->groupAssignments($assignment)->pluck('student_id')->unique()->each(fn ($studentId) => $session->roster()->create(['student_id' => $studentId]));
+            $groupAssignments->pluck('student_id')->unique()->each(fn ($studentId) => $session->roster()->create(['student_id' => $studentId]));
             $this->event($session, null, 'check_in', 'session_opened', null, request());
             return $session->load('roster.student', 'trainingSite');
         });

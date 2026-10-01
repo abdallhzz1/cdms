@@ -253,7 +253,7 @@ class AttendanceRecordController extends Controller
 
         $blockIds = $weekAssignments->pluck('rotation_block_id')->filter()->unique();
         $records = AttendanceRecord::query()
-            ->with('session:id,rotation_block_id,training_site_id,session_date')
+            ->with(['session:id,rotation_block_id,training_site_id,session_date', 'recorder:id,name'])
             ->whereIn('student_id', $students->pluck('id'))
             ->whereHas('session', fn ($session) => $session->whereIn('rotation_block_id', $blockIds)->whereBetween('session_date', [$weekStart, $weekEnd]))
             ->get();
@@ -290,6 +290,7 @@ class AttendanceRecordController extends Controller
                         'recording_source' => $record?->recording_source,
                         'is_incomplete' => (bool) $record?->is_incomplete,
                         'note' => $record?->excuse_note,
+                        'recorded_by' => $record?->recorder?->name,
                     ];
                 })->values();
                 return [
@@ -327,6 +328,13 @@ class AttendanceRecordController extends Controller
             $absencePercentage = $elapsedRequired > 0 ? round(($absent / $elapsedRequired) * 100, 2) : 0;
             return [
                 'student' => $student,
+                'attendance_notes' => $weekRecords->filter(fn (AttendanceRecord $record) => filled($record->excuse_note))
+                    ->sortByDesc(fn (AttendanceRecord $record) => $record->session?->session_date?->toDateString() ?? '')
+                    ->map(fn (AttendanceRecord $record) => [
+                        'date' => $record->session?->session_date?->toDateString(),
+                        'note' => $record->excuse_note,
+                        'recorded_by' => $record->recorder?->name,
+                    ])->values(),
                 'totals' => [
                     'scheduled_days' => $plan->count(),
                     'elapsed_scheduled_days' => $elapsedRequired,

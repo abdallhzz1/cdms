@@ -541,6 +541,76 @@ class Phase5CTest extends TestCase
         ])->assertUnprocessable();
     }
 
+    public function test_manual_supervisor_attendance_saves_the_whole_group_and_shares_official_notes_with_reviewers(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $this->student2->update(['batch_year' => $this->student1->batch_year]);
+        $this->assignment2->update(['supervisor_id' => $this->supervisor1->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::whereIn('code', ['attendance.record', 'attendance.review'])->pluck('id')
+                ->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+        $payload = [
+            'assignment_id' => $this->assignment1->id,
+            'session_date' => '2026-09-10',
+            'records' => [
+                ['student_id' => $this->student1->id, 'status' => 'present'],
+                ['student_id' => $this->student2->id, 'status' => 'excused', 'excuse_note' => 'عذر طبي راجعه مساعد التدريس.'],
+            ],
+        ];
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
+            ...$payload, 'records' => [$payload['records'][0]],
+        ])->assertUnprocessable()->assertJsonValidationErrors('records');
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
+            ...$payload, 'records' => [$payload['records'][0], ['student_id' => $this->student2->id, 'status' => 'excused']],
+        ])->assertUnprocessable()->assertJsonValidationErrors('records.1.excuse_note');
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), $payload)
+            ->assertOk();
+        $this->assertDatabaseHas('attendance_records', [
+            'student_id' => $this->student2->id,
+            'status' => 'excused',
+            'excuse_note' => 'عذر طبي راجعه مساعد التدريس.',
+            'recording_source' => 'manual',
+            'recorded_by_user_id' => $this->admin->id,
+        ]);
+        $this->actingAs($this->admin)->getJson(route('api.v1.operational.my-supervisor-attendance.show', [
+            'assignment_id' => $this->assignment1->id, 'session_date' => '2026-09-10',
+        ]))->assertOk()->assertJsonCount(2, 'data.records')->assertJsonPath('data.qr_session', null);
+
+        $review = $this->actingAs($this->admin)->getJson('/api/v1/attendance-records/group-summary?assignment_id='.$this->assignment1->id.'&week=2')->assertOk();
+        $student = collect($review->json('data.students'))->firstWhere('student.id', $this->student2->id);
+        $this->assertSame('عذر طبي راجعه مساعد التدريس.', $student['attendance_notes'][0]['note']);
+        $this->assertSame('عذر طبي راجعه مساعد التدريس.', collect($review->json('data.daily'))->flatMap(fn ($day) => $day['students'])->firstWhere('student.id', $this->student2->id)['note']);
+
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/clinical-qr-attendance/sessions', [
+            'assignment_id' => $this->assignment1->id, 'session_date' => '2026-09-10',
+        ])->assertStatus(409);
+    }
+
+    public function test_manual_attendance_cannot_replace_an_open_qr_session(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::where('code', 'attendance.record')->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/clinical-qr-attendance/sessions', [
+            'assignment_id' => $this->assignment1->id, 'session_date' => '2026-09-10',
+        ])->assertCreated();
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-attendance'), [
+            'assignment_id' => $this->assignment1->id,
+            'session_date' => '2026-09-10',
+            'records' => [['student_id' => $this->student1->id, 'status' => 'present']],
+        ])->assertStatus(409);
+        $this->assertDatabaseCount('attendance_records', 0);
+    }
+
     public function test_supervisor_private_student_notes_are_saved_and_hidden_from_other_supervisors(): void
     {
         $this->supervisor1->update(['user_id' => $this->admin->id]);
