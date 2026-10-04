@@ -105,4 +105,32 @@ class ProvisionClinicalLecturersTest extends TestCase
         $this->assertDatabaseHas('user_permission_grants', ['user_id' => $existing->id, 'permission_id' => $extraPermission->id]);
         $this->assertSame([], glob($this->credentialsDirectory.DIRECTORY_SEPARATOR.'*.csv'));
     }
+
+    public function test_explicit_skip_creates_only_missing_accounts_and_preserves_existing_roles(): void
+    {
+        $existingLecturer = User::factory()->create(['email' => 'zughaierh@hebron.edu']);
+        $lecturer = Role::where('code', 'BASIC_LECTURER')->firstOrFail();
+        $existingLecturer->roles()->attach($lecturer->id, ['scope_type' => 'global']);
+        $existingAdmin = User::factory()->create(['email' => 'hasasneha@hebron.edu', 'name' => 'علاء حساسنة']);
+        $admin = Role::where('code', 'BASIC_ATTENDANCE_ADMIN')->firstOrFail();
+        $existingAdmin->roles()->attach($admin->id, ['scope_type' => 'global']);
+
+        $options = [
+            '--apply' => true,
+            '--skip-conflicts' => true,
+            '--credentials-dir' => $this->credentialsDirectory,
+        ];
+        $this->artisan('clinical:provision-lecturers', $options)->assertExitCode(0);
+
+        $this->assertDatabaseCount('users', 20);
+        $this->assertSame(['BASIC_LECTURER'], $existingLecturer->fresh()->roles->pluck('code')->all());
+        $this->assertSame(['BASIC_ATTENDANCE_ADMIN'], $existingAdmin->fresh()->roles->pluck('code')->all());
+        $this->assertSame('علاء حساسنة', $existingAdmin->fresh()->name);
+        $files = glob($this->credentialsDirectory.DIRECTORY_SEPARATOR.'*.csv') ?: [];
+        $this->assertCount(1, $files);
+        $this->assertCount(19, file($files[0]));
+        $this->artisan('clinical:provision-lecturers', $options)->assertExitCode(0);
+        $this->assertDatabaseCount('users', 20);
+        $this->assertCount(1, glob($this->credentialsDirectory.DIRECTORY_SEPARATOR.'*.csv') ?: []);
+    }
 }

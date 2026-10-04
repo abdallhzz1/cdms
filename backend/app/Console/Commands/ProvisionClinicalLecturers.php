@@ -14,6 +14,7 @@ class ProvisionClinicalLecturers extends Command
 {
     protected $signature = 'clinical:provision-lecturers
         {--apply : Create missing accounts (the default only previews changes)}
+        {--skip-conflicts : With --apply, leave existing conflicting accounts untouched and create only missing accounts}
         {--credentials-dir= : Existing private directory for the one-time credentials CSV (defaults to the shell user home)}';
 
     protected $description = 'Preview or create lecturer-only accounts from the approved October 2026 clinical lecturer list.';
@@ -79,9 +80,12 @@ class ProvisionClinicalLecturers extends Command
             $this->info('Preview only. No accounts, roles, passwords, or files were changed.');
             return self::SUCCESS;
         }
-        if ($conflicts > 0) {
+        if ($conflicts > 0 && ! $this->option('skip-conflicts')) {
             $this->error('No accounts were created. Resolve existing-account conflicts individually, then run the command again.');
             return self::FAILURE;
+        }
+        if ($conflicts > 0) {
+            $this->warn($conflicts.' existing conflicting account(s) will be skipped unchanged. Review the table above before proceeding.');
         }
         if ($new === []) {
             $this->info('Nothing to create. Existing accounts were not changed.');

@@ -6,6 +6,8 @@ The reviewed source is `backend/resources/imports/clinical_lecturers_2026_10.csv
 
 The default command is read-only. Review the table and resolve any `REVIEW` rows before `--apply`. An existing account with another role, direct permission grant, or inactive status stops the entire write; existing passwords, roles, names, and active flags are never changed.
 
+If the administrator has reviewed a conflicting account and wants to preserve it unchanged, `--skip-conflicts` must be specified explicitly together with `--apply`. This creates only missing accounts and prints a warning about the skipped rows. In particular, an existing `BASIC_ATTENDANCE_ADMIN` account is not downgraded to lecturer access.
+
 ```bash
 cd /path/to/cdms/backend
 php artisan clinical:provision-lecturers
@@ -15,6 +17,12 @@ After confirming the names and emails, take a database backup and run:
 
 ```bash
 php artisan clinical:provision-lecturers --apply
+```
+
+For the reviewed case where `hasasneha@hebron.edu` already has `BASIC_ATTENDANCE_ADMIN`, while `zughaierh@hebron.edu` already has only `BASIC_LECTURER`, use the explicit skip option to create the other 18 accounts without changing either existing account:
+
+```bash
+php artisan clinical:provision-lecturers --apply --skip-conflicts
 ```
 
 New accounts receive unique cryptographically random passwords. The command writes them **once** to a mode-0600 CSV in the shell user's home directory, outside the repository and web document root. It prints only the file path, never the passwords. The administrator should transfer each credential privately and delete the CSV after handoff. If `HOME` is unavailable, provide an existing private directory outside the site with `--credentials-dir=/absolute/private/path`. The command refuses repository/web-root paths.
