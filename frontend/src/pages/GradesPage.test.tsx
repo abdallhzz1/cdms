@@ -51,6 +51,29 @@ describe('GradesPage official workflow',()=>{
     });
   });
 
+  it('hides final OSCE entry for a 20/80 course and saves only the written mark',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input)=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope({id:1,name:'RTA',email:'rta@hebron.edu',roles:['RTA'],assigned_levels:['fourth'],permissions:[{code:'grades.view',scope:'global'},{code:'grades.create',scope:'global'}]});
+      if(url.includes('/grade-entries/options'))return envelope({academic_years:[{id:3,code:'2026-2027',is_current:true}],courses:[{id:8,code:'MED401',name_ar:'الجراحة',name_en:'Surgery',academic_level:'fourth',is_active:true,assessment_components:[{code:'clinical',name:'Clinical assessment',max_score:20,weight:20},{code:'osce',name:'Final OSCE',max_score:0,weight:0},{code:'written',name:'Written exam',max_score:80,weight:80}]}]});
+      if(url.includes('/grade-entries/approval-status'))return envelope(null);
+      if(url.includes('/grade-entries/roster'))return envelope([{student:{id:5,university_number:'22210001',full_name_ar:'طالب',full_name_en:'Clinical Student',academic_level:'fourth'},official_clinical_score:16,grade_entry:null}]);
+      if(url.endsWith('/grade-entries/batch'))return envelope([]);
+      throw new Error(`Unmocked request: ${url}`);
+    });
+    renderWithProviders(<GradesPage/>,{route:'/grades'});
+    expect(await screen.findByText('Clinical Student')).toBeVisible();
+    expect(screen.getAllByRole('spinbutton')).toHaveLength(1);
+    await userEvent.type(screen.getByRole('spinbutton'),'74');
+    await userEvent.click(screen.getByRole('button',{name:'Save new grades'}));
+    await waitFor(()=>{
+      const call=fetchSpy.mock.calls.find(([input])=>String(input).endsWith('/grade-entries/batch'));
+      expect(String(call?.[1]?.body)).toContain('"written_score":74');
+      expect(String(call?.[1]?.body)).toContain('"osce_score":null');
+    });
+  });
+
   it('keeps submitted rows locked while allowing a newly added student to be saved and submitted',async()=>{
     document.cookie='XSRF-TOKEN=test; path=/';
     const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{

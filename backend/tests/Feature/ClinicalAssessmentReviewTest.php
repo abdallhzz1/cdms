@@ -20,6 +20,7 @@ use App\Models\StudentSubgroup;
 use App\Models\TrainingSite;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class ClinicalAssessmentReviewTest extends TestCase
@@ -168,6 +169,34 @@ class ClinicalAssessmentReviewTest extends TestCase
         $fifthAssignment->update(['student_subgroup_id' => $fifthSubgroup->id]);
         $this->actingAs($rta)->getJson('/api/v1/clinical-assessments/review-subgroup?subgroup_id='.$fifthSubgroup->id)
             ->assertNotFound();
+
+        $course->assessmentComponents()->where('code', 'clinical')->update([
+            'assessment_frequency' => 'period', 'mini_osce_max_score' => 5,
+        ]);
+        ClinicalAssessment::query()->where('student_clinical_assignment_id', $assignments[0]->id)->update([
+            'assessment_kind' => 'period', 'period_guard' => 1, 'evaluation_week' => null,
+        ]);
+        $laterBlock = RotationBlock::factory()->create([
+            'rotation_id' => $rotation->id, 'department_id' => $departmentB->id,
+            'from_week' => 3, 'to_week' => 4, 'block_code' => 'PERIOD_2',
+        ]);
+        StudentClinicalAssignment::create([
+            'distribution_version_id' => $version->id, 'student_id' => $assignments[0]->student_id,
+            'student_subgroup_id' => $subgroupOne->id, 'rotation_block_id' => $laterBlock->id,
+            'training_site_id' => $site->id, 'department_id' => $departmentB->id,
+            'supervisor_id' => $supervisor->id,
+        ]);
+        DB::table('clinical_mini_osce_scores')->insert([
+            'student_id' => $assignments[0]->student_id, 'rotation_block_id' => $block->id,
+            'entered_by_person_id' => $supervisor->id, 'score' => 4, 'max_score' => 5,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $periodReview = $this->actingAs($rta)->getJson('/api/v1/clinical-assessments/review-subgroup?subgroup_id='.$subgroupOne->id)
+            ->assertOk()->assertJsonCount(2, 'data.rotations.0.weeks')
+            ->assertJsonPath('data.rotations.0.weeks.0.number', -$block->id)
+            ->assertJsonPath('data.rotations.0.weeks.1.number', -$laterBlock->id)
+            ->assertJsonPath('data.rotations.0.weeks.1.students.0.mini_osce', null);
+        $this->assertEquals(4, $periodReview->json('data.rotations.0.weeks.0.students.0.mini_osce.score'));
 
         $rta->update(['assigned_levels' => null]);
         $this->actingAs($rta)->getJson('/api/v1/clinical-assessments/review-groups')

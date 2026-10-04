@@ -138,6 +138,37 @@ class CourseManagementWorkflowTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('clinical_entry_max_score');
     }
 
+    public function test_course_plan_can_use_one_period_assessment_mini_osce_and_no_final_osce(): void
+    {
+        $course = Course::factory()->create();
+        $path = "/api/v1/courses/{$course->id}/assessment-plan";
+
+        $this->actingAs($this->manager)->putJson($path, [
+            'clinical' => 20, 'osce' => 0, 'written' => 80,
+            'clinical_entry_max_score' => 10,
+            'assessment_frequency' => 'period',
+            'mini_osce_max_score' => 5,
+            'osce_entry_mode' => 'assistant',
+        ])->assertOk()->assertJsonCount(3, 'data');
+
+        $this->assertDatabaseHas('course_assessment_components', [
+            'course_id' => $course->id, 'code' => 'clinical', 'max_score' => 20,
+            'assessment_frequency' => 'period', 'mini_osce_max_score' => 5,
+        ]);
+        $this->assertDatabaseHas('course_assessment_components', [
+            'course_id' => $course->id, 'code' => 'osce', 'max_score' => 0,
+            'osce_entry_mode' => 'assistant',
+        ]);
+
+        $this->actingAs($this->manager)->putJson($path, [
+            'clinical' => 20, 'osce' => 0, 'written' => 80,
+            'mini_osce_max_score' => 20,
+        ])->assertUnprocessable()->assertJsonValidationErrors('mini_osce_max_score');
+        $this->actingAs($this->manager)->putJson($path, [
+            'clinical' => 4, 'osce' => 0, 'written' => 96,
+        ])->assertUnprocessable()->assertJsonValidationErrors('mini_osce_max_score');
+    }
+
     public function test_archiving_a_referenced_course_preserves_related_records(): void
     {
         $course = Course::factory()->create(['is_active' => true]);

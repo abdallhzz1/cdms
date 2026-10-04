@@ -20,6 +20,7 @@ class GradeEntry extends Model
             'max_score' => 'decimal:2',
             'clinical_score' => 'decimal:2',
             'osce_score' => 'decimal:2',
+            'osce_committee_snapshot' => 'array',
             'written_score' => 'decimal:2',
             'submitted_at' => 'datetime',
             'approved_at' => 'datetime',

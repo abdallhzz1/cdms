@@ -53,7 +53,7 @@ describe('CourseDetailsPage course report export', () => {
     renderWithProviders(<Routes><Route path="/courses/:courseId" element={<CourseDetailsPage />} /></Routes>, { route: '/courses/8' });
     await userEvent.click(await screen.findByRole('button', { name: /خطة التقييم/ }));
     await userEvent.click(screen.getByRole('button', { name: 'ضبط خطة المساق' }));
-    const inputs = screen.getAllByRole('spinbutton');
+    const inputs = screen.getAllByRole('spinbutton').slice(0, 3);
     for (const [input, value] of inputs.map((input, index) => [input, ['15', '25', '60'][index]] as const)) { await userEvent.clear(input); await userEvent.type(input, value); }
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'طريقة إدخال التقييم السريري عند المشرف' }), 'direct');
     await userEvent.click(screen.getByRole('button', { name: 'حفظ الخطة' }));

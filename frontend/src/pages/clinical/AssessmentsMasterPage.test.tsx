@@ -60,6 +60,28 @@ const mockReview = (response: ReturnType<typeof detail>) => vi.spyOn(window, 'fe
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); window.localStorage.removeItem('cdms.locale'); document.cookie = 'XSRF-TOKEN=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'; });
 
 describe('AssessmentsMasterPage review', () => {
+  it('shows each training period separately and includes its mini OSCE in the detail', async () => {
+    const first = detail(11).rotations[0];
+    const periodDetail = { subgroup_id: 11, rotations: [{ ...first, weeks: [{
+      number: -4, block_code: 'P1', start_date: '2026-09-01', end_date: '2026-09-28',
+      student_count: 2, ready_count: 1, students: [{
+        student: student(1), supervisors: [], ready: true,
+        assessments: [{ id: 1, status: 'submitted', score: '8.00', max_score: '10.00', notes: null, evaluator: { id: 2, full_name_ar: 'طبيب', full_name_en: 'Doctor' } }],
+        mini_osce: { score: 4, max_score: 5 },
+      }],
+    }, {
+      number: -5, block_code: 'P2', start_date: '2026-09-29', end_date: '2026-10-26',
+      student_count: 2, ready_count: 0, students: [],
+    }] }] };
+    mockReview(periodDetail);
+    renderWithProviders(<AssessmentsMasterPage />, { route: '/assessments' });
+    const matrix = await screen.findByRole('table', { name: 'Q1' });
+    expect(within(matrix).getByText('Period P1')).toBeVisible();
+    expect(within(matrix).getByText('Period P2')).toBeVisible();
+    await userEvent.click(within(matrix).getByRole('button', { name: 'Student 1 · Period P1 · Q1 · Internal Medicine' }));
+    expect(screen.getByText('Mini OSCE for this period: 4 / 5')).toBeVisible();
+  });
+
   it('does not fetch review data without permission', async () => {
     const fetchSpy = vi.spyOn(window, 'fetch').mockImplementation(async input => {
       if (String(input).includes('/auth/me')) return envelope({ ...reviewer, permissions: [] });

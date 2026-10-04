@@ -903,6 +903,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('operational/my-supervisor-assessment-batches', [SupervisorController::class, 'storeAssessmentBatch'])
             ->middleware('permission:assessment.create')
             ->name('operational.my-supervisor-assessment-batches');
+        Route::post('operational/my-supervisor-mini-osce', [SupervisorController::class, 'recordMiniOsce'])
+            ->middleware('permission:assessment.create');
         Route::get('operational/my-supervisor-osce/groups', [SupervisorController::class, 'osceGroups'])
             ->middleware('permission:assessment.create');
         Route::get('operational/my-supervisor-osce', [SupervisorController::class, 'osceRoster'])

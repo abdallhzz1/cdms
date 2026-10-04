@@ -18,8 +18,8 @@ type Student = { id: number; university_number: string; full_name_ar: string; fu
 type ReviewSubgroup = { id: number; name: string; student_count: number; week_count: number; students: Student[] };
 type ReviewGroup = { key: string; academic_year: Named | null; group_name: string; academic_level: string | null; student_count: number; subgroups: ReviewSubgroup[] };
 type ReviewAssessment = { id: number; status: string; score: string | number | null; max_score: string | number; notes: string | null; evaluator: Person | null };
-type ReviewStudent = { student: Student; supervisors: Person[]; assessments: ReviewAssessment[]; ready: boolean };
-type ReviewWeek = { number: number; start_date: string | null; end_date: string | null; student_count: number; ready_count: number; students: ReviewStudent[] };
+type ReviewStudent = { student: Student; supervisors: Person[]; assessments: ReviewAssessment[]; mini_osce?:{score:number|string;max_score:number|string}|null; ready: boolean };
+type ReviewWeek = { number: number; block_code?: string | null; start_date: string | null; end_date: string | null; student_count: number; ready_count: number; students: ReviewStudent[] };
 type ReviewRotation = { id: number; course: Named | null; clinical_period: Named | null; weeks: ReviewWeek[] };
 type ReviewDetail = { subgroup_id: number; rotations: ReviewRotation[] };
 
@@ -30,6 +30,7 @@ const personName = (person: Person | null, ar: boolean) => person ? (ar ? person
 const courseName = (course: Named | null, ar: boolean) => course ? (ar ? course.name_ar : course.name_en || course.name_ar) || course.code || '—' : '—';
 const studentName = (student: Student, ar: boolean) => ar ? student.full_name_ar : student.full_name_en || student.full_name_ar;
 const levelName = (level: string | null, ar: boolean) => ({ fourth: ar ? 'السنة الرابعة' : 'Fourth year', fifth: ar ? 'السنة الخامسة' : 'Fifth year', sixth: ar ? 'السنة السادسة' : 'Sixth year' }[level || ''] || level || '');
+const slotLabel = (week: ReviewWeek, ar: boolean) => week.number < 0 ? `${ar ? 'فترة' : 'Period'} ${week.block_code || ''}`.trim() : `${ar ? 'الأسبوع' : 'Week'} ${week.number}`;
 
 export function AssessmentsMasterPage() {
   const { can } = useAuth();
@@ -81,7 +82,7 @@ function SubgroupSection({ subgroup, ar }: { subgroup: ReviewSubgroup; ar: boole
   return <article className="overflow-hidden rounded-xl border border-slate-200 bg-white">
     <header className="border-b border-slate-200 px-4 py-4 sm:px-5">
       <h2 className="flex flex-wrap items-baseline gap-2"><span className="text-xs font-bold text-slate-500">{tr('المجموعة الفرعية', 'Subgroup')}</span><b dir="ltr" className="text-2xl font-black tracking-wide text-teal-800">{subgroup.name}</b></h2>
-      <p className="mt-1 text-[11px] text-slate-500">{subgroup.student_count} {tr('طلاب', 'students')} · {subgroup.week_count} {tr('أسابيع تقييم', 'assessment weeks')}</p>
+      <p className="mt-1 text-[11px] text-slate-500">{subgroup.student_count} {tr('طلاب', 'students')} · {subgroup.week_count} {tr('مواعيد تقييم', 'assessment slots')}</p>
     </header>
     <div>
       {detailQuery.isLoading ? <LoadingState /> : detailQuery.isError ? <ErrorState onRetry={() => detailQuery.refetch()} /> : <>
@@ -150,7 +151,7 @@ function AssessmentWeekTable({ students, rotations, ar, label }: { students: Stu
           </th>)}
         </tr>{columns.length > 0 && <tr>{visibleColumns.map(({ rotation, week }) => <th key={`${rotation.id}-${week.number}`} scope="col" className="border-e border-t border-slate-200 bg-teal-50/50 px-1 py-2.5 text-center last:border-e-0">
             <span dir="ltr" className="mb-1 block text-[10px] font-medium text-slate-500" title={`${dateLabel(week.start_date, ar)} — ${dateLabel(week.end_date, ar)}`}>{dateLabel(week.start_date, ar)}</span>
-            <span className="block text-[10px] font-bold text-slate-800 sm:text-[11px]">{t('assessments.matrix.week')} {week.number}</span>
+            <span className="block text-[10px] font-bold text-slate-800 sm:text-[11px]">{slotLabel(week, ar)}</span>
           </th>)}</tr>}</thead>
         <tbody>{roster.map(student => <tr key={student.id}>
           <th scope="row" className={`${studentColumn} border-t border-slate-200 font-normal`}>
@@ -162,7 +163,7 @@ function AssessmentWeekTable({ students, rotations, ar, label }: { students: Stu
             const row = week.students.find(item => item.student.id === student.id);
             const official = row?.assessments.filter(assessment => ['submitted', 'approved'].includes(assessment.status)) ?? [];
             return <td key={`${rotation.id}-${week.number}`} className={`border-e border-t border-slate-200 p-0 text-center last:border-e-0 ${row ? 'bg-white' : 'bg-slate-50'}`}>
-              {row ? <button type="button" onClick={() => setSelection({ row, week, rotation })} title={!official.length ? (row.assessments.length ? t('assessments.matrix.notSubmitted') : t('assessments.matrix.pending')) : undefined} aria-label={`${studentName(student, ar)} · ${t('assessments.matrix.week')} ${week.number} · ${label} · ${courseName(rotation.course, ar)}`} className="flex min-h-16 w-full flex-col items-center justify-center gap-1 px-1 py-2 hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-teal-500">
+              {row ? <button type="button" onClick={() => setSelection({ row, week, rotation })} title={!official.length ? (row.assessments.length ? t('assessments.matrix.notSubmitted') : t('assessments.matrix.pending')) : undefined} aria-label={`${studentName(student, ar)} · ${slotLabel(week, ar)} · ${label} · ${courseName(rotation.course, ar)}`} className="flex min-h-16 w-full flex-col items-center justify-center gap-1 px-1 py-2 hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-teal-500">
                 <span dir="ltr" className={`break-words text-sm font-black tabular-nums ${official.length ? 'text-slate-900' : 'text-slate-400'}`}>{official.length ? official.map(assessment => assessment.score === null ? '—' : Number(assessment.score).toString()).join(' · ') : '—'}</span>
                 {!official.length && <span className="sr-only">{row.assessments.length ? t('assessments.matrix.notSubmitted') : t('assessments.matrix.pending')}</span>}
               </button> : <span className="block px-2 py-4 text-slate-400" title={t('assessments.matrix.notAssigned')}>—<span className="sr-only">{t('assessments.matrix.notAssigned')}</span></span>}
@@ -173,7 +174,7 @@ function AssessmentWeekTable({ students, rotations, ar, label }: { students: Stu
       {!roster.length && <p className="p-4 text-xs text-slate-500">{t('assessments.matrix.noStudents')}</p>}
     </div>
     </div>
-    <Modal isOpen={Boolean(selection)} onClose={() => setSelection(null)} title={`${t('assessments.matrix.week')} ${selection?.week.number ?? ''} · ${label}${selection ? ` · ${courseName(selection.rotation.course, ar)}` : ''}`} backdropTone="light">
+    <Modal isOpen={Boolean(selection)} onClose={() => setSelection(null)} title={`${selection ? slotLabel(selection.week, ar) : ''} · ${label}${selection ? ` · ${courseName(selection.rotation.course, ar)}` : ''}`} backdropTone="light">
       {selection && <StudentAssessmentRow row={selection.row} ar={ar} />}
     </Modal>
   </>;
@@ -184,6 +185,7 @@ function StudentAssessmentRow({ row, ar }: { row: ReviewStudent; ar: boolean }) 
   return <article className="px-3 py-3">
     <div className="flex min-w-0 items-start justify-between gap-2"><div className="min-w-0"><h5 className="break-words text-xs font-black text-slate-900">{studentName(row.student, ar)}</h5><p dir="ltr" className={`mt-0.5 font-mono text-[10px] text-slate-500 ${ar ? 'text-right' : 'text-left'}`}>{row.student.university_number}</p></div><span className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-bold ${row.ready ? 'bg-teal-50 text-teal-800' : 'bg-slate-100 text-slate-600'}`}>{row.ready ? tr('مرسل', 'Submitted') : row.assessments.length ? tr('غير مرسل', 'Not submitted') : tr('بانتظار التقييم', 'Awaiting assessment')}</span></div>
     {!row.assessments.length ? <p className="mt-2 text-[11px] leading-5 text-slate-500">{tr('لم يصل تقييم بعد', 'No assessment received yet')}{row.supervisors.length ? ` · ${row.supervisors.map(person => personName(person, ar)).join('، ')}` : ''}</p> : <div className="mt-2 space-y-1.5">{row.assessments.map(assessment => <div key={assessment.id} className="rounded-lg bg-slate-50 px-3 py-2 text-[11px]"><div className="flex flex-wrap items-center justify-between gap-1"><span className="min-w-0 break-words text-slate-600">{personName(assessment.evaluator, ar)}</span><span className="flex shrink-0 items-center gap-2"><b dir="ltr" className="text-xs text-slate-900">{assessment.score === null ? '—' : Number(assessment.score).toFixed(1)} / {Number(assessment.max_score).toFixed(0)}</b><span className={assessment.status === 'returned' ? 'font-bold text-amber-700' : assessment.status === 'draft' ? 'font-bold text-slate-500' : 'font-bold text-teal-800'}>{statusLabel(assessment.status, ar)}</span></span></div>{assessment.notes && <details className="mt-1 text-slate-600"><summary className="cursor-pointer font-bold text-teal-800">{tr('ملاحظة المشرف', 'Supervisor note')}</summary><p className="mt-1 whitespace-pre-wrap leading-5">{assessment.notes}</p></details>}</div>)}</div>}
+    {row.mini_osce && <p className="mt-2 rounded-lg bg-teal-50 px-3 py-2 text-xs font-bold text-teal-900">{tr('ميني أوسكي لهذه الفترة', 'Mini OSCE for this period')}: {Number(row.mini_osce.score)} / {Number(row.mini_osce.max_score)}</p>}
   </article>;
 }
 

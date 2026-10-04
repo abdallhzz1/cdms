@@ -820,6 +820,83 @@ class Phase5CTest extends TestCase
         $this->assertDatabaseCount('grade_entries', 2);
     }
 
+    public function test_period_assessment_and_one_mini_osce_are_combined_inside_the_clinical_share(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $this->assignment2->update(['supervisor_id' => $this->supervisor1->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::whereIn('code', ['assessment.create', 'grades.view'])->pluck('id')
+                ->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+        $this->course->assessmentComponents()->where('code', 'clinical')->update([
+            'assessment_frequency' => 'period', 'mini_osce_max_score' => 5,
+        ]);
+        $template = ClinicalAssessmentTemplate::where('is_active', true)->firstOrFail();
+
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/my-supervisor-mini-osce', [
+            'assignment_id' => $this->assignment1->id, 'student_id' => $this->student1->id, 'score' => 4,
+        ])->assertOk();
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/my-supervisor-mini-osce', [
+            'assignment_id' => $this->assignment1->id, 'student_id' => $this->student1->id, 'score' => 6,
+        ])->assertUnprocessable()->assertJsonValidationErrors('score');
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessment-batches'), [
+            'assignment_id' => $this->assignment1->id,
+            'evaluation_week' => 1,
+            'template_id' => $template->id,
+            'assessments' => [['student_id' => $this->student1->id, 'score' => 8]],
+        ])->assertUnprocessable()->assertJsonValidationErrors('evaluation_week');
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessment-batches'), [
+            'assignment_id' => $this->assignment1->id,
+            'template_id' => $template->id,
+            'assessments' => [
+                ['student_id' => $this->student1->id, 'score' => 8],
+                ['student_id' => $this->student2->id, 'score' => 9],
+            ],
+        ])->assertOk()->assertJsonCount(2, 'data.assessments');
+
+        $this->assertDatabaseHas('clinical_assessments', [
+            'student_id' => $this->student1->id, 'assessment_kind' => 'period',
+            'period_guard' => 1, 'evaluation_week' => null,
+        ]);
+        $this->actingAs($this->admin)
+            ->getJson('/api/v1/grade-entries/clinical-assessment-summary?course_id='.$this->course->id.'&academic_year_id='.$this->rotation->academic_year_id)
+            ->assertOk()
+            ->assertJsonPath("data.{$this->student1->id}.clinical_score", 16)
+            ->assertJsonPath("data.{$this->student2->id}.clinical_score", null);
+    }
+
+    public function test_final_osce_respects_entry_owner_and_records_a_joint_supervisor_decision_once(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::where('code', 'assessment.create')->pluck('id')
+                ->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+        $osce = $this->course->assessmentComponents()->where('code', 'osce')->firstOrFail();
+        $path = '/api/v1/operational/my-supervisor-osce';
+
+        $osce->update(['osce_entry_mode' => 'assistant']);
+        $this->actingAs($this->admin)->getJson($path.'/groups')->assertOk()->assertJsonCount(0, 'data.assignments');
+        $this->actingAs($this->admin)->postJson($path, [
+            'assignment_id' => $this->assignment1->id, 'student_id' => $this->student1->id, 'osce_score' => 30,
+        ])->assertForbidden();
+
+        $osce->update(['osce_entry_mode' => 'committee']);
+        $this->actingAs($this->admin)->postJson($path, [
+            'assignment_id' => $this->assignment1->id, 'student_id' => $this->student1->id, 'osce_score' => 30,
+        ])->assertOk();
+        $grade = GradeEntry::firstOrFail();
+        $this->assertSame($this->admin->id, $grade->osce_recorded_by_user_id);
+        $this->assertSame($this->supervisor1->id, $grade->osce_committee_snapshot[0]['id']);
+        $this->assertDatabaseCount('grade_entries', 1);
+    }
+
     // =========================================================================
     // 6. Performance — No N+1 queries
     // =========================================================================

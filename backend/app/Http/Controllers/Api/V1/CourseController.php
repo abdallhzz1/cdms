@@ -193,9 +193,12 @@ class CourseController extends Controller
         $this->authorizeCourseAccess($course);
         $validated = $request->validate([
             'clinical' => ['required', 'numeric', 'gt:0', 'max:100'],
-            'osce' => ['required', 'numeric', 'gt:0', 'max:100'],
+            'osce' => ['required', 'numeric', 'min:0', 'max:100'],
             'written' => ['required', 'numeric', 'gt:0', 'max:100'],
             'clinical_entry_max_score' => ['sometimes', 'required', 'numeric', 'gt:0', 'max:100'],
+            'assessment_frequency' => ['sometimes', 'required', 'in:weekly,period'],
+            'mini_osce_max_score' => ['sometimes', 'required', 'numeric', 'min:0', 'max:100'],
+            'osce_entry_mode' => ['sometimes', 'required', 'in:assistant,supervisor,committee,legacy_shared'],
         ]);
         $scores = collect($validated)->only(['clinical', 'osce', 'written'])->all();
         if (abs(array_sum(array_map('floatval', $scores)) - 100.0) > 0.001) {
@@ -203,24 +206,53 @@ class CourseController extends Controller
                 'مجموع علامات التقييم السريري وOSCE والامتحان النظري يجب أن يساوي 100.',
             ]]);
         }
-
         $components = DB::transaction(function () use ($course, $scores, $validated) {
             $items = $course->assessmentComponents()->lockForUpdate()->get()->keyBy('code');
             if ($items->count() !== 3 || ! collect(['clinical', 'osce', 'written'])->every(fn ($code) => $items->has($code))) {
                 throw ValidationException::withMessages(['assessment_plan' => ['خطة تقييم المساق غير مكتملة؛ راجع مكوناتها قبل التعديل.']]);
             }
+            $miniMax = (float) ($validated['mini_osce_max_score'] ?? $items['clinical']->mini_osce_max_score ?? 0);
+            if ($miniMax >= (float) $validated['clinical'] && $miniMax > 0) {
+                throw ValidationException::withMessages(['mini_osce_max_score' => ['علامة الميني أوسكي يجب أن تكون أقل من حصة التقييم السريري.']]);
+            }
             $weightsChanged = collect($scores)->contains(fn ($score, $code) => abs((float) $score - (float) $items[$code]->max_score) > 0.001);
             if ($weightsChanged && GradeEntry::query()->whereHas('enrollment', fn ($query) => $query->where('course_id', $course->id))->exists()) {
                 throw ValidationException::withMessages(['assessment_plan' => ['لا يمكن تغيير خطة المساق بعد إنشاء كشوف علامات له، حتى لا تتغير العلامات المحفوظة بأثر رجعي.']]);
             }
+            $frequencyChanged = isset($validated['assessment_frequency']) && $validated['assessment_frequency'] !== ($items['clinical']->assessment_frequency ?: 'weekly');
+            $miniChanged = isset($validated['mini_osce_max_score']) && abs((float) $validated['mini_osce_max_score'] - (float) $items['clinical']->mini_osce_max_score) > 0.001;
+            $osceModeChanged = isset($validated['osce_entry_mode']) && $validated['osce_entry_mode'] !== ($items['osce']->osce_entry_mode ?: 'legacy_shared');
+            if (($frequencyChanged || $miniChanged) && \App\Models\ClinicalAssessment::query()
+                ->where(fn ($query) => $query
+                    ->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $course->id))
+                    ->orWhereHas('clinicalAssignment.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $course->id)))
+                ->exists()) {
+                throw ValidationException::withMessages(['assessment_plan' => ['لا يمكن تغيير تكرار التقييم أو حصة الميني أوسكي بعد تسجيل تقييمات لهذا المساق؛ يلزم ترحيل أكاديمي يحفظ العلامات السابقة.']]);
+            }
+            if ($miniChanged && DB::table('clinical_mini_osce_scores')
+                ->join('rotation_blocks', 'rotation_blocks.id', '=', 'clinical_mini_osce_scores.rotation_block_id')
+                ->join('rotations', 'rotations.id', '=', 'rotation_blocks.rotation_id')
+                ->where('rotations.course_id', $course->id)->exists()) {
+                throw ValidationException::withMessages(['mini_osce_max_score' => ['لا يمكن تغيير حصة الميني أوسكي بعد تسجيل علاماته لهذا المساق.']]);
+            }
+            if ($osceModeChanged && GradeEntry::query()->whereNotNull('osce_score')
+                ->whereHas('enrollment', fn ($query) => $query->where('course_id', $course->id))->exists()) {
+                throw ValidationException::withMessages(['osce_entry_mode' => ['لا يمكن تغيير جهة إدخال الأوسكي بعد تسجيل علاماته لهذا المساق.']]);
+            }
 
             $previous = $items->mapWithKeys(fn ($item, $code) => [$code => (float) $item->max_score])->all();
             $previous['clinical_entry_max_score'] = $items['clinical']->entry_max_score === null ? null : (float) $items['clinical']->entry_max_score;
+            $previous['assessment_frequency'] = $items['clinical']->assessment_frequency;
+            $previous['mini_osce_max_score'] = $items['clinical']->mini_osce_max_score;
+            $previous['osce_entry_mode'] = $items['osce']->osce_entry_mode;
             foreach ($scores as $code => $score) {
                 $values = ['weight' => $score, 'max_score' => $score];
                 if ($code === 'clinical' && array_key_exists('clinical_entry_max_score', $validated)) {
                     $values['entry_max_score'] = $validated['clinical_entry_max_score'];
                 }
+                if ($code === 'clinical' && isset($validated['assessment_frequency'])) $values['assessment_frequency'] = $validated['assessment_frequency'];
+                if ($code === 'clinical' && isset($validated['mini_osce_max_score'])) $values['mini_osce_max_score'] = $validated['mini_osce_max_score'];
+                if ($code === 'osce' && isset($validated['osce_entry_mode'])) $values['osce_entry_mode'] = $validated['osce_entry_mode'];
                 $items[$code]->update($values);
             }
             AuditLog::create([
@@ -229,6 +261,9 @@ class CourseController extends Controller
                 'changes' => ['previous' => $previous, 'current' => [
                     ...$scores,
                     'clinical_entry_max_score' => $items['clinical']->entry_max_score === null ? null : (float) $items['clinical']->entry_max_score,
+                    'assessment_frequency' => $items['clinical']->assessment_frequency,
+                    'mini_osce_max_score' => $items['clinical']->mini_osce_max_score,
+                    'osce_entry_mode' => $items['osce']->osce_entry_mode,
                 ]],
             ]);
 

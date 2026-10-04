@@ -19,7 +19,8 @@ export function SupervisorPortalPage(){
   const name=ar?query.data.supervisor.full_name_ar:query.data.supervisor.full_name_en||query.data.supervisor.full_name_ar;
   const canRecordAttendance=can('attendance.record');
   const canAssessStudents=can('assessment.create');
-  const actionCount=Number(canRecordAttendance)+(canAssessStudents?2:0);
+  const canEnterOsce=canAssessStudents&&query.data.assignments.some(assignment=>{const osce=assignment.rotation_block?.rotation?.course?.assessment_components?.find(component=>component.code==='osce');return !!osce&&Number(osce.max_score)>0&&osce.osce_entry_mode!=='assistant';});
+  const actionCount=Number(canRecordAttendance)+Number(canAssessStudents)+Number(canEnterOsce);
   const actionClass='flex min-h-12 min-w-0 items-center justify-center gap-2 rounded-xl border border-teal-200 bg-white px-3 py-3 text-xs font-bold text-teal-800 hover:border-teal-400 hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 sm:text-sm';
   return <div className="mx-auto w-full min-w-0 max-w-7xl space-y-4 pb-16 sm:space-y-7">
     <header className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-950 via-teal-950 to-teal-800 px-4 py-4 text-white shadow-sm shadow-teal-950/10 sm:rounded-[2rem] sm:px-9 sm:py-10 sm:shadow-xl">
@@ -29,7 +30,7 @@ export function SupervisorPortalPage(){
     {(canRecordAttendance||canAssessStudents)&&<nav aria-label={t('supervisorPortal.actions')} className={`grid w-full gap-2 sm:max-w-3xl ${actionCount===1?'grid-cols-1':actionCount===2?'grid-cols-2':'grid-cols-2 sm:grid-cols-3'}`}>
       {canRecordAttendance&&<Link to="/supervisor/attendance" className={actionClass}><ClipboardList aria-hidden="true" className="h-5 w-5 shrink-0"/><span>{t('supervisorPortal.attendance')}</span></Link>}
       {canAssessStudents&&<Link to="/supervisor/assessments" className={actionClass}><ClipboardCheck aria-hidden="true" className="h-5 w-5 shrink-0"/><span>{t('supervisorPortal.assessments')}</span></Link>}
-      {canAssessStudents&&<Link to="/supervisor/osce" className={`${actionClass} ${actionCount===3?'col-span-2 sm:col-span-1':''}`}><Award aria-hidden="true" className="h-5 w-5 shrink-0"/><span>{tr('OSCE النهائي','Final OSCE')}</span></Link>}
+      {canEnterOsce&&<Link to="/supervisor/osce" className={`${actionClass} ${actionCount===3?'col-span-2 sm:col-span-1':''}`}><Award aria-hidden="true" className="h-5 w-5 shrink-0"/><span>{tr('OSCE النهائي','Final OSCE')}</span></Link>}
     </nav>}
     <SupervisorScheduleAgenda workspace={query.data}/>
   </div>;

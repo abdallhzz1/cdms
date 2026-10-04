@@ -12,6 +12,7 @@ use App\Models\CourseAssessmentComponent;
 use App\Models\Student;
 use App\Models\AcademicYear;
 use App\Models\ClinicalAssessment;
+use App\Models\StudentClinicalAssignment;
 use App\Models\ApprovalRequest;
 use App\Models\ApprovalWorkflow;
 use App\Services\WorkflowTransitionService;
@@ -32,7 +33,7 @@ class GradeEntryController extends Controller
     {
         $levelScope = $this->getEffectiveAcademicLevelScope();
         $courses = $this->applyCourseAccessScope(Course::query())
-            ->with(['assessmentComponents' => fn ($query) => $query->select('id', 'course_id', 'code', 'name', 'weight', 'max_score')->orderBy('id')])
+            ->with(['assessmentComponents' => fn ($query) => $query->select('id', 'course_id', 'code', 'name', 'weight', 'max_score', 'entry_max_score', 'assessment_frequency', 'mini_osce_max_score', 'osce_entry_mode')->orderBy('id')])
             ->when($levelScope !== null, function ($query) use ($levelScope) {
                 empty($levelScope)
                     ? $query->whereRaw('1 = 0')
@@ -214,6 +215,11 @@ class GradeEntryController extends Controller
         $this->authorizeCourseDepartmentAccess($enrollment->course);
         app(DepartmentHeadCourseScope::class)->authorizeStudentForCourse($enrollment->student_id, $enrollment->course_id, $enrollment->academic_year_id);
         $plan = $this->standardAssessmentPlan($enrollment->course->loadMissing('assessmentComponents'));
+        $osceMode = $plan['osce']->osce_entry_mode;
+        if ((float) $plan['osce']->max_score > 0 && in_array($osceMode, ['supervisor', 'committee'], true)
+            && ($data['osce_score'] ?? null) !== null) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['osce_score' => ['علامة الأوسكي لهذا المساق يدخلها المشرف السريري.']]);
+        }
         foreach (['osce', 'written'] as $component) {
             $field = $component.'_score';
             if (isset($data[$field]) && (float) $data[$field] > (float) $plan[$component]->max_score) {
@@ -227,10 +233,13 @@ class GradeEntryController extends Controller
 
         $officialClinical = $this->clinicalScores([$enrollment->student_id], $enrollment->course_id, $enrollment->academic_year_id)->get($enrollment->student_id);
         $data['clinical_score'] = $officialClinical;
+        if ((float) $plan['osce']->max_score === 0.0) $data['osce_score'] = 0;
         $data['score'] = $this->totalScore($data['clinical_score'], $data['osce_score'] ?? null, $data['written_score'] ?? null);
         $data['max_score'] = 100;
 
-        $grade = DB::transaction(function () use ($data) {
+        $supervisorOsce = (float) $plan['osce']->max_score > 0
+            && in_array($plan['osce']->osce_entry_mode, ['supervisor', 'committee'], true);
+        $grade = DB::transaction(function () use ($data, $supervisorOsce) {
             $grade = GradeEntry::where('student_course_enrollment_id', $data['student_course_enrollment_id'])
                 ->lockForUpdate()
                 ->first();
@@ -239,6 +248,10 @@ class GradeEntryController extends Controller
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     'status' => ['Approved or locked grades cannot be edited.'],
                 ]);
+            }
+            if ($supervisorOsce) {
+                $data['osce_score'] = $grade?->osce_score;
+                $data['score'] = $this->totalScore($data['clinical_score'], $data['osce_score'], $data['written_score'] ?? null);
             }
 
             return GradeEntry::updateOrCreate(
@@ -259,6 +272,8 @@ class GradeEntryController extends Controller
         }
         $this->authorizeCourseDepartmentAccess($course);
         $plan = $this->standardAssessmentPlan($course);
+        $supervisorOsce = (float) $plan['osce']->max_score > 0
+            && in_array($plan['osce']->osce_entry_mode, ['supervisor', 'committee'], true);
 
         $data = $request->validate([
             'course_code' => ['required', 'string'],
@@ -288,7 +303,7 @@ class GradeEntryController extends Controller
         }
 
         $officialClinical = $this->clinicalScores(array_column($data['grades'], 'student_id'), $course->id, $academicYearId);
-        $savedGrades = DB::transaction(function () use ($data, $course, $academicYearId, $officialClinical) {
+        $savedGrades = DB::transaction(function () use ($data, $course, $academicYearId, $officialClinical, $plan, $supervisorOsce) {
             $savedGrades = [];
             foreach ($data['grades'] as $gradeData) {
                 $enrollment = StudentCourseEnrollment::firstOrCreate([
@@ -309,13 +324,19 @@ class GradeEntryController extends Controller
                         )],
                     ]);
                 }
+                if ($supervisorOsce && ($gradeData['osce_score'] ?? null) !== null && $gradeData['osce_score'] !== ''
+                    && (float) $gradeData['osce_score'] !== (float) ($existing?->osce_score ?? -1)) {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['grades' => ['علامة الأوسكي لهذا المساق يدخلها المشرف السريري ولا يمكن تعديلها من كشف المساعد.']]);
+                }
+                $osceScore = (float) $plan['osce']->max_score === 0.0 ? 0
+                    : ($supervisorOsce ? $existing?->osce_score : ($gradeData['osce_score'] ?? null));
 
                 $savedGrades[] = GradeEntry::updateOrCreate(
                     ['student_course_enrollment_id' => $enrollment->id],
                     [
-                        'score' => $this->totalScore($officialClinical->get($gradeData['student_id']), $gradeData['osce_score'] ?? null, $gradeData['written_score'] ?? null),
+                        'score' => $this->totalScore($officialClinical->get($gradeData['student_id']), $osceScore, $gradeData['written_score'] ?? null),
                         'clinical_score' => $officialClinical->get($gradeData['student_id']),
-                        'osce_score' => $gradeData['osce_score'] ?? null,
+                        'osce_score' => $osceScore,
                         'written_score' => $gradeData['written_score'] ?? null,
                         'max_score' => 100,
                         'notes' => $gradeData['notes'] ?? null,
@@ -348,10 +369,10 @@ class GradeEntryController extends Controller
             return ApiResponse::error('Course not found.', [], [], 404);
         }
         $this->authorizeCourseDepartmentAccess($course);
-        $this->standardAssessmentPlan($course->load('assessmentComponents'));
+        $plan = $this->standardAssessmentPlan($course->load('assessmentComponents'));
         
         $academicYearId = $this->resolveAcademicYearId($data);
-        DB::transaction(function () use ($course, $academicYearId, $workflow) {
+        DB::transaction(function () use ($course, $academicYearId, $workflow, $plan) {
             $enrollments = StudentCourseEnrollment::where('course_id', $course->id)
                 ->where('academic_year_id', $academicYearId)
                 ->get(['id', 'student_id'])
@@ -375,7 +396,8 @@ class GradeEntryController extends Controller
                 $clinicalScore = $studentId ? $officialClinical->get($studentId) : null;
                 $grade->forceFill([
                     'clinical_score' => $clinicalScore,
-                    'score' => $this->totalScore($clinicalScore, $grade->osce_score, $grade->written_score),
+                    'osce_score' => (float) $plan['osce']->max_score === 0.0 ? 0 : $grade->osce_score,
+                    'score' => $this->totalScore($clinicalScore, (float) $plan['osce']->max_score === 0.0 ? 0 : $grade->osce_score, $grade->written_score),
                 ])->save();
             }
 
@@ -558,11 +580,13 @@ class GradeEntryController extends Controller
         $this->authorizeGradeEntryAccess($gradeEntry);
         $gradeEntry->loadMissing('enrollment.course');
         $enrollment = $gradeEntry->enrollment;
+        $plan = $this->standardAssessmentPlan($enrollment->course->loadMissing('assessmentComponents'));
         $officialClinical = $this->clinicalScores([$enrollment->student_id], $enrollment->course_id, $enrollment->academic_year_id)
             ->get($enrollment->student_id);
         $gradeEntry->forceFill([
             'clinical_score' => $officialClinical,
-            'score' => $this->totalScore($officialClinical, $gradeEntry->osce_score, $gradeEntry->written_score),
+            'osce_score' => (float) $plan['osce']->max_score === 0.0 ? 0 : $gradeEntry->osce_score,
+            'score' => $this->totalScore($officialClinical, (float) $plan['osce']->max_score === 0.0 ? 0 : $gradeEntry->osce_score, $gradeEntry->written_score),
         ])->save();
         if ($gradeEntry->clinical_score === null || $gradeEntry->osce_score === null || $gradeEntry->written_score === null || $gradeEntry->score === null) {
             throw \Illuminate\Validation\ValidationException::withMessages(['grade' => [
@@ -645,6 +669,49 @@ class GradeEntryController extends Controller
         $clinicalMax = $courseId
             ? (float) (CourseAssessmentComponent::where('course_id', $courseId)->where('code', 'clinical')->value('max_score') ?: 20)
             : 20.0;
+        $miniMax = $courseId
+            ? (float) (CourseAssessmentComponent::where('course_id', $courseId)->where('code', 'clinical')->value('mini_osce_max_score') ?: 0)
+            : 0.0;
+
+        if ($miniMax > 0) {
+            $assessments = app(DepartmentHeadCourseScope::class)->assessments(ClinicalAssessment::query())
+                ->whereIn('status', ['submitted', 'approved'])->where('max_score', '>', 0)
+                ->whereIn('student_id', $studentIds)
+                ->when($courseId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $courseId)))
+                ->when($academicYearId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $academicYearId)))
+                ->with('session:id,rotation_block_id')->get(['id', 'student_id', 'clinical_session_id', 'score', 'max_score']);
+            $blockIds = $assessments->pluck('session.rotation_block_id')->filter()->unique();
+            $mini = DB::table('clinical_mini_osce_scores')->whereIn('student_id', $studentIds)
+                ->whereIn('rotation_block_id', $blockIds)->get()
+                ->keyBy(fn ($row) => $row->student_id.':'.$row->rotation_block_id);
+            $expectedBlocks = StudentClinicalAssignment::query()
+                ->whereIn('student_id', $studentIds)
+                ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
+                ->whereHas('rotationBlock.rotation', fn ($query) => $query->where('course_id', $courseId)
+                    ->when($academicYearId, fn ($rotation) => $rotation->where('academic_year_id', $academicYearId)))
+                ->get(['student_id', 'rotation_block_id'])->groupBy('student_id')
+                ->map(fn ($items) => $items->pluck('rotation_block_id')->filter()->unique()->all());
+
+            return $assessments->groupBy('student_id')->map(function ($studentAssessments, $studentId) use ($mini, $miniMax, $clinicalMax, $withMetadata, $expectedBlocks) {
+                $periods = $studentAssessments->groupBy(fn ($item) => $item->session?->rotation_block_id);
+                $missingPeriod = collect($expectedBlocks->get($studentId, []))->contains(fn ($blockId) => ! $periods->has($blockId));
+                if ($missingPeriod) return $withMetadata
+                    ? ['clinical_score' => null, 'assessments_count' => $studentAssessments->count()]
+                    : null;
+                $periodScores = [];
+                foreach ($periods as $blockId => $items) {
+                    $miniScore = $mini->get($items->first()->student_id.':'.$blockId);
+                    if (! $blockId || ! $miniScore || (float) $miniScore->max_score <= 0) return $withMetadata
+                        ? ['clinical_score' => null, 'assessments_count' => $studentAssessments->count()]
+                        : null;
+                    $fraction = $items->avg(fn ($item) => (float) $item->score / (float) $item->max_score);
+                    $periodScores[] = $fraction * ($clinicalMax - $miniMax)
+                        + (float) $miniScore->score / (float) $miniScore->max_score * $miniMax;
+                }
+                $result = $periodScores ? round(array_sum($periodScores) / count($periodScores), 2) : null;
+                return $withMetadata ? ['clinical_score' => $result, 'assessments_count' => $studentAssessments->count()] : $result;
+            });
+        }
 
         return app(DepartmentHeadCourseScope::class)->assessments(ClinicalAssessment::query())
             // A supervisor's submitted weekly assessment is the official
@@ -677,8 +744,8 @@ class GradeEntryController extends Controller
 
         if (! $valid) {
             throw \Illuminate\Validation\ValidationException::withMessages(['assessment_components' => [$this->tr(
-                'خطة تقييم المساق غير مكتملة. يجب أن تحتوي السريري وOSCE والنظري، وأن يساوي مجموع الأوزان والعلامات القصوى 100.',
-                'The course assessment plan is incomplete. It must contain clinical, OSCE, and written components, with weights and maximum scores each totaling 100.',
+                'خطة تقييم المساق غير مكتملة. مجموع السريري والنظري والأوسكي الاختياري يجب أن يساوي 100.',
+                'The course assessment plan is incomplete. Clinical, written and optional OSCE scores must total 100.',
             )]]);
         }
 

@@ -12,7 +12,7 @@ import { SupervisorStudentPhoto } from '@/components/clinical/SupervisorStudentP
 import { studentName, supervisorErrorMessage, type Assignment, type Student } from './supervisorWorkspace';
 
 type OsceRow = { student: Student; osce_score: string | number | null; grade_status: string | null };
-type OsceRoster = { course: { id: number; code: string; name_ar: string; name_en?: string | null }; academic_year_id: number; max_score: number; students: OsceRow[] };
+type OsceRoster = { course: { id: number; code: string; name_ar: string; name_en?: string | null }; academic_year_id: number; max_score: number; entry_mode?: 'assistant' | 'supervisor' | 'committee' | 'legacy_shared'; students: OsceRow[] };
 type OsceGroup = { key: string; assignmentId: number; courseAr: string; courseEn: string; group: string; subgroup: string; academicYear: string };
 
 function finalOsceGroups(assignments: Assignment[]): OsceGroup[] {
@@ -69,6 +69,7 @@ export function SupervisorOscePage() {
       </label>
       {roster.isLoading ? <LoadingState /> : roster.isError || !roster.data ? <ErrorState onRetry={() => roster.refetch()} /> : <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <header className="border-b border-slate-200 bg-teal-50/60 px-3 py-3 sm:px-4 sm:py-4"><h2 className="break-words text-sm font-black leading-5 text-slate-900 sm:text-base">{ar ? roster.data.course.name_ar : roster.data.course.name_en || roster.data.course.name_ar} — {group.group} ({group.subgroup})</h2><p className="mt-1 text-xs text-teal-800">{roster.data.students.length} {tr('طالب', 'students')} · {tr('علامة OSCE من', 'OSCE mark out of')} <b>{Number(roster.data.max_score)}</b></p></header>
+        {roster.data.entry_mode === 'committee' && <p className="mx-3 mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-900 sm:mx-4">{tr('بعد اتفاق المشرفين على العلامة النهائية، يُدخلها مشرف واحد مرة واحدة. يُحفظ اسمه والمشرفون المكلفون بسجل التدقيق.', 'After supervisors agree on the final mark, one supervisor records it. The recorder and assigned panel are saved in the audit trail.')}</p>}
         {notice && <p role="status" className="mx-4 mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">{notice}</p>}
         {save.isError && <p role="alert" className="mx-4 mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">{supervisorErrorMessage(save.error, ar, tr('تعذر حفظ العلامة.', 'Could not save the mark.'))}</p>}
         {!roster.data.students.length ? <p className="p-5 text-sm text-slate-500">{tr('لا يوجد طلاب في هذه المجموعة.', 'No students in this group.')}</p> : <div className="divide-y divide-slate-100">{roster.data.students.map(row => {

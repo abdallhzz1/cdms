@@ -230,6 +230,10 @@ class SupervisorController extends Controller
             ->where('supervisor_person_id', $person->id)
             ->whereIn('student_id', $studentIds)
             ->latest('note_date')->latest('id')->get();
+        $miniOsce = DB::table('clinical_mini_osce_scores')
+            ->whereIn('student_id', $studentIds)
+            ->whereIn('rotation_block_id', $blockIds)
+            ->get(['student_id', 'rotation_block_id', 'score', 'max_score']);
 
         return ApiResponse::success([
             'supervisor' => [
@@ -243,6 +247,7 @@ class SupervisorController extends Controller
             'attendance_records' => $attendance,
             'assessments' => $assessments,
             'student_notes' => $studentNotes,
+            'mini_osce_scores' => $miniOsce,
             'assessment_templates' => ClinicalAssessmentTemplate::query()
                 ->where('is_active', true)->with('criteria')->orderByRaw('course_id IS NULL DESC')->get(),
             'schedule_configured' => $person->availabilities()->exists(),
@@ -398,7 +403,7 @@ class SupervisorController extends Controller
         $data = $request->validate([
             'assignment_id' => ['required', 'integer'],
             'student_id' => ['required', 'integer', 'exists:students,id'],
-            'evaluation_week' => ['required', 'integer', 'min:1'],
+            'evaluation_week' => ['nullable', 'integer', 'min:1'],
             'template_id' => ['required', 'integer', 'exists:clinical_assessment_templates,id'],
             'score' => ['required', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string', 'max:3000'],
@@ -406,12 +411,14 @@ class SupervisorController extends Controller
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
         $studentAssignment = $this->assignmentGroupQuery($assignment)->where('student_id', $data['student_id'])->first();
         abort_unless($studentAssignment, 403, 'You may only assess students assigned to you.');
-        [$weekStart, $weekEnd] = $this->assignmentWeek($assignment, (int) $data['evaluation_week']);
-        [$template, $snapshot, $score, $entryMax] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $data['score'], (int) $data['evaluation_week'], $person->id);
+        $kind = $this->assessmentKind($assignment, $data['evaluation_week'] ?? null);
+        $week = $kind === 'weekly' ? (int) $data['evaluation_week'] : null;
+        [$weekStart, $weekEnd] = $kind === 'weekly' ? $this->assignmentWeek($assignment, $week) : $this->assignmentPeriod($assignment);
+        [$template, $snapshot, $score, $entryMax] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $data['score'], $week, $person->id, $kind);
 
         $assessment = DB::transaction(fn () => $this->persistWeeklyAssessment(
-            $studentAssignment, $person, $template, (int) $data['evaluation_week'], $weekStart, $weekEnd,
-            $snapshot, $score, $entryMax, $data['notes'] ?? null, (string) Str::uuid(), $workflow,
+            $studentAssignment, $person, $template, $week, $weekStart, $weekEnd,
+            $snapshot, $score, $entryMax, $data['notes'] ?? null, (string) Str::uuid(), $workflow, $kind,
         ));
 
         return ApiResponse::success($assessment->load('student', 'session', 'template.criteria'), 'Clinical assessment saved successfully.');
@@ -422,7 +429,7 @@ class SupervisorController extends Controller
         [, $person] = $this->supervisorIdentity($request);
         $data = $request->validate([
             'assignment_id' => ['required', 'integer'],
-            'evaluation_week' => ['required', 'integer', 'min:1'],
+            'evaluation_week' => ['nullable', 'integer', 'min:1'],
             'template_id' => ['required', 'integer', 'exists:clinical_assessment_templates,id'],
             'assessments' => ['required', 'array', 'min:1'],
             'assessments.*.student_id' => ['required', 'integer', 'distinct', 'exists:students,id'],
@@ -431,10 +438,13 @@ class SupervisorController extends Controller
         ]);
 
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
+        $kind = $this->assessmentKind($assignment, $data['evaluation_week'] ?? null);
+        $week = $kind === 'weekly' ? (int) $data['evaluation_week'] : null;
         $groupAssignments = $this->assignmentGroupQuery($assignment)->get()->keyBy('student_id');
         $lockedAssignmentIds = ClinicalAssessment::query()
             ->where('evaluator_person_id', $person->id)
-            ->where('evaluation_week', (int) $data['evaluation_week'])
+            ->where('assessment_kind', $kind)
+            ->where('evaluation_week', $week)
             ->whereIn('student_clinical_assignment_id', $groupAssignments->pluck('id'))
             ->whereIn('status', ['submitted', 'approved'])
             ->pluck('student_clinical_assignment_id');
@@ -448,15 +458,15 @@ class SupervisorController extends Controller
                 : 'Every pending student in the group must be evaluated exactly once; submitted or approved assessments must not be resent.']]);
         }
 
-        [$weekStart, $weekEnd] = $this->assignmentWeek($assignment, (int) $data['evaluation_week']);
+        [$weekStart, $weekEnd] = $kind === 'weekly' ? $this->assignmentWeek($assignment, $week) : $this->assignmentPeriod($assignment);
         $batchUuid = (string) Str::uuid();
-        $items = DB::transaction(function () use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd) {
-            return collect($data['assessments'])->map(function (array $row) use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd) {
+        $items = DB::transaction(function () use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd, $kind, $week) {
+            return collect($data['assessments'])->map(function (array $row) use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd, $kind, $week) {
                 $studentAssignment = $groupAssignments->get($row['student_id']);
-                [$template, $snapshot, $score, $entryMax] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $row['score'], (int) $data['evaluation_week'], $person->id);
+                [$template, $snapshot, $score, $entryMax] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $row['score'], $week, $person->id, $kind);
                 return $this->persistWeeklyAssessment(
-                    $studentAssignment, $person, $template, (int) $data['evaluation_week'],
-                    $weekStart, $weekEnd, $snapshot, $score, $entryMax, $row['notes'] ?? null, $batchUuid, $workflow,
+                    $studentAssignment, $person, $template, $week,
+                    $weekStart, $weekEnd, $snapshot, $score, $entryMax, $row['notes'] ?? null, $batchUuid, $workflow, $kind,
                 );
             });
         });
@@ -469,6 +479,54 @@ class SupervisorController extends Controller
         );
     }
 
+    public function recordMiniOsce(Request $request): JsonResponse
+    {
+        [, $person] = $this->supervisorIdentity($request);
+        $data = $request->validate([
+            'assignment_id' => ['required', 'integer'],
+            'student_id' => ['required', 'integer', 'exists:students,id'],
+            'score' => ['required', 'numeric', 'min:0'],
+        ]);
+        $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
+        abort_unless($assignment->rotation_block_id && $this->assignmentGroupQuery($assignment)
+            ->where('student_id', $data['student_id'])->exists(), 403);
+        $assignment->loadMissing('rotationBlock.rotation.course.assessmentComponents');
+        $rotation = $assignment->rotationBlock?->rotation;
+        $course = $rotation?->course;
+        $max = (float) ($course?->assessmentComponents?->firstWhere('code', 'clinical')?->mini_osce_max_score ?? 0);
+        if ($max <= 0 || (float) $data['score'] > $max) {
+            throw ValidationException::withMessages(['score' => ["علامة الميني أوسكي يجب أن تكون بين 0 و {$max}."]]);
+        }
+        $this->assignmentPeriod($assignment);
+        DB::transaction(function () use ($data, $assignment, $person, $course, $rotation, $max) {
+            $locked = GradeEntry::query()->whereHas('enrollment', fn ($query) => $query
+                ->where('student_id', $data['student_id'])->where('course_id', $course->id)
+                ->where('academic_year_id', $rotation->academic_year_id))
+                ->whereIn('status', ['submitted', 'approved', 'published', 'locked'])->exists();
+            if ($locked) throw ValidationException::withMessages(['score' => ['لا يمكن تعديل الميني أوسكي بعد إرسال كشف العلامات.']]);
+            $key = ['student_id' => $data['student_id'], 'rotation_block_id' => $assignment->rotation_block_id];
+            $old = DB::table('clinical_mini_osce_scores')->where($key)->lockForUpdate()->first();
+            if ($old && (float) $data['score'] > (float) $old->max_score) {
+                throw ValidationException::withMessages(['score' => ['العلامة تتجاوز سقف الميني أوسكي المحفوظ لهذه الفترة.']]);
+            }
+            DB::table('clinical_mini_osce_scores')->updateOrInsert($key, [
+                'entered_by_person_id' => $person->id,
+                'score' => round((float) $data['score'], 2),
+                'max_score' => $old?->max_score ?? $max,
+                'created_at' => $old?->created_at ?? now(),
+                'updated_at' => now(),
+            ]);
+            AuditLog::create([
+                'user_id' => auth()->id(), 'action' => 'grade.mini_osce.recorded',
+                'entity_type' => \App\Models\Course::class, 'entity_id' => $course->id,
+                'changes' => ['student_id' => $data['student_id'], 'rotation_block_id' => $assignment->rotation_block_id,
+                    'previous' => $old?->score, 'current' => round((float) $data['score'], 2)],
+            ]);
+        });
+
+        return ApiResponse::success(['score' => round((float) $data['score'], 2), 'max_score' => $max]);
+    }
+
     /** A final OSCE mark belongs to a course/year grade entry, never to a weekly assessment. */
     public function osceGroups(Request $request): JsonResponse
     {
@@ -479,8 +537,11 @@ class SupervisorController extends Controller
             ->with([
                 'student:id,university_number,full_name_ar,full_name_en,batch_year,photo_url',
                 'studentSubgroup.group', 'rotationBlock.rotation.academicYear',
-                'rotationBlock.rotation.course', 'trainingSite:id,name_ar,name_en',
-            ])->orderByDesc('id')->get();
+                'rotationBlock.rotation.course.assessmentComponents', 'trainingSite:id,name_ar,name_en',
+            ])->orderByDesc('id')->get()->filter(function (StudentClinicalAssignment $assignment) {
+                $osce = $assignment->rotationBlock?->rotation?->course?->assessmentComponents?->firstWhere('code', 'osce');
+                return $osce && (float) $osce->max_score > 0 && $osce->osce_entry_mode !== 'assistant';
+            })->values();
 
         return ApiResponse::success(['assignments' => $assignments]);
     }
@@ -503,6 +564,7 @@ class SupervisorController extends Controller
             'course' => $course->only(['id', 'code', 'name_ar', 'name_en']),
             'academic_year_id' => $yearId,
             'max_score' => $maxScore,
+            'entry_mode' => $course->assessmentComponents->firstWhere('code', 'osce')?->osce_entry_mode ?: 'legacy_shared',
             'students' => $students->map(fn ($student) => [
                 'student' => $student,
                 'osce_score' => $entries->get($student->id)?->osce_score,
@@ -527,7 +589,7 @@ class SupervisorController extends Controller
             throw ValidationException::withMessages(['osce_score' => ["علامة OSCE لهذا المساق يجب أن تكون من 0 إلى {$maxScore}."]]);
         }
 
-        $grade = DB::transaction(function () use ($course, $yearId, $data) {
+        $grade = DB::transaction(function () use ($course, $yearId, $data, $person) {
             $enrollment = StudentCourseEnrollment::firstOrCreate(
                 ['student_id' => $data['student_id'], 'course_id' => $course->id, 'academic_year_id' => $yearId, 'semester' => 'FIRST'],
                 ['status' => 'enrolled'],
@@ -541,6 +603,17 @@ class SupervisorController extends Controller
             $osce = round((float) $data['osce_score'], 2);
             $grade ??= new GradeEntry(['student_course_enrollment_id' => $enrollment->id, 'max_score' => 100, 'status' => 'draft', 'prepared_by_user_id' => auth()->id()]);
             $grade->osce_score = $osce;
+            $mode = $course->assessmentComponents->firstWhere('code', 'osce')?->osce_entry_mode;
+            $committee = $mode === 'committee'
+                ? Person::query()->whereIn('id', StudentClinicalAssignment::query()
+                    ->where('student_id', $data['student_id'])
+                    ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
+                    ->whereHas('rotationBlock.rotation', fn ($query) => $query->where('course_id', $course->id)->where('academic_year_id', $yearId))
+                    ->whereNotNull('supervisor_id')->distinct()->pluck('supervisor_id'))
+                    ->get(['id', 'full_name_ar', 'full_name_en'])->toArray()
+                : null;
+            $grade->osce_recorded_by_user_id = auth()->id();
+            $grade->osce_committee_snapshot = $committee;
             $grade->score = $grade->clinical_score !== null && $grade->written_score !== null
                 ? round((float) $grade->clinical_score + $osce + (float) $grade->written_score, 2)
                 : null;
@@ -548,7 +621,8 @@ class SupervisorController extends Controller
             AuditLog::create([
                 'user_id' => auth()->id(), 'action' => 'grade.osce.recorded',
                 'entity_type' => GradeEntry::class, 'entity_id' => $grade->id,
-                'changes' => ['previous' => $old, 'current' => $osce, 'course_id' => $course->id, 'academic_year_id' => $yearId],
+                'changes' => ['previous' => $old, 'current' => $osce, 'course_id' => $course->id, 'academic_year_id' => $yearId,
+                    'entry_mode' => $mode ?: 'legacy_shared', 'committee' => $committee, 'recorder_person_id' => $person->id],
             ]);
 
             return $grade;
@@ -564,7 +638,7 @@ class SupervisorController extends Controller
         $yearId = $assignment->rotationBlock?->rotation?->academic_year_id;
         abort_unless($course && $yearId, 422, 'The assignment must have a course and academic year.');
         $component = $course->assessmentComponents->firstWhere('code', 'osce');
-        abort_unless($component && (float) $component->max_score > 0, 422, 'This course has no configured OSCE mark.');
+        abort_unless($component && (float) $component->max_score > 0 && $component->osce_entry_mode !== 'assistant', 403, 'OSCE entry is not assigned to this supervisor.');
 
         return [$course, (int) $yearId, (float) $component->max_score];
     }
@@ -592,7 +666,7 @@ class SupervisorController extends Controller
         StudentClinicalAssignment $studentAssignment,
         Person $person,
         ClinicalAssessmentTemplate $template,
-        int $week,
+        ?int $week,
         Carbon $weekStart,
         Carbon $weekEnd,
         array $snapshot,
@@ -601,16 +675,18 @@ class SupervisorController extends Controller
         ?string $notes,
         string $batchUuid,
         WorkflowTransitionService $workflow,
+        string $kind = 'weekly',
     ): ClinicalAssessment {
         $session = $this->resolveSession($studentAssignment, $weekEnd->toDateString());
         $assessment = ClinicalAssessment::query()
             ->where('student_clinical_assignment_id', $studentAssignment->id)
+            ->where('assessment_kind', $kind)
             ->where('evaluation_week', $week)
             ->where('evaluator_person_id', $person->id)
             ->lockForUpdate()->first();
 
         if ($assessment && ! in_array($assessment->status, ['draft', 'returned'], true)) {
-            throw ValidationException::withMessages(['assessments' => ['يوجد تقييم أسبوعي مرسل أو معتمد مسبقاً لهذا الطالب.']]);
+            throw ValidationException::withMessages(['assessments' => ['يوجد تقييم مرسل أو معتمد مسبقاً لهذا الطالب في الموعد المحدد.']]);
         }
 
         $values = [
@@ -620,6 +696,8 @@ class SupervisorController extends Controller
             'assessment_template_id' => $template->id,
             'student_clinical_assignment_id' => $studentAssignment->id,
             'evaluation_week' => $week,
+            'assessment_kind' => $kind,
+            'period_guard' => $kind === 'period' ? 1 : null,
             'week_start' => $weekStart->toDateString(),
             'week_end' => $weekEnd->toDateString(),
             'assessment_batch_uuid' => $batchUuid,
@@ -653,7 +731,7 @@ class SupervisorController extends Controller
         return $assessment;
     }
 
-    private function validatedTotalScore(StudentClinicalAssignment $assignment, int $templateId, mixed $rawScore, int $week, int $evaluatorPersonId): array
+    private function validatedTotalScore(StudentClinicalAssignment $assignment, int $templateId, mixed $rawScore, ?int $week, int $evaluatorPersonId, string $kind = 'weekly'): array
     {
         $assignment->loadMissing('rotationBlock.rotation.course.assessmentComponents', 'student');
         $courseId = $assignment->rotationBlock?->rotation?->course_id;
@@ -667,6 +745,7 @@ class SupervisorController extends Controller
         $component = $assignment->rotationBlock?->rotation?->course?->assessmentComponents?->firstWhere('code', 'clinical');
         $existingMax = ClinicalAssessment::query()
             ->where('student_clinical_assignment_id', $assignment->id)
+            ->where('assessment_kind', $kind)
             ->where('evaluation_week', $week)
             ->where('evaluator_person_id', $evaluatorPersonId)
             ->value('max_score');
@@ -683,6 +762,26 @@ class SupervisorController extends Controller
             ])->values()->all();
 
         return [$template, $snapshot, $score, $entryMax];
+    }
+
+    private function assessmentKind(StudentClinicalAssignment $assignment, mixed $week): string
+    {
+        $assignment->loadMissing('rotationBlock.rotation.course.assessmentComponents');
+        $clinical = $assignment->rotationBlock?->rotation?->course?->assessmentComponents?->firstWhere('code', 'clinical');
+        $kind = $clinical?->assessment_frequency === 'period' ? 'period' : 'weekly';
+        if (($kind === 'weekly' && ! $week) || ($kind === 'period' && $week !== null)) {
+            throw ValidationException::withMessages(['evaluation_week' => ['اختيار الأسبوع لا يطابق طريقة التقييم المحددة في خطة المساق.']]);
+        }
+        return $kind;
+    }
+
+    private function assignmentPeriod(StudentClinicalAssignment $assignment): array
+    {
+        [$start, $end] = $this->assignmentDateRange($assignment);
+        if (! $start || ! $end || $start->isFuture()) {
+            throw ValidationException::withMessages(['assignment_id' => ['فترة التدريب لم تبدأ بعد أو لا تحتوي تواريخ معتمدة.']]);
+        }
+        return [$start, $end];
     }
 
     private function assignmentWeek(StudentClinicalAssignment $assignment, int $week): array

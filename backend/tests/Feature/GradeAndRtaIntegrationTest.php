@@ -335,6 +335,66 @@ class GradeAndRtaIntegrationTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('grades.0.written_score');
     }
 
+    public function test_grade_sheet_for_a_course_without_final_osce_uses_clinical_and_written_only(): void
+    {
+        $year = AcademicYear::factory()->create();
+        $course = Course::factory()->create(['academic_level' => 'fourth']);
+        foreach (['clinical' => 20, 'osce' => 0, 'written' => 80] as $code => $max) {
+            $course->assessmentComponents()->where('code', $code)->update(['weight' => $max, 'max_score' => $max]);
+        }
+        $student = Student::factory()->create(['academic_level' => 'fourth']);
+        $rotation = Rotation::factory()->create(['course_id' => $course->id, 'academic_year_id' => $year->id, 'academic_level' => 'fourth']);
+        $block = RotationBlock::factory()->create(['rotation_id' => $rotation->id]);
+        $session = ClinicalSession::create(['rotation_block_id' => $block->id, 'session_date' => '2026-09-10', 'title' => 'Assessment']);
+        ClinicalAssessment::create(['student_id' => $student->id, 'clinical_session_id' => $session->id, 'score' => 8, 'max_score' => 10, 'status' => 'submitted']);
+        $role = Role::create(['code' => 'NO_OSCE_GRADE_EDITOR', 'name_key' => 'test.no_osce']);
+        $role->permissions()->attach(Permission::where('code', 'grades.create')->firstOrFail()->id, ['scope_type' => 'global']);
+        $editor = User::factory()->create();
+        $editor->roles()->attach($role);
+
+        $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch', [
+            'course_code' => $course->code, 'academic_year_id' => $year->id,
+            'grades' => [['student_id' => $student->id, 'written_score' => 74, 'max_score' => 100]],
+        ])->assertOk();
+        $this->assertDatabaseHas('grade_entries', [
+            'clinical_score' => 16, 'osce_score' => 0, 'written_score' => 74, 'score' => 90,
+        ]);
+    }
+
+    public function test_assistant_cannot_replace_a_supervisor_owned_final_osce_mark(): void
+    {
+        $year = AcademicYear::factory()->create();
+        $course = Course::factory()->create(['academic_level' => 'fourth']);
+        $course->assessmentComponents()->where('code', 'osce')->update(['osce_entry_mode' => 'supervisor']);
+        $student = Student::factory()->create(['academic_level' => 'fourth']);
+        $enrollment = StudentCourseEnrollment::create([
+            'student_id' => $student->id, 'course_id' => $course->id,
+            'academic_year_id' => $year->id, 'semester' => 'FIRST',
+        ]);
+        GradeEntry::create([
+            'student_course_enrollment_id' => $enrollment->id,
+            'osce_score' => 30, 'max_score' => 100, 'status' => 'draft',
+        ]);
+        $role = Role::create(['code' => 'SUPERVISOR_OSCE_GRADE_EDITOR', 'name_key' => 'test.supervisor_osce']);
+        $role->permissions()->attach(Permission::where('code', 'grades.create')->firstOrFail()->id, ['scope_type' => 'global']);
+        $editor = User::factory()->create();
+        $editor->roles()->attach($role);
+        $path = '/api/v1/grade-entries/batch';
+
+        $this->actingAs($editor)->postJson($path, [
+            'course_code' => $course->code, 'academic_year_id' => $year->id,
+            'grades' => [['student_id' => $student->id, 'osce_score' => 31, 'written_score' => 35, 'max_score' => 100]],
+        ])->assertUnprocessable()->assertJsonValidationErrors('grades');
+        $this->actingAs($editor)->postJson($path, [
+            'course_code' => $course->code, 'academic_year_id' => $year->id,
+            'grades' => [['student_id' => $student->id, 'osce_score' => null, 'written_score' => 35, 'max_score' => 100]],
+        ])->assertOk();
+        $this->assertDatabaseHas('grade_entries', [
+            'student_course_enrollment_id' => $enrollment->id,
+            'osce_score' => 30, 'written_score' => 35,
+        ]);
+    }
+
     public function test_grade_submission_explains_missing_supervisor_scores_in_request_language_and_refreshes_them(): void
     {
         $year = AcademicYear::factory()->create();

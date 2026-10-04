@@ -10,7 +10,7 @@ import { agendaWeekStart, buildSupervisorAgenda, preferredAgendaWeek, sortAgenda
 
 const envelope=(data:unknown,status=200)=>new Response(JSON.stringify({success:status<400,data:status<400?data:null,message:status<400?null:'Forbidden',errors:{},meta:{}}),{status,headers:{'Content-Type':'application/json'}});
 const permissions=['supervisor.workspace.view','attendance.view','attendance.record','assessment.view','assessment.create'].map(code=>({code,scope:'global'}));
-const workspace={supervisor:{person_id:9,user_id:1,full_name_ar:'د. أحمد المشرف',full_name_en:'Dr Ahmad Supervisor'},assignments:[{id:21,distribution_version_id:3,rotation_block_id:4,training_site_id:5,student_subgroup_id:6,session_start_date:'2026-08-24',session_end_date:'2026-09-06',scheduled_dates:['2026-08-27','2026-09-03'],evaluation_weeks:[{number:1,start_date:'2026-08-24',end_date:'2026-08-30'},{number:2,start_date:'2026-08-31',end_date:'2026-09-06'}],student:{id:7,university_number:'22010001',full_name_ar:'طالب سريري',full_name_en:'Clinical Student',batch_year:2026},student_subgroup:{id:6,name:'L1',group:{id:2,name:'L'}},rotation_block:{id:4,block_code:'W1',from_week:1,to_week:2,rotation:{name:'Surgery',start_date:'2026-08-23T21:00:00.000000Z',course:{id:10,name_ar:'الجراحة العامة',name_en:'General Surgery'},academic_year:{code:'2026-2027'}}},training_site:{id:5,name_ar:'المستشفى الأهلي',name_en:'Al Ahli Hospital'},department:{id:8,name_ar:'قسم الجراحة',name_en:'Surgery Department'}}],attendance_records:[],assessments:[],student_notes:[],assessment_templates:[{id:31,name_ar:'التقييم الأسبوعي',name_en:'Weekly assessment',course_id:10,batch_year:2026,version:1,total_score:10,is_active:true,criteria:[{id:1,code:'professionalism',name_ar:'المهنية',name_en:'Professionalism',max_score:10}]}],schedule_configured:true};
+const workspace={supervisor:{person_id:9,user_id:1,full_name_ar:'د. أحمد المشرف',full_name_en:'Dr Ahmad Supervisor'},assignments:[{id:21,distribution_version_id:3,rotation_block_id:4,training_site_id:5,student_subgroup_id:6,session_start_date:'2026-08-24',session_end_date:'2026-09-06',scheduled_dates:['2026-08-27','2026-09-03'],evaluation_weeks:[{number:1,start_date:'2026-08-24',end_date:'2026-08-30'},{number:2,start_date:'2026-08-31',end_date:'2026-09-06'}],student:{id:7,university_number:'22010001',full_name_ar:'طالب سريري',full_name_en:'Clinical Student',batch_year:2026},student_subgroup:{id:6,name:'L1',group:{id:2,name:'L'}},rotation_block:{id:4,block_code:'W1',from_week:1,to_week:2,rotation:{name:'Surgery',start_date:'2026-08-23T21:00:00.000000Z',course:{id:10,name_ar:'الجراحة العامة',name_en:'General Surgery',assessment_components:[{code:'osce',max_score:25,entry_max_score:null,osce_entry_mode:'supervisor'}]},academic_year:{code:'2026-2027'}}},training_site:{id:5,name_ar:'المستشفى الأهلي',name_en:'Al Ahli Hospital'},department:{id:8,name_ar:'قسم الجراحة',name_en:'Surgery Department'}}],attendance_records:[],assessments:[],student_notes:[],assessment_templates:[{id:31,name_ar:'التقييم الأسبوعي',name_en:'Weekly assessment',course_id:10,batch_year:2026,version:1,total_score:10,is_active:true,criteria:[{id:1,code:'professionalism',name_ar:'المهنية',name_en:'Professionalism',max_score:10}]}],schedule_configured:true};
 const user={id:1,name:'Supervisor',email:'doctor@hebron.edu',roles:['CLINICAL_SUPERVISOR'],permissions};
 afterEach(()=>{vi.restoreAllMocks();document.cookie='XSRF-TOKEN=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'});
 
@@ -92,6 +92,21 @@ describe('clinical supervisor workspace',()=>{
     expect(within(actions).getByRole('link',{name:'Final OSCE'})).toHaveAttribute('href','/supervisor/osce');
   });
 
+  it('does not offer final OSCE when the assigned course has no final OSCE or delegates it to the assistant',async()=>{
+    const assignment=workspace.assignments[0];
+    const withOsce=(max_score:number,osce_entry_mode:string)=>({...assignment,rotation_block:{...assignment.rotation_block,rotation:{...assignment.rotation_block.rotation,course:{...assignment.rotation_block.rotation.course,assessment_components:[{code:'osce',max_score,entry_max_score:null,osce_entry_mode}]}}}});
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments:[withOsce(0,'supervisor')]}));
+    const view=renderWithProviders(<SupervisorPortalPage/>);
+    expect(await screen.findByRole('navigation',{name:'Supervisor actions'})).toBeVisible();
+    expect(screen.queryByRole('link',{name:'Final OSCE'})).not.toBeInTheDocument();
+    view.unmount();
+    vi.restoreAllMocks();
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments:[withOsce(25,'assistant')]}));
+    renderWithProviders(<SupervisorPortalPage/>);
+    expect(await screen.findByRole('navigation',{name:'Supervisor actions'})).toBeVisible();
+    expect(screen.queryByRole('link',{name:'Final OSCE'})).not.toBeInTheDocument();
+  });
+
   it.each([
     ['CLINICAL_DIRECTOR','CLINICAL_SUPERVISOR'],
     ['CLINICAL_SUPERVISOR','CLINICAL_DIRECTOR'],
@@ -115,7 +130,7 @@ describe('clinical supervisor workspace',()=>{
     const actions=await screen.findByRole('navigation',{name:'إجراءات المشرف السريري'});
     expect(within(actions).getByRole('link',{name:'الحضور والغياب'})).toHaveClass('min-h-12');
     expect(within(actions).getByRole('link',{name:'تقييم الطلبة'})).toHaveAttribute('href','/supervisor/assessments');
-    expect(within(actions).getByRole('link',{name:'OSCE النهائي'})).toHaveAttribute('href','/supervisor/osce');
+    expect(within(actions).queryByRole('link',{name:'OSCE النهائي'})).not.toBeInTheDocument();
     expect(screen.getByText('لا توجد جلسات ظاهرة. راجع التكليف المنشور وأيام العمل المحددة لك.')).toBeVisible();
   });
 
@@ -185,6 +200,20 @@ describe('clinical supervisor workspace',()=>{
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessment-batches')&&String(init?.body).includes('"score":12'))).toBe(true));
   });
 
+  it('submits one assessment per period and saves its mini OSCE separately',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    const assignment={...workspace.assignments[0],rotation_block:{...workspace.assignments[0].rotation_block,rotation:{...workspace.assignments[0].rotation_block.rotation,course:{...workspace.assignments[0].rotation_block.rotation.course,assessment_components:[{code:'clinical',max_score:20,entry_max_score:10,assessment_frequency:'period',mini_osce_max_score:5}]}}}};
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope({...workspace,assignments:[assignment],mini_osce_scores:[]});if(url.includes('/my-supervisor-mini-osce'))return envelope({score:4,max_score:5});if(url.includes('/my-supervisor-assessment-batches'))return envelope({batch_uuid:'period',assessments:[{id:1,status:'submitted'}]});throw new Error(`Unmocked ${url} ${init?.method}`)});
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=0'});
+    expect(await screen.findByRole('option',{name:'One assessment per training period'})).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('spinbutton',{name:'Score out of 10'}),'8');
+    await userEvent.type(screen.getByRole('spinbutton',{name:'Mini OSCE Clinical Student'}),'4');
+    await userEvent.click(screen.getByRole('button',{name:'Save'}));
+    await waitFor(()=>expect(fetchSpy.mock.calls.some(([url,init])=>String(url).includes('/my-supervisor-mini-osce')&&init?.method==='POST'&&String(init.body).includes('"score":4'))).toBe(true));
+    await userEvent.click(screen.getByRole('button',{name:'Submit group assessment'}));
+    await waitFor(()=>expect(fetchSpy.mock.calls.some(([url,init])=>String(url).includes('/my-supervisor-assessment-batches')&&init?.method==='POST'&&!String(init.body).includes('evaluation_week'))).toBe(true));
+  });
+
   it('keeps a returned old assessment out of 10 after switching the course to direct /15',async()=>{
     const directAssignment={...workspace.assignments[0],rotation_block:{...workspace.assignments[0].rotation_block,rotation:{...workspace.assignments[0].rotation_block.rotation,course:{...workspace.assignments[0].rotation_block.rotation.course,assessment_components:[{code:'clinical',max_score:15,entry_max_score:15}]}}}};
     const oldAssessment={id:41,student_id:7,student_clinical_assignment_id:21,evaluation_week:1,score:9,max_score:10,status:'returned',created_at:'2026-08-30'};
@@ -206,11 +235,12 @@ describe('clinical supervisor workspace',()=>{
       if (url.includes('/auth/me')) return envelope(user);
       if (url.includes('/my-supervisor-osce/groups')) return envelope({ assignments: [workspace.assignments[0],laterAssignment] });
       if (url.includes('/my-supervisor-osce') && init?.method === 'POST') { savedScore = '23.00'; return envelope({ osce_score: savedScore, grade_status: 'draft' }); }
-      if (url.includes('/my-supervisor-osce')) return envelope({ course: { id: 10, code: 'MED', name_ar: 'الباطني', name_en: 'Medicine' }, academic_year_id: 3, max_score: 25, students: [{ student: workspace.assignments[0].student, osce_score: savedScore, grade_status: 'draft' }, { student: laterAssignment.student, osce_score: null, grade_status: null }] });
+      if (url.includes('/my-supervisor-osce')) return envelope({ course: { id: 10, code: 'MED', name_ar: 'الباطني', name_en: 'Medicine' }, academic_year_id: 3, max_score: 25, entry_mode: 'committee', students: [{ student: workspace.assignments[0].student, osce_score: savedScore, grade_status: 'draft' }, { student: laterAssignment.student, osce_score: null, grade_status: null }] });
       throw new Error(`Unmocked ${url}`);
     });
     renderWithProviders(<SupervisorOscePage />, { route: '/supervisor/osce' });
     const input = await screen.findByRole('spinbutton', { name: 'OSCE Clinical Student' });
+    expect(screen.getByText(/one supervisor records it/)).toBeVisible();
     expect(within(screen.getByLabelText('Group and course')).getAllByRole('option')).toHaveLength(1);
     expect(screen.getByText('Other Student')).toBeInTheDocument();
     await userEvent.type(input, '26');

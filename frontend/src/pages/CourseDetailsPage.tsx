@@ -20,6 +20,9 @@ interface AssessmentComponent {
   weight?: number | null;
   max_score?: number | null;
   entry_max_score?: number | null;
+  assessment_frequency?: 'weekly' | 'period' | null;
+  mini_osce_max_score?: number | null;
+  osce_entry_mode?: 'assistant' | 'supervisor' | 'committee' | 'legacy_shared' | null;
   evaluator?: string | null;
   timing?: string | null;
   is_required_to_pass?: boolean;
@@ -78,6 +81,9 @@ export function CourseDetailsPage() {
   const [planOpen, setPlanOpen] = useState(false);
   const [planDraft, setPlanDraft] = useState({ clinical: '20', osce: '40', written: '40' });
   const [clinicalEntryMode, setClinicalEntryMode] = useState<'ten' | 'direct'>('ten');
+  const [assessmentFrequency, setAssessmentFrequency] = useState<'weekly' | 'period'>('weekly');
+  const [miniOsceMax, setMiniOsceMax] = useState('0');
+  const [osceEntryMode, setOsceEntryMode] = useState<'assistant' | 'supervisor' | 'committee' | 'legacy_shared'>('legacy_shared');
   const [isIloModalOpen, setIsIloModalOpen] = useState(false);
   const [isPloModalOpen, setIsPloModalOpen] = useState(false);
   const [activeSection,setActiveSection]=useState<'outcomes'|'assessment'>('outcomes');
@@ -132,7 +138,7 @@ export function CourseDetailsPage() {
   });
 
   const planMutation = useMutation({
-    mutationFn: (components: Record<'clinical'|'osce'|'written'|'clinical_entry_max_score', number>) => apiFetch(`/courses/${courseId}/assessment-plan`, { method: 'PUT', body: components }),
+    mutationFn: (components: { clinical: number; osce: number; written: number; clinical_entry_max_score: number; assessment_frequency: 'weekly' | 'period'; mini_osce_max_score: number; osce_entry_mode: 'assistant' | 'supervisor' | 'committee' | 'legacy_shared' }) => apiFetch(`/courses/${courseId}/assessment-plan`, { method: 'PUT', body: components }),
     onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['course', courseId] }); await qc.invalidateQueries({ queryKey: ['grade-options'] }); setPlanOpen(false); setActionError(''); },
     onError: (error: Error) => setActionError(error.message),
   });
@@ -202,7 +208,11 @@ export function CourseDetailsPage() {
     const score = (code: 'clinical'|'osce'|'written', fallback: string) => String(data.assessment_components?.find(item => item.code === code)?.max_score ?? fallback);
     setPlanDraft({ clinical: score('clinical', '20'), osce: score('osce', '40'), written: score('written', '40') });
     const clinical = data.assessment_components?.find(item => item.code === 'clinical');
+    const osce = data.assessment_components?.find(item => item.code === 'osce');
     setClinicalEntryMode(clinical?.entry_max_score != null && Number(clinical.entry_max_score) === Number(clinical.max_score) ? 'direct' : 'ten');
+    setAssessmentFrequency(clinical?.assessment_frequency === 'period' ? 'period' : 'weekly');
+    setMiniOsceMax(String(clinical?.mini_osce_max_score ?? 0));
+    setOsceEntryMode(osce?.osce_entry_mode ?? 'legacy_shared');
     setActionError('');
     setPlanOpen(true);
   };
@@ -541,9 +551,9 @@ export function CourseDetailsPage() {
                       <div className="min-w-0">
                         <span className="block font-bold text-slate-800 text-xs truncate mb-0.5">{item.name}</span>
                         <span className="block text-[10px] text-slate-500 font-semibold">
-                          {locale === 'ar' ? `القصوى: ${item.max_score || 100} درجة` : `Max: ${item.max_score || 100}`}
+                          {locale === 'ar' ? `القصوى: ${item.max_score ?? 100} درجة` : `Max: ${item.max_score ?? 100}`}
                         </span>
-                        {item.code === 'clinical' && <span className="mt-1 block text-[10px] font-bold text-teal-700">{locale === 'ar' ? `إدخال المشرف: من ${item.entry_max_score ?? 10}${Number(item.entry_max_score ?? 10) === Number(item.max_score) ? ' مباشرة' : ` ← تحويل إلى ${item.max_score}`}` : `Supervisor entry: out of ${item.entry_max_score ?? 10}${Number(item.entry_max_score ?? 10) === Number(item.max_score) ? ' directly' : ` → scaled to ${item.max_score}`}`}</span>}
+                        {item.code === 'clinical' && <span className="mt-1 block text-[10px] font-bold text-teal-700">{locale === 'ar' ? `إدخال المشرف: من ${item.entry_max_score ?? 10}${Number(item.entry_max_score ?? 10) === Number(item.max_score) ? ' مباشرة' : ` ← تحويل إلى ${item.max_score}`} · ${item.assessment_frequency === 'period' ? 'مرة لكل فترة' : 'أسبوعياً'}${Number(item.mini_osce_max_score) > 0 ? ` · ميني أوسكي من ${item.mini_osce_max_score}` : ''}` : `Supervisor entry: out of ${item.entry_max_score ?? 10}${Number(item.entry_max_score ?? 10) === Number(item.max_score) ? ' directly' : ` → scaled to ${item.max_score}`} · ${item.assessment_frequency === 'period' ? 'once per period' : 'weekly'}${Number(item.mini_osce_max_score) > 0 ? ` · mini OSCE /${item.mini_osce_max_score}` : ''}`}</span>}
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -585,13 +595,16 @@ export function CourseDetailsPage() {
 
       {/* Assessment Component Modal */}
       {planOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-3" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPlanOpen(false); }}>
-        <form onSubmit={event => { event.preventDefault(); if (planDraftTotal !== 100 || Object.values(planDraft).some(value => !Number.isFinite(Number(value)) || Number(value) <= 0)) return; planMutation.mutate({ clinical: Number(planDraft.clinical), osce: Number(planDraft.osce), written: Number(planDraft.written), clinical_entry_max_score: clinicalEntryMode === 'direct' ? Number(planDraft.clinical) : 10 }); }} className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-5 shadow-xl" aria-label={locale === 'ar' ? 'خطة تقييم المساق' : 'Course assessment plan'}>
-          <div><h3 className="text-lg font-black text-slate-900">{locale === 'ar' ? 'خطة تقييم المساق' : 'Course assessment plan'}</h3><p className="mt-1 text-xs leading-5 text-slate-500">{locale === 'ar' ? 'اضبط المكوّنات الثلاثة معًا؛ مجموعها 100، ثم حدد طريقة إدخال علامة المشرف.' : 'Set all three components to total 100, then choose how the supervisor enters the clinical score.'}</p></div>
-          {([['clinical', 'التقييم السريري', 'Clinical assessment'], ['osce', 'OSCE النهائي', 'Final OSCE'], ['written', 'الامتحان الكتابي النهائي', 'Final written exam']] as const).map(([code, arabic, english]) => <label key={code} className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 p-3 text-sm"><span className="font-bold text-slate-800">{locale === 'ar' ? arabic : english}</span><span className="flex shrink-0 items-center gap-1"><input type="number" min="0.01" max="100" step="0.01" required value={planDraft[code]} onChange={event => setPlanDraft(current => ({ ...current, [code]: event.target.value }))} className="w-20 rounded-lg border border-slate-200 px-2 py-2 text-center font-bold"/><span className="text-xs text-slate-500">/100</span></span></label>)}
+        <form onSubmit={event => { event.preventDefault(); if (planDraftTotal !== 100 || !Number.isFinite(Number(miniOsceMax)) || Number(miniOsceMax) < 0 || Number(miniOsceMax) >= Number(planDraft.clinical) || Object.entries(planDraft).some(([code, value]) => !Number.isFinite(Number(value)) || Number(value) < (code === 'osce' ? 0 : 0.01))) return; planMutation.mutate({ clinical: Number(planDraft.clinical), osce: Number(planDraft.osce), written: Number(planDraft.written), clinical_entry_max_score: clinicalEntryMode === 'direct' ? Number(planDraft.clinical) : 10, assessment_frequency: assessmentFrequency, mini_osce_max_score: Number(miniOsceMax), osce_entry_mode: osceEntryMode }); }} className="max-h-[90vh] w-full max-w-lg space-y-4 overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" aria-label={locale === 'ar' ? 'خطة تقييم المساق' : 'Course assessment plan'}>
+          <div><h3 className="text-lg font-black text-slate-900">{locale === 'ar' ? 'خطة تقييم المساق' : 'Course assessment plan'}</h3><p className="mt-1 text-xs leading-5 text-slate-500">{locale === 'ar' ? 'حدد تقسيمة الـ100 لكل مساق. اجعل الأوسكي النهائي صفراً إذا لم يكن ضمن الخطة.' : 'Set this course’s 100-point plan. Set final OSCE to zero when it is not part of the course.'}</p></div>
+          {([['clinical', 'التقييم السريري', 'Clinical assessment'], ['osce', 'OSCE النهائي', 'Final OSCE'], ['written', 'الامتحان الكتابي النهائي', 'Final written exam']] as const).map(([code, arabic, english]) => <label key={code} className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 p-3 text-sm"><span className="font-bold text-slate-800">{locale === 'ar' ? arabic : english}</span><span className="flex shrink-0 items-center gap-1"><input type="number" min={code === 'osce' ? '0' : '0.01'} max="100" step="0.01" required value={planDraft[code]} onChange={event => setPlanDraft(current => ({ ...current, [code]: event.target.value }))} className="w-20 rounded-lg border border-slate-200 px-2 py-2 text-center font-bold"/><span className="text-xs text-slate-500">/100</span></span></label>)}
+          <label className="block text-sm font-bold text-slate-800">{locale === 'ar' ? 'موعد تقييم المشرف' : 'Supervisor assessment frequency'}<select value={assessmentFrequency} onChange={event => setAssessmentFrequency(event.target.value as 'weekly' | 'period')} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2"><option value="weekly">{locale === 'ar' ? 'كل أسبوع' : 'Every week'}</option><option value="period">{locale === 'ar' ? 'مرة واحدة لكل فترة تدريب' : 'Once per training period'}</option></select></label>
+          <label className="block text-sm font-bold text-slate-800">{locale === 'ar' ? 'ميني أوسكي لكل فترة تدريب، ضمن السريري' : 'Mini OSCE per training period, within clinical'}<input type="number" min="0" max={Number(planDraft.clinical) - 0.01} step="0.01" value={miniOsceMax} onChange={event => setMiniOsceMax(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2"/></label>
+          {Number(planDraft.osce) > 0 && <label className="block text-sm font-bold text-slate-800">{locale === 'ar' ? 'من يُدخل الأوسكي النهائي؟' : 'Who enters final OSCE?'}<select value={osceEntryMode} onChange={event => setOsceEntryMode(event.target.value as 'assistant' | 'supervisor' | 'committee' | 'legacy_shared')} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2"><option value="legacy_shared">{locale === 'ar' ? 'الإعداد السابق: المشرف أو المساعد' : 'Previous setting: supervisor or assistant'}</option><option value="assistant">{locale === 'ar' ? 'مساعد البحث والتدريس' : 'Research and teaching assistant'}</option><option value="supervisor">{locale === 'ar' ? 'المشرف السريري' : 'Clinical supervisor'}</option><option value="committee">{locale === 'ar' ? 'لجنة مشرفين؛ واحد يُدخل العلامة المتفق عليها' : 'Supervisor panel; one records the agreed mark'}</option></select></label>}
           <label className="block rounded-xl border border-teal-200 bg-teal-50/60 p-3 text-sm"><span className="mb-2 block font-bold text-slate-800">{locale === 'ar' ? 'طريقة إدخال التقييم السريري عند المشرف' : 'Supervisor clinical score entry'}</span><select aria-label={locale === 'ar' ? 'طريقة إدخال التقييم السريري عند المشرف' : 'Supervisor clinical score entry'} value={clinicalEntryMode} onChange={event => setClinicalEntryMode(event.target.value as 'ten' | 'direct')} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold"><option value="ten">{locale === 'ar' ? `من 10 ← يُحوّل إلى ${planDraft.clinical || '…'}` : `Out of 10 → scaled to ${planDraft.clinical || '…'}`}</option><option value="direct">{locale === 'ar' ? `مباشرة من ${planDraft.clinical || '…'} دون تحويل` : `Directly out of ${planDraft.clinical || '…'} without scaling`}</option></select><span className="mt-2 block text-[11px] leading-5 text-slate-600">{locale === 'ar' ? 'ينطبق على التقييمات الجديدة؛ العلامات المحفوظة سابقًا تبقى بسقف إدخالها الأصلي.' : 'Applies to new assessments; saved marks retain their original entry scale.'}</span></label>
           <p className={`rounded-lg px-3 py-2 text-xs font-bold ${planDraftTotal === 100 ? 'bg-teal-50 text-teal-800' : 'bg-amber-50 text-amber-800'}`}>{locale === 'ar' ? `المجموع: ${planDraftTotal} / 100` : `Total: ${planDraftTotal} / 100`}</p>
           {actionError && <p className="text-xs font-bold text-red-700">{actionError}</p>}
-          <div className="flex justify-end gap-2"><button type="button" onClick={() => setPlanOpen(false)} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold">{locale === 'ar' ? 'إلغاء' : 'Cancel'}</button><button type="submit" disabled={planMutation.isPending || planDraftTotal !== 100 || Object.values(planDraft).some(value => Number(value) <= 0)} className="rounded-xl bg-teal-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">{locale === 'ar' ? 'حفظ الخطة' : 'Save plan'}</button></div>
+          <div className="flex justify-end gap-2"><button type="button" onClick={() => setPlanOpen(false)} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold">{locale === 'ar' ? 'إلغاء' : 'Cancel'}</button><button type="submit" disabled={planMutation.isPending || planDraftTotal !== 100 || Number(miniOsceMax) < 0 || Number(miniOsceMax) >= Number(planDraft.clinical) || Object.entries(planDraft).some(([code, value]) => Number(value) < (code === 'osce' ? 0 : 0.01))} className="rounded-xl bg-teal-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">{locale === 'ar' ? 'حفظ الخطة' : 'Save plan'}</button></div>
         </form>
       </div>}
       {isCompModalOpen && (

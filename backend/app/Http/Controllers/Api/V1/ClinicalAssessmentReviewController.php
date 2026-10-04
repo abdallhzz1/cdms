@@ -14,6 +14,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
 
 class ClinicalAssessmentReviewController extends Controller
@@ -26,7 +27,7 @@ class ClinicalAssessmentReviewController extends Controller
             ->with([
                 'student:id,university_number,full_name_ar,full_name_en,photo_url,batch_year',
                 'studentSubgroup.group.academicYear:id,code',
-                'rotationBlock.rotation:id,academic_year_id,course_id,clinical_period_id,code,start_date',
+                'rotationBlock.rotation.course.assessmentComponents',
             ])->orderBy('id')->get();
 
         $groupIds = $assignments->pluck('studentSubgroup.student_group_id')->filter()->unique()->values();
@@ -92,7 +93,7 @@ class ClinicalAssessmentReviewController extends Controller
             ->with([
                 'student:id,university_number,full_name_ar,full_name_en,photo_url,batch_year',
                 'studentSubgroup.group',
-                'rotationBlock.rotation.course:id,code,name_ar,name_en',
+                'rotationBlock.rotation.course.assessmentComponents',
                 'rotationBlock.rotation.academicYear:id,code',
                 'rotationBlock.rotation.clinicalPeriod:id,code,name_ar,name_en',
                 'trainingSite:id,name_ar,name_en',
@@ -110,23 +111,28 @@ class ClinicalAssessmentReviewController extends Controller
 
         $assessments = ClinicalAssessment::query()
             ->whereIn('student_clinical_assignment_id', $assignments->pluck('id'))
-            ->whereNotNull('evaluation_week')
+            ->where(fn ($query) => $query->whereNotNull('evaluation_week')->orWhere('assessment_kind', 'period'))
             ->with('evaluator:id,full_name_ar,full_name_en')
             ->orderBy('id')->get();
+        $miniScores = DB::table('clinical_mini_osce_scores')
+            ->whereIn('rotation_block_id', $assignments->pluck('rotation_block_id')->filter()->unique())
+            ->whereIn('student_id', $students->pluck('id'))
+            ->get()->keyBy(fn ($item) => $item->student_id.':'.$item->rotation_block_id);
 
         $rotations = $assignments->groupBy(fn (StudentClinicalAssignment $assignment) => (string) $assignment->rotationBlock?->rotation_id)
-            ->map(function (Collection $rotationAssignments) use ($assessments) {
+            ->map(function (Collection $rotationAssignments) use ($assessments, $miniScores) {
             $rotation = $rotationAssignments->first()?->rotationBlock?->rotation;
-            $weeks = $this->weekNumbers($rotationAssignments)->map(function (int $number) use ($rotationAssignments, $assessments, $rotation) {
-            $active = $rotationAssignments->filter(fn (StudentClinicalAssignment $assignment) =>
-                $assignment->rotationBlock
+            $weeks = $this->weekNumbers($rotationAssignments)->map(function (int $number) use ($rotationAssignments, $assessments, $rotation, $miniScores) {
+            $active = $rotationAssignments->filter(fn (StudentClinicalAssignment $assignment) => $number < 0
+                ? (int) $assignment->rotation_block_id === -$number
+                : ($assignment->rotationBlock
                 && (int) $assignment->rotationBlock->from_week <= $number
-                && (int) $assignment->rotationBlock->to_week >= $number
+                && (int) $assignment->rotationBlock->to_week >= $number)
             );
-            $weekAssessments = $assessments->where('evaluation_week', $number)
+            $weekAssessments = ($number < 0 ? $assessments->where('assessment_kind', 'period') : $assessments->where('evaluation_week', $number))
                 ->whereIn('student_clinical_assignment_id', $active->pluck('id'));
             $students = $active->unique('student_id')->sortBy(fn (StudentClinicalAssignment $assignment) => $assignment->student?->university_number ?? '')
-                ->map(function (StudentClinicalAssignment $assignment) use ($active, $weekAssessments) {
+                ->map(function (StudentClinicalAssignment $assignment) use ($active, $weekAssessments, $miniScores) {
                     $studentAssignments = $active->where('student_id', $assignment->student_id);
                     $records = $weekAssessments->where('student_id', $assignment->student_id)->map(fn (ClinicalAssessment $assessment) => [
                         'id' => $assessment->id,
@@ -143,15 +149,18 @@ class ClinicalAssessmentReviewController extends Controller
                         'supervisors' => $studentAssignments->pluck('supervisor')->filter()->unique('id')->values(),
                         'training_sites' => $studentAssignments->pluck('trainingSite')->filter()->unique('id')->values(),
                         'assessments' => $records,
+                        'mini_osce' => $miniScores->get($assignment->student_id.':'.$assignment->rotation_block_id),
                         'ready' => $records->contains(fn (array $record) => in_array($record['status'], ['submitted', 'approved'], true)),
                     ];
                 })->values();
-            $start = $rotation?->start_date ? Carbon::parse($rotation->start_date)->addWeeks($number - 1) : null;
+            $periodBlock = $number < 0 ? $active->first()?->rotationBlock : null;
+            $start = $rotation?->start_date ? Carbon::parse($rotation->start_date)->addWeeks($periodBlock ? (int) $periodBlock->from_week - 1 : max(0, $number - 1)) : null;
 
             return [
                 'number' => $number,
+                'block_code' => $periodBlock?->block_code,
                 'start_date' => $start?->toDateString(),
-                'end_date' => $start?->copy()->addDays(6)->toDateString(),
+                'end_date' => $start?->copy()->addDays($periodBlock ? max(0, ((int) $periodBlock->to_week - (int) $periodBlock->from_week + 1) * 7 - 1) : 6)->toDateString(),
                 'student_count' => $students->count(),
                 'ready_count' => $students->where('ready', true)->count(),
                 'students' => $students,
@@ -222,6 +231,10 @@ class ClinicalAssessmentReviewController extends Controller
 
     private function weekNumbers(Collection $assignments): Collection
     {
+        $course = $assignments->first()?->rotationBlock?->rotation?->course;
+        if ($course?->assessmentComponents?->firstWhere('code', 'clinical')?->assessment_frequency === 'period') {
+            return $assignments->pluck('rotation_block_id')->filter()->unique()->map(fn ($id) => -(int) $id)->values();
+        }
         return $assignments->flatMap(function (StudentClinicalAssignment $assignment) {
             $block = $assignment->rotationBlock;
 
