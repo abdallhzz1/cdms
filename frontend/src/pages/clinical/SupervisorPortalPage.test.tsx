@@ -186,7 +186,7 @@ describe('clinical supervisor workspace',()=>{
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments:[directAssignment],assessments:[oldAssessment]}));
     renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=1'});
     const score=await screen.findByRole('spinbutton',{name:'Score out of 10'});
-    expect(score).toHaveValue(9);
+    await waitFor(()=>expect(score).toHaveValue(9));
     await userEvent.clear(score);
     await userEvent.type(score,'11');
     expect(screen.getByRole('button',{name:'Submit group assessment'})).toBeDisabled();
