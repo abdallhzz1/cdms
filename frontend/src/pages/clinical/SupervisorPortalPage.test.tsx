@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { SupervisorPortalPage } from './SupervisorPortalPage';
 import { SupervisorAssessmentsPage } from './SupervisorAssessmentsPage';
+import { SupervisorOscePage } from './SupervisorOscePage';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { agendaWeekStart, buildSupervisorAgenda, preferredAgendaWeek, sortAgendaByNextSession } from './SupervisorSchedulePage';
 
@@ -165,6 +166,28 @@ describe('clinical supervisor workspace',()=>{
     const score=await screen.findByRole('spinbutton');await userEvent.type(score,'9');
     await userEvent.click(screen.getByRole('button',{name:'Submit group assessment'}));
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessment-batches')&&String(init?.body).includes('"student_id":7')&&String(init?.body).includes('"score":9'))).toBe(true));
+  });
+
+  it('records a final course OSCE mark separately from weekly assessments', async () => {
+    document.cookie='XSRF-TOKEN=test; path=/';
+    let savedScore: string | null = null;
+    const fetchSpy = vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return envelope(user);
+      if (url.includes('/my-supervisor-osce/groups')) return envelope({ assignments: workspace.assignments });
+      if (url.includes('/my-supervisor-osce') && init?.method === 'POST') { savedScore = '23.00'; return envelope({ osce_score: savedScore, grade_status: 'draft' }); }
+      if (url.includes('/my-supervisor-osce')) return envelope({ course: { id: 10, code: 'MED', name_ar: 'الباطني', name_en: 'Medicine' }, academic_year_id: 3, max_score: 25, students: [{ student: workspace.assignments[0].student, osce_score: savedScore, grade_status: 'draft' }] });
+      throw new Error(`Unmocked ${url}`);
+    });
+    renderWithProviders(<SupervisorOscePage />, { route: '/supervisor/osce' });
+    const input = await screen.findByRole('spinbutton', { name: 'OSCE Clinical Student' });
+    await userEvent.type(input, '26');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    await userEvent.clear(input);
+    await userEvent.type(input, '23');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(fetchSpy.mock.calls.some(([url, init]) => String(url).includes('/my-supervisor-osce') && init?.method === 'POST' && String(init.body).includes('"osce_score":23'))).toBe(true));
+    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes('/my-supervisor-assessment-batches'))).toBe(false);
   });
 
   it('shows score progress and names the student still missing a score',async()=>{

@@ -32,6 +32,7 @@ import { SupervisorPortalPage } from '@/pages/clinical/SupervisorPortalPage';
 import { SupervisorAttendancePage } from '@/pages/clinical/SupervisorAttendancePage';
 import { SupervisorQrAttendanceWorkspace } from '@/pages/clinical/SupervisorQrAttendanceWorkspace';
 import { SupervisorAssessmentsPage } from '@/pages/clinical/SupervisorAssessmentsPage';
+import { SupervisorOscePage } from '@/pages/clinical/SupervisorOscePage';
 import { AssessmentCriteriaPage } from '@/pages/clinical/AssessmentCriteriaPage';
 import { DeptHeadProfilePage } from '@/pages/department/DeptHeadProfilePage';
 import { ClinicalSupervisorsDirectoryPage } from '@/pages/clinical/ClinicalSupervisorsDirectoryPage';
@@ -225,6 +226,7 @@ export function App() {
                 <Route path="/supervisor/attendance" element={<SupervisorAttendancePage />} />
                 <Route path="/supervisor/attendance/qr" element={<SupervisorQrAttendanceWorkspace />} />
                 <Route path="/supervisor/assessments" element={<SupervisorAssessmentsPage />} />
+                <Route path="/supervisor/osce" element={<SupervisorOscePage />} />
                 <Route path="/assessments/criteria" element={<ProtectedRoute requiredPermission="assessment.criteria.manage"><AssessmentCriteriaPage /></ProtectedRoute>} />
                 {/* Legacy roster routes -> redirect to clinical schedule */}
                 <Route path="/departments/:id/roster" element={<Navigate to="/clinical/schedule" replace />} />

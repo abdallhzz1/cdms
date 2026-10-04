@@ -74,6 +74,8 @@ export function CourseDetailsPage() {
 
   // Modals state
   const [isCompModalOpen, setIsCompModalOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [planDraft, setPlanDraft] = useState({ clinical: '20', osce: '40', written: '40' });
   const [isIloModalOpen, setIsIloModalOpen] = useState(false);
   const [isPloModalOpen, setIsPloModalOpen] = useState(false);
   const [activeSection,setActiveSection]=useState<'outcomes'|'assessment'>('outcomes');
@@ -124,6 +126,12 @@ export function CourseDetailsPage() {
       setIsCompModalOpen(false);
       setActionError('');
     },
+    onError: (error: Error) => setActionError(error.message),
+  });
+
+  const planMutation = useMutation({
+    mutationFn: (components: Record<'clinical'|'osce'|'written', number>) => apiFetch(`/courses/${courseId}/assessment-plan`, { method: 'PUT', body: components }),
+    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['course', courseId] }); await qc.invalidateQueries({ queryKey: ['grade-options'] }); setPlanOpen(false); setActionError(''); },
     onError: (error: Error) => setActionError(error.message),
   });
 
@@ -188,6 +196,13 @@ export function CourseDetailsPage() {
   // Calculate total weights
   const totalWeight = (data.assessment_components || []).reduce((acc, item) => acc + (Number(item.weight) || 0), 0);
   const totalMaxScore = (data.assessment_components || []).reduce((acc, item) => acc + (Number(item.max_score) || 0), 0);
+  const openPlan = () => {
+    const score = (code: 'clinical'|'osce'|'written', fallback: string) => String(data.assessment_components?.find(item => item.code === code)?.max_score ?? fallback);
+    setPlanDraft({ clinical: score('clinical', '20'), osce: score('osce', '40'), written: score('written', '40') });
+    setActionError('');
+    setPlanOpen(true);
+  };
+  const planDraftTotal = Number(planDraft.clinical) + Number(planDraft.osce) + Number(planDraft.written);
   const mappingLevelLabel = (value?: string | null) => {
     const level = value || 'High';
     if (locale !== 'ar') return level;
@@ -491,7 +506,7 @@ export function CourseDetailsPage() {
                 <h2 className="font-bold text-xs text-slate-800">{locale === 'ar' ? 'مكونات التقييم' : 'Assessment Components'}</h2>
               </div>
 
-              <span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-700">{locale === 'ar' ? 'خطة موحدة مع كشف العلامات' : 'Linked to grade sheet'}</span>
+              {can('courses.manage') ? <button type="button" onClick={openPlan} className="rounded-lg border border-teal-200 bg-white px-3 py-1.5 text-[11px] font-bold text-teal-800 hover:bg-teal-50">{locale === 'ar' ? 'ضبط خطة المساق' : 'Edit course plan'}</button> : <span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-700">{locale === 'ar' ? 'مرتبطة بكشف العلامات' : 'Linked to grade sheet'}</span>}
             </div>
 
             <div className="p-4 space-y-4">
@@ -533,13 +548,13 @@ export function CourseDetailsPage() {
 
                         {can('courses.manage') && (
                           <div className="flex items-center gap-0.5">
-                            <button
+                            {!item.code && <button
                               type="button"
                               onClick={() => handleOpenCompModal(item)}
                               className="p-1 text-slate-400 hover:text-teal-700 transition-colors"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
-                            </button>
+                            </button>}
                             {!item.code && <button
                               type="button"
                               onClick={() => {
@@ -564,6 +579,15 @@ export function CourseDetailsPage() {
       </div>
 
       {/* Assessment Component Modal */}
+      {planOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-3" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPlanOpen(false); }}>
+        <form onSubmit={event => { event.preventDefault(); if (planDraftTotal !== 100 || Object.values(planDraft).some(value => !Number.isFinite(Number(value)) || Number(value) <= 0)) return; planMutation.mutate({ clinical: Number(planDraft.clinical), osce: Number(planDraft.osce), written: Number(planDraft.written) }); }} className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-5 shadow-xl" aria-label={locale === 'ar' ? 'خطة تقييم المساق' : 'Course assessment plan'}>
+          <div><h3 className="text-lg font-black text-slate-900">{locale === 'ar' ? 'خطة تقييم المساق' : 'Course assessment plan'}</h3><p className="mt-1 text-xs leading-5 text-slate-500">{locale === 'ar' ? 'اضبط المكوّنات الثلاثة معًا؛ مجموعها 100. تقييم المشرف الأسبوعي يبقى من 10 ويحوّله الكشف تلقائيًا.' : 'Set all three components together; they must total 100. Weekly supervisor marks remain out of 10 and are scaled in the grade sheet.'}</p></div>
+          {([['clinical', 'التقييم السريري', 'Clinical assessment'], ['osce', 'OSCE النهائي', 'Final OSCE'], ['written', 'الامتحان الكتابي النهائي', 'Final written exam']] as const).map(([code, arabic, english]) => <label key={code} className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 p-3 text-sm"><span className="font-bold text-slate-800">{locale === 'ar' ? arabic : english}</span><span className="flex shrink-0 items-center gap-1"><input type="number" min="0.01" max="100" step="0.01" required value={planDraft[code]} onChange={event => setPlanDraft(current => ({ ...current, [code]: event.target.value }))} className="w-20 rounded-lg border border-slate-200 px-2 py-2 text-center font-bold"/><span className="text-xs text-slate-500">/100</span></span></label>)}
+          <p className={`rounded-lg px-3 py-2 text-xs font-bold ${planDraftTotal === 100 ? 'bg-teal-50 text-teal-800' : 'bg-amber-50 text-amber-800'}`}>{locale === 'ar' ? `المجموع: ${planDraftTotal} / 100` : `Total: ${planDraftTotal} / 100`}</p>
+          {actionError && <p className="text-xs font-bold text-red-700">{actionError}</p>}
+          <div className="flex justify-end gap-2"><button type="button" onClick={() => setPlanOpen(false)} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold">{locale === 'ar' ? 'إلغاء' : 'Cancel'}</button><button type="submit" disabled={planMutation.isPending || planDraftTotal !== 100 || Object.values(planDraft).some(value => Number(value) <= 0)} className="rounded-xl bg-teal-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">{locale === 'ar' ? 'حفظ الخطة' : 'Save plan'}</button></div>
+        </form>
+      </div>}
       {isCompModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl border border-slate-100 space-y-4">

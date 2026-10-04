@@ -61,6 +61,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
             { path: '/supervisor/portal', label: locale === 'ar' ? 'لوحة المشرف' : 'Supervisor Dashboard', icon: LayoutDashboard, permission: 'supervisor.workspace.view' },
             { path: '/supervisor/attendance', label: locale === 'ar' ? 'الحضور والغياب' : 'Attendance', icon: Clock, customCheck: () => can('supervisor.workspace.view') && can('attendance.record') },
             { path: '/supervisor/assessments', label: locale === 'ar' ? 'تقييمات الطلبة' : 'Student Assessments', icon: ClipboardCheck, customCheck: () => can('supervisor.workspace.view') && can('assessment.create') },
+            { path: '/supervisor/osce', label: locale === 'ar' ? 'OSCE النهائي' : 'Final OSCE', icon: ClipboardCheck, customCheck: () => can('supervisor.workspace.view') && can('assessment.create') },
             { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: GraduationCap, permission: 'advising.view' },
           ]
         },
@@ -88,6 +89,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
           { path: '/distribution/groups', label: locale === 'ar' ? 'تسجيل مجموعات الطلبة' : 'Student Group Registration', icon: GraduationCap, permission: 'group_registration.view' },
           { path: '/clinical/schedule', label: locale === 'ar' ? 'الجدول السريري' : 'Clinical Schedule', icon: Calendar, permission: 'clinical_schedule.view' },
           { path: '/supervisor/portal', label: locale === 'ar' ? 'لوحة المشرف السريري' : 'Clinical Supervisor Workspace', icon: LayoutDashboard, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') },
+          { path: '/supervisor/osce', label: locale === 'ar' ? 'OSCE النهائي للمشرف' : 'Supervisor Final OSCE', icon: ClipboardCheck, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') && can('assessment.create') },
           { path: '/attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance Log', icon: Clock, permission: 'attendance.review' },
           { path: '/assessments', label: locale === 'ar' ? 'مراجعة التقييمات السريرية' : 'Clinical Assessment Review', icon: ClipboardCheck, permission: 'assessment.review' },
           { path: '/assessments/criteria', label: locale === 'ar' ? 'إعداد نموذج التقييم' : 'Assessment Template', icon: Settings, permission: 'assessment.criteria.manage' },

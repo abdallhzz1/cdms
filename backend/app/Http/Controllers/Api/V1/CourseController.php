@@ -11,6 +11,7 @@ use App\Models\CourseLearningOutcome;
 use App\Models\CourseProgramOutcomeMapping;
 use App\Models\Department;
 use App\Models\AuditLog;
+use App\Models\GradeEntry;
 use App\Services\DepartmentHeadCourseScope;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
@@ -187,10 +188,49 @@ class CourseController extends Controller
     /**
      * Assessment Components Sub-Resource API
      */
+    public function updateAssessmentPlan(Request $request, Course $course): JsonResponse
+    {
+        $this->authorizeCourseAccess($course);
+        $scores = $request->validate([
+            'clinical' => ['required', 'numeric', 'gt:0', 'max:100'],
+            'osce' => ['required', 'numeric', 'gt:0', 'max:100'],
+            'written' => ['required', 'numeric', 'gt:0', 'max:100'],
+        ]);
+        if (abs(array_sum(array_map('floatval', $scores)) - 100.0) > 0.001) {
+            throw ValidationException::withMessages(['assessment_plan' => [
+                'مجموع علامات التقييم السريري وOSCE والامتحان النظري يجب أن يساوي 100.',
+            ]]);
+        }
+
+        $components = DB::transaction(function () use ($course, $scores) {
+            $items = $course->assessmentComponents()->lockForUpdate()->get()->keyBy('code');
+            if ($items->count() !== 3 || ! collect(['clinical', 'osce', 'written'])->every(fn ($code) => $items->has($code))) {
+                throw ValidationException::withMessages(['assessment_plan' => ['خطة تقييم المساق غير مكتملة؛ راجع مكوناتها قبل التعديل.']]);
+            }
+            if (GradeEntry::query()->whereHas('enrollment', fn ($query) => $query->where('course_id', $course->id))->exists()) {
+                throw ValidationException::withMessages(['assessment_plan' => ['لا يمكن تغيير خطة المساق بعد إنشاء كشوف علامات له، حتى لا تتغير العلامات المحفوظة بأثر رجعي.']]);
+            }
+
+            $previous = $items->mapWithKeys(fn ($item, $code) => [$code => (float) $item->max_score])->all();
+            foreach ($scores as $code => $score) {
+                $items[$code]->update(['weight' => $score, 'max_score' => $score]);
+            }
+            AuditLog::create([
+                'user_id' => auth()->id(), 'action' => 'course.assessment_plan.updated',
+                'entity_type' => Course::class, 'entity_id' => $course->id,
+                'changes' => ['previous' => $previous, 'current' => $scores],
+            ]);
+
+            return $course->assessmentComponents()->orderBy('id')->get();
+        });
+
+        return ApiResponse::success($components, 'Course assessment plan updated.');
+    }
+
     public function addAssessmentComponent(Request $request, Course $course): JsonResponse {
         $this->authorizeCourseAccess($course);
         throw ValidationException::withMessages([
-            'assessment_components' => ['خطة التقييم موحدة: التقييم السريري 20%، وOSCE بنسبة 40%، والامتحان النظري 40%.'],
+            'assessment_components' => ['تتكون الخطة من التقييم السريري وOSCE والامتحان النظري؛ عدّل أوزانها معًا من شاشة خطة تقييم المساق.'],
         ]);
 
     }
@@ -208,8 +248,14 @@ class CourseController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        if ($component->code && array_key_exists('weight', $validated)) {
-            $validated['max_score'] = $validated['weight'];
+        if ($component->code && (array_key_exists('weight', $validated) || array_key_exists('max_score', $validated))) {
+            throw ValidationException::withMessages(['assessment_plan' => ['عدّل أوزان مكوّنات المساق الثلاثة معًا من شاشة خطة تقييم المساق.']]);
+        }
+
+        $changesScore = (array_key_exists('weight', $validated) && (float) $validated['weight'] !== (float) $component->weight)
+            || (array_key_exists('max_score', $validated) && (float) $validated['max_score'] !== (float) $component->max_score);
+        if ($changesScore && GradeEntry::query()->whereHas('enrollment', fn ($query) => $query->where('course_id', $course->id))->exists()) {
+            throw ValidationException::withMessages(['assessment_plan' => ['لا يمكن تغيير خطة المساق بعد إنشاء كشوف علامات له.']]);
         }
 
         $this->validateAssessmentWeight($course, (float) ($validated['weight'] ?? $component->weight ?? 0), $component->id);

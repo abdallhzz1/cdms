@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AcademicYear;
 use App\Models\Course;
+use App\Models\GradeEntry;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Student;
@@ -80,11 +81,14 @@ class CourseManagementWorkflowTest extends TestCase
         $osce = $course->assessmentComponents()->where('code', 'osce')->firstOrFail();
         $this->actingAs($this->manager)->putJson("/api/v1/courses/{$course->id}/assessment-components/{$osce->id}", [
             'name' => 'الفحص السريري الموضوعي OSCE', 'weight' => 35,
+        ])->assertUnprocessable()->assertJsonValidationErrors('assessment_plan');
+        $this->actingAs($this->manager)->putJson("/api/v1/courses/{$course->id}/assessment-components/{$osce->id}", [
+            'name' => 'الفحص السريري الموضوعي OSCE',
         ])->assertOk()
             ->assertJsonPath('data.code', 'osce')
             ->assertJsonPath('data.name', 'الفحص السريري الموضوعي OSCE')
-            ->assertJsonPath('data.weight', '35.00')
-            ->assertJsonPath('data.max_score', '35.00');
+            ->assertJsonPath('data.weight', '40.00')
+            ->assertJsonPath('data.max_score', '40.00');
 
         $this->actingAs($this->manager)->postJson("/api/v1/courses/{$course->id}/learning-outcomes", [
             'outcome_code' => 'ILO-1', 'text_ar' => 'مخرج تعلم',
@@ -99,6 +103,30 @@ class CourseManagementWorkflowTest extends TestCase
         $this->actingAs($this->manager)->postJson("/api/v1/courses/{$course->id}/program-outcome-mappings", [
             'program_outcome_code' => 'PLO-MISSING', 'mapping_level' => 'High',
         ])->assertUnprocessable()->assertJsonValidationErrors('program_outcome_code');
+    }
+
+    public function test_complete_course_plan_changes_atomically_and_is_locked_after_grade_entry_exists(): void
+    {
+        $course = Course::factory()->create();
+        $path = "/api/v1/courses/{$course->id}/assessment-plan";
+
+        $this->actingAs($this->manager)->putJson($path, ['clinical' => 15, 'osce' => 25, 'written' => 50])
+            ->assertUnprocessable()->assertJsonValidationErrors('assessment_plan');
+        $this->assertDatabaseHas('course_assessment_components', ['course_id' => $course->id, 'code' => 'clinical', 'max_score' => 20]);
+
+        $this->actingAs($this->manager)->putJson($path, ['clinical' => 15, 'osce' => 25, 'written' => 60])
+            ->assertOk()->assertJsonCount(3, 'data');
+        foreach (['clinical' => 15, 'osce' => 25, 'written' => 60] as $code => $score) {
+            $this->assertDatabaseHas('course_assessment_components', ['course_id' => $course->id, 'code' => $code, 'weight' => $score, 'max_score' => $score]);
+        }
+
+        $student = Student::factory()->create();
+        $year = AcademicYear::factory()->create();
+        $enrollment = StudentCourseEnrollment::create(['student_id' => $student->id, 'course_id' => $course->id, 'academic_year_id' => $year->id, 'semester' => 'FIRST']);
+        GradeEntry::create(['student_course_enrollment_id' => $enrollment->id, 'max_score' => 100, 'status' => 'draft']);
+        $this->actingAs($this->manager)->putJson($path, ['clinical' => 20, 'osce' => 20, 'written' => 60])
+            ->assertUnprocessable()->assertJsonValidationErrors('assessment_plan');
+        $this->assertDatabaseHas('course_assessment_components', ['course_id' => $course->id, 'code' => 'clinical', 'max_score' => 15]);
     }
 
     public function test_archiving_a_referenced_course_preserves_related_records(): void

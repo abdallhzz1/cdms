@@ -344,6 +344,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('courses/{course}/report.pdf', [CourseReportController::class, 'exportCourseDetails'])->middleware('permission:courses.view');
         Route::put('courses/{course}', [CourseController::class, 'update'])->middleware('permission:courses.manage');
         Route::delete('courses/{course}', [CourseController::class, 'destroy'])->middleware('permission:courses.manage');
+        Route::put('courses/{course}/assessment-plan', [CourseController::class, 'updateAssessmentPlan'])->middleware('permission:courses.manage');
         Route::post('courses/{course}/assessment-components', [CourseController::class, 'addAssessmentComponent'])->middleware('permission:courses.manage');
         Route::put('courses/{course}/assessment-components/{componentId}', [CourseController::class, 'updateAssessmentComponent'])->middleware('permission:courses.manage');
         Route::delete('courses/{course}/assessment-components/{componentId}', [CourseController::class, 'deleteAssessmentComponent'])->middleware('permission:courses.manage');
@@ -902,6 +903,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('operational/my-supervisor-assessment-batches', [SupervisorController::class, 'storeAssessmentBatch'])
             ->middleware('permission:assessment.create')
             ->name('operational.my-supervisor-assessment-batches');
+        Route::get('operational/my-supervisor-osce/groups', [SupervisorController::class, 'osceGroups'])
+            ->middleware('permission:assessment.create');
+        Route::get('operational/my-supervisor-osce', [SupervisorController::class, 'osceRoster'])
+            ->middleware('permission:assessment.create');
+        Route::post('operational/my-supervisor-osce', [SupervisorController::class, 'recordOsce'])
+            ->middleware('permission:assessment.create');
         Route::post('operational/my-supervisor-student-notes', [SupervisorController::class, 'storeStudentNote'])
             ->middleware('permission:supervisor.workspace.view')
             ->name('operational.my-supervisor-student-notes.store');

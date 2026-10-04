@@ -204,24 +204,30 @@ class ReportCenterService
 
     private function grades(array $filters): array
     {
-        $query = GradeEntry::query()->with(['enrollment.student', 'enrollment.course', 'enrollment.academicYear']);
+        $query = GradeEntry::query()->with(['enrollment.student', 'enrollment.course.assessmentComponents', 'enrollment.academicYear']);
         app(\App\Services\DepartmentHeadCourseScope::class)->grades($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->whereHas('enrollment', fn ($e) => $e->where('academic_year_id', $year)));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('enrollment.student', fn ($s) => $s->where('academic_level', $level)));
-        $rows = $query->get()->map(fn (GradeEntry $grade) => [
-            $grade->enrollment?->student?->university_number,
-            $grade->enrollment?->student?->full_name_ar,
-            $grade->enrollment?->course?->name_ar,
-            $grade->enrollment?->academicYear?->code,
-            $grade->clinical_score,
-            $grade->osce_score,
-            $grade->written_score,
-            $grade->score,
-            $grade->max_score,
-            $this->workflowStatus($grade->status),
-        ]);
+        $rows = $query->get()->map(function (GradeEntry $grade) {
+            $components = $grade->enrollment?->course?->assessmentComponents?->keyBy('code');
+            return [
+                $grade->enrollment?->student?->university_number,
+                $grade->enrollment?->student?->full_name_ar,
+                $grade->enrollment?->course?->name_ar,
+                $grade->enrollment?->academicYear?->code,
+                $grade->clinical_score,
+                $components?->get('clinical')?->max_score,
+                $grade->osce_score,
+                $components?->get('osce')?->max_score,
+                $grade->written_score,
+                $components?->get('written')?->max_score,
+                $grade->score,
+                $grade->max_score,
+                $this->workflowStatus($grade->status),
+            ];
+        });
 
-        return ['columns' => ['الرقم الجامعي', 'اسم الطالب', 'المساق', 'العام الأكاديمي', 'السريري', 'OSCE', 'الكتابي', 'العلامة', 'من', 'الحالة'], 'rows' => $rows->all()];
+        return ['columns' => ['الرقم الجامعي', 'اسم الطالب', 'المساق', 'العام الأكاديمي', 'السريري', 'السريري من', 'OSCE', 'OSCE من', 'الكتابي', 'الكتابي من', 'العلامة', 'من', 'الحالة'], 'rows' => $rows->all()];
     }
 
     private function attendance(array $filters): array

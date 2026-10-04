@@ -201,9 +201,9 @@ class GradeEntryController extends Controller
         $data = $request->validate([
             'student_course_enrollment_id' => ['required', 'exists:student_course_enrollments,id'],
             'score' => ['nullable', 'numeric', 'min:0'],
-            'clinical_score' => ['nullable', 'numeric', 'between:0,20'],
-            'osce_score' => ['nullable', 'numeric', 'between:0,40'],
-            'written_score' => ['nullable', 'numeric', 'between:0,40'],
+            'clinical_score' => ['nullable', 'numeric', 'min:0'],
+            'osce_score' => ['nullable', 'numeric', 'min:0'],
+            'written_score' => ['nullable', 'numeric', 'min:0'],
             'max_score' => ['required', 'numeric', 'gt:0'],
             'notes' => ['nullable', 'string', 'max:2000']
         ]);
@@ -213,6 +213,13 @@ class GradeEntryController extends Controller
         $this->authorizeStudentAccess($enrollment->student);
         $this->authorizeCourseDepartmentAccess($enrollment->course);
         app(DepartmentHeadCourseScope::class)->authorizeStudentForCourse($enrollment->student_id, $enrollment->course_id, $enrollment->academic_year_id);
+        $plan = $this->standardAssessmentPlan($enrollment->course->loadMissing('assessmentComponents'));
+        foreach (['osce', 'written'] as $component) {
+            $field = $component.'_score';
+            if (isset($data[$field]) && (float) $data[$field] > (float) $plan[$component]->max_score) {
+                throw \Illuminate\Validation\ValidationException::withMessages([$field => ['العلامة تتجاوز الحد الأعلى المحدد لهذا المساق: '.$plan[$component]->max_score]]);
+            }
+        }
 
         if (isset($data['score']) && $data['score'] > $data['max_score']) {
             return ApiResponse::error('Score cannot exceed maximum score.', ['score' => ['Score cannot exceed maximum score.']], [], 422);
@@ -221,13 +228,14 @@ class GradeEntryController extends Controller
         $officialClinical = $this->clinicalScores([$enrollment->student_id], $enrollment->course_id, $enrollment->academic_year_id)->get($enrollment->student_id);
         $data['clinical_score'] = $officialClinical;
         $data['score'] = $this->totalScore($data['clinical_score'], $data['osce_score'] ?? null, $data['written_score'] ?? null);
+        $data['max_score'] = 100;
 
         $grade = DB::transaction(function () use ($data) {
             $grade = GradeEntry::where('student_course_enrollment_id', $data['student_course_enrollment_id'])
                 ->lockForUpdate()
                 ->first();
 
-            if ($grade && in_array($grade->status, ['approved', 'published', 'locked'], true)) {
+            if ($grade && in_array($grade->status, ['submitted', 'approved', 'published', 'locked'], true)) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     'status' => ['Approved or locked grades cannot be edited.'],
                 ]);
@@ -309,7 +317,7 @@ class GradeEntryController extends Controller
                         'clinical_score' => $officialClinical->get($gradeData['student_id']),
                         'osce_score' => $gradeData['osce_score'] ?? null,
                         'written_score' => $gradeData['written_score'] ?? null,
-                        'max_score' => $gradeData['max_score'] ?? 100,
+                        'max_score' => 100,
                         'notes' => $gradeData['notes'] ?? null,
                         'status' => 'draft',
                         'prepared_by_user_id' => auth()->id(),

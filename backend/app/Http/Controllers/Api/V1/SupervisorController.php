@@ -10,6 +10,8 @@ use App\Models\ClinicalAssessment;
 use App\Models\ClinicalAssessmentTemplate;
 use App\Models\ClinicalQrAttendanceSession;
 use App\Models\ClinicalSession;
+use App\Models\GradeEntry;
+use App\Models\StudentCourseEnrollment;
 use App\Models\DistributionVersion;
 use App\Models\Person;
 use App\Models\StudentClinicalAssignment;
@@ -465,6 +467,113 @@ class SupervisorController extends Controller
                 ? 'تم إرسال التقييم السريري إلى مساعد البحث والتدريس وإتاحته في كشف العلامات.'
                 : 'The clinical assessment was sent to the research and teaching assistant and is now available in the grade sheet.'
         );
+    }
+
+    /** A final OSCE mark belongs to a course/year grade entry, never to a weekly assessment. */
+    public function osceGroups(Request $request): JsonResponse
+    {
+        [, $person] = $this->supervisorIdentity($request);
+        $assignments = StudentClinicalAssignment::query()
+            ->where('supervisor_id', $person->id)
+            ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published'))
+            ->with([
+                'student:id,university_number,full_name_ar,full_name_en,batch_year,photo_url',
+                'studentSubgroup.group', 'rotationBlock.rotation.academicYear',
+                'rotationBlock.rotation.course', 'trainingSite:id,name_ar,name_en',
+            ])->orderByDesc('id')->get();
+
+        return ApiResponse::success(['assignments' => $assignments]);
+    }
+
+    public function osceRoster(Request $request): JsonResponse
+    {
+        [, $person] = $this->supervisorIdentity($request);
+        $data = $request->validate(['assignment_id' => ['required', 'integer']]);
+        $assignment = $this->ownedPublishedAssignment($person, (int) $data['assignment_id']);
+        [$course, $yearId, $maxScore] = $this->osceContext($assignment);
+        $students = $this->assignmentGroupQuery($assignment)
+            ->with('student:id,university_number,full_name_ar,full_name_en,photo_url')
+            ->orderBy('student_id')->get()->pluck('student')->filter()->unique('id')->values();
+        $entries = GradeEntry::query()->with('enrollment:id,student_id,course_id,academic_year_id')
+            ->whereHas('enrollment', fn ($query) => $query->where('course_id', $course->id)
+                ->where('academic_year_id', $yearId)->whereIn('student_id', $students->pluck('id')))
+            ->get()->keyBy(fn (GradeEntry $entry) => $entry->enrollment->student_id);
+
+        return ApiResponse::success([
+            'course' => $course->only(['id', 'code', 'name_ar', 'name_en']),
+            'academic_year_id' => $yearId,
+            'max_score' => $maxScore,
+            'students' => $students->map(fn ($student) => [
+                'student' => $student,
+                'osce_score' => $entries->get($student->id)?->osce_score,
+                'grade_status' => $entries->get($student->id)?->status,
+            ])->values(),
+        ]);
+    }
+
+    public function recordOsce(Request $request): JsonResponse
+    {
+        [, $person] = $this->supervisorIdentity($request);
+        $data = $request->validate([
+            'assignment_id' => ['required', 'integer'],
+            'student_id' => ['required', 'integer', 'exists:students,id'],
+            'osce_score' => ['required', 'numeric', 'min:0'],
+        ]);
+        $assignment = $this->ownedPublishedAssignment($person, (int) $data['assignment_id']);
+        abort_unless($this->assignmentGroupQuery($assignment)->where('student_id', $data['student_id'])->exists(), 403);
+        [$course, $yearId, $maxScore] = $this->osceContext($assignment);
+        if ((float) $data['osce_score'] > $maxScore) {
+            throw ValidationException::withMessages(['osce_score' => ["علامة OSCE لهذا المساق يجب أن تكون من 0 إلى {$maxScore}."]]);
+        }
+
+        $grade = DB::transaction(function () use ($course, $yearId, $data) {
+            $enrollment = StudentCourseEnrollment::firstOrCreate(
+                ['student_id' => $data['student_id'], 'course_id' => $course->id, 'academic_year_id' => $yearId, 'semester' => 'FIRST'],
+                ['status' => 'enrolled'],
+            );
+            $grade = GradeEntry::query()->where('student_course_enrollment_id', $enrollment->id)->lockForUpdate()->first();
+            if ($grade && in_array($grade->status, ['submitted', 'approved', 'published', 'locked'], true)) {
+                throw ValidationException::withMessages(['osce_score' => ['لا يمكن تغيير OSCE بعد إرسال كشف العلامات أو اعتماده.']]);
+            }
+
+            $old = $grade?->osce_score;
+            $osce = round((float) $data['osce_score'], 2);
+            $grade ??= new GradeEntry(['student_course_enrollment_id' => $enrollment->id, 'max_score' => 100, 'status' => 'draft', 'prepared_by_user_id' => auth()->id()]);
+            $grade->osce_score = $osce;
+            $grade->score = $grade->clinical_score !== null && $grade->written_score !== null
+                ? round((float) $grade->clinical_score + $osce + (float) $grade->written_score, 2)
+                : null;
+            $grade->save();
+            AuditLog::create([
+                'user_id' => auth()->id(), 'action' => 'grade.osce.recorded',
+                'entity_type' => GradeEntry::class, 'entity_id' => $grade->id,
+                'changes' => ['previous' => $old, 'current' => $osce, 'course_id' => $course->id, 'academic_year_id' => $yearId],
+            ]);
+
+            return $grade;
+        });
+
+        return ApiResponse::success(['osce_score' => $grade->osce_score, 'grade_status' => $grade->status], 'Final OSCE score saved.');
+    }
+
+    private function osceContext(StudentClinicalAssignment $assignment): array
+    {
+        $assignment->loadMissing('rotationBlock.rotation.course.assessmentComponents');
+        $course = $assignment->rotationBlock?->rotation?->course;
+        $yearId = $assignment->rotationBlock?->rotation?->academic_year_id;
+        abort_unless($course && $yearId, 422, 'The assignment must have a course and academic year.');
+        $component = $course->assessmentComponents->firstWhere('code', 'osce');
+        abort_unless($component && (float) $component->max_score > 0, 422, 'This course has no configured OSCE mark.');
+
+        return [$course, (int) $yearId, (float) $component->max_score];
+    }
+
+    private function ownedPublishedAssignment(Person $person, int $assignmentId): StudentClinicalAssignment
+    {
+        return StudentClinicalAssignment::query()->whereKey($assignmentId)
+            ->where('supervisor_id', $person->id)
+            ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published'))
+            ->firstOrFail();
     }
 
     private function persistWeeklyAssessment(

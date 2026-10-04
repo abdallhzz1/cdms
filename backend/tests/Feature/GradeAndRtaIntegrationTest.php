@@ -296,6 +296,40 @@ class GradeAndRtaIntegrationTest extends TestCase
         ])->assertUnprocessable()->assertJsonValidationErrors('grades.0.osce_score');
     }
 
+    public function test_course_specific_15_25_60_plan_scales_supervisor_marks_and_validates_final_scores(): void
+    {
+        $year = AcademicYear::factory()->create();
+        $course = Course::factory()->create(['academic_level' => 'fourth']);
+        foreach (['clinical' => 15, 'osce' => 25, 'written' => 60] as $code => $max) {
+            $course->assessmentComponents()->where('code', $code)->update(['weight' => $max, 'max_score' => $max]);
+        }
+        $student = Student::factory()->create(['academic_level' => 'fourth']);
+        $rotation = Rotation::factory()->create(['course_id' => $course->id, 'academic_year_id' => $year->id, 'academic_level' => 'fourth']);
+        $block = RotationBlock::factory()->create(['rotation_id' => $rotation->id]);
+        $session = ClinicalSession::create(['rotation_block_id' => $block->id, 'session_date' => '2026-09-10', 'title' => 'Weekly assessment']);
+        ClinicalAssessment::create(['student_id' => $student->id, 'clinical_session_id' => $session->id, 'score' => 9, 'max_score' => 10, 'status' => 'submitted']);
+
+        $role = Role::create(['code' => 'DYNAMIC_GRADE_EDITOR', 'name_key' => 'test.dynamic.grade']);
+        $role->permissions()->attach(Permission::where('code', 'grades.create')->firstOrFail()->id, ['scope_type' => 'global']);
+        $editor = User::factory()->create();
+        $editor->roles()->attach($role);
+        $payload = ['course_code' => $course->code, 'academic_year_id' => $year->id, 'grades' => [[
+            'student_id' => $student->id, 'osce_score' => 23, 'written_score' => 54, 'max_score' => 100,
+        ]]];
+        $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch', $payload)->assertOk();
+        $this->assertDatabaseHas('grade_entries', ['clinical_score' => 13.5, 'osce_score' => 23, 'written_score' => 54, 'score' => 90.5]);
+        $report = app(\App\Services\Reports\ReportCenterService::class)->report('grades', ['academic_year_id' => $year->id]);
+        $this->assertCount(1, $report['rows']);
+        $this->assertSame([15.0, 25.0, 60.0], array_map('floatval', [$report['rows'][0][5], $report['rows'][0][7], $report['rows'][0][9]]));
+        $payload['grades'][0]['osce_score'] = 26;
+        $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch', $payload)
+            ->assertUnprocessable()->assertJsonValidationErrors('grades.0.osce_score');
+        $payload['grades'][0]['osce_score'] = 23;
+        $payload['grades'][0]['written_score'] = 61;
+        $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch', $payload)
+            ->assertUnprocessable()->assertJsonValidationErrors('grades.0.written_score');
+    }
+
     public function test_grade_submission_explains_missing_supervisor_scores_in_request_language_and_refreshes_them(): void
     {
         $year = AcademicYear::factory()->create();

@@ -5,6 +5,7 @@ namespace Tests\Feature\Phase5C;
 use App\Models\AuditLog;
 use App\Models\Department;
 use App\Models\Course;
+use App\Models\GradeEntry;
 use App\Models\ClinicalAssessmentTemplate;
 use App\Models\DistributionVersion;
 use App\Models\Permission;
@@ -734,6 +735,44 @@ class Phase5CTest extends TestCase
             'score' => 8,
         ]);
         $this->assertSame(2, \App\Models\ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->where('status', 'submitted')->count());
+    }
+
+    public function test_supervisor_records_one_final_osce_mark_using_course_limit_without_touching_weekly_assessments(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $this->assignment2->update(['supervisor_id' => $this->supervisor1->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::where('code', 'assessment.create')->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all(),
+        );
+        $this->admin->roles()->attach($supervisorRole);
+        foreach (['clinical' => 15, 'osce' => 25, 'written' => 60] as $code => $score) {
+            $this->course->assessmentComponents()->where('code', $code)->update(['weight' => $score, 'max_score' => $score]);
+        }
+
+        $path = '/api/v1/operational/my-supervisor-osce';
+        $this->actingAs($this->admin)->getJson($path.'?assignment_id='.$this->assignment1->id)
+            ->assertOk()->assertJsonPath('data.max_score', 25)->assertJsonCount(2, 'data.students');
+        $this->actingAs($this->admin)->postJson($path, [
+            'assignment_id' => $this->assignment1->id, 'student_id' => $this->student1->id, 'osce_score' => 25.25,
+        ])->assertUnprocessable()->assertJsonValidationErrors('osce_score');
+        $this->actingAs($this->admin)->postJson($path, [
+            'assignment_id' => $this->assignment1->id, 'student_id' => $this->student1->id, 'osce_score' => 23.5,
+        ])->assertOk()->assertJsonPath('data.osce_score', '23.50');
+
+        $this->assertDatabaseCount('clinical_assessments', 0);
+        $this->assertDatabaseCount('grade_entries', 1);
+        $grade = GradeEntry::firstOrFail();
+        $this->assertSame('23.50', $grade->osce_score);
+        $this->assertNull($grade->clinical_score);
+        $this->assertNull($grade->written_score);
+        $this->assertDatabaseHas('audit_logs', ['entity_type' => GradeEntry::class, 'entity_id' => $grade->id, 'action' => 'grade.osce.recorded']);
+
+        $grade->update(['status' => 'submitted']);
+        $this->actingAs($this->admin)->postJson($path, [
+            'assignment_id' => $this->assignment1->id, 'student_id' => $this->student1->id, 'osce_score' => 22,
+        ])->assertUnprocessable()->assertJsonValidationErrors('osce_score');
+        $this->assertSame('23.50', $grade->fresh()->osce_score);
     }
 
     // =========================================================================
