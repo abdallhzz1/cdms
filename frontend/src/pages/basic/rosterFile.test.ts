@@ -19,7 +19,7 @@ describe('basic attendance roster template and preview', () => {
     });
     const book = xlsx.read(buffer, { type: 'array' });
     expect(book.SheetNames).toEqual(['Students', 'تعليمات']);
-    expect(xlsx.utils.sheet_to_json(book.Sheets.Students, { header: 1 })[0]).toEqual(['university_number', 'name', 'email', 'photo_url']);
+    expect(xlsx.utils.sheet_to_json(book.Sheets.Students, { header: 1 })[0]).toEqual(['StudentNo', 'StudentName', 'Email']);
     expect(parseRoster(xlsx, buffer, 'ar').errors.length).toBeGreaterThan(0);
   });
 
@@ -27,6 +27,28 @@ describe('basic attendance roster template and preview', () => {
     const result = parseRoster(xlsx, workbook([['الرقم الجامعي', 'الاسم', 'البريد الجامعي'], ['00123456', 'طالبة تجريبية', 'TEST@university.edu']]), 'ar');
     expect(result.errors).toEqual([]);
     expect(result.rows).toEqual([{ university_number: '00123456', name: 'طالبة تجريبية', email: 'test@university.edu' }]);
+  });
+
+  it('imports an unmodified university-style roster with numeric StudentNo cells', () => {
+    const result = parseRoster(xlsx, workbook([
+      ['StudentNo', 'StudentName', 'Email'],
+      [22410001, 'طالب تجريبي أول', '22410001@students.example.edu'],
+      [22410002, 'طالبة تجريبية ثانية', '22410002@students.example.edu'],
+    ]), 'ar');
+    expect(result.errors).toEqual([]);
+    expect(result.rows).toEqual([
+      { university_number: '22410001', name: 'طالب تجريبي أول', email: '22410001@students.example.edu' },
+      { university_number: '22410002', name: 'طالبة تجريبية ثانية', email: '22410002@students.example.edu' },
+    ]);
+  });
+
+  it('still accepts the previous template including optional photo URLs', () => {
+    const result = parseRoster(xlsx, workbook([
+      ['university_number', 'name', 'email', 'photo_url'],
+      ['00123456', 'Synthetic Student', 'student@example.edu', 'https://example.edu/photo.jpg'],
+    ]), 'en');
+    expect(result.errors).toEqual([]);
+    expect(result.rows[0]).toEqual({ university_number: '00123456', name: 'Synthetic Student', email: 'student@example.edu', photo_url: 'https://example.edu/photo.jpg' });
   });
 
   it('shows row-level problems and blocks the whole import when data is invalid', () => {
