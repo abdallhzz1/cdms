@@ -72,6 +72,7 @@ describe('clinical supervisor workspace',()=>{
     vi.spyOn(window,'fetch').mockImplementation(async()=>envelope({...user,roles:['CLINICAL_SUPERVISOR','DEPARTMENT_HEAD']}));
     renderWithProviders(<Sidebar/>);
     expect(await screen.findByText('Clinical Supervisor Workspace')).toBeVisible();
+    expect(screen.getByRole('link',{name:'Supervisor Final OSCE'})).toHaveAttribute('href','/supervisor/osce');
     expect(screen.queryByText('My Students Attendance')).not.toBeInTheDocument();
     expect(screen.queryByText('My Student Assessments')).not.toBeInTheDocument();
   });
@@ -87,6 +88,7 @@ describe('clinical supervisor workspace',()=>{
     const actions=screen.getByRole('navigation',{name:'Supervisor actions'});
     expect(within(actions).getByRole('link',{name:'Attendance'})).toHaveAttribute('href','/supervisor/attendance');
     expect(within(actions).getByRole('link',{name:'Student assessments'})).toHaveAttribute('href','/supervisor/assessments');
+    expect(within(actions).getByRole('link',{name:'Final OSCE'})).toHaveAttribute('href','/supervisor/osce');
   });
 
   it.each([
@@ -97,20 +99,22 @@ describe('clinical supervisor workspace',()=>{
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope({...user,roles:[firstRole,secondRole]}):envelope(workspace));
     renderWithProviders(<SupervisorPortalPage/>,{route:'/supervisor/portal'});
     const actions=await screen.findByRole('navigation',{name:'Supervisor actions'});
-    expect(within(actions).getAllByRole('link')).toHaveLength(2);
+    expect(within(actions).getAllByRole('link')).toHaveLength(3);
     expect(within(actions).getByRole('link',{name:'Attendance'})).toHaveAttribute('href','/supervisor/attendance');
     expect(within(actions).getByRole('link',{name:'Student assessments'})).toHaveAttribute('href','/supervisor/assessments');
+    expect(within(actions).getByRole('link',{name:'Final OSCE'})).toHaveAttribute('href','/supervisor/osce');
     expect(actions).toHaveClass('grid-cols-2');
     expect(actions.compareDocumentPosition(screen.getByRole('heading',{name:'My clinical schedule'}))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('keeps two concise Arabic actions on mobile even when there are no scheduled sessions',async()=>{
+  it('keeps three concise Arabic actions on mobile even when there are no scheduled sessions',async()=>{
     window.localStorage.setItem('cdms.locale','ar');
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope({...user,roles:['CLINICAL_DIRECTOR','CLINICAL_SUPERVISOR']}):envelope({...workspace,assignments:[]}));
     renderWithProviders(<SupervisorPortalPage/>,{route:'/supervisor/portal'});
     const actions=await screen.findByRole('navigation',{name:'إجراءات المشرف السريري'});
     expect(within(actions).getByRole('link',{name:'الحضور والغياب'})).toHaveClass('min-h-12');
     expect(within(actions).getByRole('link',{name:'تقييم الطلبة'})).toHaveAttribute('href','/supervisor/assessments');
+    expect(within(actions).getByRole('link',{name:'OSCE النهائي'})).toHaveAttribute('href','/supervisor/osce');
     expect(screen.getByText('لا توجد جلسات ظاهرة. راجع التكليف المنشور وأيام العمل المحددة لك.')).toBeVisible();
   });
 
@@ -122,9 +126,9 @@ describe('clinical supervisor workspace',()=>{
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(limitedUser):envelope(workspace));
     renderWithProviders(<SupervisorPortalPage/>,{route:'/supervisor/portal'});
     const actions=await screen.findByRole('navigation',{name:'Supervisor actions'});
-    expect(within(actions).getAllByRole('link')).toHaveLength(1);
-    expect(within(actions).getByRole('link')).toHaveAttribute('href',path);
-    expect(actions).toHaveClass('grid-cols-1');
+    expect(within(actions).getAllByRole('link')).toHaveLength(permission==='assessment.create'?2:1);
+    expect(within(actions).getAllByRole('link')[0]).toHaveAttribute('href',path);
+    expect(actions).toHaveClass(permission==='assessment.create'?'grid-cols-2':'grid-cols-1');
     expect(screen.getAllByRole('link').some(link=>link.getAttribute('href')?.startsWith(otherPath))).toBe(false);
   });
 
@@ -215,6 +219,31 @@ describe('clinical supervisor workspace',()=>{
     await userEvent.click(screen.getByRole('button', { name: 'Save OSCE for Clinical Student' }));
     await waitFor(() => expect(fetchSpy.mock.calls.some(([url, init]) => String(url).includes('/my-supervisor-osce') && init?.method === 'POST' && String(init.body).includes('"osce_score":23'))).toBe(true));
     expect(fetchSpy.mock.calls.some(([url]) => String(url).includes('/my-supervisor-assessment-batches'))).toBe(false);
+  });
+
+  it('keeps the full student name above the OSCE controls on a narrow screen',async()=>{
+    const longName='Clinical Student With A Full Family Name';
+    vi.spyOn(window,'fetch').mockImplementation(async input=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope(user);
+      if(url.includes('/my-supervisor-osce/groups'))return envelope({assignments:workspace.assignments});
+      if(url.includes('/my-supervisor-osce'))return envelope({course:{id:10,code:'MED',name_ar:'الجراحة العامة',name_en:'General Surgery'},academic_year_id:3,max_score:25,students:[{student:{...workspace.assignments[0].student,full_name_en:longName},osce_score:null,grade_status:null}]});
+      throw new Error(`Unmocked ${url}`);
+    });
+    renderWithProviders(<SupervisorOscePage/>,{route:'/supervisor/osce'});
+    expect(await screen.findByText(longName)).toHaveClass('whitespace-normal','break-words');
+    expect(screen.getByRole('spinbutton',{name:`OSCE ${longName}`})).toBeVisible();
+    expect(screen.getByRole('link',{name:'Back to dashboard'})).toHaveAttribute('href','/supervisor/portal');
+  });
+
+  it('keeps the weekly group submit control fixed on mobile and shows full student names',async()=>{
+    const longName='Clinical Student With A Full Family Name';
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments:[{...workspace.assignments[0],student:{...workspace.assignments[0].student,full_name_en:longName}}]}));
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=1'});
+    expect(await screen.findByText(longName)).toHaveClass('whitespace-normal','break-words');
+    expect(screen.getByLabelText('Group submission')).toHaveClass('fixed','lg:static');
+    expect(screen.getByRole('button',{name:'Submit group assessment'})).toBeDisabled();
+    expect(screen.queryByRole('link',{name:'Enter final course OSCE'})).not.toBeInTheDocument();
   });
 
   it('shows score progress and names the student still missing a score',async()=>{
