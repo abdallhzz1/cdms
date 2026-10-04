@@ -475,7 +475,7 @@ class SupervisorController extends Controller
         [, $person] = $this->supervisorIdentity($request);
         $assignments = StudentClinicalAssignment::query()
             ->where('supervisor_id', $person->id)
-            ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published'))
+            ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
             ->with([
                 'student:id,university_number,full_name_ar,full_name_en,batch_year,photo_url',
                 'studentSubgroup.group', 'rotationBlock.rotation.academicYear',
@@ -491,7 +491,7 @@ class SupervisorController extends Controller
         $data = $request->validate(['assignment_id' => ['required', 'integer']]);
         $assignment = $this->ownedPublishedAssignment($person, (int) $data['assignment_id']);
         [$course, $yearId, $maxScore] = $this->osceContext($assignment);
-        $students = $this->assignmentGroupQuery($assignment)
+        $students = $this->osceAssignmentGroupQuery($assignment, $course->id, $yearId)
             ->with('student:id,university_number,full_name_ar,full_name_en,photo_url')
             ->orderBy('student_id')->get()->pluck('student')->filter()->unique('id')->values();
         $entries = GradeEntry::query()->with('enrollment:id,student_id,course_id,academic_year_id')
@@ -520,8 +520,9 @@ class SupervisorController extends Controller
             'osce_score' => ['required', 'numeric', 'min:0'],
         ]);
         $assignment = $this->ownedPublishedAssignment($person, (int) $data['assignment_id']);
-        abort_unless($this->assignmentGroupQuery($assignment)->where('student_id', $data['student_id'])->exists(), 403);
         [$course, $yearId, $maxScore] = $this->osceContext($assignment);
+        abort_unless($this->osceAssignmentGroupQuery($assignment, $course->id, $yearId)
+            ->where('student_id', $data['student_id'])->exists(), 403);
         if ((float) $data['osce_score'] > $maxScore) {
             throw ValidationException::withMessages(['osce_score' => ["علامة OSCE لهذا المساق يجب أن تكون من 0 إلى {$maxScore}."]]);
         }
@@ -572,8 +573,19 @@ class SupervisorController extends Controller
     {
         return StudentClinicalAssignment::query()->whereKey($assignmentId)
             ->where('supervisor_id', $person->id)
-            ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published'))
+            ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
             ->firstOrFail();
+    }
+
+    /** Final OSCE spans the supervisor's current course/subgroup assignment, not one weekly rotation block. */
+    private function osceAssignmentGroupQuery(StudentClinicalAssignment $assignment, int $courseId, int $yearId)
+    {
+        return StudentClinicalAssignment::query()
+            ->where('supervisor_id', $assignment->supervisor_id)
+            ->where('student_subgroup_id', $assignment->student_subgroup_id)
+            ->when($assignment->student_subgroup_id === null, fn ($query) => $query->where('training_site_id', $assignment->training_site_id))
+            ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
+            ->whereHas('rotationBlock.rotation', fn ($query) => $query->where('course_id', $courseId)->where('academic_year_id', $yearId));
     }
 
     private function persistWeeklyAssessment(

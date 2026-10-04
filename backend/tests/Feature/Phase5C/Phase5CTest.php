@@ -740,7 +740,13 @@ class Phase5CTest extends TestCase
     public function test_supervisor_records_one_final_osce_mark_using_course_limit_without_touching_weekly_assessments(): void
     {
         $this->supervisor1->update(['user_id' => $this->admin->id]);
-        $this->assignment2->update(['supervisor_id' => $this->supervisor1->id]);
+        $this->student1->update(['batch_year' => 2024]);
+        $this->student2->update(['batch_year' => 2025]);
+        $laterBlock = RotationBlock::factory()->create([
+            'rotation_id' => $this->rotation->id, 'block_code' => 'SURG_2', 'from_week' => 5, 'to_week' => 8,
+            'department_id' => $this->department1->id,
+        ]);
+        $this->assignment2->update(['supervisor_id' => $this->supervisor1->id, 'rotation_block_id' => $laterBlock->id]);
         $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
         $supervisorRole->permissions()->syncWithoutDetaching(
             Permission::where('code', 'assessment.create')->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all(),
@@ -751,6 +757,7 @@ class Phase5CTest extends TestCase
         }
 
         $path = '/api/v1/operational/my-supervisor-osce';
+        $this->actingAs($this->admin)->getJson($path.'/groups')->assertOk()->assertJsonCount(2, 'data.assignments');
         $this->actingAs($this->admin)->getJson($path.'?assignment_id='.$this->assignment1->id)
             ->assertOk()->assertJsonPath('data.max_score', 25)->assertJsonCount(2, 'data.students');
         $this->actingAs($this->admin)->postJson($path, [
@@ -773,6 +780,11 @@ class Phase5CTest extends TestCase
             'assignment_id' => $this->assignment1->id, 'student_id' => $this->student1->id, 'osce_score' => 22,
         ])->assertUnprocessable()->assertJsonValidationErrors('osce_score');
         $this->assertSame('23.50', $grade->fresh()->osce_score);
+
+        $this->actingAs($this->admin)->postJson($path, [
+            'assignment_id' => $this->assignment1->id, 'student_id' => $this->student2->id, 'osce_score' => 21,
+        ])->assertOk();
+        $this->assertDatabaseCount('grade_entries', 2);
     }
 
     // =========================================================================
