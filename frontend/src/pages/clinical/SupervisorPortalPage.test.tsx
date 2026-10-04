@@ -66,13 +66,14 @@ describe('clinical supervisor workspace',()=>{
     expect(await screen.findByText('Supervisor Dashboard')).toBeVisible();
     expect(screen.getByText('Attendance')).toBeVisible();
     expect(screen.getByText('Student Assessments')).toBeVisible();
+    expect(screen.getByRole('link',{name:'Final OSCE'})).toHaveAttribute('href','/supervisor/osce');
   });
 
   it('groups supervisor tools under one workspace link for multi-role users',async()=>{
     vi.spyOn(window,'fetch').mockImplementation(async()=>envelope({...user,roles:['CLINICAL_SUPERVISOR','DEPARTMENT_HEAD']}));
     renderWithProviders(<Sidebar/>);
     expect(await screen.findByText('Clinical Supervisor Workspace')).toBeVisible();
-    expect(screen.getByRole('link',{name:'Supervisor Final OSCE'})).toHaveAttribute('href','/supervisor/osce');
+    expect(screen.queryByRole('link',{name:'Supervisor Final OSCE'})).not.toBeInTheDocument();
     expect(screen.queryByText('My Students Attendance')).not.toBeInTheDocument();
     expect(screen.queryByText('My Student Assessments')).not.toBeInTheDocument();
   });
