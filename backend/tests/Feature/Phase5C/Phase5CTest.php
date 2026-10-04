@@ -473,6 +473,39 @@ class Phase5CTest extends TestCase
             ->assertJsonCount(1, 'data.assignments');
     }
 
+    public function test_supervisor_can_enter_clinical_assessment_directly_out_of_course_limit(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::where('code', 'assessment.create')->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+        $this->course->assessmentComponents()->where('code', 'clinical')->update(['weight' => 15, 'max_score' => 15, 'entry_max_score' => 15]);
+        $template = ClinicalAssessmentTemplate::where('is_active', true)->firstOrFail();
+        $payload = [
+            'assignment_id' => $this->assignment1->id,
+            'student_id' => $this->student1->id,
+            'evaluation_week' => 1,
+            'template_id' => $template->id,
+            'score' => 12.5,
+        ];
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), $payload)
+            ->assertOk()->assertJsonPath('data.max_score', '15.00');
+        $this->assertDatabaseHas('clinical_assessments', ['student_id' => $this->student1->id, 'score' => 12.5, 'max_score' => 15]);
+        $payload['score'] = 15.25;
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), $payload)
+            ->assertUnprocessable()->assertJsonValidationErrors('score');
+
+        // A returned assessment keeps its original /10 scale even after the course switches to /15.
+        \App\Models\ClinicalAssessment::query()->where('student_id', $this->student1->id)
+            ->update(['status' => 'returned', 'score' => 9, 'max_score' => 10]);
+        $payload['score'] = 9.5;
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), $payload)
+            ->assertOk()->assertJsonPath('data.max_score', '10.00');
+    }
+
     public function test_supervisor_qr_attendance_and_assessment_are_saved_in_official_tables(): void
     {
         $this->supervisor1->update(['user_id' => $this->admin->id]);

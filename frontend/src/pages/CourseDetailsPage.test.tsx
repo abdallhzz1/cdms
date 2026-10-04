@@ -38,7 +38,7 @@ describe('CourseDetailsPage course report export', () => {
     localStorage.setItem('cdms.locale', 'ar');
     document.cookie = 'XSRF-TOKEN=test; path=/';
     const components = [
-      { id: 1, code: 'clinical', name: 'التقييم السريري', weight: 20, max_score: 20 },
+      { id: 1, code: 'clinical', name: 'التقييم السريري', weight: 20, max_score: 20, entry_max_score: 10 },
       { id: 2, code: 'osce', name: 'OSCE', weight: 40, max_score: 40 },
       { id: 3, code: 'written', name: 'الكتابي', weight: 40, max_score: 40 },
     ];
@@ -55,7 +55,8 @@ describe('CourseDetailsPage course report export', () => {
     await userEvent.click(screen.getByRole('button', { name: 'ضبط خطة المساق' }));
     const inputs = screen.getAllByRole('spinbutton');
     for (const [input, value] of inputs.map((input, index) => [input, ['15', '25', '60'][index]] as const)) { await userEvent.clear(input); await userEvent.type(input, value); }
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'طريقة إدخال التقييم السريري عند المشرف' }), 'direct');
     await userEvent.click(screen.getByRole('button', { name: 'حفظ الخطة' }));
-    await waitFor(() => expect(fetchSpy.mock.calls.some(([url, init]) => String(url).endsWith('/courses/8/assessment-plan') && init?.method === 'PUT' && String(init.body).includes('"clinical":15') && String(init.body).includes('"osce":25') && String(init.body).includes('"written":60'))).toBe(true));
+    await waitFor(() => expect(fetchSpy.mock.calls.some(([url, init]) => String(url).endsWith('/courses/8/assessment-plan') && init?.method === 'PUT' && String(init.body).includes('"clinical":15') && String(init.body).includes('"osce":25') && String(init.body).includes('"written":60') && String(init.body).includes('"clinical_entry_max_score":15'))).toBe(true));
   });
 });

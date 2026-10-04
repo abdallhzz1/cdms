@@ -191,34 +191,45 @@ class CourseController extends Controller
     public function updateAssessmentPlan(Request $request, Course $course): JsonResponse
     {
         $this->authorizeCourseAccess($course);
-        $scores = $request->validate([
+        $validated = $request->validate([
             'clinical' => ['required', 'numeric', 'gt:0', 'max:100'],
             'osce' => ['required', 'numeric', 'gt:0', 'max:100'],
             'written' => ['required', 'numeric', 'gt:0', 'max:100'],
+            'clinical_entry_max_score' => ['sometimes', 'required', 'numeric', 'gt:0', 'max:100'],
         ]);
+        $scores = collect($validated)->only(['clinical', 'osce', 'written'])->all();
         if (abs(array_sum(array_map('floatval', $scores)) - 100.0) > 0.001) {
             throw ValidationException::withMessages(['assessment_plan' => [
                 'مجموع علامات التقييم السريري وOSCE والامتحان النظري يجب أن يساوي 100.',
             ]]);
         }
 
-        $components = DB::transaction(function () use ($course, $scores) {
+        $components = DB::transaction(function () use ($course, $scores, $validated) {
             $items = $course->assessmentComponents()->lockForUpdate()->get()->keyBy('code');
             if ($items->count() !== 3 || ! collect(['clinical', 'osce', 'written'])->every(fn ($code) => $items->has($code))) {
                 throw ValidationException::withMessages(['assessment_plan' => ['خطة تقييم المساق غير مكتملة؛ راجع مكوناتها قبل التعديل.']]);
             }
-            if (GradeEntry::query()->whereHas('enrollment', fn ($query) => $query->where('course_id', $course->id))->exists()) {
+            $weightsChanged = collect($scores)->contains(fn ($score, $code) => abs((float) $score - (float) $items[$code]->max_score) > 0.001);
+            if ($weightsChanged && GradeEntry::query()->whereHas('enrollment', fn ($query) => $query->where('course_id', $course->id))->exists()) {
                 throw ValidationException::withMessages(['assessment_plan' => ['لا يمكن تغيير خطة المساق بعد إنشاء كشوف علامات له، حتى لا تتغير العلامات المحفوظة بأثر رجعي.']]);
             }
 
             $previous = $items->mapWithKeys(fn ($item, $code) => [$code => (float) $item->max_score])->all();
+            $previous['clinical_entry_max_score'] = $items['clinical']->entry_max_score === null ? null : (float) $items['clinical']->entry_max_score;
             foreach ($scores as $code => $score) {
-                $items[$code]->update(['weight' => $score, 'max_score' => $score]);
+                $values = ['weight' => $score, 'max_score' => $score];
+                if ($code === 'clinical' && array_key_exists('clinical_entry_max_score', $validated)) {
+                    $values['entry_max_score'] = $validated['clinical_entry_max_score'];
+                }
+                $items[$code]->update($values);
             }
             AuditLog::create([
                 'user_id' => auth()->id(), 'action' => 'course.assessment_plan.updated',
                 'entity_type' => Course::class, 'entity_id' => $course->id,
-                'changes' => ['previous' => $previous, 'current' => $scores],
+                'changes' => ['previous' => $previous, 'current' => [
+                    ...$scores,
+                    'clinical_entry_max_score' => $items['clinical']->entry_max_score === null ? null : (float) $items['clinical']->entry_max_score,
+                ]],
             ]);
 
             return $course->assessmentComponents()->orderBy('id')->get();

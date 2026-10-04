@@ -114,7 +114,7 @@ class CourseManagementWorkflowTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('assessment_plan');
         $this->assertDatabaseHas('course_assessment_components', ['course_id' => $course->id, 'code' => 'clinical', 'max_score' => 20]);
 
-        $this->actingAs($this->manager)->putJson($path, ['clinical' => 15, 'osce' => 25, 'written' => 60])
+        $this->actingAs($this->manager)->putJson($path, ['clinical' => 15, 'osce' => 25, 'written' => 60, 'clinical_entry_max_score' => 10])
             ->assertOk()->assertJsonCount(3, 'data');
         foreach (['clinical' => 15, 'osce' => 25, 'written' => 60] as $code => $score) {
             $this->assertDatabaseHas('course_assessment_components', ['course_id' => $course->id, 'code' => $code, 'weight' => $score, 'max_score' => $score]);
@@ -127,6 +127,15 @@ class CourseManagementWorkflowTest extends TestCase
         $this->actingAs($this->manager)->putJson($path, ['clinical' => 20, 'osce' => 20, 'written' => 60])
             ->assertUnprocessable()->assertJsonValidationErrors('assessment_plan');
         $this->assertDatabaseHas('course_assessment_components', ['course_id' => $course->id, 'code' => 'clinical', 'max_score' => 15]);
+
+        // Changing only the supervisor's input scale preserves existing official weights.
+        $this->actingAs($this->manager)->putJson($path, ['clinical' => 15, 'osce' => 25, 'written' => 60, 'clinical_entry_max_score' => 15])
+            ->assertOk();
+        $this->assertDatabaseHas('course_assessment_components', [
+            'course_id' => $course->id, 'code' => 'clinical', 'max_score' => 15, 'entry_max_score' => 15,
+        ]);
+        $this->actingAs($this->manager)->putJson($path, ['clinical' => 15, 'osce' => 25, 'written' => 60, 'clinical_entry_max_score' => 0])
+            ->assertUnprocessable()->assertJsonValidationErrors('clinical_entry_max_score');
     }
 
     public function test_archiving_a_referenced_course_preserves_related_records(): void

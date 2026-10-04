@@ -321,6 +321,11 @@ class GradeAndRtaIntegrationTest extends TestCase
         $report = app(\App\Services\Reports\ReportCenterService::class)->report('grades', ['academic_year_id' => $year->id]);
         $this->assertCount(1, $report['rows']);
         $this->assertSame([15.0, 25.0, 60.0], array_map('floatval', [$report['rows'][0][5], $report['rows'][0][7], $report['rows'][0][9]]));
+        // Old /10 and new direct /15 assessments remain normalized independently.
+        $directSession = ClinicalSession::create(['rotation_block_id' => $block->id, 'session_date' => '2026-09-17', 'title' => 'Direct weekly assessment']);
+        ClinicalAssessment::create(['student_id' => $student->id, 'clinical_session_id' => $directSession->id, 'score' => 12, 'max_score' => 15, 'status' => 'submitted']);
+        $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch', $payload)->assertOk();
+        $this->assertDatabaseHas('grade_entries', ['clinical_score' => 12.75, 'osce_score' => 23, 'written_score' => 54, 'score' => 89.75]);
         $payload['grades'][0]['osce_score'] = 26;
         $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch', $payload)
             ->assertUnprocessable()->assertJsonValidationErrors('grades.0.osce_score');

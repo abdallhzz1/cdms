@@ -400,18 +400,18 @@ class SupervisorController extends Controller
             'student_id' => ['required', 'integer', 'exists:students,id'],
             'evaluation_week' => ['required', 'integer', 'min:1'],
             'template_id' => ['required', 'integer', 'exists:clinical_assessment_templates,id'],
-            'score' => ['required', 'numeric', 'min:0', 'max:10'],
+            'score' => ['required', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string', 'max:3000'],
         ]);
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
         $studentAssignment = $this->assignmentGroupQuery($assignment)->where('student_id', $data['student_id'])->first();
         abort_unless($studentAssignment, 403, 'You may only assess students assigned to you.');
         [$weekStart, $weekEnd] = $this->assignmentWeek($assignment, (int) $data['evaluation_week']);
-        [$template, $snapshot, $score] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $data['score']);
+        [$template, $snapshot, $score, $entryMax] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $data['score'], (int) $data['evaluation_week'], $person->id);
 
         $assessment = DB::transaction(fn () => $this->persistWeeklyAssessment(
             $studentAssignment, $person, $template, (int) $data['evaluation_week'], $weekStart, $weekEnd,
-            $snapshot, $score, $data['notes'] ?? null, (string) Str::uuid(), $workflow,
+            $snapshot, $score, $entryMax, $data['notes'] ?? null, (string) Str::uuid(), $workflow,
         ));
 
         return ApiResponse::success($assessment->load('student', 'session', 'template.criteria'), 'Clinical assessment saved successfully.');
@@ -426,7 +426,7 @@ class SupervisorController extends Controller
             'template_id' => ['required', 'integer', 'exists:clinical_assessment_templates,id'],
             'assessments' => ['required', 'array', 'min:1'],
             'assessments.*.student_id' => ['required', 'integer', 'distinct', 'exists:students,id'],
-            'assessments.*.score' => ['required', 'numeric', 'min:0', 'max:10'],
+            'assessments.*.score' => ['required', 'numeric', 'min:0'],
             'assessments.*.notes' => ['nullable', 'string', 'max:3000'],
         ]);
 
@@ -453,10 +453,10 @@ class SupervisorController extends Controller
         $items = DB::transaction(function () use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd) {
             return collect($data['assessments'])->map(function (array $row) use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd) {
                 $studentAssignment = $groupAssignments->get($row['student_id']);
-                [$template, $snapshot, $score] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $row['score']);
+                [$template, $snapshot, $score, $entryMax] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $row['score'], (int) $data['evaluation_week'], $person->id);
                 return $this->persistWeeklyAssessment(
                     $studentAssignment, $person, $template, (int) $data['evaluation_week'],
-                    $weekStart, $weekEnd, $snapshot, $score, $row['notes'] ?? null, $batchUuid, $workflow,
+                    $weekStart, $weekEnd, $snapshot, $score, $entryMax, $row['notes'] ?? null, $batchUuid, $workflow,
                 );
             });
         });
@@ -597,6 +597,7 @@ class SupervisorController extends Controller
         Carbon $weekEnd,
         array $snapshot,
         float $score,
+        float $entryMax,
         ?string $notes,
         string $batchUuid,
         WorkflowTransitionService $workflow,
@@ -623,7 +624,7 @@ class SupervisorController extends Controller
             'week_end' => $weekEnd->toDateString(),
             'assessment_batch_uuid' => $batchUuid,
             'score' => $score,
-            'max_score' => $template->total_score,
+            'max_score' => $entryMax,
             'criteria_scores' => $snapshot,
             'notes' => $notes,
             'status' => 'submitted',
@@ -652,9 +653,9 @@ class SupervisorController extends Controller
         return $assessment;
     }
 
-    private function validatedTotalScore(StudentClinicalAssignment $assignment, int $templateId, mixed $rawScore): array
+    private function validatedTotalScore(StudentClinicalAssignment $assignment, int $templateId, mixed $rawScore, int $week, int $evaluatorPersonId): array
     {
-        $assignment->loadMissing('rotationBlock.rotation.course', 'student');
+        $assignment->loadMissing('rotationBlock.rotation.course.assessmentComponents', 'student');
         $courseId = $assignment->rotationBlock?->rotation?->course_id;
         $batchYear = $assignment->student?->batch_year;
         $template = ClinicalAssessmentTemplate::query()->whereKey($templateId)->where('is_active', true)->with('criteria')->firstOrFail();
@@ -663,8 +664,15 @@ class SupervisorController extends Controller
             throw ValidationException::withMessages(['template_id' => ['نموذج التقييم المحدد ليس النموذج المعتمد لهذا المساق والدفعة. حدّث الصفحة ثم أعد المحاولة.']]);
         }
         $score = round((float) $rawScore, 2);
-        if ($score < 0 || $score > (float) $template->total_score) {
-            throw ValidationException::withMessages(['score' => ["يجب أن تكون العلامة بين 0 و {$template->total_score}."]]);
+        $component = $assignment->rotationBlock?->rotation?->course?->assessmentComponents?->firstWhere('code', 'clinical');
+        $existingMax = ClinicalAssessment::query()
+            ->where('student_clinical_assignment_id', $assignment->id)
+            ->where('evaluation_week', $week)
+            ->where('evaluator_person_id', $evaluatorPersonId)
+            ->value('max_score');
+        $entryMax = (float) ($existingMax ?? $component?->entry_max_score ?? $template->total_score);
+        if ($entryMax <= 0 || $score < 0 || $score > $entryMax) {
+            throw ValidationException::withMessages(['score' => ["يجب أن تكون العلامة بين 0 و {$entryMax}."]]);
         }
         $snapshot = $template->criteria->map(fn ($criterion) => [
                 'criterion_id' => $criterion->id,
@@ -674,7 +682,7 @@ class SupervisorController extends Controller
                 'max_score' => (float) $criterion->max_score,
             ])->values()->all();
 
-        return [$template, $snapshot, $score];
+        return [$template, $snapshot, $score, $entryMax];
     }
 
     private function assignmentWeek(StudentClinicalAssignment $assignment, int $week): array
@@ -765,7 +773,7 @@ class SupervisorController extends Controller
                 'student:id,university_number,full_name_ar,full_name_en,academic_level,batch_year,photo_url',
                 'studentSubgroup.group',
                 'rotationBlock.rotation.academicYear',
-                'rotationBlock.rotation.course',
+                'rotationBlock.rotation.course.assessmentComponents',
                 'rotationBlock.rotation.clinicalPeriod',
                 'trainingSite:id,name_ar,name_en',
                 'department:id,name_ar,name_en',

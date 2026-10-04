@@ -168,6 +168,30 @@ describe('clinical supervisor workspace',()=>{
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessment-batches')&&String(init?.body).includes('"student_id":7')&&String(init?.body).includes('"score":9'))).toBe(true));
   });
 
+  it('uses the course-specific direct clinical scale while keeping previous scores on their saved scale',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    const directAssignment={...workspace.assignments[0],rotation_block:{...workspace.assignments[0].rotation_block,rotation:{...workspace.assignments[0].rotation_block.rotation,course:{...workspace.assignments[0].rotation_block.rotation.course,assessment_components:[{code:'clinical',max_score:15,entry_max_score:15}]}}}};
+    const directWorkspace={...workspace,assignments:[directAssignment]};
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(directWorkspace);if(url.includes('/my-supervisor-assessment-batches'))return envelope({batch_uuid:'direct',assessments:[{id:1,status:'submitted'}]});throw new Error(`Unmocked ${url} ${init?.method}`)});
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=1'});
+    const score=await screen.findByRole('spinbutton',{name:'Score out of 15'});
+    await userEvent.type(score,'12');
+    await userEvent.click(screen.getByRole('button',{name:'Submit group assessment'}));
+    await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessment-batches')&&String(init?.body).includes('"score":12'))).toBe(true));
+  });
+
+  it('keeps a returned old assessment out of 10 after switching the course to direct /15',async()=>{
+    const directAssignment={...workspace.assignments[0],rotation_block:{...workspace.assignments[0].rotation_block,rotation:{...workspace.assignments[0].rotation_block.rotation,course:{...workspace.assignments[0].rotation_block.rotation.course,assessment_components:[{code:'clinical',max_score:15,entry_max_score:15}]}}}};
+    const oldAssessment={id:41,student_id:7,student_clinical_assignment_id:21,evaluation_week:1,score:9,max_score:10,status:'returned',created_at:'2026-08-30'};
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments:[directAssignment],assessments:[oldAssessment]}));
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=1'});
+    const score=await screen.findByRole('spinbutton',{name:'Score out of 10'});
+    expect(score).toHaveValue(9);
+    await userEvent.clear(score);
+    await userEvent.type(score,'11');
+    expect(screen.getByRole('button',{name:'Submit group assessment'})).toBeDisabled();
+  });
+
   it('shows one final OSCE group across rotation blocks and records its mark separately from weekly assessments', async () => {
     document.cookie='XSRF-TOKEN=test; path=/';
     let savedScore: string | null = null;
