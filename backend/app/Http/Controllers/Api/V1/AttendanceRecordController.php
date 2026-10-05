@@ -9,6 +9,8 @@ use App\Models\ClinicalQrAttendanceSession;
 use App\Models\ClinicalSession;
 use App\Models\StudentClinicalAssignment;
 use App\Models\Student;
+use App\Models\StudentGroupAssignment;
+use App\Models\StudentSubgroup;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -191,6 +193,123 @@ class AttendanceRecordController extends Controller
             ]))->values();
 
         return ApiResponse::success($groups);
+    }
+
+    public function reviewGroup(Request $request): JsonResponse
+    {
+        $data = $request->validate(['student_group_id' => ['required', 'integer', 'exists:student_groups,id']]);
+        $groupId = (int) $data['student_group_id'];
+        $assignments = $this->scopedCurrentAssignments()
+            ->whereHas('studentSubgroup', fn ($query) => $query->where('student_group_id', $groupId))
+            ->with([
+                'student:id,university_number,full_name_ar,full_name_en,photo_url,batch_year',
+                'studentSubgroup.group',
+                'rotationBlock.rotation.course:id,code,name_ar,name_en',
+                'rotationBlock.rotation.clinicalPeriod:id,code,name_ar,name_en',
+                'rotationBlock.rotation.academicYear:id,code',
+                'trainingSite:id,name_ar,name_en',
+                'supervisor.availabilities',
+            ])->get();
+        abort_if($assignments->isEmpty(), 404);
+
+        $subgroups = app(\App\Services\DepartmentHeadCourseScope::class)
+            ->subgroups(StudentSubgroup::query())->where('student_group_id', $groupId)->get();
+        $visibleStudentIds = $this->applyStudentAccessScope(Student::query())->select('students.id');
+        $memberships = StudentGroupAssignment::query()->current()
+            ->where('student_group_id', $groupId)
+            ->whereIn('student_id', $visibleStudentIds)
+            ->with('student:id,university_number,full_name_ar,full_name_en,photo_url,batch_year')->get()
+            ->groupBy('student_subgroup_id');
+
+        $records = AttendanceRecord::query()
+            ->whereIn('student_id', $assignments->pluck('student_id')->unique())
+            ->whereHas('session', fn ($query) => $query->whereIn('rotation_block_id', $assignments->pluck('rotation_block_id')->unique()))
+            ->with(['session:id,rotation_block_id,training_site_id,session_date', 'recorder:id,name'])->get()
+            ->groupBy(fn (AttendanceRecord $row) => implode('|', [
+                $row->student_id, $row->session?->rotation_block_id,
+                $row->session?->training_site_id ?: 0, $row->session?->session_date?->toDateString(),
+            ]));
+        $qrSessions = ClinicalQrAttendanceSession::query()
+            ->whereIn('student_clinical_assignment_id', $assignments->pluck('id'))
+            ->orderBy('id')->get()
+            ->keyBy(fn (ClinicalQrAttendanceSession $session) => implode('|', [
+                $session->rotation_block_id, $session->training_site_id ?: 0,
+                $session->supervisor_id ?: 0, $session->session_date?->toDateString(),
+            ]));
+
+        $rows = $subgroups->map(function (StudentSubgroup $subgroup) use ($assignments, $memberships, $records, $qrSessions) {
+                $subgroupAssignments = $assignments->where('student_subgroup_id', $subgroup->id);
+                $students = $subgroupAssignments->pluck('student')->merge(
+                    ($memberships->get($subgroup->id) ?? collect())->pluck('student')
+                )->filter()->unique('id')->sortBy('full_name_ar')->values();
+                $rotations = $subgroupAssignments->groupBy(fn (StudentClinicalAssignment $row) => $row->rotationBlock?->rotation_id)
+                    ->filter(fn ($items, $rotationId) => (bool) $rotationId)
+                    ->map(function ($rotationAssignments) use ($students, $records, $qrSessions) {
+                        $rotation = $rotationAssignments->first()?->rotationBlock?->rotation;
+                        if (! $rotation?->start_date) return null;
+                        $weekNumbers = $rotationAssignments->pluck('rotationBlock')->filter()
+                            ->flatMap(fn ($block) => $block->from_week && $block->to_week
+                                ? range((int) $block->from_week, (int) $block->to_week) : [])
+                            ->unique()->sort()->values();
+                        $weeks = $weekNumbers->map(function ($number) use ($rotation, $rotationAssignments, $students, $records, $qrSessions) {
+                            $start = Carbon::parse($rotation->start_date)->addWeeks($number - 1)->startOfDay();
+                            $end = $start->copy()->addDays(6)->endOfDay();
+                            return [
+                                'number' => $number,
+                                'start_date' => $start->toDateString(),
+                                'end_date' => $end->toDateString(),
+                                'students' => $students->map(function (Student $student) use ($rotationAssignments, $number, $start, $end, $records, $qrSessions) {
+                                    $studentAssignments = $rotationAssignments->where('student_id', $student->id)
+                                        ->filter(fn (StudentClinicalAssignment $assignment) => $assignment->rotationBlock
+                                            && (int) $assignment->rotationBlock->from_week <= $number
+                                            && (int) $assignment->rotationBlock->to_week >= $number);
+                                    $days = $studentAssignments->flatMap(function (StudentClinicalAssignment $assignment) use ($start, $end, $records, $qrSessions) {
+                                        $scheduled = $this->scheduledDates($assignment, $start, $end);
+                                        $matchingRecords = $records->filter(fn ($items, $key) => str_starts_with($key, implode('|', [
+                                            $assignment->student_id, $assignment->rotation_block_id, $assignment->training_site_id ?: 0,
+                                        ]).'|'))->flatMap(fn ($items) => $items)
+                                            ->filter(fn (AttendanceRecord $record) => $record->session?->session_date?->betweenIncluded($start, $end));
+                                        $dates = collect($scheduled)->merge($matchingRecords->map(fn ($record) => $record->session->session_date->toDateString()))->unique();
+                                        return $dates->map(function (string $date) use ($assignment, $scheduled, $records, $qrSessions) {
+                                            $key = implode('|', [$assignment->student_id, $assignment->rotation_block_id, $assignment->training_site_id ?: 0, $date]);
+                                            $record = $records->get($key)?->sortByDesc('id')->first();
+                                            $qrKey = implode('|', [$assignment->rotation_block_id, $assignment->training_site_id ?: 0, $assignment->supervisor_id ?: 0, $date]);
+                                            $qr = $qrSessions->get($qrKey);
+                                            return [
+                                                'date' => $date, 'rotation_block_id' => $assignment->rotation_block_id,
+                                                'scheduled' => in_array($date, $scheduled, true),
+                                                'status' => $record?->status, 'check_in_at' => $record?->check_in_at,
+                                                'check_out_at' => $record?->check_out_at, 'recording_source' => $record?->recording_source,
+                                                'is_incomplete' => (bool) $record?->is_incomplete, 'note' => $record?->excuse_note,
+                                                'recorded_by' => $record?->recorder?->name,
+                                                'qr_session' => $qr ? [
+                                                    'state' => $qr->state,
+                                                    'check_in_opened_at' => $qr->check_in_opened_at,
+                                                    'check_in_closed_at' => $qr->check_in_closed_at,
+                                                    'check_out_opened_at' => $qr->check_out_opened_at,
+                                                    'finalized_at' => $qr->finalized_at,
+                                                ] : null,
+                                                'supervisor' => $assignment->supervisor ? [
+                                                    'id' => $assignment->supervisor->id,
+                                                    'full_name_ar' => $assignment->supervisor->full_name_ar,
+                                                    'full_name_en' => $assignment->supervisor->full_name_en,
+                                                ] : null,
+                                                'training_site' => $assignment->trainingSite,
+                                            ];
+                                        });
+                                    })->unique(fn ($day) => implode('|', [$day['date'], $day['rotation_block_id'], $day['training_site']?->id ?: 0, $day['supervisor']['id'] ?? 0]))->sortBy('date')->values();
+                                    return ['student_id' => $student->id, 'assigned' => $studentAssignments->isNotEmpty(), 'days' => $days];
+                                })->values(),
+                            ];
+                        })->values();
+                        return ['id' => $rotation->id, 'course' => $rotation->course,
+                            'clinical_period' => $rotation->clinicalPeriod, 'weeks' => $weeks];
+                    })->filter()->values();
+                return ['id' => $subgroup->id, 'name' => $subgroup->name,
+                    'students' => $students, 'rotations' => $rotations];
+            })->sortBy('name', SORT_NATURAL)->values();
+
+        return ApiResponse::success(['student_group_id' => $groupId, 'subgroups' => $rows]);
     }
 
     public function groupSummary(Request $request): JsonResponse

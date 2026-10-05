@@ -3,6 +3,8 @@
 namespace Tests\Feature\Phase5C;
 
 use App\Models\AuditLog;
+use App\Models\AttendanceRecord;
+use App\Models\ClinicalSession;
 use App\Models\Department;
 use App\Models\Course;
 use App\Models\GradeEntry;
@@ -186,6 +188,38 @@ class Phase5CTest extends TestCase
     // =========================================================================
     // 1. RBAC & Security
     // =========================================================================
+
+    public function test_attendance_review_group_returns_all_weeks_and_distinguishes_pending_from_absent(): void
+    {
+        $this->admin->roles()->first()->permissions()->attach(
+            Permission::where('code', 'attendance.review')->value('id'), ['scope_type' => 'global']
+        );
+        $session = ClinicalSession::create([
+            'rotation_block_id' => $this->block1->id,
+            'training_site_id' => $this->site1->id,
+            'session_date' => '2026-09-03',
+            'title' => 'Clinical training',
+        ]);
+        AttendanceRecord::create([
+            'clinical_session_id' => $session->id,
+            'student_id' => $this->student1->id,
+            'status' => 'absent',
+            'excuse_note' => 'Medical report pending',
+            'recorded_by_user_id' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)->getJson('/api/v1/attendance-records/review-group?student_group_id='.$this->subgroup->student_group_id)
+            ->assertOk()
+            ->assertJsonPath('data.subgroups.0.id', $this->subgroup->id)
+            ->assertJsonPath('data.subgroups.0.rotations.0.weeks.0.number', 1)
+            ->assertJsonPath('data.subgroups.0.rotations.0.weeks.3.number', 4)
+            ->assertJsonPath('data.subgroups.0.rotations.0.weeks.0.students.0.days.0.status', 'absent')
+            ->assertJsonPath('data.subgroups.0.rotations.0.weeks.0.students.0.days.0.note', 'Medical report pending')
+            ->assertJsonPath('data.subgroups.0.rotations.0.weeks.1.students.0.days.0.status', null);
+
+        $this->actingAs($this->unauthorized)->getJson('/api/v1/attendance-records/review-group?student_group_id='.$this->subgroup->student_group_id)
+            ->assertForbidden();
+    }
 
     public function test_unauthenticated_user_cannot_reassign_supervisor(): void
     {

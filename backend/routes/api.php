@@ -381,6 +381,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('clinical-sessions', [ClinicalSessionController::class, 'index'])->middleware('permission:attendance.review');
         Route::get('attendance-records/options', [AttendanceRecordController::class, 'options'])->middleware('permission:attendance.review');
         Route::get('attendance-records/groups', [AttendanceRecordController::class, 'groups'])->middleware('permission:attendance.review');
+        Route::get('attendance-records/review-group', [AttendanceRecordController::class, 'reviewGroup'])->middleware('permission:attendance.review');
         Route::get('attendance-records/group-summary', [AttendanceRecordController::class, 'groupSummary'])->middleware('permission:attendance.review');
         Route::get('attendance-records/gaps', [AttendanceRecordController::class, 'gaps'])->middleware('permission:attendance.review');
         Route::post('clinical-sessions', [ClinicalSessionController::class, 'store'])->middleware('permission:attendance.record');
