@@ -43,6 +43,21 @@ class OperationalDistributionController extends Controller
         ]);
     }
 
+    public function dailyScheduleGroups(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'date' => ['required', 'date_format:Y-m-d'],
+            'training_site_id' => ['nullable', 'integer', 'exists:training_sites,id'],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->scheduleQueryService->getDailyGroups(
+                $data['date'], isset($data['training_site_id']) ? (int) $data['training_site_id'] : null,
+            ),
+        ]);
+    }
+
     public function clinicalScheduleOptions(): JsonResponse
     {
         $assignments = app(\App\Services\DepartmentHeadCourseScope::class)->assignments(StudentClinicalAssignment::query())

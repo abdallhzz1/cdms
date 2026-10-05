@@ -17,6 +17,13 @@ const item = {
   training_site: { id: 9, name: 'Ahli', name_ar: 'الأهلي', name_en: 'Ahli' }, department: null,
   supervisor: { id: 10, full_name_ar: 'د. مشرف', full_name_en: 'Dr Supervisor', name: 'Dr Supervisor', avatar_url: '/storage/avatars/10.jpg', work_schedule: [], work_locations: [] },
 };
+const dailyGroup = {
+  site: { id: 9, name_ar: 'الأهلي', name_en: 'Ahli' }, rotation_id: 3,
+  course: { id: 6, code: 'MED401', name_ar: 'الجراحة', name_en: 'Surgery' }, academic_year: { id: 1, code: '2026-2027' },
+  group: { id: 1, name: 'L' }, subgroup: { id: 2, name: 'L1' },
+  supervisors: [{ id: 10, full_name_ar: 'د. مشرف', full_name_en: 'Dr Supervisor', photo_url: '/storage/avatars/10.jpg' }],
+  students: [{ id: 4, university_number: '22310001', full_name_ar: 'طالب سريري', full_name_en: 'Clinical Student', photo_url: '/storage/students/4.jpg', supervisor_ids: [10] }],
+};
 
 afterEach(() => { vi.restoreAllMocks(); localStorage.removeItem('cdms.locale'); });
 
@@ -26,8 +33,8 @@ describe('clinical schedule profile photos', () => {
     vi.spyOn(window, 'fetch').mockImplementation(async input => {
       const url = String(input);
       if (url.includes('/auth/me')) return envelope({ id: 1, name: 'RTA', email: 'rta@hebron.edu', roles: ['RTA'], assigned_levels: ['fourth'], permissions: [{ code: 'clinical_schedule.view', scope: 'global' }] });
-      if (url.includes('/operational/clinical-schedule-options')) return envelope({ rotations: [], periods: [], academic_years: [], sites: [] });
-      if (url.includes('/operational/clinical-schedule?')) return envelope({ current_page: 1, data: [item], from: 1, last_page: 1, next_page_url: null, per_page: 50, prev_page_url: null, to: 1, total: 1 });
+      if (url.includes('/operational/clinical-schedule-options')) return envelope({ sites: [dailyGroup.site] });
+      if (url.includes('/operational/clinical-schedule/daily-groups?')) return envelope([dailyGroup]);
       if (url.includes('/student-schedule-portal')) return envelope({ is_enabled: true, public_url: '/portal/student-lookup', updated_at: null, updated_by: null });
       throw new Error(`Unmocked request: ${url}`);
     });
@@ -35,6 +42,34 @@ describe('clinical schedule profile photos', () => {
     expect(await screen.findByRole('button', { name: 'Enlarge student photo' })).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Enlarge supervisor photo' }));
     expect(screen.getByRole('dialog', { name: 'Dr Supervisor' })).toBeVisible();
+  });
+
+  it('keeps all four filters visible and shows students only after choosing a site', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    const otherGroup = { ...dailyGroup, rotation_id: 4, course: { id: 7, code: 'MED402', name_ar: 'الأعصاب', name_en: 'Neurology' }, group: { id: 3, name: 'M' }, subgroup: { id: 4, name: 'M1' }, students: [{ id: 5, university_number: '22310002', full_name_ar: 'طالب آخر', full_name_en: 'Other Student', photo_url: null, supervisor_ids: [10] }] };
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return envelope({ id: 1, roles: ['RTA'], permissions: [{ code: 'clinical_schedule.view', scope: 'global' }] });
+      if (url.includes('/operational/clinical-schedule-options')) return envelope({ sites: [dailyGroup.site, { id: 10, name_ar: 'المركز الثاني', name_en: 'Second site' }] });
+      if (url.includes('/operational/clinical-schedule/daily-groups?')) return envelope(url.includes('training_site_id=9') ? [dailyGroup, otherGroup] : []);
+      if (url.includes('/student-schedule-portal')) return envelope({ is_enabled: true, public_url: '/portal/student-lookup' });
+      throw new Error(`Unmocked request: ${url}`);
+    });
+    renderWithProviders(<ClinicalSchedulePage />, { route: '/clinical/schedule' });
+    expect(await screen.findByText('Choose a hospital or training site')).toBeVisible();
+    expect(screen.queryByText('Clinical Student')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Course')).toBeVisible();
+    expect(screen.getByLabelText('Main group')).toBeVisible();
+    expect(screen.getByLabelText('Subgroup')).toBeVisible();
+    await userEvent.selectOptions(screen.getByLabelText('Hospital or training site'), '9');
+    expect(await screen.findByText('Clinical Student')).toBeVisible();
+    expect(screen.getByText('Other Student')).toBeVisible();
+    expect(screen.getByRole('heading', { level: 3, name: /Group L.*L1/ })).toBeVisible();
+    await userEvent.selectOptions(screen.getByLabelText('Course'), '3');
+    expect(screen.queryByText('Other Student')).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Main group'), '1');
+    await userEvent.selectOptions(screen.getByLabelText('Subgroup'), '2');
+    expect(screen.getByText('Clinical Student')).toBeVisible();
   });
 
   it('shows enlargeable photos for the student, supervisor, and all group members in the public lookup', async () => {

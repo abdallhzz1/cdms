@@ -10,6 +10,7 @@ use App\Models\AcademicYear;
 use App\Models\StudentGroup;
 use App\Models\StudentSubgroup;
 use App\Traits\ScopesByDepartmentAndLevel;
+use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -22,6 +23,99 @@ class ClinicalScheduleQueryService
         private CurrentDistributionResolver $currentResolver,
         private ClinicalScheduleDateCalculator $dateCalculator
     ) {}
+
+    /**
+     * Complete, non-paginated subgroup roster for one training day. Only a
+     * published assignment inside its block and matching supervisor work
+     * availability is considered on duty at the selected site.
+     */
+    public function getDailyGroups(string $date, ?int $siteId = null): array
+    {
+        $day = Carbon::parse($date)->startOfDay();
+        $weekday = strtolower($day->format('l'));
+        $query = app(\App\Services\DepartmentHeadCourseScope::class)->assignments(StudentClinicalAssignment::query())
+            ->whereHas('distributionVersion', fn ($version) => $version
+                ->where('status', 'published')->where('is_current', true))
+            ->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation
+                ->whereDate('start_date', '<=', $date)
+                ->where(fn ($period) => $period->whereNull('end_date')->orWhereDate('end_date', '>=', $date)))
+            ->whereNotNull('student_subgroup_id')
+            ->when($siteId, fn ($assignments) => $assignments->where('training_site_id', $siteId))
+            ->with([
+                'student:id,university_number,full_name_ar,full_name_en,photo_url',
+                'studentSubgroup.group',
+                'rotationBlock.rotation.course:id,code,name_ar,name_en',
+                'rotationBlock.rotation.academicYear:id,code',
+                'trainingSite:id,name_ar,name_en',
+                'supervisor.availabilities',
+            ]);
+
+        $departmentId = $this->getClinicalOperationsDepartmentId();
+        if ($departmentId) $query->where('student_clinical_assignments.department_id', $departmentId);
+        $levels = $this->getEffectiveAcademicLevelScope();
+        if ($levels !== null) {
+            empty($levels)
+                ? $query->whereRaw('1 = 0')
+                : $query->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->whereIn('academic_level', $levels));
+        }
+
+        $assignments = $query->get()->filter(function (StudentClinicalAssignment $assignment) use ($day, $weekday) {
+            $block = $assignment->rotationBlock;
+            $rotation = $block?->rotation;
+            if (! $assignment->student || ! $assignment->studentSubgroup?->group || ! $assignment->trainingSite
+                || ! $assignment->supervisor || ! $rotation?->start_date || ! $block?->from_week || ! $block?->to_week) return false;
+
+            $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
+            $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->endOfDay();
+            if ($day->lt($start) || $day->gt($end)) return false;
+
+            return $assignment->supervisor->availabilities->contains(fn ($availability) =>
+                (int) $availability->training_site_id === (int) $assignment->training_site_id
+                && $availability->day === $weekday
+                && ($availability->status ?: 'work') === 'work'
+                && (! $availability->available_from || $availability->available_from->lte($day))
+                && (! $availability->available_until || $availability->available_until->gte($day))
+            );
+        });
+
+        return $assignments->groupBy(fn (StudentClinicalAssignment $assignment) => implode('|', [
+            $assignment->training_site_id,
+            $assignment->rotationBlock->rotation_id,
+            $assignment->studentSubgroup->student_group_id,
+            $assignment->student_subgroup_id,
+        ]))->map(function (Collection $items) {
+            /** @var StudentClinicalAssignment $first */
+            $first = $items->first();
+            $rotation = $first->rotationBlock->rotation;
+            $group = $first->studentSubgroup->group;
+            return [
+                'site' => $first->trainingSite->only('id', 'name_ar', 'name_en'),
+                'rotation_id' => $rotation->id,
+                'course' => $rotation->course?->only('id', 'code', 'name_ar', 'name_en'),
+                'academic_year' => $rotation->academicYear?->only('id', 'code'),
+                'group' => ['id' => $group->id, 'name' => $group->name],
+                'subgroup' => ['id' => $first->studentSubgroup->id, 'name' => $first->studentSubgroup->name],
+                'supervisors' => $items->pluck('supervisor')->filter()->unique('id')->map(fn ($person) => [
+                    'id' => $person->id, 'full_name_ar' => $person->full_name_ar,
+                    'full_name_en' => $person->full_name_en, 'photo_url' => $person->photo_url,
+                ])->values(),
+                'students' => $items->groupBy('student_id')->map(function (Collection $studentAssignments) {
+                    /** @var StudentClinicalAssignment $assignment */
+                    $assignment = $studentAssignments->first();
+                    return [
+                        'id' => $assignment->student->id,
+                        'university_number' => $assignment->student->university_number,
+                        'full_name_ar' => $assignment->student->full_name_ar,
+                        'full_name_en' => $assignment->student->full_name_en,
+                        'photo_url' => $assignment->student->photo_url,
+                        'supervisor_ids' => $studentAssignments->pluck('supervisor_id')->filter()->unique()->values(),
+                    ];
+                })->sortBy('full_name_ar')->values(),
+            ];
+        })->sortBy(fn (array $row) => implode('|', [
+            $row['site']['name_ar'], $row['course']['code'] ?? '', $row['group']['name'], $row['subgroup']['name'],
+        ]), SORT_NATURAL)->values()->all();
+    }
 
     /**
      * Retrieves paginated master administrative clinical schedule items.

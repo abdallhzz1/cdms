@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\{AcademicYear, AttendanceRecord, ClinicalAssessment, ClinicalSession, Course, Department, DistributionVersion, GradeEntry, Permission, Role, Rotation, RotationBlock, Student, StudentClinicalAssignment, StudentCourseEnrollment, StudentGroup, StudentSubgroup, TrainingSite, User};
+use App\Models\{AcademicYear, AttendanceRecord, ClinicalAssessment, ClinicalSession, Course, Department, DistributionVersion, GradeEntry, Permission, Person, Role, Rotation, RotationBlock, Student, StudentClinicalAssignment, StudentCourseEnrollment, StudentGroup, StudentSubgroup, SupervisorAvailability, TrainingSite, User};
 use App\Services\DepartmentHeadCourseScope;
 use App\Services\Reports\ReportCenterService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -83,6 +83,31 @@ class DepartmentHeadCourseScopeTest extends TestCase
             $this->assertCount(1, app(ReportCenterService::class)->report($key, [])['rows'], $key);
         }
         $this->assertFalse(app(ReportCenterService::class)->hasReport('quality_plans'));
+    }
+
+    public function test_daily_clinical_groups_do_not_expose_another_departments_course(): void
+    {
+        $doctor = Person::factory()->create();
+        $placements = StudentClinicalAssignment::query()
+            ->where('student_id', $this->student->id)
+            ->with('rotationBlock.rotation')->get();
+        foreach ($placements as $placement) {
+            $placement->update(['student_subgroup_id' => $this->subgroup->id, 'supervisor_id' => $doctor->id]);
+            SupervisorAvailability::create([
+                'person_id' => $doctor->id,
+                'training_site_id' => $placement->training_site_id,
+                'day' => 'monday',
+                'available_from' => '2026-09-01',
+                'available_until' => '2026-12-01',
+                'status' => 'work',
+            ]);
+        }
+
+        $this->getJson('/api/v1/operational/clinical-schedule/daily-groups?date=2026-09-07')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.course.id', $this->owned->id)
+            ->assertJsonPath('data.0.students.0.id', $this->student->id);
     }
 
     public function test_missing_department_is_deny_by_default_and_rta_does_not_expand_head_scope(): void

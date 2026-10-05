@@ -11,6 +11,7 @@ use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroup;
 use App\Models\StudentSubgroup;
+use App\Models\SupervisorAvailability;
 use App\Models\TrainingSite;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -178,6 +179,44 @@ class Phase5BTest extends TestCase
         $item2 = $response->json('data.data.1');
         $this->assertEquals('2026-09-29', $item2['block']['start_date']);
         $this->assertEquals('2026-10-26', $item2['block']['end_date']);
+    }
+
+    public function test_daily_schedule_groups_complete_subgroup_by_site_and_work_day(): void
+    {
+        SupervisorAvailability::create([
+            'person_id' => $this->supervisor1->id,
+            'training_site_id' => $this->site1->id,
+            'department_id' => $this->department1->id,
+            'day' => 'thursday',
+            'available_from' => '2026-09-01',
+            'available_until' => '2026-10-30',
+            'status' => 'work',
+        ]);
+        StudentClinicalAssignment::create([
+            'distribution_version_id' => $this->publishedVersion->id,
+            'student_id' => $this->student2->id,
+            'student_subgroup_id' => $this->subgroup->id,
+            'rotation_block_id' => $this->block1->id,
+            'training_site_id' => $this->site1->id,
+            'department_id' => $this->department1->id,
+            'supervisor_id' => $this->supervisor1->id,
+        ]);
+
+        $url = route('api.v1.operational.clinical-schedule.daily-groups', [
+            'date' => '2026-09-03', 'training_site_id' => $this->site1->id,
+        ]);
+        $this->actingAs($this->admin)->getJson($url)
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonCount(2, 'data.0.students')
+            ->assertJsonPath('data.0.subgroup.id', $this->subgroup->id)
+            ->assertJsonPath('data.0.site.id', $this->site1->id);
+
+        $this->actingAs($this->admin)->getJson(route('api.v1.operational.clinical-schedule.daily-groups', [
+            'date' => '2026-09-04', 'training_site_id' => $this->site1->id,
+        ]))->assertOk()->assertJsonCount(0, 'data');
+
+        $this->actingAs($this->unauthorized)->getJson($url)->assertForbidden();
     }
 
     public function test_historical_and_unpublished_versions_are_excluded()
