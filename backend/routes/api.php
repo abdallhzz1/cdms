@@ -750,6 +750,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('operational/clinical-schedule/daily-groups', [OperationalDistributionController::class, 'dailyScheduleGroups'])
             ->middleware('permission:clinical_schedule.view')
             ->name('operational.clinical-schedule.daily-groups');
+        Route::get('operational/clinical-schedule/weekly-counts', [OperationalDistributionController::class, 'weeklyScheduleGroupCounts'])
+            ->middleware('permission:clinical_schedule.view')
+            ->name('operational.clinical-schedule.weekly-counts');
         Route::get('operational/clinical-schedule-options', [OperationalDistributionController::class, 'clinicalScheduleOptions'])
             ->middleware('permission:clinical_schedule.view')
             ->name('operational.clinical-schedule-options');

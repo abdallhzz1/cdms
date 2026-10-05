@@ -32,58 +32,10 @@ class ClinicalScheduleQueryService
     public function getDailyGroups(string $date, ?int $siteId = null): array
     {
         $day = Carbon::parse($date)->startOfDay();
-        $weekday = strtolower($day->format('l'));
-        $query = app(\App\Services\DepartmentHeadCourseScope::class)->assignments(StudentClinicalAssignment::query())
-            ->whereHas('distributionVersion', fn ($version) => $version
-                ->where('status', 'published')->where('is_current', true))
-            ->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation
-                ->whereDate('start_date', '<=', $date)
-                ->where(fn ($period) => $period->whereNull('end_date')->orWhereDate('end_date', '>=', $date)))
-            ->whereNotNull('student_subgroup_id')
-            ->when($siteId, fn ($assignments) => $assignments->where('training_site_id', $siteId))
-            ->with([
-                'student:id,university_number,full_name_ar,full_name_en,photo_url',
-                'studentSubgroup.group',
-                'rotationBlock.rotation.course:id,code,name_ar,name_en',
-                'rotationBlock.rotation.academicYear:id,code',
-                'trainingSite:id,name_ar,name_en',
-                'supervisor.availabilities',
-            ]);
+        $assignments = $this->dailyCandidates($day, $day, $siteId)
+            ->filter(fn (StudentClinicalAssignment $assignment) => $this->isOnDuty($assignment, $day));
 
-        $departmentId = $this->getClinicalOperationsDepartmentId();
-        if ($departmentId) $query->where('student_clinical_assignments.department_id', $departmentId);
-        $levels = $this->getEffectiveAcademicLevelScope();
-        if ($levels !== null) {
-            empty($levels)
-                ? $query->whereRaw('1 = 0')
-                : $query->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->whereIn('academic_level', $levels));
-        }
-
-        $assignments = $query->get()->filter(function (StudentClinicalAssignment $assignment) use ($day, $weekday) {
-            $block = $assignment->rotationBlock;
-            $rotation = $block?->rotation;
-            if (! $assignment->student || ! $assignment->studentSubgroup?->group || ! $assignment->trainingSite
-                || ! $assignment->supervisor || ! $rotation?->start_date || ! $block?->from_week || ! $block?->to_week) return false;
-
-            $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
-            $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->endOfDay();
-            if ($day->lt($start) || $day->gt($end)) return false;
-
-            return $assignment->supervisor->availabilities->contains(fn ($availability) =>
-                (int) $availability->training_site_id === (int) $assignment->training_site_id
-                && $availability->day === $weekday
-                && ($availability->status ?: 'work') === 'work'
-                && (! $availability->available_from || $availability->available_from->lte($day))
-                && (! $availability->available_until || $availability->available_until->gte($day))
-            );
-        });
-
-        return $assignments->groupBy(fn (StudentClinicalAssignment $assignment) => implode('|', [
-            $assignment->training_site_id,
-            $assignment->rotationBlock->rotation_id,
-            $assignment->studentSubgroup->student_group_id,
-            $assignment->student_subgroup_id,
-        ]))->map(function (Collection $items) {
+        return $assignments->groupBy(fn (StudentClinicalAssignment $assignment) => $this->dailyGroupKey($assignment))->map(function (Collection $items) {
             /** @var StudentClinicalAssignment $first */
             $first = $items->first();
             $rotation = $first->rotationBlock->rotation;
@@ -115,6 +67,90 @@ class ClinicalScheduleQueryService
         })->sortBy(fn (array $row) => implode('|', [
             $row['site']['name_ar'], $row['course']['code'] ?? '', $row['group']['name'], $row['subgroup']['name'],
         ]), SORT_NATURAL)->values()->all();
+    }
+
+    /** One scoped query for the whole week; no student roster is serialized in this response. */
+    public function getWeeklyGroupCounts(string $weekStart, ?int $siteId = null): array
+    {
+        $start = Carbon::parse($weekStart)->startOfDay();
+        $end = $start->copy()->addDays(6);
+        $candidates = $this->dailyCandidates($start, $end, $siteId);
+
+        $days = [];
+        for ($offset = 0; $offset < 7; $offset++) {
+            $day = $start->copy()->addDays($offset);
+            $days[] = [
+                'date' => $day->toDateString(),
+                'group_count' => $candidates
+                    ->filter(fn (StudentClinicalAssignment $assignment) => $this->isOnDuty($assignment, $day))
+                    ->unique(fn (StudentClinicalAssignment $assignment) => $this->dailyGroupKey($assignment))
+                    ->count(),
+            ];
+        }
+
+        return $days;
+    }
+
+    private function dailyCandidates(Carbon $start, Carbon $end, ?int $siteId): Collection
+    {
+        $query = app(\App\Services\DepartmentHeadCourseScope::class)->assignments(StudentClinicalAssignment::query())
+            ->whereHas('distributionVersion', fn ($version) => $version
+                ->where('status', 'published')->where('is_current', true))
+            ->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation
+                ->whereDate('start_date', '<=', $end->toDateString())
+                ->where(fn ($period) => $period->whereNull('end_date')->orWhereDate('end_date', '>=', $start->toDateString())))
+            ->whereNotNull('student_subgroup_id')
+            ->when($siteId, fn ($assignments) => $assignments->where('training_site_id', $siteId))
+            ->with([
+                'student:id,university_number,full_name_ar,full_name_en,photo_url',
+                'studentSubgroup.group',
+                'rotationBlock.rotation.course:id,code,name_ar,name_en',
+                'rotationBlock.rotation.academicYear:id,code',
+                'trainingSite:id,name_ar,name_en',
+                'supervisor.availabilities',
+            ]);
+
+        $departmentId = $this->getClinicalOperationsDepartmentId();
+        if ($departmentId) $query->where('student_clinical_assignments.department_id', $departmentId);
+        $levels = $this->getEffectiveAcademicLevelScope();
+        if ($levels !== null) {
+            empty($levels)
+                ? $query->whereRaw('1 = 0')
+                : $query->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->whereIn('academic_level', $levels));
+        }
+
+        return $query->get();
+    }
+
+    private function dailyGroupKey(StudentClinicalAssignment $assignment): string
+    {
+        return implode('|', [
+            $assignment->training_site_id,
+            $assignment->rotationBlock->rotation_id,
+            $assignment->studentSubgroup->student_group_id,
+            $assignment->student_subgroup_id,
+        ]);
+    }
+
+    private function isOnDuty(StudentClinicalAssignment $assignment, Carbon $day): bool
+    {
+        $block = $assignment->rotationBlock;
+        $rotation = $block?->rotation;
+        if (! $assignment->student || ! $assignment->studentSubgroup?->group || ! $assignment->trainingSite
+            || ! $assignment->supervisor || ! $rotation?->start_date || ! $block?->from_week || ! $block?->to_week) return false;
+
+        $blockStart = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
+        $blockEnd = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->endOfDay();
+        if ($day->lt($blockStart) || $day->gt($blockEnd)) return false;
+
+        $weekday = strtolower($day->format('l'));
+        return $assignment->supervisor->availabilities->contains(fn ($availability) =>
+            (int) $availability->training_site_id === (int) $assignment->training_site_id
+            && $availability->day === $weekday
+            && ($availability->status ?: 'work') === 'work'
+            && (! $availability->available_from || $availability->available_from->lte($day))
+            && (! $availability->available_until || $availability->available_until->gte($day))
+        );
     }
 
     /**

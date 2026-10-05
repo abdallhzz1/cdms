@@ -212,11 +212,22 @@ class Phase5BTest extends TestCase
             ->assertJsonPath('data.0.subgroup.id', $this->subgroup->id)
             ->assertJsonPath('data.0.site.id', $this->site1->id);
 
+        $this->actingAs($this->admin)->getJson(route('api.v1.operational.clinical-schedule.weekly-counts', [
+            'week_start' => '2026-08-30', 'training_site_id' => $this->site1->id,
+        ]))->assertOk()
+            ->assertJsonCount(7, 'data')
+            ->assertJsonPath('data.4.date', '2026-09-03')
+            ->assertJsonPath('data.4.group_count', 1)
+            ->assertJsonPath('data.5.group_count', 0);
+
         $this->actingAs($this->admin)->getJson(route('api.v1.operational.clinical-schedule.daily-groups', [
             'date' => '2026-09-04', 'training_site_id' => $this->site1->id,
         ]))->assertOk()->assertJsonCount(0, 'data');
 
         $this->actingAs($this->unauthorized)->getJson($url)->assertForbidden();
+        $this->actingAs($this->unauthorized)->getJson(route('api.v1.operational.clinical-schedule.weekly-counts', [
+            'week_start' => '2026-08-30', 'training_site_id' => $this->site1->id,
+        ]))->assertForbidden();
     }
 
     public function test_historical_and_unpublished_versions_are_excluded()
