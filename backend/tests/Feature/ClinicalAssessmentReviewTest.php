@@ -7,6 +7,7 @@ use App\Models\ClinicalAssessment;
 use App\Models\Course;
 use App\Models\Department;
 use App\Models\DistributionVersion;
+use App\Models\GradeEntry;
 use App\Models\Permission;
 use App\Models\Person;
 use App\Models\Role;
@@ -14,6 +15,7 @@ use App\Models\Rotation;
 use App\Models\RotationBlock;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
+use App\Models\StudentCourseEnrollment;
 use App\Models\StudentGroup;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentSubgroup;
@@ -48,6 +50,7 @@ class ClinicalAssessmentReviewTest extends TestCase
         $rta->roles()->attach($rtaRole, ['scope_type' => 'department', 'scope_id' => $departmentA->id]);
 
         $course = Course::factory()->create(['academic_level' => 'fourth']);
+        $course->assessmentComponents()->where('code', 'osce')->update(['max_score' => 25, 'weight' => 25, 'osce_entry_mode' => 'committee']);
         $rotation = Rotation::factory()->create([
             'academic_year_id' => $year->id, 'course_id' => $course->id,
             'academic_level' => 'fourth', 'start_date' => '2026-09-01', 'end_date' => '2026-09-30',
@@ -80,6 +83,19 @@ class ClinicalAssessmentReviewTest extends TestCase
             ]);
         }
 
+        foreach ([[$assignments[0], 0], [$assignments[2], 22]] as [$assignment, $score]) {
+            $enrollment = StudentCourseEnrollment::create([
+                'student_id' => $assignment->student_id, 'course_id' => $course->id,
+                'academic_year_id' => $year->id, 'semester' => 'FIRST', 'status' => 'enrolled',
+            ]);
+            $grade = GradeEntry::create([
+                'student_course_enrollment_id' => $enrollment->id,
+                'max_score' => 100, 'status' => 'draft', 'osce_score' => $score,
+            ]);
+            $grade->osce_recorded_by_user_id = $rta->id;
+            $grade->save();
+        }
+
         ClinicalAssessment::create([
             'student_id' => $assignments[0]->student_id,
             'student_clinical_assignment_id' => $assignments[0]->id,
@@ -98,6 +114,7 @@ class ClinicalAssessmentReviewTest extends TestCase
         ]);
 
         $secondCourse = Course::factory()->create(['academic_level' => 'fourth']);
+        $secondCourse->assessmentComponents()->where('code', 'osce')->update(['max_score' => 0, 'weight' => 0]);
         $secondRotation = Rotation::factory()->create([
             'academic_year_id' => $year->id, 'course_id' => $secondCourse->id,
             'academic_level' => 'fourth', 'start_date' => '2026-10-01', 'end_date' => '2026-10-31',
@@ -146,7 +163,7 @@ class ClinicalAssessmentReviewTest extends TestCase
             ->assertJsonPath('data.groups.0.subgroups.0.week_count', 3)
             ->assertJsonPath('data.groups.0.subgroups.2.students.0.photo_url', 'https://example.test/student.jpg');
 
-        $this->actingAs($rta)->getJson('/api/v1/clinical-assessments/review-subgroup?subgroup_id='.$subgroupOne->id)
+        $firstReview = $this->actingAs($rta)->getJson('/api/v1/clinical-assessments/review-subgroup?subgroup_id='.$subgroupOne->id)
             ->assertOk()
             ->assertJsonCount(2, 'data.rotations')
             ->assertJsonPath('data.rotations.0.weeks.0.number', 1)
@@ -156,13 +173,28 @@ class ClinicalAssessmentReviewTest extends TestCase
             ->assertJsonPath('data.rotations.0.weeks.1.number', 2)
             ->assertJsonPath('data.rotations.0.weeks.1.ready_count', 0)
             ->assertJsonPath('data.rotations.1.weeks.0.student_count', 1)
-            ->assertJsonPath('data.rotations.1.weeks.0.ready_count', 0);
+            ->assertJsonPath('data.rotations.1.weeks.0.ready_count', 0)
+            ->assertJsonCount(1, 'data.final_osce')
+            ->assertJsonPath('data.final_osce.0.course.id', $course->id)
+            ->assertJsonPath('data.final_osce.0.entry_mode', 'committee')
+            ->assertJsonPath('data.final_osce.0.recorded_count', 1)
+            ->assertJsonPath('data.final_osce.0.students.0.osce_score', '0.00')
+            ->assertJsonPath('data.final_osce.0.students.0.recorded_by.name', $rta->name)
+            ->assertJsonPath('data.final_osce.0.students.1.osce_score', null);
+        $this->assertEquals(25, (float) $firstReview->json('data.final_osce.0.max_score'));
+        $this->assertEqualsCanonicalizing(
+            [$assignments[0]->student_id, $assignments[1]->student_id],
+            array_map(fn (array $row) => $row['student']['id'], $firstReview->json('data.final_osce.0.students')),
+        );
 
         $this->actingAs($rta)->getJson('/api/v1/clinical-assessments/review-subgroup?subgroup_id='.$subgroupThree->id)
-            ->assertOk()->assertJsonCount(1, 'data.students')->assertJsonCount(0, 'data.rotations');
+            ->assertOk()->assertJsonCount(1, 'data.students')->assertJsonCount(0, 'data.rotations')
+            ->assertJsonCount(0, 'data.final_osce');
 
         $this->actingAs($rta)->getJson('/api/v1/clinical-assessments/review-subgroup?subgroup_id='.$subgroupTwo->id)
-            ->assertOk()->assertJsonCount(1, 'data.students');
+            ->assertOk()->assertJsonCount(1, 'data.students')
+            ->assertJsonPath('data.final_osce.0.students.0.osce_score', '22.00')
+            ->assertJsonMissing(['osce_score' => '0.00']);
 
         $fifthGroup = StudentGroup::factory()->create(['academic_year_id' => $year->id, 'academic_level' => 'fifth']);
         $fifthSubgroup = StudentSubgroup::create(['student_group_id' => $fifthGroup->id, 'name' => 'A1']);
@@ -193,6 +225,7 @@ class ClinicalAssessmentReviewTest extends TestCase
         ]);
         $periodReview = $this->actingAs($rta)->getJson('/api/v1/clinical-assessments/review-subgroup?subgroup_id='.$subgroupOne->id)
             ->assertOk()->assertJsonCount(2, 'data.rotations.0.weeks')
+            ->assertJsonCount(1, 'data.final_osce')
             ->assertJsonPath('data.rotations.0.weeks.0.number', -$block->id)
             ->assertJsonPath('data.rotations.0.weeks.1.number', -$laterBlock->id)
             ->assertJsonPath('data.rotations.0.weeks.1.students.0.mini_osce', null);
@@ -201,5 +234,7 @@ class ClinicalAssessmentReviewTest extends TestCase
         $rta->update(['assigned_levels' => null]);
         $this->actingAs($rta)->getJson('/api/v1/clinical-assessments/review-groups')
             ->assertOk()->assertJsonCount(0, 'data.groups');
+        $this->actingAs($rta)->getJson('/api/v1/clinical-assessments/review-subgroup?subgroup_id='.$subgroupOne->id)
+            ->assertNotFound();
     }
 }

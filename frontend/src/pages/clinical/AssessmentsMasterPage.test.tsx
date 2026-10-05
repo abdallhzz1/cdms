@@ -20,6 +20,14 @@ const groups = { groups: [
 ] };
 const detail = (id: number) => ({
   subgroup_id: id,
+  final_osce: id !== 11 ? [] : [{
+    course: { id: 1, code: 'MED', name_ar: 'الباطني', name_en: 'Internal Medicine' },
+    academic_year: { id: 1, code: '2026/2027' }, max_score: '25.00', entry_mode: 'committee',
+    student_count: 2, recorded_count: 1, students: [
+      { student: student(1), osce_score: '0.00', grade_status: 'draft', recorded_by: { id: 7, name: 'Doctor Seven' } },
+      { student: student(2), osce_score: null, grade_status: null, recorded_by: null },
+    ],
+  }],
   rotations: id !== 11 ? [] : [
     { id: 1, course: { id: 1, code: 'MED', name_ar: 'الباطني', name_en: 'Internal Medicine' }, clinical_period: null, weeks: [
       { number: 1, start_date: '2026-09-01', end_date: '2026-09-07', student_count: 2, ready_count: 1, students: [
@@ -60,9 +68,30 @@ const mockReview = (response: ReturnType<typeof detail>) => vi.spyOn(window, 'fe
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); window.localStorage.removeItem('cdms.locale'); document.cookie = 'XSRF-TOKEN=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'; });
 
 describe('AssessmentsMasterPage review', () => {
+  it('reviews final OSCE once per course with recorded zero, pending students and grade-sheet status', async () => {
+    mockReview(detail(11));
+    renderWithProviders(<AssessmentsMasterPage />, { route: '/assessments' });
+    expect(await screen.findByRole('table', { name: 'Q1' })).toBeVisible();
+    expect(screen.queryByText('Doctor Seven')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Final OSCE' }));
+    expect(screen.queryByRole('table', { name: 'Q1' })).not.toBeInTheDocument();
+    const subgroup = screen.getByRole('heading', { name: 'Subgroup Q1' }).closest('article')!;
+    expect(within(subgroup).getByText('Internal Medicine')).toBeVisible();
+    expect(within(subgroup).getByText('1/2 recorded')).toBeVisible();
+    expect(within(subgroup).getByText('0 / 25')).toBeVisible();
+    expect(within(subgroup).getByText('Recorded by: Doctor Seven · Grade sheet: Draft')).toBeVisible();
+    expect(within(subgroup).getByText('Not recorded')).toBeVisible();
+    expect(within(subgroup).getAllByRole('button', { name: 'Enlarge student photo' })).toHaveLength(2);
+    expect(screen.getByText('No assigned courses have a final OSCE in this subgroup.')).toBeVisible();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Supervisor assessments' }));
+    expect(screen.getByRole('table', { name: 'Q1' })).toBeVisible();
+  });
+
   it('shows each training period separately and includes its mini OSCE in the detail', async () => {
     const first = detail(11).rotations[0];
-    const periodDetail = { subgroup_id: 11, rotations: [{ ...first, weeks: [{
+    const periodDetail = { subgroup_id: 11, final_osce: [], rotations: [{ ...first, weeks: [{
       number: -4, block_code: 'P1', start_date: '2026-09-01', end_date: '2026-09-28',
       student_count: 2, ready_count: 1, students: [{
         student: student(1), supervisors: [], ready: true,

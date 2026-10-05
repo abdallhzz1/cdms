@@ -31,4 +31,9 @@ class GradeEntry extends Model
     {
         return $this->belongsTo(StudentCourseEnrollment::class, 'student_course_enrollment_id');
     }
+
+    public function osceRecorder(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'osce_recorded_by_user_id');
+    }
 }

@@ -29,6 +29,15 @@ snapshot are retained in the grade record and audit log. When final OSCE is
 zero, it is omitted from the entry screen and treated as zero in the grade
 sheet.
 
+Users with `assessment.review` can inspect final OSCE on the existing clinical
+assessment review screen. Its separate tab shows one mark per assigned student,
+course and academic year, grouped by subgroup, including missing marks, the
+course maximum, the recorder when known, and the *grade-sheet* status. It is
+read-only; this status is not an independent OSCE approval. It uses the same
+published-assignment, course and student access boundaries as the weekly
+assessment review. Mini OSCE remains visible in each period's assessment
+details.
+
 Changing course weights after grade entries exist, or changing assessment
 frequency/mini OSCE share after clinical assessments exist, is rejected to
 avoid retroactive regrading. Changing the mini OSCE share after mini marks

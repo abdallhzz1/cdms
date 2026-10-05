@@ -21,7 +21,9 @@ type ReviewAssessment = { id: number; status: string; score: string | number | n
 type ReviewStudent = { student: Student; supervisors: Person[]; assessments: ReviewAssessment[]; mini_osce?:{score:number|string;max_score:number|string}|null; ready: boolean };
 type ReviewWeek = { number: number; block_code?: string | null; start_date: string | null; end_date: string | null; student_count: number; ready_count: number; students: ReviewStudent[] };
 type ReviewRotation = { id: number; course: Named | null; clinical_period: Named | null; weeks: ReviewWeek[] };
-type ReviewDetail = { subgroup_id: number; rotations: ReviewRotation[] };
+type FinalOsceStudent = { student: Student; osce_score: string | number | null; grade_status: string | null; recorded_by: { id: number; name: string } | null };
+type FinalOsceCourse = { course: Named; academic_year: Named | null; max_score: string | number; entry_mode: string; student_count: number; recorded_count: number; students: FinalOsceStudent[] };
+type ReviewDetail = { subgroup_id: number; rotations: ReviewRotation[]; final_osce?: FinalOsceCourse[] };
 
 const dateLabel = (value: string | null, ar: boolean) => value
   ? new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', { day: '2-digit', month: '2-digit' }).format(new Date(`${value.slice(0, 10)}T12:00:00`))
@@ -38,6 +40,7 @@ export function AssessmentsMasterPage() {
   const ar = locale === 'ar';
   const tr = (arabic: string, english: string) => ar ? arabic : english;
   const [groupKey, setGroupKey] = useState('');
+  const [reviewMode, setReviewMode] = useState<'assessments' | 'osce'>('assessments');
   const allowed = can('assessment.review');
   const groupsQuery = useQuery({
     queryKey: ['clinical-assessment-review-groups'],
@@ -62,15 +65,21 @@ export function AssessmentsMasterPage() {
           {groups.map(group => <option key={group.key} value={group.key}>{tr('المجموعة', 'Group')} {group.group_name} · {levelName(group.academic_level, ar)} · {group.academic_year?.code || '—'}</option>)}
         </select>
       </section>
-      <p className="text-[11px] text-slate-500">{t('assessments.matrix.hint')}</p>
+      <div role="group" aria-label={tr('نوع المراجعة', 'Review type')} className="inline-flex w-full gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:w-auto">
+        {([['assessments', tr('تقييمات المشرف', 'Supervisor assessments')], ['osce', tr('OSCE النهائي', 'Final OSCE')]] as const).map(([mode, title]) =>
+          <button key={mode} type="button" aria-pressed={reviewMode === mode} onClick={() => setReviewMode(mode)} className={`min-h-10 flex-1 rounded-lg px-3 text-xs font-bold transition sm:flex-none ${reviewMode === mode ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>{title}</button>
+        )}
+      </div>
+      {reviewMode === 'assessments' && <p className="text-[11px] text-slate-500">{t('assessments.matrix.hint')}</p>}
+      {reviewMode === 'osce' && <p className="text-[11px] text-slate-500">{tr('علامة OSCE النهائي مرة واحدة لكل مساق وسنة أكاديمية. حالة الكشف لا تعني اعتماد علامة الأوسكي بشكل منفصل.', 'Final OSCE is recorded once per course and academic year. The grade-sheet status is not a separate OSCE approval.')}</p>}
       <section aria-label={tr('المجموعات الفرعية', 'Subgroups')} className="space-y-6">
-        {selectedGroup?.subgroups.map(subgroup => <SubgroupSection key={subgroup.id} subgroup={subgroup} ar={ar} />)}
+        {selectedGroup?.subgroups.map(subgroup => <SubgroupSection key={subgroup.id} subgroup={subgroup} ar={ar} mode={reviewMode} />)}
       </section>
     </>}
   </div>;
 }
 
-function SubgroupSection({ subgroup, ar }: { subgroup: ReviewSubgroup; ar: boolean }) {
+function SubgroupSection({ subgroup, ar, mode }: { subgroup: ReviewSubgroup; ar: boolean; mode: 'assessments' | 'osce' }) {
   const tr = (arabic: string, english: string) => ar ? arabic : english;
   const detailQuery = useQuery({
     queryKey: ['clinical-assessment-review-subgroup', subgroup.id],
@@ -82,15 +91,45 @@ function SubgroupSection({ subgroup, ar }: { subgroup: ReviewSubgroup; ar: boole
   return <article className="overflow-hidden rounded-xl border border-slate-200 bg-white">
     <header className="border-b border-slate-200 px-4 py-4 sm:px-5">
       <h2 className="flex flex-wrap items-baseline gap-2"><span className="text-xs font-bold text-slate-500">{tr('المجموعة الفرعية', 'Subgroup')}</span><b dir="ltr" className="text-2xl font-black tracking-wide text-teal-800">{subgroup.name}</b></h2>
-      <p className="mt-1 text-[11px] text-slate-500">{subgroup.student_count} {tr('طلاب', 'students')} · {subgroup.week_count} {tr('مواعيد تقييم', 'assessment slots')}</p>
+      <p className="mt-1 text-[11px] text-slate-500">{subgroup.student_count} {tr('طلاب', 'students')}{mode === 'assessments' && <> · {subgroup.week_count} {tr('مواعيد تقييم', 'assessment slots')}</>}</p>
     </header>
     <div>
       {detailQuery.isLoading ? <LoadingState /> : detailQuery.isError ? <ErrorState onRetry={() => detailQuery.refetch()} /> : <>
-        {!detail?.rotations.length && <p className="px-3 py-3 text-xs text-slate-500">{tr('لا توجد أسابيع تكليف منشورة لهذه المجموعة بعد.', 'No published assignment weeks for this subgroup yet.')}</p>}
-        <AssessmentWeekTable students={subgroup.students} rotations={detail?.rotations ?? []} ar={ar} label={subgroup.name} />
+        {mode === 'assessments' ? <>
+          {!detail?.rotations.length && <p className="px-3 py-3 text-xs text-slate-500">{tr('لا توجد أسابيع تكليف منشورة لهذه المجموعة بعد.', 'No published assignment weeks for this subgroup yet.')}</p>}
+          <AssessmentWeekTable students={subgroup.students} rotations={detail?.rotations ?? []} ar={ar} label={subgroup.name} />
+        </> : <FinalOsceReview courses={detail?.final_osce ?? []} ar={ar} />}
       </>}
     </div>
   </article>;
+}
+
+function FinalOsceReview({ courses, ar }: { courses: FinalOsceCourse[]; ar: boolean }) {
+  const tr = (arabic: string, english: string) => ar ? arabic : english;
+  if (!courses.length) return <p className="px-4 py-5 text-xs text-slate-500">{tr('لا توجد مساقات لها OSCE نهائي ضمن تكليفات هذه المجموعة الفرعية.', 'No assigned courses have a final OSCE in this subgroup.')}</p>;
+
+  const entryModeLabel = (mode: string) => ({
+    assistant: tr('مساعد البحث والتدريس', 'Research and teaching assistant'),
+    supervisor: tr('المشرف السريري', 'Clinical supervisor'),
+    committee: tr('لجنة المشرفين', 'Supervisor panel'),
+    legacy_shared: tr('المشرف أو المساعد', 'Supervisor or assistant'),
+  }[mode] ?? tr('حسب خطة المساق', 'Per course plan'));
+
+  return <div className="space-y-3 bg-slate-50/50 p-3 sm:p-4">
+    {courses.map(course => <section key={`${course.course.id}:${course.academic_year?.id ?? ''}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <header className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 px-3 py-3 sm:px-4">
+        <div className="min-w-0"><h3 className="break-words text-sm font-black text-slate-900">{courseName(course.course, ar)}</h3><p className="mt-1 text-[11px] text-slate-500">{course.course.code} · {course.academic_year?.code ?? '—'} · {tr('الإدخال:', 'Entry:')} {entryModeLabel(course.entry_mode)}</p></div>
+        <span className="rounded-lg bg-teal-50 px-2.5 py-1.5 text-[11px] font-bold text-teal-800">{course.recorded_count}/{course.student_count} {tr('علامة مُدخلة', 'recorded')}</span>
+      </header>
+      <div className="divide-y divide-slate-100">{course.students.map(row => <div key={row.student.id} className="flex min-w-0 items-center gap-3 px-3 py-3 sm:px-4">
+        <ProfilePhotoLightbox photoUrl={row.student.photo_url} name={studentName(row.student, ar)} subtitle={row.student.university_number} enlargeLabel={tr('تكبير صورة الطالب', 'Enlarge student photo')} size="sm" shape="circle" />
+        <div className="min-w-0 flex-1"><p className="break-words text-xs font-bold text-slate-900">{studentName(row.student, ar)}</p><p dir="ltr" className={`mt-0.5 font-mono text-[10px] text-slate-500 ${ar ? 'text-right' : 'text-left'}`}>{row.student.university_number}</p>
+          {row.osce_score !== null && <p className="mt-1 text-[10px] text-slate-500">{row.recorded_by ? `${tr('سجّلها:', 'Recorded by:')} ${row.recorded_by.name} · ` : ''}{row.grade_status ? `${tr('حالة الكشف:', 'Grade sheet:')} ${statusLabel(row.grade_status, ar)}` : ''}</p>}
+        </div>
+        <div className="shrink-0 text-end"><p dir="ltr" className={`text-sm font-black tabular-nums ${row.osce_score === null ? 'text-slate-400' : 'text-teal-800'}`}>{row.osce_score === null ? '—' : Number(row.osce_score).toString()} / {Number(course.max_score).toString()}</p><p className="mt-0.5 text-[10px] font-bold text-slate-500">{row.osce_score === null ? tr('بانتظار الإدخال', 'Not recorded') : tr('مُدخلة', 'Recorded')}</p></div>
+      </div>)}</div>
+    </section>)}
+  </div>;
 }
 
 function AssessmentWeekTable({ students, rotations, ar, label }: { students: Student[]; rotations: ReviewRotation[]; ar: boolean; label: string }) {

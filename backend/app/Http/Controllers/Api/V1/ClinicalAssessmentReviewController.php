@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\ClinicalAssessment;
+use App\Models\GradeEntry;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroupAssignment;
@@ -119,6 +120,66 @@ class ClinicalAssessmentReviewController extends Controller
             ->whereIn('student_id', $students->pluck('id'))
             ->get()->keyBy(fn ($item) => $item->student_id.':'.$item->rotation_block_id);
 
+        // Final OSCE belongs to the course and academic year, not to an
+        // assessment week. Keep its roster limited to the already scoped,
+        // currently published subgroup assignments.
+        $osceAssignments = $assignments->filter(function (StudentClinicalAssignment $assignment) {
+            $rotation = $assignment->rotationBlock?->rotation;
+            $osce = $rotation?->course?->assessmentComponents?->firstWhere('code', 'osce');
+
+            return $rotation?->academic_year_id && $osce && (float) $osce->max_score > 0;
+        })->groupBy(fn (StudentClinicalAssignment $assignment) =>
+            $assignment->rotationBlock->rotation->course_id.':'.$assignment->rotationBlock->rotation->academic_year_id
+        );
+        $oscePairs = $osceAssignments->map(function (Collection $courseAssignments) {
+            $rotation = $courseAssignments->first()->rotationBlock->rotation;
+
+            return ['course_id' => (int) $rotation->course_id, 'academic_year_id' => (int) $rotation->academic_year_id];
+        })->values();
+        $osceEntries = $oscePairs->isEmpty() ? collect() : GradeEntry::query()
+            ->with(['enrollment:id,student_id,course_id,academic_year_id', 'osceRecorder:id,name'])
+            ->whereHas('enrollment', function (Builder $query) use ($oscePairs, $assignments) {
+                $query->whereIn('student_id', $assignments->pluck('student_id')->unique())
+                    ->where(function (Builder $pairs) use ($oscePairs) {
+                        foreach ($oscePairs as $pair) {
+                            $pairs->orWhere(fn (Builder $item) => $item
+                                ->where('course_id', $pair['course_id'])
+                                ->where('academic_year_id', $pair['academic_year_id']));
+                        }
+                    });
+            })->orderBy('id')->get()->keyBy(fn (GradeEntry $entry) => implode(':', [
+                $entry->enrollment->student_id,
+                $entry->enrollment->course_id,
+                $entry->enrollment->academic_year_id,
+            ]));
+        $finalOsce = $osceAssignments->map(function (Collection $courseAssignments) use ($osceEntries) {
+            $rotation = $courseAssignments->first()->rotationBlock->rotation;
+            $component = $rotation->course->assessmentComponents->firstWhere('code', 'osce');
+            $rows = $courseAssignments->pluck('student')->filter()->unique('id')
+                ->sortBy('university_number')->values()->map(function (Student $student) use ($rotation, $osceEntries) {
+                    $entry = $osceEntries->get(implode(':', [$student->id, $rotation->course_id, $rotation->academic_year_id]));
+
+                    return [
+                        'student' => $student,
+                        'osce_score' => $entry?->osce_score,
+                        'grade_status' => $entry?->status,
+                        'recorded_by' => $entry?->osceRecorder?->only(['id', 'name']),
+                    ];
+                });
+
+            return [
+                'course' => $rotation->course->only(['id', 'code', 'name_ar', 'name_en']),
+                'academic_year' => $rotation->academicYear?->only(['id', 'code']),
+                'max_score' => $component->max_score,
+                'entry_mode' => $component->osce_entry_mode ?: 'legacy_shared',
+                'student_count' => $rows->count(),
+                'recorded_count' => $rows->whereNotNull('osce_score')->count(),
+                'students' => $rows,
+            ];
+        })->sortBy(fn (array $item) => implode('|', [
+            $item['academic_year']['code'] ?? '', $item['course']['name_ar'] ?? '', $item['course']['code'] ?? '',
+        ]))->values();
+
         $rotations = $assignments->groupBy(fn (StudentClinicalAssignment $assignment) => (string) $assignment->rotationBlock?->rotation_id)
             ->map(function (Collection $rotationAssignments) use ($assessments, $miniScores) {
             $rotation = $rotationAssignments->first()?->rotationBlock?->rotation;
@@ -185,6 +246,7 @@ class ClinicalAssessmentReviewController extends Controller
             'student_count' => $students->count(),
             'students' => $students,
             'rotations' => $rotations,
+            'final_osce' => $finalOsce,
         ]);
     }
 
