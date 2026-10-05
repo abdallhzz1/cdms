@@ -165,7 +165,11 @@ class AttendanceRecordController extends Controller
 
                 return [
                     'assignment_id' => $first->id,
+                    'student_group_id' => $first->studentSubgroup?->student_group_id,
+                    'student_subgroup_id' => $first->student_subgroup_id,
+                    'rotation_id' => $rotation?->id,
                     'academic_year' => $rotation?->academicYear,
+                    'academic_level' => $first->studentSubgroup?->group?->academic_level,
                     'course' => $rotation?->course,
                     'clinical_period' => $rotation?->clinicalPeriod,
                     'block' => [

@@ -615,6 +615,10 @@ class Phase5CTest extends TestCase
             'assignment_id' => $this->assignment1->id, 'session_date' => '2026-09-10',
         ]))->assertOk()->assertJsonCount(2, 'data.records')->assertJsonPath('data.qr_session', null);
 
+        $this->actingAs($this->admin)->getJson('/api/v1/attendance-records/groups')
+            ->assertOk()->assertJsonPath('data.0.student_group_id', $this->subgroup->student_group_id)
+            ->assertJsonPath('data.0.student_subgroup_id', $this->subgroup->id)
+            ->assertJsonPath('data.0.rotation_id', $this->rotation->id);
         $review = $this->actingAs($this->admin)->getJson('/api/v1/attendance-records/group-summary?assignment_id='.$this->assignment1->id.'&week=2')->assertOk();
         $student = collect($review->json('data.students'))->firstWhere('student.id', $this->student2->id);
         $this->assertSame('عذر طبي راجعه مساعد التدريس.', $student['attendance_notes'][0]['note']);

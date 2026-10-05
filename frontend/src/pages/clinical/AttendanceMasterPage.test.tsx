@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
-import { AttendanceMasterPage } from './AttendanceMasterPage';
+import { AttendanceMasterPage, organizeAttendanceGroups } from './AttendanceMasterPage';
 
 const envelope = (data: unknown) => new Response(JSON.stringify({ success: true, data, message: null, meta: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 afterEach(() => {
@@ -11,6 +11,45 @@ afterEach(() => {
 });
 
 describe('AttendanceMasterPage', () => {
+  it('organizes repeated rotation rows under one main group and one subgroup', () => {
+    const base = { academic_year: { id: 1, code: '2026-2027' }, academic_level: 'fourth', group_name: 'N', student_group_id: 8, subgroup_name: 'N1', student_subgroup_id: 12, student_count: 4 };
+    const organized = organizeAttendanceGroups([
+      { ...base, assignment_id: 21, rotation_id: 5, course: { id: 3, name_en: 'Dermatology' } },
+      { ...base, assignment_id: 22, rotation_id: 5, course: { id: 3, name_en: 'Dermatology' } },
+      { ...base, assignment_id: 23, rotation_id: 6, course: { id: 4, name_en: 'Neurology' } },
+      { ...base, assignment_id: 24, rotation_id: 6, subgroup_name: 'N2', student_subgroup_id: 13, student_count: 3 },
+    ]);
+    expect(organized).toHaveLength(1);
+    expect(organized[0].subgroups.map(item => item.name)).toEqual(['N1', 'N2']);
+    expect(organized[0].subgroups[0].entries.map(item => item.assignment_id)).toEqual([21, 23]);
+  });
+
+  it('navigates from a main group to its subgroups without a long repeated course list', async () => {
+    const entries = [
+      { assignment_id: 21, student_group_id: 8, student_subgroup_id: 12, rotation_id: 5, group_name: 'N', subgroup_name: 'N1', academic_year: { id: 1, code: '2026-2027' }, academic_level: 'fourth', course: { id: 3, name_en: 'Dermatology' }, student_count: 4 },
+      { assignment_id: 22, student_group_id: 8, student_subgroup_id: 12, rotation_id: 5, group_name: 'N', subgroup_name: 'N1', academic_year: { id: 1, code: '2026-2027' }, academic_level: 'fourth', course: { id: 3, name_en: 'Dermatology' }, student_count: 4 },
+      { assignment_id: 23, student_group_id: 8, student_subgroup_id: 13, rotation_id: 6, group_name: 'N', subgroup_name: 'N2', academic_year: { id: 1, code: '2026-2027' }, academic_level: 'fourth', course: { id: 4, name_en: 'Neurology' }, student_count: 1 },
+    ];
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return envelope({ id: 1, roles: ['RTA'], permissions: [{ code: 'attendance.review', scope: 'global' }] });
+      if (url.includes('/attendance-records/groups')) return envelope(entries);
+      if (url.includes('/attendance-records/group-summary')) {
+        const second = url.includes('assignment_id=23');
+        const entry = second ? entries[2] : entries[0];
+        return envelope({ group: entry, weeks: [{ number: 1, start_date: '2026-09-01', end_date: '2026-09-07' }], selected_week: { number: 1, start_date: '2026-09-01', end_date: '2026-09-07' }, schedule: [], daily: [], students: second ? [{ student: { id: 9, university_number: '22310009', full_name_ar: 'طالب آخر', full_name_en: 'Other Student' }, totals: { scheduled_days: 0, elapsed_scheduled_days: 0, recorded_days: 0, present: 0, absent: 0, late: 0, excused: 0, absence_percentage: 0 } }] : [] });
+      }
+      if (url.includes('/attendance-warnings')) return envelope([]);
+      throw new Error(`Unmocked request: ${url}`);
+    });
+    renderWithProviders(<AttendanceMasterPage />, { route: '/attendance' });
+    const subgroups = await screen.findByRole('group', { name: 'Subgroups' });
+    expect(within(subgroups).getAllByRole('button')).toHaveLength(2);
+    expect(screen.getByRole('option', { name: 'Group N · Fourth year · 2026-2027' })).toBeInTheDocument();
+    await userEvent.click(within(subgroups).getByRole('button', { name: /N2/ }));
+    expect(await screen.findByText('Other Student')).toBeVisible();
+  });
+
   it('shows the selected published group, its supervisor, and weekly student attendance', async () => {
     document.cookie = 'XSRF-TOKEN=test; path=/';
     vi.spyOn(window, 'confirm').mockReturnValue(true);

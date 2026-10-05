@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CalendarDays, CheckCircle2, Mail, MapPin, UserRound, XCircle } from 'lucide-react';
+import { AlertTriangle, BookOpen, CalendarDays, CheckCircle2, Mail, MapPin, UserRound, Users, XCircle } from 'lucide-react';
 import { ApiError, apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
@@ -13,11 +13,38 @@ import { SupervisorStudentPhoto } from '@/components/clinical/SupervisorStudentP
 type Named = { id?: number; code?: string; name?: string; name_ar?: string; name_en?: string | null };
 type Supervisor = { id?: number; full_name_ar?: string; full_name_en?: string | null } | null;
 type AttendanceGroup = {
-  assignment_id: number; academic_year?: Named | null; course?: Named | null; clinical_period?: Named | null;
+  assignment_id: number; student_group_id?: number | null; student_subgroup_id?: number | null; rotation_id?: number | null;
+  academic_level?: string | null; academic_year?: Named | null; course?: Named | null; clinical_period?: Named | null;
   block?: { code?: string | null; from_week?: number | null; to_week?: number | null } | null;
   group_name?: string | null; subgroup_name?: string | null; batch_year?: number | null;
   training_site?: Named | null; supervisor?: Supervisor; student_count: number;
 };
+type AttendanceSubgroup = { key: string; name: string; studentCount: number; entries: AttendanceGroup[] };
+type AttendanceMainGroup = { key: string; name: string; academicYear?: Named | null; academicLevel?: string | null; subgroups: AttendanceSubgroup[] };
+
+export function organizeAttendanceGroups(groups: AttendanceGroup[]): AttendanceMainGroup[] {
+  const main = new Map<string, AttendanceMainGroup & { subgroupMap: Map<string, AttendanceSubgroup> }>();
+  for (const entry of groups) {
+    const mainKey = entry.student_group_id != null ? `id:${entry.student_group_id}` : `legacy:${entry.group_name}:${entry.academic_year?.id ?? entry.academic_year?.code}:${entry.academic_level}:${entry.batch_year}`;
+    const subgroupKey = entry.student_subgroup_id != null ? `id:${entry.student_subgroup_id}` : `legacy:${entry.subgroup_name}`;
+    if (!main.has(mainKey)) main.set(mainKey, {
+      key: mainKey, name: entry.group_name || '—', academicYear: entry.academic_year,
+      academicLevel: entry.academic_level, subgroups: [], subgroupMap: new Map(),
+    });
+    const parent = main.get(mainKey)!;
+    if (!parent.subgroupMap.has(subgroupKey)) parent.subgroupMap.set(subgroupKey, {
+      key: subgroupKey, name: entry.subgroup_name || entry.group_name || '—', studentCount: 0, entries: [],
+    });
+    const subgroup = parent.subgroupMap.get(subgroupKey)!;
+    subgroup.studentCount = Math.max(subgroup.studentCount, entry.student_count);
+    const courseKey = (item: AttendanceGroup) => `${item.rotation_id != null ? `rotation:${item.rotation_id}` : `assignment:${item.assignment_id}`}:${item.batch_year ?? 'all'}`;
+    if (!subgroup.entries.some(item => courseKey(item) === courseKey(entry))) subgroup.entries.push(entry);
+  }
+  return [...main.values()].map(group => ({
+    key: group.key, name: group.name, academicYear: group.academicYear, academicLevel: group.academicLevel,
+    subgroups: [...group.subgroupMap.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
+  })).sort((a, b) => `${a.academicYear?.code ?? ''}:${a.name}`.localeCompare(`${b.academicYear?.code ?? ''}:${b.name}`, undefined, { numeric: true }));
+}
 type WeekSummary = {
   number: number; start_date: string; end_date: string; scheduled_days: number; elapsed_scheduled_days: number;
   recorded_days: number; present: number; absent: number; late: number; excused: number;
@@ -80,10 +107,16 @@ export function AttendanceMasterPage() {
     enabled: can('attendance.review'),
   });
   const groups = Array.isArray(groupsQuery.data) ? groupsQuery.data : [];
+  const mainGroups = useMemo(() => organizeAttendanceGroups(groups), [groups]);
   useEffect(() => {
-    if (!groups.length) return;
-    setSelectedAssignment(current => groups.some(group => String(group.assignment_id) === current) ? current : String(groups[0].assignment_id));
-  }, [groups]);
+    const first = mainGroups[0]?.subgroups[0]?.entries[0];
+    if (!first) return;
+    setSelectedAssignment(current => groups.some(group => String(group.assignment_id) === current) ? current : String(first.assignment_id));
+  }, [groups, mainGroups]);
+  const selectedMainGroup = mainGroups.find(group => group.subgroups.some(subgroup => subgroup.entries.some(entry => String(entry.assignment_id) === selectedAssignment))) ?? mainGroups[0];
+  const selectedSubgroup = selectedMainGroup?.subgroups.find(subgroup => subgroup.entries.some(entry => String(entry.assignment_id) === selectedAssignment)) ?? selectedMainGroup?.subgroups[0];
+  const selectedEntry = selectedSubgroup?.entries.find(entry => String(entry.assignment_id) === selectedAssignment) ?? selectedSubgroup?.entries[0];
+  const chooseAssignment = (assignmentId: number) => { setSelectedAssignment(String(assignmentId)); setSelectedWeek(''); setMailNotice(null); };
 
   const summaryQuery = useQuery({
     queryKey: ['attendance-group-summary', selectedAssignment, selectedWeek],
@@ -120,10 +153,7 @@ export function AttendanceMasterPage() {
   });
   const name = (value?: Named | null) => ar ? value?.name_ar : value?.name_en || value?.name_ar;
   const supervisorName = (value?: Supervisor) => ar ? value?.full_name_ar : value?.full_name_en || value?.full_name_ar;
-  const groupLabel = (group: AttendanceGroup) => [
-    group.subgroup_name || group.group_name || tr('دون مجموعة', 'Ungrouped'),
-    name(group.course), group.course?.code, group.academic_year?.code || group.academic_year?.name,
-  ].filter(Boolean).join(' — ');
+  const academicLevelName = (level?: string | null) => ({ fourth: tr('الرابعة', 'Fourth year'), fifth: tr('الخامسة', 'Fifth year'), sixth: tr('السادسة', 'Sixth year') }[level || ''] || level || '');
 
   if (!can('attendance.review')) return <ErrorState title={tr('لا تملك صلاحية عرض سجل الحضور', 'Access denied')} />;
   if (groupsQuery.isLoading) return <LoadingState />;
@@ -131,22 +161,41 @@ export function AttendanceMasterPage() {
 
   return <div className="mx-auto max-w-[1380px] space-y-5 pb-14">
     <PageHeader title={tr('سجل الحضور والغياب', 'Attendance register')} description={tr(
-      'اختر مجموعة فرعية لمراجعة سجل طلبتها الأسبوعي والمشرف المسؤول عنها.',
-      'Select a subgroup to review its weekly student attendance and assigned supervisor.',
+      'ابدأ بالمجموعة الرئيسية، ثم اختر المجموعة الفرعية والمساق لمراجعة الحضور أسبوعًا بأسبوع.',
+      'Choose a main group, subgroup and course to review attendance week by week.',
     )}/>
 
-    {!groups.length ? <EmptyState message={tr('لا توجد مجموعات في توزيع سريري منشور ضمن نطاق صلاحياتك.','No groups exist in a published clinical distribution within your access scope.')} /> : <>
-      <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 md:grid-cols-[minmax(0,1fr)_240px]">
-        <label className="block">
-          <span className="mb-2 block text-[11px] font-black text-slate-600">{tr('المجموعة الفرعية','Subgroup')}</span>
-          <select value={selectedAssignment} onChange={event => { setSelectedAssignment(event.target.value); setSelectedWeek(''); setMailNotice(null); }} className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-800 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100">
-            {groups.map(group => <option key={group.assignment_id} value={group.assignment_id}>{groupLabel(group)}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="mb-2 block text-[11px] font-black text-slate-600">{tr('الأسبوع','Week')}</span>
-          <select value={selectedWeek || String(summary?.selected_week?.number ?? '')} disabled={!summary?.weeks.length} onChange={event => setSelectedWeek(event.target.value)} className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-800 outline-none disabled:bg-slate-50 focus:border-teal-400">
-            {(summary?.weeks ?? []).map(week => <option key={week.number} value={week.number}>{tr(`الأسبوع ${week.number}`,`Week ${week.number}`)} — {dateLabel(week.start_date,ar)}–{dateLabel(week.end_date,ar)}</option>)}
+    {!mainGroups.length ? <EmptyState message={tr('لا توجد مجموعات في توزيع سريري منشور ضمن نطاق صلاحياتك.','No groups exist in a published clinical distribution within your access scope.')} /> : <>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-100 px-4 py-4 sm:px-5">
+          <label className="block w-full max-w-md">
+            <span className="mb-1.5 block text-[11px] font-black text-slate-600">{tr('المجموعة الرئيسية', 'Main group')}</span>
+            <select value={selectedMainGroup?.key ?? ''} onChange={event => { const next = mainGroups.find(group => group.key === event.target.value)?.subgroups[0]?.entries[0]; if (next) chooseAssignment(next.assignment_id); }} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100">
+              {mainGroups.map(group => <option key={group.key} value={group.key}>{tr('المجموعة', 'Group')} {group.name}{group.academicLevel ? ` · ${academicLevelName(group.academicLevel)}` : ''}{group.academicYear?.code ? ` · ${group.academicYear.code}` : ''}</option>)}
+            </select>
+          </label>
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-bold text-slate-600"><Users className="h-3.5 w-3.5"/>{selectedMainGroup?.subgroups.length ?? 0} {tr('مجموعات فرعية', 'subgroups')}</span>
+        </div>
+        <div role="group" aria-label={tr('المجموعات الفرعية', 'Subgroups')} className="grid gap-2 p-3 sm:grid-cols-3 sm:p-4 lg:grid-cols-5">
+          {selectedMainGroup?.subgroups.map(subgroup => <button key={subgroup.key} type="button" aria-pressed={selectedSubgroup?.key === subgroup.key} onClick={() => { const next = subgroup.entries[0]; if (next) chooseAssignment(next.assignment_id); }} className={`flex min-w-0 items-center justify-between gap-3 rounded-xl border px-3 py-3 text-start transition focus-visible:outline-2 focus-visible:outline-teal-500 ${selectedSubgroup?.key === subgroup.key ? 'border-teal-600 bg-teal-50 text-teal-900 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:bg-slate-50'}`}>
+            <span dir="ltr" className="truncate text-base font-black">{subgroup.name}</span>
+            <span className="shrink-0 text-[10px] font-bold text-slate-500">{subgroup.studentCount} {tr('طلاب', 'students')}</span>
+          </button>)}
+        </div>
+      </section>
+
+      <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:grid-cols-[minmax(0,1fr)_220px] sm:items-end sm:p-4">
+        <div className="min-w-0">
+          <span className="mb-1.5 block text-[11px] font-black text-slate-600">{tr('المساق المختار', 'Selected course')}</span>
+          {selectedSubgroup && selectedSubgroup.entries.length > 1 ? <select aria-label={tr('المساق', 'Course')} value={selectedEntry?.assignment_id ?? ''} onChange={event => chooseAssignment(Number(event.target.value))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 outline-none focus:border-teal-500">
+            {selectedSubgroup.entries.map(entry => <option key={entry.assignment_id} value={entry.assignment_id}>{name(entry.course) || tr('مساق غير محدد', 'Unnamed course')}{selectedSubgroup.entries.filter(item => item.course?.id === entry.course?.id).length > 1 ? ` · ${name(entry.clinical_period) || entry.block?.code || entry.rotation_id}${entry.batch_year ? ` · ${tr('دفعة', 'Cohort')} ${entry.batch_year}` : ''}` : ''}</option>)}
+          </select> : <div className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-3"><BookOpen className="h-4 w-4 shrink-0 text-teal-700"/><span className="min-w-0 truncate text-sm font-black text-slate-900">{name(selectedEntry?.course) || tr('مساق غير محدد', 'Unnamed course')}</span></div>}
+          {selectedEntry?.course?.code && <p dir="ltr" className={`mt-1 text-[10px] font-semibold text-slate-500 ${ar ? 'text-right' : 'text-left'}`}>{selectedEntry.course.code}</p>}
+        </div>
+        <label className="block min-w-0">
+          <span className="mb-1.5 block text-[11px] font-black text-slate-600">{tr('الأسبوع','Week')}</span>
+          <select value={selectedWeek || String(summary?.selected_week?.number ?? '')} disabled={!summary?.weeks.length || summaryQuery.isFetching} onChange={event => setSelectedWeek(event.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 outline-none disabled:bg-slate-50 focus:border-teal-500">
+            {(summary?.weeks ?? []).map(week => <option key={week.number} value={week.number}>{tr(`الأسبوع ${week.number}`,`Week ${week.number}`)} · {dateLabel(week.start_date,ar)}–{dateLabel(week.end_date,ar)}</option>)}
           </select>
         </label>
       </section>
