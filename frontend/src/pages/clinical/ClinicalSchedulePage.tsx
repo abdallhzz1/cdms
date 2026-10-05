@@ -23,23 +23,9 @@ type DailyGroup = {
 type PortalStatus = { is_enabled: boolean; public_url: string; updated_at: string | null; updated_by: { name: string } | null };
 type ScheduleOptions = { sites: Named[] };
 
-function localDate(date = new Date()) {
+function localDate() {
+  const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function dateAtNoon(value: string) {
-  const [year, month, day] = value.split('-').map(Number);
-  return new Date(year, month - 1, day, 12);
-}
-
-function shiftDate(value: string, days: number) {
-  const date = dateAtNoon(value);
-  date.setDate(date.getDate() + days);
-  return localDate(date);
-}
-
-function startOfWeek(value: string) {
-  return shiftDate(value, -dateAtNoon(value).getDay());
 }
 
 export function ClinicalSchedulePage() {
@@ -56,8 +42,6 @@ export function ClinicalSchedulePage() {
   const [subgroupId, setSubgroupId] = useState('');
   const [notice, setNotice] = useState('');
   const [actionError, setActionError] = useState('');
-  const weekStart = startOfWeek(date);
-  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, offset) => shiftDate(weekStart, offset)), [weekStart]);
   const hasAccess = can('clinical_schedule.view');
   const canManagePortal = !isDepartmentScopedHead(user?.roles) && can('distribution.student_portal.manage');
 
@@ -70,18 +54,6 @@ export function ClinicalSchedulePage() {
     queryFn: () => apiFetch<DailyGroup[]>(`/operational/clinical-schedule/daily-groups?date=${date}&training_site_id=${siteId}`),
     enabled: hasAccess && Boolean(siteId && date),
   });
-  const weekQuery = useQuery({
-    queryKey: ['clinical-schedule-weekly-counts', weekStart, siteId],
-    queryFn: () => apiFetch<{ date: string; group_count: number }[]>(`/operational/clinical-schedule/weekly-counts?week_start=${weekStart}&training_site_id=${siteId}`),
-    enabled: hasAccess && Boolean(siteId),
-  });
-  const weekCounts = new Map((weekQuery.data || []).map(item => [item.date, item.group_count]));
-  const selectDay = (nextDate: string) => {
-    setDate(nextDate);
-    setRotationId('');
-    setGroupId('');
-    setSubgroupId('');
-  };
   const allGroups = Array.isArray(dailyQuery.data) ? dailyQuery.data : [];
   const courses = useMemo(() => [...new Map(allGroups.map(item => [item.rotation_id, item])).values()], [allGroups]);
   const courseGroups = rotationId ? allGroups.filter(item => String(item.rotation_id) === rotationId) : allGroups;
@@ -119,26 +91,10 @@ export function ClinicalSchedulePage() {
     {notice && <p role="status" className="rounded-xl bg-teal-50 p-3 text-xs font-bold text-teal-800">{notice}</p>}
     {actionError && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-800">{actionError}</p>}
 
-    <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-5" aria-label={tr('أسبوع الجدول', 'Schedule week')}>
-      <label className="block text-xs font-black text-slate-700">{tr('المشفى أو مركز التدريب', 'Hospital or training site')}<select aria-label={tr('المشفى أو مركز التدريب', 'Hospital or training site')} value={siteId} onChange={event => { setSiteId(event.target.value); setRotationId(''); setGroupId(''); setSubgroupId(''); }} className={`${control} mt-1.5 sm:max-w-sm`}><option value="">{tr('اختر المركز', 'Choose site')}</option>{optionsQuery.data?.sites.map(site => <option key={site.id} value={site.id}>{name(site)}</option>)}</select></label>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
-        <div><h2 className="text-sm font-black text-slate-900">{tr('أيام الأسبوع', 'Days of the week')} <span className="text-[11px] font-semibold text-slate-500">· {tr('عدد المجموعات', 'Group count')}</span></h2><p className="text-[11px] font-semibold text-slate-500">{new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', { day: 'numeric', month: 'short' }).format(dateAtNoon(weekDays[0]))} – {new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(dateAtNoon(weekDays[6]))}</p></div>
-        <div className="flex flex-wrap gap-1.5"><Button variant="outline" onClick={() => selectDay(shiftDate(date, -7))}>{tr('السابق', 'Previous')}</Button><Button variant="outline" onClick={() => selectDay(localDate())} disabled={date === localDate()}>{tr('اليوم', 'Today')}</Button><Button variant="outline" onClick={() => selectDay(shiftDate(date, 7))}>{tr('التالي', 'Next')}</Button></div>
-      </div>
-      <div className="mt-3 grid grid-cols-7 gap-1 sm:gap-2" role="group" aria-label={tr('اختر يومًا من الأسبوع', 'Choose a day of the week')}>
-        {weekDays.map(day => {
-          const selected = day === date;
-          const count = weekCounts.get(day);
-          return <button key={day} type="button" aria-pressed={selected} aria-label={`${new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).format(dateAtNoon(day))}${siteId && count !== undefined ? `، ${count} ${count === 1 ? tr('مجموعة', 'group') : tr('مجموعات', 'groups')}` : ''}`} onClick={() => selectDay(day)} className={`min-w-0 rounded-xl border px-1 py-2 text-center transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 sm:py-3 ${selected ? 'border-teal-700 bg-teal-700 text-white shadow-sm' : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-teal-300 hover:bg-teal-50'}`}>
-            <span className="block truncate text-[10px] font-bold sm:text-xs">{new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', { weekday: 'short' }).format(dateAtNoon(day))}</span><span className="mt-0.5 block text-sm font-black sm:text-base">{dateAtNoon(day).getDate()}</span><span className={`mt-0.5 block text-xs font-black ${selected ? 'text-white/90' : count === 0 ? 'text-slate-400' : 'text-teal-700'}`}>{!siteId ? '—' : weekQuery.isLoading ? '…' : count === undefined ? '—' : count}</span>
-          </button>;
-        })}
-      </div>
-      {siteId && weekQuery.isError && <div className="mt-3 flex items-center gap-2 text-xs text-rose-700"><span>{tr('تعذر تحميل أعداد المجموعات.', 'Unable to load group counts.')}</span><button type="button" className="font-bold underline" onClick={() => weekQuery.refetch()}>{tr('إعادة المحاولة', 'Retry')}</button></div>}
-    </section>
-
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-label={tr('تصنيفات المجموعات', 'Group filters')}>
-      <div className="grid gap-3 sm:grid-cols-3">
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-label={tr('تصنيفات الجدول', 'Schedule filters')}>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <label className="text-xs font-black text-slate-700">{tr('اليوم', 'Day')}<input aria-label={tr('اليوم', 'Day')} type="date" value={date} onChange={event => { setDate(event.target.value); setRotationId(''); setGroupId(''); setSubgroupId(''); }} className={`${control} mt-1.5`} /></label>
+        <label className="text-xs font-black text-slate-700">{tr('المشفى أو مركز التدريب', 'Hospital or training site')}<select aria-label={tr('المشفى أو مركز التدريب', 'Hospital or training site')} value={siteId} onChange={event => { setSiteId(event.target.value); setRotationId(''); setGroupId(''); setSubgroupId(''); }} className={`${control} mt-1.5`}><option value="">{tr('اختر المركز', 'Choose site')}</option>{optionsQuery.data?.sites.map(site => <option key={site.id} value={site.id}>{name(site)}</option>)}</select></label>
         <label className="text-xs font-black text-slate-700">{tr('المساق', 'Course')}<select aria-label={tr('المساق', 'Course')} value={rotationId} disabled={!siteId || dailyQuery.isLoading} onChange={event => { setRotationId(event.target.value); setGroupId(''); setSubgroupId(''); }} className={`${control} mt-1.5`}><option value="">{tr('جميع المساقات', 'All courses')}</option>{courses.map(item => <option key={item.rotation_id} value={item.rotation_id}>{name(item.course) || tr('مساق غير محدد', 'Unnamed course')}{item.academic_year?.code ? ` · ${item.academic_year.code}` : ''}</option>)}</select></label>
         <label className="text-xs font-black text-slate-700">{tr('المجموعة الرئيسية', 'Main group')}<select aria-label={tr('المجموعة الرئيسية', 'Main group')} value={groupId} disabled={!siteId || dailyQuery.isLoading} onChange={event => { setGroupId(event.target.value); setSubgroupId(''); }} className={`${control} mt-1.5`}><option value="">{tr('جميع المجموعات', 'All groups')}</option>{mainGroups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
         <label className="text-xs font-black text-slate-700">{tr('المجموعة الفرعية', 'Subgroup')}<select aria-label={tr('المجموعة الفرعية', 'Subgroup')} value={subgroupId} disabled={!siteId || dailyQuery.isLoading} onChange={event => setSubgroupId(event.target.value)} className={`${control} mt-1.5`}><option value="">{tr('جميع المجموعات الفرعية', 'All subgroups')}</option>{subgroups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>

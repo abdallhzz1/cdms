@@ -108,11 +108,6 @@ class DepartmentHeadCourseScopeTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.course.id', $this->owned->id)
             ->assertJsonPath('data.0.students.0.id', $this->student->id);
-
-        $this->getJson('/api/v1/operational/clinical-schedule/weekly-counts?week_start=2026-09-06')
-            ->assertOk()
-            ->assertJsonPath('data.1.date', '2026-09-07')
-            ->assertJsonPath('data.1.group_count', 1);
     }
 
     public function test_missing_department_is_deny_by_default_and_rta_does_not_expand_head_scope(): void

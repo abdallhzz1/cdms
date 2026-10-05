@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { ClinicalSchedulePage } from './ClinicalSchedulePage';
@@ -24,14 +24,6 @@ const dailyGroup = {
   supervisors: [{ id: 10, full_name_ar: 'د. مشرف', full_name_en: 'Dr Supervisor', photo_url: '/storage/avatars/10.jpg' }],
   students: [{ id: 4, university_number: '22310001', full_name_ar: 'طالب سريري', full_name_en: 'Clinical Student', photo_url: '/storage/students/4.jpg', supervisor_ids: [10] }],
 };
-const weekCounts = (url: string) => {
-  const start = new Date(`${new URL(url, 'http://localhost').searchParams.get('week_start')}T12:00:00`);
-  return Array.from({ length: 7 }, (_, offset) => {
-    const day = new Date(start);
-    day.setDate(start.getDate() + offset);
-    return { date: `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`, group_count: offset === 0 ? 1 : 0 };
-  });
-};
 
 afterEach(() => { vi.restoreAllMocks(); localStorage.removeItem('cdms.locale'); });
 
@@ -42,7 +34,6 @@ describe('clinical schedule profile photos', () => {
       const url = String(input);
       if (url.includes('/auth/me')) return envelope({ id: 1, name: 'RTA', email: 'rta@hebron.edu', roles: ['RTA'], assigned_levels: ['fourth'], permissions: [{ code: 'clinical_schedule.view', scope: 'global' }] });
       if (url.includes('/operational/clinical-schedule-options')) return envelope({ sites: [dailyGroup.site] });
-      if (url.includes('/operational/clinical-schedule/weekly-counts?')) return envelope(weekCounts(url));
       if (url.includes('/operational/clinical-schedule/daily-groups?')) return envelope([dailyGroup]);
       if (url.includes('/student-schedule-portal')) return envelope({ is_enabled: true, public_url: '/portal/student-lookup', updated_at: null, updated_by: null });
       throw new Error(`Unmocked request: ${url}`);
@@ -60,7 +51,6 @@ describe('clinical schedule profile photos', () => {
       const url = String(input);
       if (url.includes('/auth/me')) return envelope({ id: 1, roles: ['RTA'], permissions: [{ code: 'clinical_schedule.view', scope: 'global' }] });
       if (url.includes('/operational/clinical-schedule-options')) return envelope({ sites: [dailyGroup.site, { id: 10, name_ar: 'المركز الثاني', name_en: 'Second site' }] });
-      if (url.includes('/operational/clinical-schedule/weekly-counts?')) return envelope(weekCounts(url));
       if (url.includes('/operational/clinical-schedule/daily-groups?')) return envelope(url.includes('training_site_id=9') ? [dailyGroup, otherGroup] : []);
       if (url.includes('/student-schedule-portal')) return envelope({ is_enabled: true, public_url: '/portal/student-lookup' });
       throw new Error(`Unmocked request: ${url}`);
@@ -69,6 +59,8 @@ describe('clinical schedule profile photos', () => {
     expect(await screen.findByText('Choose a hospital or training site')).toBeVisible();
     expect(screen.queryByText('Clinical Student')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Course')).toBeVisible();
+    expect(screen.getByLabelText('Day')).toBeVisible();
+    expect(screen.queryByRole('group', { name: 'Choose a day of the week' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Main group')).toBeVisible();
     expect(screen.getByLabelText('Subgroup')).toBeVisible();
     await userEvent.selectOptions(screen.getByLabelText('Hospital or training site'), '9');
@@ -80,32 +72,6 @@ describe('clinical schedule profile photos', () => {
     await userEvent.selectOptions(screen.getByLabelText('Main group'), '1');
     await userEvent.selectOptions(screen.getByLabelText('Subgroup'), '2');
     expect(screen.getByText('Clinical Student')).toBeVisible();
-  });
-
-  it('shows seven day buttons with group counts and moves between weeks without a date input', async () => {
-    localStorage.setItem('cdms.locale', 'en');
-    const weeks: string[] = [];
-    vi.spyOn(window, 'fetch').mockImplementation(async input => {
-      const url = String(input);
-      if (url.includes('/auth/me')) return envelope({ id: 1, roles: ['RTA'], permissions: [{ code: 'clinical_schedule.view', scope: 'global' }] });
-      if (url.includes('/operational/clinical-schedule-options')) return envelope({ sites: [dailyGroup.site] });
-      if (url.includes('/operational/clinical-schedule/weekly-counts?')) { weeks.push(new URL(url, 'http://localhost').searchParams.get('week_start') || ''); return envelope(weekCounts(url)); }
-      if (url.includes('/operational/clinical-schedule/daily-groups?')) return envelope([dailyGroup]);
-      if (url.includes('/student-schedule-portal')) return envelope({ is_enabled: true, public_url: '/portal/student-lookup' });
-      throw new Error(`Unmocked request: ${url}`);
-    });
-    renderWithProviders(<ClinicalSchedulePage />, { route: '/clinical/schedule' });
-    const days = await screen.findByRole('group', { name: 'Choose a day of the week' });
-    expect(within(days).getAllByRole('button')).toHaveLength(7);
-    expect(screen.queryByLabelText('Day')).not.toBeInTheDocument();
-    await waitFor(() => expect(weeks).toHaveLength(1));
-    expect(await within(days).findByRole('button', { name: /1 group$/ })).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
-    await waitFor(() => expect(weeks).toHaveLength(2));
-    expect(weeks[1]).not.toBe(weeks[0]);
-    expect(within(days).getAllByRole('button').filter(button => button.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
-    await userEvent.click(screen.getByRole('button', { name: 'Today' }));
-    expect(screen.getByRole('button', { name: 'Today' })).toBeDisabled();
   });
 
   it('shows enlargeable photos for the student, supervisor, and all group members in the public lookup', async () => {
