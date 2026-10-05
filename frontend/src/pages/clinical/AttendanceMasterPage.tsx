@@ -31,8 +31,8 @@ export function organizeAttendanceGroups(groups: AttendanceGroup[]): AttendanceM
   }
   return [...main.values()].map(group => ({ key: group.key, id: group.id, name: group.name, academicYear: group.academicYear, academicLevel: group.academicLevel, subgroups: [...group.subgroupMap.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })) })).sort((a, b) => `${a.academicYear?.code ?? ''}:${a.name}`.localeCompare(`${b.academicYear?.code ?? ''}:${b.name}`, undefined, { numeric: true }));
 }
-type Day = { date: string; scheduled: boolean; status: 'present' | 'absent' | 'late' | 'excused' | null; check_in_at?: string | null; check_out_at?: string | null; recording_source?: string | null; is_incomplete?: boolean; note?: string | null; recorded_by?: string | null; supervisor?: { full_name_ar?: string; full_name_en?: string | null } | null; training_site?: Named | null };
-type StudentWeek = { student_id: number; assigned: boolean; days: Day[] };
+type Day = { date: string; scheduled: boolean; status: 'present' | 'absent' | 'late' | 'excused' | null; check_in_at?: string | null; check_out_at?: string | null; recording_source?: string | null; is_incomplete?: boolean; note?: string | null; recorded_by?: string | null; qr_session?: { state: string; check_in_opened_at?: string | null; check_in_closed_at?: string | null; check_out_opened_at?: string | null; finalized_at?: string | null } | null; supervisor?: { full_name_ar?: string; full_name_en?: string | null } | null; training_site?: Named | null };
+type StudentWeek = { student_id: number; assigned: boolean; schedule_issue?: 'supervisor_missing' | 'site_missing' | 'no_matching_availability' | null; days: Day[] };
 type Week = { number: number; start_date: string; end_date: string; students: StudentWeek[] };
 type Rotation = { id: number; course?: Named | null; clinical_period?: Named | null; weeks: Week[] };
 type Subgroup = { id: number; name: string; students: Student[]; rotations: Rotation[] };
@@ -52,6 +52,7 @@ export function AttendanceMasterPage() {
   const cache = useQueryClient();
   const [mainKey, setMainKey] = useState('');
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [activeTab, setActiveTab] = useState<'register' | 'alerts'>('register');
   const [mailNotice, setMailNotice] = useState('');
   const groupsQuery = useQuery({ queryKey: ['attendance-review-groups'], queryFn: () => apiFetch<AttendanceGroup[]>('/attendance-records/groups'), enabled: can('attendance.review') });
   const groups = useMemo(() => organizeAttendanceGroups(Array.isArray(groupsQuery.data) ? groupsQuery.data : []), [groupsQuery.data]);
@@ -66,21 +67,138 @@ export function AttendanceMasterPage() {
   if (groupsQuery.isLoading) return <LoadingState />;
   if (groupsQuery.isError) return <ErrorState onRetry={() => groupsQuery.refetch()} />;
   return <div className="mx-auto max-w-[1500px] space-y-5 pb-14">
-    <PageHeader title={tr('سجل الحضور والغياب', 'Attendance register')} description={tr('اختر المجموعة الرئيسية؛ تظهر جميع مجموعاتها الفرعية وأسابيع التدريب. اضغط على خلية لرؤية تفاصيل الأيام.', 'Choose a main group to see every subgroup and training week. Select a cell for daily details.')} />
+    <PageHeader title={tr('سجل الحضور والغياب', 'Attendance register')} />
     {!groups.length ? <EmptyState message={tr('لا توجد مجموعات في توزيع سريري منشور ضمن صلاحياتك.', 'No published groups in your access scope.')} /> : <>
       <section className="flex flex-wrap items-end justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><label className="block w-full max-w-lg text-xs font-black text-slate-700">{tr('المجموعة الرئيسية', 'Main group')}<select value={main?.key ?? ''} onChange={event => { setMainKey(event.target.value); setSelection(null); setMailNotice(''); }} className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 focus:border-teal-500">{groups.map(group => <option key={group.key} value={group.key}>{group.name} · {group.academicYear?.code ?? '—'}</option>)}</select></label><span className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800"><Users className="h-4 w-4" />{reviewQuery.data?.subgroups.length ?? main?.subgroups.length ?? 0} {tr('مجموعات فرعية', 'subgroups')}</span></section>
       {reviewQuery.isLoading ? <LoadingState /> : reviewQuery.isError ? <ErrorState onRetry={() => reviewQuery.refetch()} /> : !reviewQuery.data?.subgroups.length ? <EmptyState message={tr('لا توجد مجموعات فرعية مكلّفة.', 'No assigned subgroups.')} /> : <>
-        <p className="rounded-xl border border-teal-100 bg-teal-50 px-4 py-3 text-xs text-teal-900">{tr('كل عمود أسبوع. الغياب يظهر فقط إذا سُجّل رسميًا؛ عدم الرصد لا يُحسب غيابًا.', 'Each column is a week. Absence appears only when recorded; a pending day is not counted absent.')}</p>
+        <div role="tablist" aria-label={tr('أقسام الحضور', 'Attendance sections')} className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1">
+          <button type="button" role="tab" aria-selected={activeTab === 'register'} onClick={() => setActiveTab('register')} className={activeTab === 'register' ? 'rounded-lg bg-teal-700 px-4 py-2.5 text-xs font-black text-white' : 'rounded-lg px-4 py-2.5 text-xs font-black text-slate-600 hover:bg-slate-50'}>{tr('سجل الحضور', 'Attendance')}</button>
+          <button type="button" role="tab" aria-selected={activeTab === 'alerts'} onClick={() => setActiveTab('alerts')} className={activeTab === 'alerts' ? 'rounded-lg bg-teal-700 px-4 py-2.5 text-xs font-black text-white' : 'rounded-lg px-4 py-2.5 text-xs font-black text-slate-600 hover:bg-slate-50'}>{tr('تنبيهات الغياب', 'Absence alerts')}{warnings.length ? ` (${warnings.length})` : ''}</button>
+        </div>
+        {activeTab === 'register' && <>
         {reviewQuery.data.subgroups.map(subgroup => <section key={subgroup.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><header className="flex items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-5"><div><h2 className="text-lg font-black text-teal-900">{tr('المجموعة الفرعية', 'Subgroup')} <span dir="ltr">{subgroup.name}</span></h2><p className="text-xs text-slate-500">{subgroup.students.length} {tr('طلاب', 'students')}</p></div><span className="text-xs text-slate-500">{subgroup.rotations.length} {tr('مساقات', 'courses')}</span></header>{subgroup.rotations.length ? subgroup.rotations.map(rotation => <RotationMatrix key={rotation.id} rotation={rotation} students={subgroup.students} ar={ar} tr={tr} onSelect={setSelection} />) : <p className="p-5 text-xs text-slate-500">{tr('لا توجد أسابيع مكلّفة.', 'No assigned weeks.')}</p>}</section>)}
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><header className="flex items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-5"><div><h2 className="flex items-center gap-2 text-sm font-black text-slate-900"><AlertTriangle className="h-4 w-4 text-amber-600" />{tr('تنبيهات الغياب التراكمية', 'Cumulative absence alerts')}</h2><p className="text-xs text-slate-500">{tr('لطلبة المجموعة المختارة عبر مساقاتهم.', 'For this group across their courses.')}</p></div><span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">{warnings.length}</span></header>{mailNotice && <p role="status" className="m-4 rounded-lg bg-teal-50 p-3 text-xs text-teal-800">{mailNotice}</p>}{warningsQuery.isLoading ? <LoadingState /> : warningsQuery.isError ? <div className="p-4"><ErrorState onRetry={() => warningsQuery.refetch()} /></div> : !warnings.length ? <p className="p-5 text-xs text-slate-500">{tr('لا توجد تنبيهات غياب حاليًا.', 'No absence alerts right now.')}</p> : <div className="divide-y divide-slate-100">{warnings.map(warning => { const sent = warning.last_sent[String(warning.current_threshold) as '10' | '20']; return <article key={`${warning.student.id}-${warning.rotation_id}`} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"><div><b className="text-xs text-slate-900">{ar ? warning.student.full_name_ar : warning.student.full_name_en || warning.student.full_name_ar}</b><p className="text-[11px] text-slate-500">{nameOf(warning.course, ar)} · {warning.absent_days}/{warning.total_required_days} {tr('غياب', 'absences')} · {Number(warning.absence_percentage).toFixed(1)}%</p></div><div className="flex items-center gap-2"><span className={`rounded-full px-2 py-1 text-[10px] font-black ${warning.current_threshold === 20 ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>{warning.current_threshold === 20 ? tr('إنذار رسمي', 'Formal warning') : tr('تنبيه أولي', 'Initial notice')}</span>{sent && <span className="text-[10px] text-teal-700">{tr('أُرسل', 'Sent')}</span>}{can('attendance.notify') && <button type="button" disabled={sendWarning.isPending} onClick={() => { if (window.confirm(tr(`إرسال التنبيه إلى ${warning.student.email}؟`, `Send warning to ${warning.student.email}?`))) sendWarning.mutate({ warning, resend: Boolean(sent) }); }} className="inline-flex items-center gap-1 rounded-lg bg-teal-700 px-3 py-2 text-[11px] font-bold text-white disabled:opacity-50"><Mail className="h-3.5 w-3.5" />{sent ? tr('إعادة الإرسال', 'Resend') : tr('إرسال', 'Send')}</button>}</div></article>; })}</div>}</section>
+        </>}
+        {activeTab === 'alerts' && <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><header className="flex items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-5"><div><h2 className="flex items-center gap-2 text-sm font-black text-slate-900"><AlertTriangle className="h-4 w-4 text-amber-600" />{tr('تنبيهات الغياب التراكمية', 'Cumulative absence alerts')}</h2><p className="text-xs text-slate-500">{tr('لطلبة المجموعة المختارة عبر مساقاتهم.', 'For this group across their courses.')}</p></div><span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">{warnings.length}</span></header>{mailNotice && <p role="status" className="m-4 rounded-lg bg-teal-50 p-3 text-xs text-teal-800">{mailNotice}</p>}{warningsQuery.isLoading ? <LoadingState /> : warningsQuery.isError ? <div className="p-4"><ErrorState onRetry={() => warningsQuery.refetch()} /></div> : !warnings.length ? <p className="p-5 text-xs text-slate-500">{tr('لا توجد تنبيهات غياب حاليًا.', 'No absence alerts right now.')}</p> : <div className="divide-y divide-slate-100">{warnings.map(warning => { const sent = warning.last_sent[String(warning.current_threshold) as '10' | '20']; return <article key={`${warning.student.id}-${warning.rotation_id}`} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"><div><b className="text-xs text-slate-900">{ar ? warning.student.full_name_ar : warning.student.full_name_en || warning.student.full_name_ar}</b><p className="text-[11px] text-slate-500">{nameOf(warning.course, ar)} · {warning.absent_days}/{warning.total_required_days} {tr('غياب', 'absences')} · {Number(warning.absence_percentage).toFixed(1)}%</p></div><div className="flex items-center gap-2"><span className={`rounded-full px-2 py-1 text-[10px] font-black ${warning.current_threshold === 20 ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>{warning.current_threshold === 20 ? tr('إنذار رسمي', 'Formal warning') : tr('تنبيه أولي', 'Initial notice')}</span>{sent && <span className="text-[10px] text-teal-700">{tr('أُرسل', 'Sent')}</span>}{can('attendance.notify') && <button type="button" disabled={sendWarning.isPending} onClick={() => { if (window.confirm(tr(`إرسال التنبيه إلى ${warning.student.email}؟`, `Send warning to ${warning.student.email}?`))) sendWarning.mutate({ warning, resend: Boolean(sent) }); }} className="inline-flex items-center gap-1 rounded-lg bg-teal-700 px-3 py-2 text-[11px] font-bold text-white disabled:opacity-50"><Mail className="h-3.5 w-3.5" />{sent ? tr('إعادة الإرسال', 'Resend') : tr('إرسال', 'Send')}</button>}</div></article>; })}</div>}</section>}
       </>}
     </>}
-    <Modal isOpen={Boolean(selection)} onClose={() => setSelection(null)} title={selection ? `${ar ? selection.student.full_name_ar : selection.student.full_name_en || selection.student.full_name_ar} · ${tr('الأسبوع', 'Week')} ${selection.week.number}` : ''} maxWidth="lg">{selection && <div className="space-y-3 text-xs"><p className="text-slate-500">{nameOf(selection.course, ar)} · {shortDate(selection.week.start_date, ar)}–{shortDate(selection.week.end_date, ar)}</p>{!selection.row.days.length ? <p className="rounded-xl bg-slate-50 p-4">{tr('لا توجد أيام دوام مجدولة أو مرصودة لهذا الأسبوع.', 'No scheduled or recorded duty days this week.')}</p> : selection.row.days.map((day, index) => <article key={`${day.date}-${index}`} className="rounded-xl border border-slate-200 p-3"><div className="flex items-center justify-between gap-2"><b>{new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', { weekday: 'long' }).format(new Date(`${day.date}T12:00:00`))} · {shortDate(day.date, ar)}</b><span className={`rounded-full px-2 py-1 font-bold ${day.status === 'absent' ? 'bg-rose-50 text-rose-700' : day.status === 'late' ? 'bg-amber-50 text-amber-700' : day.status ? 'bg-teal-50 text-teal-800' : 'bg-slate-100 text-slate-600'}`}>{statusOf(day.status, tr)}</span></div><p className="mt-2 text-slate-600">{nameOf(day.training_site, ar) || tr('موقع غير محدد', 'Site not specified')} · {ar ? day.supervisor?.full_name_ar : day.supervisor?.full_name_en || day.supervisor?.full_name_ar || tr('مشرف غير محدد', 'Supervisor not specified')}</p><p className="mt-1 text-slate-500">{tr('الدخول', 'Check-in')}: {shortTime(day.check_in_at, ar)} · {tr('الخروج', 'Check-out')}: {shortTime(day.check_out_at, ar)}{day.is_incomplete ? ` · ${tr('الخروج غير مسجل', 'Missing check-out')}` : ''}</p>{day.recording_source && <p className="mt-1 text-slate-500">{tr('طريقة التسجيل', 'Source')}: {day.recording_source === 'qr' ? 'QR' : day.recording_source === 'manual' ? tr('يدوي', 'Manual') : day.recording_source === 'manual_override' ? tr('تعديل يدوي', 'Manual adjustment') : tr('إداري', 'Administrative')}</p>}{day.note && <p className="mt-2 whitespace-pre-wrap rounded-lg bg-amber-50 p-2 text-amber-900">{tr('ملاحظة', 'Note')}: {day.note}</p>}{day.recorded_by && <p className="mt-1 text-slate-400">{tr('سجله', 'Recorded by')} {day.recorded_by}</p>}</article>)}</div>}</Modal>
+    <Modal isOpen={Boolean(selection)} onClose={() => setSelection(null)} title={selection ? `${ar ? selection.student.full_name_ar : selection.student.full_name_en || selection.student.full_name_ar} · ${tr('الأسبوع', 'Week')} ${selection.week.number}` : ''} maxWidth="lg">{selection && <WeekDetails selection={selection} ar={ar} tr={tr} />}</Modal>
   </div>;
 }
 
-function RotationMatrix({ rotation, students, ar, tr, onSelect }: { rotation: Rotation; students: Student[]; ar: boolean; tr: (a: string, e: string) => string; onSelect: (selection: Selection) => void }) {
-  const [page, setPage] = useState(0);
-  const shown = rotation.weeks.slice(page, page + 2);
-  return <div className="border-b border-slate-100 last:border-0"><div className="flex items-center justify-between gap-2 bg-slate-50 px-4 py-3 sm:px-5"><h3 className="text-xs font-black text-slate-900">{nameOf(rotation.course, ar) || tr('مساق غير محدد', 'Unnamed course')} <span dir="ltr" className="ms-1 font-normal text-slate-500">{rotation.course?.code}</span></h3><span className="text-[10px] text-slate-500">{nameOf(rotation.clinical_period, ar)}</span></div><div className="flex items-center justify-between border-b border-slate-100 px-4 py-2 sm:hidden"><span className="text-[11px] font-bold text-slate-600">{tr('الأسابيع', 'Weeks')} {shown.map(week => week.number).join('–')}</span><div className="flex gap-1"><button type="button" aria-label={tr('الأسابيع السابقة', 'Previous weeks')} disabled={page === 0} onClick={() => setPage(Math.max(0, page - 2))} className="rounded-lg border p-2 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button><button type="button" aria-label={tr('الأسابيع التالية', 'Next weeks')} disabled={page + 2 >= rotation.weeks.length} onClick={() => setPage(page + 2)} className="rounded-lg border p-2 disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button></div></div><div className="overflow-x-auto"><table className="w-full border-collapse text-xs"><thead><tr className="bg-teal-50/70"><th className="sticky start-0 z-10 min-w-[145px] border-b border-e border-slate-200 bg-teal-50 p-3 text-start sm:min-w-[210px]">{tr('الطالب', 'Student')}</th>{rotation.weeks.map(week => <th key={week.number} className={`min-w-[105px] border-b border-e border-slate-200 p-2 text-center last:border-e-0 ${shown.includes(week) ? '' : 'hidden sm:table-cell'}`}>{tr('الأسبوع', 'Week')} {week.number}<small dir="ltr" className="mt-1 block font-normal text-slate-500">{shortDate(week.start_date, ar)}–{shortDate(week.end_date, ar)}</small></th>)}</tr></thead><tbody>{students.map(student => <tr key={student.id} className="border-b border-slate-100 last:border-0"><th className="sticky start-0 z-10 border-e border-slate-200 bg-white p-2 text-start font-normal"><div className="flex items-center gap-2"><SupervisorStudentPhoto student={student} ar={ar} /><span className="min-w-0"><b className="block max-w-[110px] truncate text-[11px] text-slate-900 sm:max-w-[170px]">{ar ? student.full_name_ar : student.full_name_en || student.full_name_ar}</b><small dir="ltr" className="block text-[9px] text-slate-500">{student.university_number}</small></span></div></th>{rotation.weeks.map(week => { const row = week.students.find(item => item.student_id === student.id); const count = (status: Day['status']) => row?.days.filter(day => day.status === status).length ?? 0; const pending = row?.days.filter(day => day.scheduled && !day.status).length ?? 0; return <td key={week.number} className={`border-e border-slate-100 p-1 text-center last:border-0 ${shown.includes(week) ? '' : 'hidden sm:table-cell'}`}>{row?.assigned ? <button type="button" aria-label={`${ar ? student.full_name_ar : student.full_name_en || student.full_name_ar} · ${tr('الأسبوع', 'Week')} ${week.number}`} onClick={() => onSelect({ student, week, row, course: rotation.course })} className="min-h-14 w-full rounded-lg p-1 text-[10px] font-bold hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-teal-600"><span className="block text-teal-800">{count('present') ? `${count('present')} ${tr('حاضر', 'present')}` : ''} {count('late') ? `${count('late')} ${tr('متأخر', 'late')}` : ''} {count('excused') ? `${count('excused')} ${tr('بعذر', 'excused')}` : ''}{!row.days.length ? tr('لا دوام', 'No duty') : !row.days.some(day => day.status) ? tr('بانتظار الرصد', 'Not recorded') : ''}</span>{count('absent') > 0 && <span className="block text-rose-700">{count('absent')} {tr('غائب', 'absent')}</span>}{pending > 0 && <span className="block text-slate-400">{pending} {tr('لم يُرصد', 'pending')}</span>}</button> : <span className="text-slate-300">—</span>}</td>; })}</tr>)}</tbody></table></div></div>;
+function RotationMatrix({
+  rotation, students, ar, tr, onSelect,
+}: {
+  rotation: Rotation;
+  students: Student[];
+  ar: boolean;
+  tr: (a: string, e: string) => string;
+  onSelect: (selection: Selection) => void;
+}) {
+  const [mobileWeekIndex, setMobileWeekIndex] = useState(0);
+  const visibleWeek = rotation.weeks[mobileWeekIndex];
+
+  return <div className="border-b border-slate-100 last:border-0">
+    <div className="flex items-center justify-between gap-2 bg-slate-50 px-4 py-3 sm:px-5">
+      <h3 className="text-sm font-black text-slate-900">{nameOf(rotation.course, ar) || tr('مساق غير محدد', 'Unnamed course')}</h3>
+      <span dir="ltr" className="text-[11px] text-slate-500">{rotation.course?.code}</span>
+    </div>
+    {rotation.weeks.length > 1 && <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2 sm:hidden">
+      <span className="text-[11px] font-bold text-slate-700">{tr('الأسبوع', 'Week')} {visibleWeek?.number}</span>
+      <div className="flex gap-1">
+        <button type="button" aria-label={tr('الأسبوع السابق', 'Previous week')} disabled={mobileWeekIndex === 0}
+          onClick={() => setMobileWeekIndex(index => index - 1)} className="rounded-lg border p-2 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
+        <button type="button" aria-label={tr('الأسبوع التالي', 'Next week')} disabled={mobileWeekIndex === rotation.weeks.length - 1}
+          onClick={() => setMobileWeekIndex(index => index + 1)} className="rounded-lg border p-2 disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>
+      </div>
+    </div>}
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-max border-collapse text-xs">
+        <thead><tr className="bg-teal-50/70">
+          <th className="sticky start-0 z-10 min-w-[145px] border-b border-e border-slate-200 bg-teal-50 p-3 text-start sm:min-w-[210px]">{tr('الطالب', 'Student')}</th>
+          {rotation.weeks.map((week, index) => <th key={week.number} className={`min-w-[110px] border-b border-e border-slate-200 p-2 text-center ${index === mobileWeekIndex ? '' : 'hidden sm:table-cell'}`}>
+            {tr('الأسبوع', 'Week')} {week.number}
+            <small dir="ltr" className="mt-1 block font-normal text-slate-500">{shortDate(week.start_date, ar)}–{shortDate(week.end_date, ar)}</small>
+          </th>)}
+          <th className="sticky end-0 z-10 min-w-[74px] border-b border-slate-200 bg-teal-50 p-2 text-center">{tr('مجموع الغياب', 'Total absent')}</th>
+        </tr></thead>
+        <tbody>{students.map(student => {
+          const absenceTotal = new Set(rotation.weeks.flatMap(week => week.students.find(row => row.student_id === student.id)?.days.filter(day => day.status === 'absent').map(day => day.date) ?? [])).size;
+          return <tr key={student.id} className="border-b border-slate-100 last:border-0">
+            <th className="sticky start-0 z-10 border-e border-slate-200 bg-white p-2 text-start font-normal">
+              <div className="flex items-center gap-2"><SupervisorStudentPhoto student={student} ar={ar} />
+                <span className="min-w-0"><b className="block max-w-[115px] truncate text-[11px] text-slate-900 sm:max-w-[180px]">{ar ? student.full_name_ar : student.full_name_en || student.full_name_ar}</b>
+                  <small dir="ltr" className="block text-[9px] text-slate-500">{student.university_number}</small></span></div>
+            </th>
+            {rotation.weeks.map((week, index) => {
+              const row = week.students.find(item => item.student_id === student.id);
+              return <td key={week.number} className={`border-e border-slate-100 p-1 text-center ${index === mobileWeekIndex ? '' : 'hidden sm:table-cell'}`}>
+                {row?.assigned ? <WeekCell row={row} week={week} student={student} course={rotation.course} ar={ar} tr={tr} onSelect={onSelect} /> : <span className="text-slate-300">—</span>}
+              </td>;
+            })}
+            <td className="sticky end-0 z-10 bg-white p-2 text-center"><b className={absenceTotal ? 'text-rose-700' : 'text-slate-600'}>{absenceTotal}</b></td>
+          </tr>;
+        })}</tbody>
+      </table>
+    </div>
+  </div>;
+}
+
+function WeekCell({ row, week, student, course, ar, tr, onSelect }: {
+  row: StudentWeek; week: Week; student: Student; course?: Named | null; ar: boolean;
+  tr: (a: string, e: string) => string; onSelect: (selection: Selection) => void;
+}) {
+  const count = (status: Day['status']) => new Set(row.days.filter(day => day.status === status).map(day => day.date)).size;
+  const hasRecorded = row.days.some(day => day.status);
+  const upcoming = row.days.length > 0 && row.days.every(day => !day.status && day.date > new Date().toISOString().slice(0, 10));
+  const label = !row.days.length
+    ? tr('الجدول غير محدد', 'Schedule missing')
+    : !hasRecorded
+      ? upcoming ? tr('قادم', 'Upcoming') : tr('لم يُرصد', 'Not recorded')
+      : '';
+  return <button type="button"
+    aria-label={`${ar ? student.full_name_ar : student.full_name_en || student.full_name_ar} · ${tr('الأسبوع', 'Week')} ${week.number}`}
+    onClick={() => onSelect({ student, week, row, course })}
+    className="min-h-12 w-full rounded-lg px-1 py-2 text-[10px] font-bold hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-teal-600">
+    {label && <span className={row.days.length ? 'text-slate-500' : 'text-amber-700'}>{label}</span>}
+    {count('present') > 0 && <span className="block text-teal-800">{count('present')} {tr('حاضر', 'present')}</span>}
+    {count('absent') > 0 && <span className="block text-rose-700">{count('absent')} {tr('غائب', 'absent')}</span>}
+    {count('late') > 0 && <span className="block text-amber-700">{count('late')} {tr('متأخر', 'late')}</span>}
+    {count('excused') > 0 && <span className="block text-sky-700">{count('excused')} {tr('بعذر', 'excused')}</span>}
+  </button>;
+}
+
+function WeekDetails({ selection, ar, tr }: {
+  selection: Selection; ar: boolean; tr: (a: string, e: string) => string;
+}) {
+  const { row, week, course } = selection;
+  const issue = row.schedule_issue === 'supervisor_missing'
+    ? tr('لم يُحدد مشرف في تكليف الطالب، لذلك لا يمكن تحديد أيام دوامه.', 'No supervisor is assigned, so duty days cannot be determined.')
+    : row.schedule_issue === 'site_missing'
+      ? tr('لم يُحدد مركز تدريب في التكليف، لذلك لا يمكن تحديد أيام الدوام.', 'No training site is assigned, so duty days cannot be determined.')
+      : row.schedule_issue === 'no_matching_availability'
+        ? tr('يوجد تكليف، لكن لا يوجد يوم مطابق في جدول دوام المشرف لهذا الأسبوع.', 'The assignment exists, but the supervisor has no matching availability this week.')
+        : tr('لا توجد أيام مجدولة أو مرصودة لهذا الأسبوع.', 'No scheduled or recorded days this week.');
+
+  return <div className="space-y-3 text-xs">
+    <p className="text-slate-500">{nameOf(course, ar)} · {shortDate(week.start_date, ar)}–{shortDate(week.end_date, ar)}</p>
+    {!row.days.length ? <p className="rounded-xl bg-amber-50 p-4 text-amber-900">{issue}</p> : row.days.map((day, index) => {
+      const isFuture = !day.status && day.date > new Date().toISOString().slice(0, 10);
+      const status = isFuture ? tr('لم يحن موعده', 'Upcoming') : statusOf(day.status, tr);
+      const qrState = day.qr_session?.state === 'finalized' ? tr('معتمدة', 'Finalized')
+        : day.qr_session?.state === 'check_in_open' ? tr('الدخول مفتوح', 'Check-in open')
+          : day.qr_session?.state === 'check_in_closed' ? tr('الدخول مغلق', 'Check-in closed')
+            : day.qr_session?.state === 'check_out_open' ? tr('الخروج مفتوح', 'Check-out open') : null;
+      return <article key={`${day.date}-${index}`} className="rounded-xl border border-slate-200 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <b className="text-slate-900">{new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', { weekday: 'long' }).format(new Date(`${day.date}T12:00:00`))} · {shortDate(day.date, ar)}</b>
+          <span className={`rounded-full px-2 py-1 font-bold ${day.status === 'absent' ? 'bg-rose-50 text-rose-700' : day.status === 'late' ? 'bg-amber-50 text-amber-700' : day.status ? 'bg-teal-50 text-teal-800' : 'bg-slate-100 text-slate-600'}`}>{status}</span>
+        </div>
+        <p className="mt-2 text-slate-600">{nameOf(day.training_site, ar) || tr('موقع غير محدد', 'Site not specified')} · {ar ? day.supervisor?.full_name_ar : day.supervisor?.full_name_en || day.supervisor?.full_name_ar || tr('مشرف غير محدد', 'Supervisor not specified')}</p>
+        {(day.check_in_at || day.check_out_at) && <p className="mt-1 text-slate-500">{tr('الدخول', 'Check-in')}: {shortTime(day.check_in_at, ar)} · {tr('الخروج', 'Check-out')}: {shortTime(day.check_out_at, ar)}{day.is_incomplete ? ` · ${tr('الخروج غير مسجل', 'Missing check-out')}` : ''}</p>}
+        {qrState && <p className="mt-1 text-slate-500">QR · {qrState}</p>}
+        {day.note && <p className="mt-2 whitespace-pre-wrap rounded-lg bg-amber-50 p-2 text-amber-900">{tr('ملاحظة المشرف', 'Supervisor note')}: {day.note}</p>}
+        {day.recorded_by && <p className="mt-1 text-slate-400">{tr('سجله', 'Recorded by')} {day.recorded_by}</p>}
+      </article>;
+    })}
+  </div>;
 }

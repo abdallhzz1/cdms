@@ -298,7 +298,15 @@ class AttendanceRecordController extends Controller
                                             ];
                                         });
                                     })->unique(fn ($day) => implode('|', [$day['date'], $day['rotation_block_id'], $day['training_site']?->id ?: 0, $day['supervisor']['id'] ?? 0]))->sortBy('date')->values();
-                                    return ['student_id' => $student->id, 'assigned' => $studentAssignments->isNotEmpty(), 'days' => $days];
+                                    $scheduleIssue = null;
+                                    if ($studentAssignments->isNotEmpty() && $days->isEmpty()) {
+                                        $scheduleIssue = $studentAssignments->every(fn ($assignment) => ! $assignment->supervisor_id)
+                                            ? 'supervisor_missing'
+                                            : ($studentAssignments->every(fn ($assignment) => ! $assignment->training_site_id)
+                                                ? 'site_missing' : 'no_matching_availability');
+                                    }
+                                    return ['student_id' => $student->id, 'assigned' => $studentAssignments->isNotEmpty(),
+                                        'schedule_issue' => $scheduleIssue, 'days' => $days];
                                 })->values(),
                             ];
                         })->values();

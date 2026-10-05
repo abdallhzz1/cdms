@@ -11,7 +11,7 @@ const student = { id: 4, university_number: '22310001', full_name_ar: 'طالب 
 const week = (number: number, status: string | null) => ({ number, start_date: `2026-09-${String(number).padStart(2, '0')}`, end_date: `2026-09-${String(number + 6).padStart(2, '0')}`, students: [{ student_id: 4, assigned: true, days: [{ date: `2026-09-${String(number).padStart(2, '0')}`, scheduled: true, status, note: number === 1 ? 'Reported illness' : null, recorded_by: 'Dr Ahmad', supervisor: { full_name_en: 'Dr Ahmad' }, training_site: { name_en: 'Ahli Hospital' }, recording_source: status ? 'manual' : null }] }] });
 const review = { student_group_id: 8, subgroups: [
   { id: 12, name: 'N1', students: [student], rotations: [{ id: 3, course: { id: 2, name_en: 'Surgery' }, weeks: [week(1, 'absent'), week(2, null)] }] },
-  { id: 13, name: 'N2', students: [{ id: 5, university_number: '22310002', full_name_ar: 'طالب آخر', full_name_en: 'Other Student' }], rotations: [{ id: 4, course: { id: 3, name_en: 'Neurology' }, weeks: [{ number: 1, start_date: '2026-09-01', end_date: '2026-09-07', students: [{ student_id: 5, assigned: true, days: [] }] }] }] },
+  { id: 13, name: 'N2', students: [{ id: 5, university_number: '22310002', full_name_ar: 'طالب آخر', full_name_en: 'Other Student' }], rotations: [{ id: 4, course: { id: 3, name_en: 'Neurology' }, weeks: [{ number: 1, start_date: '2026-09-01', end_date: '2026-09-07', students: [{ student_id: 5, assigned: true, schedule_issue: 'supervisor_missing', days: [] }] }] }] },
 ] };
 
 describe('AttendanceMasterPage', () => {
@@ -39,7 +39,10 @@ describe('AttendanceMasterPage', () => {
     expect(await screen.findByText('Other Student')).toBeVisible();
     expect(screen.getByText('Clinical Student')).toBeVisible();
     expect(screen.getAllByText('Week 1').length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('columnheader', { name: 'Total absent' })).toHaveLength(2);
+    expect(within(screen.getByRole('row', { name: /Clinical Student/ })).getByText('1')).toBeVisible();
     expect(screen.getByText('Not recorded')).toBeVisible();
+    expect(screen.queryByText('Formal warning')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Clinical Student · Week 1' }));
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText(/Reported illness/)).toBeVisible();
@@ -49,6 +52,10 @@ describe('AttendanceMasterPage', () => {
     expect(within(screen.getByRole('dialog')).getByText('Not recorded')).toBeVisible();
     expect(within(screen.getByRole('dialog')).queryByText('Absent')).not.toBeInTheDocument();
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Close|إغلاق/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Other Student · Week 1' }));
+    expect(within(screen.getByRole('dialog')).getByText(/No supervisor is assigned/)).toBeVisible();
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Close|إغلاق/ }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Absence alerts (1)' }));
     expect(await screen.findByText('Formal warning')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(await screen.findByText('Warning sent to student@hebron.edu.')).toBeVisible();

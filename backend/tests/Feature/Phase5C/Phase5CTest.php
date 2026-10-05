@@ -215,7 +215,8 @@ class Phase5CTest extends TestCase
             ->assertJsonPath('data.subgroups.0.rotations.0.weeks.3.number', 4)
             ->assertJsonPath('data.subgroups.0.rotations.0.weeks.0.students.0.days.0.status', 'absent')
             ->assertJsonPath('data.subgroups.0.rotations.0.weeks.0.students.0.days.0.note', 'Medical report pending')
-            ->assertJsonPath('data.subgroups.0.rotations.0.weeks.1.students.0.days.0.status', null);
+            ->assertJsonPath('data.subgroups.0.rotations.0.weeks.1.students.0.days.0.status', null)
+            ->assertJsonPath('data.subgroups.0.rotations.0.weeks.0.students.1.schedule_issue', 'supervisor_missing');
 
         $this->actingAs($this->unauthorized)->getJson('/api/v1/attendance-records/review-group?student_group_id='.$this->subgroup->student_group_id)
             ->assertForbidden();
