@@ -869,6 +869,54 @@ class Phase5CTest extends TestCase
             ->assertJsonPath("data.{$this->student2->id}.clinical_score", null);
     }
 
+    public function test_consecutive_weekly_blocks_need_only_one_period_assessment_and_mini_osce(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $this->assignment2->update(['supervisor_id' => $this->supervisor1->id]);
+        $role = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $role->permissions()->syncWithoutDetaching(Permission::whereIn('code', ['assessment.create', 'grades.view'])
+            ->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all());
+        $this->admin->roles()->attach($role);
+        $this->course->assessmentComponents()->where('code', 'clinical')->update([
+            'assessment_frequency' => 'period', 'mini_osce_max_score' => 5,
+        ]);
+        $this->block1->update(['from_week' => 1, 'to_week' => 1, 'block_code' => 'W1']);
+        $secondBlock = RotationBlock::factory()->create([
+            'rotation_id' => $this->rotation->id, 'from_week' => 2, 'to_week' => 2,
+            'block_code' => 'W2', 'department_id' => $this->department1->id,
+        ]);
+        foreach ([$this->student1, $this->student2] as $student) {
+            StudentClinicalAssignment::create([
+                'distribution_version_id' => $this->publishedVersion->id,
+                'student_id' => $student->id, 'student_subgroup_id' => $this->subgroup->id,
+                'rotation_block_id' => $secondBlock->id, 'training_site_id' => $this->site1->id,
+                'department_id' => $this->department1->id, 'supervisor_id' => $this->supervisor1->id,
+            ]);
+        }
+
+        $workspace = $this->actingAs($this->admin)->getJson('/api/v1/operational/my-supervisor-workspace')->assertOk();
+        $this->assertEqualsCanonicalizing([$this->block1->id], array_unique(array_column(
+            $workspace->json('data.assignments'), 'assessment_period_block_id')));
+        $template = ClinicalAssessmentTemplate::where('is_active', true)->firstOrFail();
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessment-batches'), [
+            'assignment_id' => $this->assignment1->id, 'template_id' => $template->id,
+            'assessments' => [
+                ['student_id' => $this->student1->id, 'score' => 8],
+                ['student_id' => $this->student2->id, 'score' => 9],
+            ],
+        ])->assertOk()->assertJsonCount(2, 'data.assessments');
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessment-batches'), [
+            'assignment_id' => $this->assignment1->id, 'template_id' => $template->id,
+            'assessments' => [['student_id' => $this->student1->id, 'score' => 8]],
+        ])->assertUnprocessable();
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/my-supervisor-mini-osce', [
+            'assignment_id' => $this->assignment1->id, 'student_id' => $this->student1->id, 'score' => 4,
+        ])->assertOk();
+        $this->assertDatabaseCount('clinical_mini_osce_scores', 1);
+        $this->actingAs($this->admin)->getJson('/api/v1/grade-entries/clinical-assessment-summary?course_id='.$this->course->id.'&academic_year_id='.$this->rotation->academic_year_id)
+            ->assertOk()->assertJsonPath("data.{$this->student1->id}.clinical_score", 16);
+    }
+
     public function test_final_osce_respects_entry_owner_and_records_a_joint_supervisor_decision_once(): void
     {
         $this->supervisor1->update(['user_id' => $this->admin->id]);

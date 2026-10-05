@@ -214,6 +214,21 @@ describe('clinical supervisor workspace',()=>{
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([url,init])=>String(url).includes('/my-supervisor-assessment-batches')&&init?.method==='POST'&&!String(init.body).includes('evaluation_week'))).toBe(true));
   });
 
+  it('shows one supervisor group for consecutive blocks in the same training period',async()=>{
+    const base=workspace.assignments[0];
+    const clinical={code:'clinical',max_score:20,entry_max_score:10,assessment_frequency:'period',mini_osce_max_score:0};
+    const blockFor=(id:number,week:number)=>({...base,id,rotation_block_id:id,assessment_period_block_id:41,assessment_period_start_week:1,assessment_period_end_week:2,session_start_date:week===1?'2026-08-24':'2026-08-31',session_end_date:week===1?'2026-08-30':'2026-09-06',rotation_block:{...base.rotation_block,id,block_code:`W${week}`,from_week:week,to_week:week,rotation:{...base.rotation_block.rotation,course:{...base.rotation_block.rotation.course,assessment_components:[clinical]}}}});
+    const assignments=[blockFor(41,1),blockFor(42,2)];
+    const old={id:70,student_id:7,student_clinical_assignment_id:42,assessment_kind:'period',evaluation_week:null,score:8,max_score:10,status:'submitted',created_at:'2026-09-06'};
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments,assessments:[old]}));
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=0'});
+    await screen.findByRole('option',{name:'General Surgery — L (L1)'});
+    const groups=screen.getAllByRole('combobox')[1];
+    expect(within(groups).getAllByRole('option')).toHaveLength(1);
+    await waitFor(()=>expect(screen.getByRole('spinbutton',{name:'Score out of 10'})).toHaveValue(8));
+    expect(screen.getByRole('button',{name:'Group assessment submitted'})).toBeDisabled();
+  });
+
   it('keeps a returned old assessment out of 10 after switching the course to direct /15',async()=>{
     const directAssignment={...workspace.assignments[0],rotation_block:{...workspace.assignments[0].rotation_block,rotation:{...workspace.assignments[0].rotation_block.rotation,course:{...workspace.assignments[0].rotation_block.rotation.course,assessment_components:[{code:'clinical',max_score:15,entry_max_score:15}]}}}};
     const oldAssessment={id:41,student_id:7,student_clinical_assignment_id:21,evaluation_week:1,score:9,max_score:10,status:'returned',created_at:'2026-08-30'};

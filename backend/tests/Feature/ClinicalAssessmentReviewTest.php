@@ -231,6 +231,22 @@ class ClinicalAssessmentReviewTest extends TestCase
             ->assertJsonPath('data.rotations.0.weeks.1.students.0.mini_osce', null);
         $this->assertEquals(4, $periodReview->json('data.rotations.0.weeks.0.students.0.mini_osce.score'));
 
+        foreach ([5, 6] as $week) {
+            $weeklyBlock = RotationBlock::factory()->create([
+                'rotation_id' => $rotation->id, 'department_id' => $departmentB->id,
+                'from_week' => $week, 'to_week' => $week, 'block_code' => 'W'.$week,
+            ]);
+            StudentClinicalAssignment::create([
+                'distribution_version_id' => $version->id, 'student_id' => $assignments[0]->student_id,
+                'student_subgroup_id' => $subgroupOne->id, 'rotation_block_id' => $weeklyBlock->id,
+                'training_site_id' => $site->id, 'department_id' => $departmentB->id,
+                'supervisor_id' => $supervisor->id,
+            ]);
+        }
+        $collapsedReview = $this->actingAs($rta)->getJson('/api/v1/clinical-assessments/review-subgroup?subgroup_id='.$subgroupOne->id)
+            ->assertOk()->assertJsonCount(3, 'data.rotations.0.weeks');
+        $this->assertSame('W5–W6', $collapsedReview->json('data.rotations.0.weeks.2.block_code'));
+
         $rta->update(['assigned_levels' => null]);
         $this->actingAs($rta)->getJson('/api/v1/clinical-assessments/review-groups')
             ->assertOk()->assertJsonCount(0, 'data.groups');

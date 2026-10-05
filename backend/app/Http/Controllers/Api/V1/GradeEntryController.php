@@ -672,6 +672,8 @@ class GradeEntryController extends Controller
         $miniMax = $courseId
             ? (float) (CourseAssessmentComponent::where('course_id', $courseId)->where('code', 'clinical')->value('mini_osce_max_score') ?: 0)
             : 0.0;
+        $periodFrequency = $courseId && CourseAssessmentComponent::where('course_id', $courseId)
+            ->where('code', 'clinical')->value('assessment_frequency') === 'period';
 
         if ($miniMax > 0) {
             $assessments = app(DepartmentHeadCourseScope::class)->assessments(ClinicalAssessment::query())
@@ -680,28 +682,26 @@ class GradeEntryController extends Controller
                 ->when($courseId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $courseId)))
                 ->when($academicYearId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $academicYearId)))
                 ->with('session:id,rotation_block_id')->get(['id', 'student_id', 'clinical_session_id', 'score', 'max_score']);
-            $blockIds = $assessments->pluck('session.rotation_block_id')->filter()->unique();
-            $mini = DB::table('clinical_mini_osce_scores')->whereIn('student_id', $studentIds)
-                ->whereIn('rotation_block_id', $blockIds)->get()
-                ->keyBy(fn ($row) => $row->student_id.':'.$row->rotation_block_id);
-            $expectedBlocks = StudentClinicalAssignment::query()
+            $expectedAssignments = StudentClinicalAssignment::query()
                 ->whereIn('student_id', $studentIds)
                 ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
                 ->whereHas('rotationBlock.rotation', fn ($query) => $query->where('course_id', $courseId)
                     ->when($academicYearId, fn ($rotation) => $rotation->where('academic_year_id', $academicYearId)))
-                ->get(['student_id', 'rotation_block_id'])->groupBy('student_id')
-                ->map(fn ($items) => $items->pluck('rotation_block_id')->filter()->unique()->all());
-
-            return $assessments->groupBy('student_id')->map(function ($studentAssessments, $studentId) use ($mini, $miniMax, $clinicalMax, $withMetadata, $expectedBlocks) {
-                $periods = $studentAssessments->groupBy(fn ($item) => $item->session?->rotation_block_id);
-                $missingPeriod = collect($expectedBlocks->get($studentId, []))->contains(fn ($blockId) => ! $periods->has($blockId));
-                if ($missingPeriod) return $withMetadata
-                    ? ['clinical_score' => null, 'assessments_count' => $studentAssessments->count()]
-                    : null;
+                ->with(['rotationBlock', 'student:id,batch_year'])->get();
+            $expectedPeriods = $expectedAssignments->groupBy('student_id')->map(fn ($items) => $periodFrequency
+                ? app(\App\Services\ClinicalAssessmentPeriods::class)->groups($items, false)
+                    ->map(fn (array $period) => $period['block_ids']->all())->all()
+                : $items->pluck('rotation_block_id')->filter()->unique()->map(fn ($id) => [(int) $id])->all());
+            $blockIds = $expectedAssignments->pluck('rotation_block_id')->filter()->unique();
+            $mini = DB::table('clinical_mini_osce_scores')->whereIn('student_id', $studentIds)
+                ->whereIn('rotation_block_id', $blockIds)->get()
+                ->keyBy(fn ($row) => $row->student_id.':'.$row->rotation_block_id);
+            return $assessments->groupBy('student_id')->map(function ($studentAssessments, $studentId) use ($mini, $miniMax, $clinicalMax, $withMetadata, $expectedPeriods) {
                 $periodScores = [];
-                foreach ($periods as $blockId => $items) {
-                    $miniScore = $mini->get($items->first()->student_id.':'.$blockId);
-                    if (! $blockId || ! $miniScore || (float) $miniScore->max_score <= 0) return $withMetadata
+                foreach ($expectedPeriods->get($studentId, []) as $blockIds) {
+                    $items = $studentAssessments->filter(fn ($item) => in_array($item->session?->rotation_block_id, $blockIds));
+                    $miniScore = collect($blockIds)->map(fn ($blockId) => $mini->get($studentId.':'.$blockId))->filter()->first();
+                    if ($items->isEmpty() || ! $miniScore || (float) $miniScore->max_score <= 0) return $withMetadata
                         ? ['clinical_score' => null, 'assessments_count' => $studentAssessments->count()]
                         : null;
                     $fraction = $items->avg(fn ($item) => (float) $item->score / (float) $item->max_score);

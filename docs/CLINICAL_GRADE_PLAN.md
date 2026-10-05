@@ -7,12 +7,16 @@ weights, weekly assessment frequency, and shared final-OSCE entry until an
 authorized manager changes the plan.
 
 The clinical component can use one supervisor assessment every week or one
-assessment per student's rotation block (training period). The supervisor's
+assessment per training period. Consecutive one-week distribution blocks for
+the same rotation, subgroup, supervisor, site and cohort form a single period;
+an explicit multi-week block and a gap start separate periods. The supervisor
+sees one group per such period, and the review matrix has one period column.
+The supervisor's
 entry scale may be /10 or the clinical component's direct maximum. Saved
 assessments retain their original entry maximum so historical marks are
 normalized correctly.
 
-Mini OSCE is optional and is recorded once per student and rotation block by
+Mini OSCE is optional and is recorded once per student and training period by
 an assigned clinical supervisor. Its configured maximum is part of the
 clinical share, not an additional grade component. For example, with clinical
 /20 and mini OSCE /5, the mean of the period's submitted supervisor

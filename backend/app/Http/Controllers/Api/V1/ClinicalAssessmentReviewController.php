@@ -10,6 +10,7 @@ use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentSubgroup;
+use App\Services\ClinicalAssessmentPeriods;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -184,8 +185,10 @@ class ClinicalAssessmentReviewController extends Controller
             ->map(function (Collection $rotationAssignments) use ($assessments, $miniScores) {
             $rotation = $rotationAssignments->first()?->rotationBlock?->rotation;
             $weeks = $this->weekNumbers($rotationAssignments)->map(function (int $number) use ($rotationAssignments, $assessments, $rotation, $miniScores) {
+            $period = $number < 0 ? app(ClinicalAssessmentPeriods::class)->groups($rotationAssignments, false)
+                ->first(fn (array $item) => $item['primary_block_id'] === -$number) : null;
             $active = $rotationAssignments->filter(fn (StudentClinicalAssignment $assignment) => $number < 0
-                ? (int) $assignment->rotation_block_id === -$number
+                ? $period && $period['block_ids']->contains((int) $assignment->rotation_block_id)
                 : ($assignment->rotationBlock
                 && (int) $assignment->rotationBlock->from_week <= $number
                 && (int) $assignment->rotationBlock->to_week >= $number)
@@ -210,18 +213,19 @@ class ClinicalAssessmentReviewController extends Controller
                         'supervisors' => $studentAssignments->pluck('supervisor')->filter()->unique('id')->values(),
                         'training_sites' => $studentAssignments->pluck('trainingSite')->filter()->unique('id')->values(),
                         'assessments' => $records,
-                        'mini_osce' => $miniScores->get($assignment->student_id.':'.$assignment->rotation_block_id),
+                        'mini_osce' => $studentAssignments->map(fn (StudentClinicalAssignment $item) => $miniScores->get($item->student_id.':'.$item->rotation_block_id))->filter()->first(),
                         'ready' => $records->contains(fn (array $record) => in_array($record['status'], ['submitted', 'approved'], true)),
                     ];
                 })->values();
-            $periodBlock = $number < 0 ? $active->first()?->rotationBlock : null;
-            $start = $rotation?->start_date ? Carbon::parse($rotation->start_date)->addWeeks($periodBlock ? (int) $periodBlock->from_week - 1 : max(0, $number - 1)) : null;
+            $periodBlock = $period ? $rotationAssignments->firstWhere('rotation_block_id', $period['primary_block_id'])?->rotationBlock : null;
+            $start = $rotation?->start_date ? Carbon::parse($rotation->start_date)->addWeeks($period ? $period['start_week'] - 1 : max(0, $number - 1)) : null;
 
             return [
                 'number' => $number,
-                'block_code' => $periodBlock?->block_code,
+                'block_code' => $period && $period['block_ids']->count() > 1
+                    ? 'W'.$period['start_week'].'–W'.$period['end_week'] : $periodBlock?->block_code,
                 'start_date' => $start?->toDateString(),
-                'end_date' => $start?->copy()->addDays($periodBlock ? max(0, ((int) $periodBlock->to_week - (int) $periodBlock->from_week + 1) * 7 - 1) : 6)->toDateString(),
+                'end_date' => $start?->copy()->addDays($period ? max(0, ($period['end_week'] - $period['start_week'] + 1) * 7 - 1) : 6)->toDateString(),
                 'student_count' => $students->count(),
                 'ready_count' => $students->where('ready', true)->count(),
                 'students' => $students,
@@ -295,7 +299,8 @@ class ClinicalAssessmentReviewController extends Controller
     {
         $course = $assignments->first()?->rotationBlock?->rotation?->course;
         if ($course?->assessmentComponents?->firstWhere('code', 'clinical')?->assessment_frequency === 'period') {
-            return $assignments->pluck('rotation_block_id')->filter()->unique()->map(fn ($id) => -(int) $id)->values();
+            return app(ClinicalAssessmentPeriods::class)->groups($assignments, false)
+                ->pluck('primary_block_id')->map(fn ($id) => -(int) $id)->values();
         }
         return $assignments->flatMap(function (StudentClinicalAssignment $assignment) {
             $block = $assignment->rotationBlock;
