@@ -156,6 +156,41 @@ class StudentTest extends TestCase
                 'message' => null,
                 'meta' => [],
             ]);
+
+        $this->actingAs($this->admin)->getJson('/api/v1/students/email-recipients?academic_level=fourth&main_group_code=L')
+            ->assertOk()
+            ->assertJsonPath('data.total_students', 1)
+            ->assertJsonPath('data.recipient_count', 1)
+            ->assertJsonPath('data.emails.0', $studentL->resolvedUniversityEmail());
+
+        $this->actingAs($this->admin)->getJson('/api/v1/students/email-recipients?academic_level=fourth')
+            ->assertOk()->assertJsonPath('data.recipient_count', 2);
+
+        $this->actingAs($this->admin)->getJson('/api/v1/students/email-recipients')
+            ->assertUnprocessable();
+    }
+
+    public function test_group_email_recipient_preview_respects_rta_assigned_cohorts(): void
+    {
+        $rta = User::factory()->create(['assigned_levels' => ['fifth']]);
+        $rtaRole = Role::where('code', 'RTA')->firstOrFail();
+        $rtaRole->permissions()->syncWithoutDetaching([
+            Permission::where('code', 'students.view')->firstOrFail()->id => ['scope_type' => 'global'],
+        ]);
+        $rta->roles()->attach($rtaRole);
+
+        $visible = Student::factory()->forLevel('fifth')->create();
+        Student::factory()->forLevel('fourth')->create();
+
+        $this->actingAs($rta)->getJson('/api/v1/students/email-recipients?academic_level=fifth')
+            ->assertOk()
+            ->assertJsonPath('data.recipient_count', 1)
+            ->assertJsonPath('data.emails.0', $visible->resolvedUniversityEmail());
+
+        $this->actingAs($rta)->getJson('/api/v1/students/email-recipients?academic_level=fourth')
+            ->assertOk()
+            ->assertJsonPath('data.recipient_count', 0)
+            ->assertJsonPath('data.emails', []);
     }
 
     public function test_can_create_student()

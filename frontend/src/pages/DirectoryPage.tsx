@@ -11,6 +11,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/Button';
 import { studentEditPath } from '@/features/students/studentEditModel';
 import { isDepartmentScopedHead, visibleDepartmentLevels } from '@/features/departments/courseOwnership';
+import { StudentBulkEmailDialog } from './StudentBulkEmailDialog';
+import { gmailComposeUrl } from './studentEmail';
 import { 
   Search, ChevronRight, ChevronLeft, UserPlus, X, 
   CheckCircle, AlertCircle, FileSpreadsheet, Download, UploadCloud, FileCheck,
@@ -139,6 +141,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const [mainGroupFilter, setMainGroupFilter] = useState('');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState('50');
+  const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
 
   useEffect(() => {
     if (kind !== 'students' || !departmentScoped || !scopeQuery.data) return;
@@ -526,10 +529,10 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     : cohorts;
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-5 pb-14">
+    <div className="mx-auto w-full min-w-0 max-w-[1500px] space-y-4 pb-14 sm:space-y-5">
       
       {/* Top Header with Perfectly Aligned Capsule Dock */}
-      <div className="flex flex-row items-center justify-between gap-4 py-0.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 py-0.5">
         <div className="min-w-0">
           <h1 className="text-base sm:text-2xl font-black text-slate-800 leading-tight truncate">
             {pageTitle}
@@ -539,7 +542,9 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
           </p>
         </div>
 
-        {kind === 'students' && !departmentScoped && can('students.create') && (
+        {kind === 'students' && <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setBulkEmailOpen(true)} className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-teal-200 bg-white px-3 text-xs font-bold text-teal-800 shadow-sm hover:bg-teal-50"><Mail className="h-4 w-4" />{locale === 'ar' ? 'مراسلة جماعية' : 'Group email'}</button>
+        {!departmentScoped && can('students.create') && (
           <div className="flex items-center p-1 bg-white rounded-full border border-slate-200/80 shadow-xs gap-1 shrink-0">
             {/* 1. Download Template */}
             <button 
@@ -576,13 +581,14 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               <span className="hidden sm:inline">{locale === 'ar' ? 'إضافة طالب' : 'Add Student'}</span>
             </button>
           </div>
-        )}
+        )}</div>}
       </div>
       
       {/* Cohort Tabs for Students */}
       {kind === 'students' && (
         <div className="space-y-2 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-sm">
-          <div className="flex gap-1.5 overflow-x-auto">
+          {visibleCohorts.length > 0 && <label className="block p-1.5 text-xs font-bold text-slate-600 md:hidden">{locale === 'ar' ? 'الدفعة' : 'Cohort'}<select value={levelFilter} onChange={event => { setLevelFilter(event.target.value); setMainGroupFilter(''); setPage(1); }} aria-label={locale === 'ar' ? 'تصنيف حسب الدفعة' : 'Filter by cohort'} className="mt-1.5 h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800">{visibleCohorts.map(cohort => <option key={cohort.value} value={cohort.value}>{locale === 'ar' ? cohort.label_ar : cohort.label_en}</option>)}</select></label>}
+          <div className="hidden gap-1.5 overflow-x-auto md:flex">
             {visibleCohorts.map((c) => (
               <button
                 key={c.value}
@@ -596,17 +602,11 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                 {locale === 'ar' ? c.label_ar : c.label_en}
               </button>
             ))}
-            {isCohortScopedRta && visibleCohorts.length === 0 && (
-              <div className="w-full rounded-xl bg-amber-50 px-4 py-3 text-center text-xs font-bold text-amber-700">
-                {locale === 'ar'
-                  ? 'لم يتم تكليف حسابك بأي دفعة بعد. تواصل مع مدير الدائرة السريرية.'
-                  : 'No cohort is assigned to your account yet. Contact the Clinical Department Director.'}
-              </div>
-            )}
-            {departmentScoped && scopeQuery.isLoading && <p className="px-4 py-3 text-xs text-slate-500">{t('courseDepartments.loadingScope')}</p>}
-            {departmentScoped && scopeQuery.isError && <button onClick={() => scopeQuery.refetch()} className="px-4 py-3 text-xs text-red-700">{t('courseDepartments.scopeError')}</button>}
-            {departmentScoped && scopeQuery.isSuccess && visibleCohorts.length === 0 && <p className="w-full rounded-xl bg-slate-50 px-4 py-3 text-center text-xs text-slate-600">{t('courseDepartments.noStudents')}</p>}
           </div>
+          {isCohortScopedRta && visibleCohorts.length === 0 && <p className="rounded-xl bg-amber-50 p-3 text-center text-xs font-bold text-amber-700">{locale === 'ar' ? 'لم يتم تكليف حسابك بأي دفعة بعد. تواصل مع مدير الدائرة السريرية.' : 'No cohort is assigned to your account yet. Contact the Clinical Department Director.'}</p>}
+          {departmentScoped && scopeQuery.isLoading && <p className="p-3 text-xs text-slate-500">{t('courseDepartments.loadingScope')}</p>}
+          {departmentScoped && scopeQuery.isError && <button onClick={() => scopeQuery.refetch()} className="p-3 text-xs text-red-700">{t('courseDepartments.scopeError')}</button>}
+          {departmentScoped && scopeQuery.isSuccess && visibleCohorts.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-center text-xs text-slate-600">{t('courseDepartments.noStudents')}</p>}
         </div>
       )}
 
@@ -685,15 +685,21 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
         <>
         <div className="grid gap-3 md:hidden">
           {rows.map((row) => (
-            <article key={String(row.id)} onClick={() => { if (kind === 'students') navigate(`/students/${String(row.id)}`); else if (kind === 'supervisors') navigate(`/staff/${String(row.id)}`); }} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm active:bg-slate-50">
-              <div className="flex items-start gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-teal-100 bg-teal-50 text-sm font-black text-teal-700">
+            <article key={String(row.id)} onClick={() => { if (kind === 'students') navigate(`/students/${String(row.id)}`); else if (kind === 'supervisors') navigate(`/staff/${String(row.id)}`); }} className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-sm active:bg-slate-50 sm:p-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-teal-100 bg-teal-50 text-sm font-black text-teal-700">
                   {row.photo_url ? <img src={row.photo_url} alt={name(row)} className="h-full w-full object-cover"/> : name(row).substring(0,1)}
                 </div>
-                <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-black text-slate-800">{name(row)}</h3>{kind==='students'&&<p className="mt-1 font-mono text-[11px] text-slate-500">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span>}{getStatus(row)}</div></div>
-                {kind==='students'&&<div className="flex shrink-0 gap-1" onClick={event=>event.stopPropagation()}>{studentEmail(row) ? <a href={`mailto:${studentEmail(row)}`} aria-label={`${locale==='ar'?'مراسلة الطالب':'Email student'} ${name(row)}`} title={locale==='ar'?'إرسال بريد للطالب':'Email student'} className="inline-flex items-center gap-1 rounded-lg bg-teal-50 px-2 py-2 text-[11px] font-bold text-teal-700"><Mail className="h-4 w-4"/><span className="hidden min-[360px]:inline">{locale==='ar'?'بريد':'Email'}</span></a> : <span className="rounded-lg bg-slate-50 px-2 py-2 text-[10px] text-slate-400" title={locale==='ar'?'لا يوجد بريد مسجل':'No email on record'}>{locale==='ar'?'لا بريد':'No email'}</span>}{can('students.update')&&<button type="button" aria-label={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} title={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} onClick={event=>handleOpenEdit(row,event)} className="rounded-lg bg-slate-50 p-2 text-teal-600"><Pencil className="h-4 w-4"/></button>}{!departmentScoped && can('students.delete')&&<button type="button" aria-label={locale==='ar'?'حذف الطالب':'Delete student'} title={locale==='ar'?'حذف الطالب':'Delete student'} onClick={event=>handleDeleteStudent(row,event)} className="rounded-lg bg-red-50 p-2 text-red-500"><Trash2 className="h-4 w-4"/></button>}</div>}
+                <div className="min-w-0 flex-1"><h3 className="break-words text-sm font-black leading-6 text-slate-800">{name(row)}</h3>{kind==='students'&&<p className="mt-0.5 font-mono text-[11px] text-slate-500" dir="ltr">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span>}{getStatus(row)}</div></div>
               </div>
-              {kind==='students'&&<div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]"><div><span className="text-slate-400">{locale==='ar'?'الدفعة':'Batch'}</span><p className="mt-1 font-bold text-slate-700">{getBatchLabel(row)}</p></div><div><span className="text-slate-400">{locale==='ar'?'المجموعة الرئيسية':'Main group'}</span><p className="mt-1 font-bold text-slate-700">{row.registration_main_group||'—'}</p></div></div>}
+              {kind==='students'&&<>
+                <div className="mt-3 grid min-w-0 grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]"><div className="min-w-0"><span className="text-slate-400">{locale==='ar'?'الدفعة':'Batch'}</span><p className="mt-1 truncate font-bold text-slate-700">{getBatchLabel(row)}</p></div><div className="min-w-0"><span className="text-slate-400">{locale==='ar'?'المجموعة الرئيسية':'Main group'}</span><p className="mt-1 truncate font-bold text-slate-700">{row.registration_main_group||'—'}</p></div></div>
+                <div className="mt-3 flex min-w-0 items-center gap-2 border-t border-slate-100 pt-3" onClick={event=>event.stopPropagation()}>
+                  {studentEmail(row) ? <a href={gmailComposeUrl({ to: studentEmail(row)! })} target="_blank" rel="noopener noreferrer" aria-label={`${locale==='ar'?'مراسلة الطالب':'Email student'} ${name(row)}`} title={locale==='ar'?'فتح رسالة في Gmail':'Open Gmail draft'} className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-teal-50 px-3 py-2.5 text-xs font-bold text-teal-800"><Mail className="h-4 w-4 shrink-0"/>{locale==='ar'?'إرسال بريد':'Email student'}</a> : <span className="min-w-0 flex-1 rounded-xl bg-slate-50 px-3 py-2.5 text-center text-xs text-slate-400">{locale==='ar'?'لا يوجد بريد':'No email'}</span>}
+                  {can('students.update')&&<button type="button" aria-label={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} title={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} onClick={event=>handleOpenEdit(row,event)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-50 text-teal-700"><Pencil className="h-4 w-4"/></button>}
+                  {!departmentScoped && can('students.delete')&&<button type="button" aria-label={locale==='ar'?'حذف الطالب':'Delete student'} title={locale==='ar'?'حذف الطالب':'Delete student'} onClick={event=>handleDeleteStudent(row,event)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-red-50 text-red-600"><Trash2 className="h-4 w-4"/></button>}
+                </div>
+              </>}
             </article>
           ))}
         </div>
@@ -776,7 +782,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                     <TableCell>
                       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                         {studentEmail(row) ? (
-                          <a href={`mailto:${studentEmail(row)}`} className="inline-flex items-center gap-1 rounded-lg bg-teal-50 px-2.5 py-1.5 text-xs font-bold text-teal-700 transition-colors hover:bg-teal-100" title={locale === 'ar' ? 'إرسال بريد للطالب' : 'Email student'} aria-label={`${locale === 'ar' ? 'مراسلة الطالب' : 'Email student'} ${name(row)}`}>
+                          <a href={gmailComposeUrl({ to: studentEmail(row)! })} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-lg bg-teal-50 px-2.5 py-1.5 text-xs font-bold text-teal-700 transition-colors hover:bg-teal-100" title={locale === 'ar' ? 'فتح رسالة في Gmail' : 'Open Gmail draft'} aria-label={`${locale === 'ar' ? 'مراسلة الطالب' : 'Email student'} ${name(row)}`}>
                             <Mail className="h-4 w-4" />{locale === 'ar' ? 'بريد' : 'Email'}
                           </a>
                         ) : <span className="text-[11px] text-slate-400">{locale === 'ar' ? 'لا بريد' : 'No email'}</span>}
@@ -1339,6 +1345,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
         </div>
       )}
 
+      {kind === 'students' && bulkEmailOpen && <StudentBulkEmailDialog cohorts={visibleCohorts.filter(cohort => cohort.value)} initialLevel={levelFilter} onClose={() => setBulkEmailOpen(false)} />}
     </div>
   );
 }

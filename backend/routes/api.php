@@ -299,6 +299,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 ->middleware('permission:students.view')->name('index');
             Route::get('/main-groups', [StudentController::class, 'mainGroups'])
                 ->middleware('permission:students.view')->name('main-groups');
+            Route::get('/email-recipients', [StudentController::class, 'emailRecipients'])
+                ->middleware('permission:students.view')->name('email-recipients');
             Route::post('/', [StudentController::class, 'store'])
                 ->middleware('permission:students.create')->name('store');
             Route::post('/bulk-import', [StudentController::class, 'bulkImport'])

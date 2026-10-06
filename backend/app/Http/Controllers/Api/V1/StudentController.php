@@ -78,6 +78,42 @@ class StudentController extends Controller
         return ApiResponse::success($groups);
     }
 
+    /** Preview the complete, permission-scoped cohort/group recipient list for Gmail Bcc. */
+    public function emailRecipients(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'academic_level' => ['required', 'in:fourth,fifth,sixth'],
+            'main_group_code' => ['nullable', 'string', 'max:20'],
+        ]);
+
+        $students = $this->applyStudentAccessScope(Student::query())
+            ->where('academic_level', $data['academic_level'])
+            ->when(! empty($data['main_group_code']), function ($query) use ($data) {
+                $groupCode = strtoupper(trim($data['main_group_code']));
+                $query->whereHas('groupRegistrationRosters', fn ($roster) => $roster
+                    ->whereHas('group', fn ($group) => $group->whereRaw('UPPER(name) = ?', [$groupCode]))
+                    ->whereRaw('student_group_rosters.group_registration_cycle_id = (
+                        SELECT MAX(latest_roster.group_registration_cycle_id)
+                        FROM student_group_rosters AS latest_roster
+                        WHERE latest_roster.student_id = student_group_rosters.student_id
+                    )'));
+            })
+            ->get(['students.id', 'students.university_number', 'students.university_email']);
+
+        $validEmails = $students->map(fn (Student $student) => $student->resolvedUniversityEmail())
+            ->filter(fn (string $email) => filter_var($email, FILTER_VALIDATE_EMAIL))
+            ->map(fn (string $email) => strtolower($email));
+        $emails = $validEmails->unique()->values();
+
+        return ApiResponse::success([
+            'total_students' => $students->count(),
+            'recipient_count' => $emails->count(),
+            'missing_email_count' => $students->count() - $validEmails->count(),
+            'duplicate_email_count' => $validEmails->count() - $emails->count(),
+            'emails' => $emails,
+        ]);
+    }
+
     /**
      * GET /api/v1/students
      * Permission: students.view
