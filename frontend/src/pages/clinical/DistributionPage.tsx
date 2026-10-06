@@ -6,6 +6,9 @@ import {
   Building2,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   Copy,
   ExternalLink,
@@ -180,7 +183,7 @@ type UnassignedStudent = {
 
 const levelCodes: Level[] = ["fourth", "fifth", "sixth"];
 const inputClass =
-  "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100";
+  "w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100";
 
 function normalizeAssignedLevel(value: string): Level | null {
   const level = String(value).trim().toLowerCase();
@@ -274,6 +277,8 @@ export function DistributionPage() {
   const [periodId, setPeriodId] = useState(searchParams.get("period_id") ?? "");
   const [startDate, setStartDate] = useState("");
   const [weeksCount, setWeeksCount] = useState(12);
+  const [showMobileContext, setShowMobileContext] = useState(false);
+  const [mobileBlockId, setMobileBlockId] = useState<number | null>(null);
   const [notice, setNotice] = useState<{
     type: "success" | "error";
     text: string;
@@ -443,6 +448,13 @@ export function DistributionPage() {
     }
     return grouped;
   }, [schedule?.cells]);
+  const selectedMobileBlock = schedule?.blocks.find((block) => block.id === mobileBlockId) ?? schedule?.blocks[0];
+  const selectedMobileBlockIndex = selectedMobileBlock
+    ? (schedule?.blocks.findIndex((block) => block.id === selectedMobileBlock.id) ?? 0)
+    : -1;
+  const selectedMobileAssignedRows = selectedMobileBlock
+    ? (schedule?.rows.filter((row) => (cellMap.get(`${row.id}|${selectedMobileBlock.id}`) ?? []).length > 0).length ?? 0)
+    : 0;
   const rowWorkLocations = (row: ScheduleRow, block: Block) => {
     const rotationStart = schedule?.rotation?.start_date?.slice(0, 10);
     if (!rotationStart) return row.person?.work_schedules ?? [];
@@ -996,7 +1008,7 @@ export function DistributionPage() {
     return <ErrorState onRetry={() => optionsQuery.refetch()} />;
 
   return (
-    <div className="mx-auto max-w-[1700px] space-y-5 pb-14">
+    <div className="mx-auto w-full min-w-0 max-w-[1700px] space-y-4 pb-14 sm:space-y-5">
       <PageHeader
         title={tr(
           "التوزيع الأسبوعي للمساقات السريرية",
@@ -1007,6 +1019,18 @@ export function DistributionPage() {
           "Select the cohort and course, then assign student groups to hospital physicians by week.",
         )}
       >
+        <details className="w-full rounded-xl border border-slate-200 bg-white md:hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-bold text-teal-800 marker:hidden">
+            {tr("روابط إدارة التوزيع", "Distribution shortcuts")}
+            <ChevronDown className="h-4 w-4" />
+          </summary>
+          <div className="grid gap-2 border-t border-slate-100 p-2">
+            <Link to="/distribution/groups" className="rounded-lg bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800">{tr("مجموعات الطلبة", "Student groups")}</Link>
+            <Link to="/clinical-supervisors" className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">{tr("المستشفيات والمشرفون", "Hospitals and supervisors")}</Link>
+            <Link to="/courses" className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">{tr("المساقات السريرية", "Clinical courses")}</Link>
+          </div>
+        </details>
+        <div className="hidden flex-wrap items-center gap-2 md:flex">
         <Link
           to="/distribution/groups"
           className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800"
@@ -1028,6 +1052,7 @@ export function DistributionPage() {
           <ExternalLink className="h-4 w-4" />
           {tr("المساقات السريرية", "Clinical courses")}
         </Link>
+        </div>
       </PageHeader>
       {notice && (
         <div
@@ -1038,9 +1063,14 @@ export function DistributionPage() {
         </div>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <label>
+          <button type="button" className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-start md:hidden" onClick={() => setShowMobileContext((value) => !value)} aria-expanded={showMobileContext} aria-controls="distribution-mobile-context">
+            <span className="min-w-0"><span className="block text-[10px] font-bold text-slate-500">{tr("العام والفترة", "Year and period")}</span><span className="block truncate text-xs font-black text-slate-800">{years.find((year) => String(year.id) === yearId)?.code ?? "—"} · {periodId === "annual" ? tr("السنة كاملة", "Full year") : ar ? selectedPeriod?.name_ar : selectedPeriod?.name_en || selectedPeriod?.name_ar}</span></span>
+            <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${showMobileContext ? "rotate-180" : ""}`} />
+          </button>
+          <div id="distribution-mobile-context" className={`${showMobileContext ? "grid" : "hidden"} gap-2 sm:grid-cols-2 md:contents`}>
+          <label className="min-w-0">
             <span className="mb-1.5 block text-[11px] font-black text-slate-500">
               {tr("العام الأكاديمي", "Academic year")}
             </span>
@@ -1061,7 +1091,7 @@ export function DistributionPage() {
               ))}
             </select>
           </label>
-          <label>
+          <label className="min-w-0">
             <span className="mb-1.5 block text-[11px] font-black text-slate-500">
               {tr("الفترة السريرية", "Clinical period")}
             </span>
@@ -1080,6 +1110,7 @@ export function DistributionPage() {
               ))}
             </select>
           </label>
+          </div>
           <label>
             <span className="mb-1.5 block text-[11px] font-black text-slate-500">
               {tr("الدفعة / المستوى", "Cohort / level")}
@@ -1204,11 +1235,11 @@ export function DistributionPage() {
 
       {schedule?.rotation && schedule.version && (
         <>
-          <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div>
-              <div className="flex items-center gap-2">
-                <Grid3X3 className="h-5 w-5 text-teal-700" />
-                <h2 className="font-black text-slate-800">
+          <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Grid3X3 className="h-5 w-5 shrink-0 text-teal-700" />
+                <h2 className="min-w-0 break-words font-black text-slate-800">
                   {schedule.rotation.name}
                 </h2>
                 <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">
@@ -1224,14 +1255,14 @@ export function DistributionPage() {
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs leading-5 text-slate-500">
                 {tr(
                   `${schedule.blocks.length} أسبوع · ${doctorsCount} طبيب · ${schedule.rows.filter((row) => row.row_type === "vacancy").length} شاغر · ${schedule.subgroups.length} مجموعة فرعية`,
                   `${schedule.blocks.length} weeks · ${doctorsCount} physicians · ${schedule.rows.filter((row) => row.row_type === "vacancy").length} vacancies · ${schedule.subgroups.length} subgroups`,
                 )}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid w-full grid-cols-1 gap-2 min-[380px]:grid-cols-2 sm:flex sm:w-auto sm:flex-wrap [&>button]:h-auto [&>button]:min-h-10 [&>button]:min-w-0 [&>button]:whitespace-normal [&>button]:px-2 [&>button]:py-2 [&>button]:text-xs">
               {can("distribution.schedule_rows.manage") && isEditable && (
                 <Button variant="outline" onClick={() => openRow()}>
                   <Plus className="me-1 h-4 w-4" />
@@ -1388,21 +1419,18 @@ export function DistributionPage() {
               )}
             </div>
           )}
-          {can("distribution.update") && isEditable && (
-            <section className="flex gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-2 md:hidden">
-              {schedule.blocks.map((block) => (
-                <button
-                  key={block.id}
-                  type="button"
-                  onClick={() => openBlock(block)}
-                  className={`shrink-0 rounded-lg border px-3 py-2 text-[11px] font-black ${(block.activity_type ?? "clinical") === "clinical" ? "border-slate-200 text-slate-600" : "border-amber-200 bg-amber-50 text-amber-800"}`}
-                >
-                  {tr("أسبوع", "Week")} {block.from_week}
-                  {(block.activity_type ?? "clinical") !== "clinical"
-                    ? ` · ${block.activity_label}`
-                    : ""}
-                </button>
-              ))}
+          {selectedMobileBlock && (
+            <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm md:hidden" aria-label={tr("اختيار أسبوع التوزيع", "Choose distribution week")}>
+              <div className="flex min-w-0 items-center gap-2">
+                <button type="button" aria-label={tr("الأسبوع السابق", "Previous week")} disabled={selectedMobileBlockIndex <= 0} onClick={() => setMobileBlockId(schedule.blocks[selectedMobileBlockIndex - 1].id)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 text-teal-800 disabled:opacity-35">{ar ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}</button>
+                <label className="min-w-0 flex-1"><span className="sr-only">{tr("الأسبوع", "Week")}</span><select value={selectedMobileBlock.id} onChange={(event) => setMobileBlockId(Number(event.target.value))} aria-label={tr("الأسبوع", "Week")} className="h-10 w-full min-w-0 rounded-xl border border-teal-200 bg-teal-50 px-2 text-center text-sm font-black text-teal-900">{schedule.blocks.map((block) => <option key={block.id} value={block.id}>{tr("الأسبوع", "Week")} {block.from_week}</option>)}</select></label>
+                <button type="button" aria-label={tr("الأسبوع التالي", "Next week")} disabled={selectedMobileBlockIndex >= schedule.blocks.length - 1} onClick={() => setMobileBlockId(schedule.blocks[selectedMobileBlockIndex + 1].id)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 text-teal-800 disabled:opacity-35">{ar ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button>
+              </div>
+              <div className="mt-2 flex min-w-0 items-center justify-between gap-2 text-xs text-slate-600">
+                <span className="truncate">{weekDate(schedule.rotation.start_date, selectedMobileBlock.from_week, locale)} · {tr(`${selectedMobileAssignedRows} صفوف موزعة`, `${selectedMobileAssignedRows} assigned rows`)}</span>
+                {can("distribution.update") && isEditable && <button type="button" onClick={() => openBlock(selectedMobileBlock)} className="shrink-0 font-bold text-teal-800">{tr("نوع الأسبوع", "Week type")}</button>}
+              </div>
+              {(selectedMobileBlock.activity_type ?? "clinical") !== "clinical" && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">{selectedMobileBlock.activity_label} · {(selectedMobileBlock.activity_scope ?? "all") === "all" ? tr("كل الدفعة", "Entire cohort") : selectedMobileBlock.main_group_codes?.join("، ")}</p>}
             </section>
           )}
           {schedule.rows.length === 0 ? (
@@ -1433,106 +1461,40 @@ export function DistributionPage() {
             </section>
           ) : (
             <>
-              <section className="grid gap-3 md:hidden">
-                {schedule.rows.map((row) => (
-                  <article
-                    key={row.id}
-                    className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
-                  >
-                    <header
-                      className={`flex items-start justify-between gap-3 border-b border-slate-100 p-4 ${row.row_type === "vacancy" ? "bg-slate-50" : "bg-teal-50/60"}`}
-                    >
-                      <div>
-                        <h3 className="flex items-center gap-1.5 text-sm font-black text-slate-800">
-                          <span>{row.row_type === "vacancy"
-                            ? row.label || tr("شاغر", "Vacancy")
-                            : ar
-                              ? row.person?.full_name_ar
-                              : row.person?.full_name_en ||
-                                row.person?.full_name_ar}</span>
-                          {row.row_type === "doctor" && workLocationInfoButton(row)}
-                        </h3>
-                      </div>
-                      {can("distribution.schedule_rows.manage") &&
-                        isEditable && (
-                          <div className="flex gap-1">
-                            <button
-                              type="button"
-                              onClick={() => openRow(row)}
-                              className="rounded-lg bg-white p-2 text-slate-500 shadow-sm"
-                              title={tr("تعديل الصف", "Edit row")}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={deleteRow.isPending}
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    tr(
-                                      "سيتم حذف الصف وكل توزيعاته. هل أنت متأكد؟",
-                                      "The row and all its assignments will be deleted. Are you sure?",
-                                    ),
-                                  )
-                                )
-                                  deleteRow.mutate({
-                                    rowId: row.id,
-                                    versionId: schedule.version!.id,
-                                  });
-                              }}
-                              className="rounded-lg bg-white p-2 text-red-500 shadow-sm disabled:opacity-50"
-                              title={tr("حذف الصف", "Delete row")}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        )}
+              <section className="space-y-3 md:hidden" aria-label={tr("توزيع الأسبوع على الهاتف", "Mobile weekly distribution")}>
+                {selectedMobileBlock && Array.from(new Set(schedule.rows.map((row) => row.training_site_id))).map((siteId) => {
+                  const siteRows = schedule.rows.filter((row) => row.training_site_id === siteId);
+                  const site = siteRows[0]?.training_site ?? hospitals.find((hospital) => hospital.id === siteId);
+                  return <div key={siteId} className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <header className="flex items-center justify-between gap-2 bg-slate-50 px-3 py-3">
+                      <h3 className="min-w-0 truncate text-sm font-black text-slate-800">{(ar ? site?.name_ar : site?.name_en || site?.name_ar) || tr("مركز غير محدد", "Unspecified site")}</h3>
+                      <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-600">{siteRows.length} {tr("صفوف", "rows")}</span>
                     </header>
-                    <div className="grid grid-cols-2 gap-2 p-3">
-                      {schedule.blocks.map((block) => {
-                        const cells =
-                          cellMap.get(`${row.id}|${block.id}`) ?? [];
-                        const wholeCohortActivity =
-                          blockExcludesGroup(block) &&
-                          (block.activity_scope ?? "all") === "all";
-                        return (
-                          <button
-                            key={block.id}
-                            type="button"
-                            onClick={() => openCell(row, block)}
-                            disabled={
-                              !can("distribution.update") ||
-                              !isEditable ||
-                              wholeCohortActivity
-                            }
-                            className={`min-h-20 rounded-xl border p-3 text-start transition ${wholeCohortActivity ? "border-amber-200 bg-amber-50" : cells.length ? "border-teal-200 bg-teal-50" : "border-slate-200 bg-slate-50"} disabled:cursor-default`}
-                          >
-                            <span className="block text-[10px] font-bold text-slate-400">
-                              {tr("الأسبوع", "Week")} {block.from_week} ·{" "}
-                              {weekDate(
-                                schedule.rotation?.start_date,
-                                block.from_week,
-                                locale,
-                              )}
-                            </span>
-                            <span
-                              className={`mt-2 block text-sm font-black ${wholeCohortActivity ? "text-amber-800" : cells.length ? "text-teal-800" : "text-slate-300"}`}
-                            >
-                              {wholeCohortActivity
-                                ? block.activity_label
-                                : cells.length
-                                  ? cells
-                                      .map((cell) => cell.subgroup_name)
-                                      .join(" + ")
-                                  : tr("فارغ", "Empty")}
-                            </span>
+                    <div className="divide-y divide-slate-100">
+                      {siteRows.map((row) => {
+                        const cells = cellMap.get(`${row.id}|${selectedMobileBlock.id}`) ?? [];
+                        const wholeCohortActivity = blockExcludesGroup(selectedMobileBlock) && (selectedMobileBlock.activity_scope ?? "all") === "all";
+                        const canEditCell = can("distribution.update") && isEditable && !wholeCohortActivity;
+                        return <article key={row.id} className="min-w-0 p-3">
+                          <div className="flex min-w-0 items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-1.5 text-sm font-black text-slate-800">
+                              <span className="min-w-0 break-words">{row.row_type === "vacancy" ? row.label || tr("شاغر", "Vacancy") : ar ? row.person?.full_name_ar : row.person?.full_name_en || row.person?.full_name_ar}</span>
+                              {row.row_type === "doctor" && workLocationInfoButton(row)}
+                            </div>
+                            {can("distribution.schedule_rows.manage") && isEditable && <div className="flex shrink-0 gap-1">
+                              <button type="button" aria-label={tr("تعديل الصف", "Edit row")} onClick={() => openRow(row)} className="grid h-9 w-9 place-items-center rounded-lg bg-slate-50 text-slate-600"><Pencil className="h-4 w-4" /></button>
+                              <button type="button" aria-label={tr("حذف الصف", "Delete row")} disabled={deleteRow.isPending} onClick={() => { if (window.confirm(tr("سيتم حذف الصف وكل توزيعاته. هل أنت متأكد؟", "The row and all its assignments will be deleted. Are you sure?"))) deleteRow.mutate({ rowId: row.id, versionId: schedule.version!.id }); }} className="grid h-9 w-9 place-items-center rounded-lg bg-red-50 text-red-600 disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>
+                            </div>}
+                          </div>
+                          <button type="button" onClick={() => openCell(row, selectedMobileBlock)} disabled={!canEditCell} className={`mt-2 flex min-h-12 w-full min-w-0 items-center justify-between gap-2 rounded-xl border px-3 py-2 text-start text-xs font-bold ${wholeCohortActivity ? "border-amber-200 bg-amber-50 text-amber-800" : cells.length ? "border-teal-200 bg-teal-50 text-teal-800" : "border-slate-200 bg-slate-50 text-slate-500"} disabled:cursor-default`}>
+                            <span className="flex min-w-0 flex-wrap gap-1.5">{wholeCohortActivity ? selectedMobileBlock.activity_label : cells.length ? cells.map((cell) => <span key={cell.subgroup_id} className="rounded-lg bg-white/80 px-2 py-1">{cell.subgroup_name}</span>) : canEditCell ? tr("اضغط لتوزيع مجموعة", "Tap to assign a group") : tr("لم يتم التوزيع", "Not assigned")}</span>
+                            {canEditCell && <Pencil className="h-4 w-4 shrink-0" />}
                           </button>
-                        );
+                        </article>;
                       })}
                     </div>
-                  </article>
-                ))}
+                  </div>;
+                })}
               </section>
               <section className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:block">
                 <div className="overflow-x-auto">
