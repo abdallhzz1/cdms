@@ -62,6 +62,19 @@ class StudentTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    public function test_directory_exposes_the_current_student_email_for_contact(): void
+    {
+        Student::factory()->create([
+            'university_number' => '22310455',
+            'university_email' => '22310000@students.hebron.edu',
+        ]);
+
+        $this->actingAs($this->admin)->getJson('/api/v1/students?search=22310455')
+            ->assertOk()
+            ->assertJsonPath('data.0.university_email', '22310000@students.hebron.edu')
+            ->assertJsonPath('data.0.resolved_university_email', '22310455@students.hebron.edu');
+    }
+
     public function test_name_search_ignores_common_arabic_spelling_differences_and_extra_spaces(): void
     {
         $matching = Student::factory()->create(['full_name_ar' => 'أَحْمَد عبد الرَّحمن الزُّهور']);

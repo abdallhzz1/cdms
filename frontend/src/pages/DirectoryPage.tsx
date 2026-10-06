@@ -14,7 +14,7 @@ import { isDepartmentScopedHead, visibleDepartmentLevels } from '@/features/depa
 import { 
   Search, ChevronRight, ChevronLeft, UserPlus, X, 
   CheckCircle, AlertCircle, FileSpreadsheet, Download, UploadCloud, FileCheck,
-  Pencil, Trash2
+  Pencil, Trash2, Mail
 } from 'lucide-react';
 
 type DirectoryKind = 'students' | 'supervisors' | 'departments' | 'sites';
@@ -435,6 +435,10 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   
   const rows = data ?? [];
   const name = (row: RecordItem) => String(locale === 'ar' ? row.full_name_ar ?? row.name_ar ?? '' : row.full_name_en ?? row.name_en ?? row.full_name_ar ?? row.name_ar ?? '');
+  const studentEmail = (row: RecordItem) => {
+    const email = String(row.resolved_university_email || row.university_email || '').trim();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+  };
   
   const StatusBadge = ({ active, text }: { active: boolean, text: string }) => (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
@@ -687,7 +691,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                   {row.photo_url ? <img src={row.photo_url} alt={name(row)} className="h-full w-full object-cover"/> : name(row).substring(0,1)}
                 </div>
                 <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-black text-slate-800">{name(row)}</h3>{kind==='students'&&<p className="mt-1 font-mono text-[11px] text-slate-500">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span>}{getStatus(row)}</div></div>
-                {kind==='students'&&<div className="flex shrink-0 gap-1" onClick={event=>event.stopPropagation()}>{can('students.update')&&<button type="button" aria-label={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} title={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} onClick={event=>handleOpenEdit(row,event)} className="rounded-lg bg-slate-50 p-2 text-teal-600"><Pencil className="h-4 w-4"/></button>}{!departmentScoped && can('students.delete')&&<button type="button" aria-label={locale==='ar'?'حذف الطالب':'Delete student'} title={locale==='ar'?'حذف الطالب':'Delete student'} onClick={event=>handleDeleteStudent(row,event)} className="rounded-lg bg-red-50 p-2 text-red-500"><Trash2 className="h-4 w-4"/></button>}</div>}
+                {kind==='students'&&<div className="flex shrink-0 gap-1" onClick={event=>event.stopPropagation()}>{studentEmail(row) ? <a href={`mailto:${studentEmail(row)}`} aria-label={`${locale==='ar'?'مراسلة الطالب':'Email student'} ${name(row)}`} title={locale==='ar'?'إرسال بريد للطالب':'Email student'} className="inline-flex items-center gap-1 rounded-lg bg-teal-50 px-2 py-2 text-[11px] font-bold text-teal-700"><Mail className="h-4 w-4"/><span className="hidden min-[360px]:inline">{locale==='ar'?'بريد':'Email'}</span></a> : <span className="rounded-lg bg-slate-50 px-2 py-2 text-[10px] text-slate-400" title={locale==='ar'?'لا يوجد بريد مسجل':'No email on record'}>{locale==='ar'?'لا بريد':'No email'}</span>}{can('students.update')&&<button type="button" aria-label={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} title={locale==='ar'?'تعديل بيانات الطالب':'Edit student'} onClick={event=>handleOpenEdit(row,event)} className="rounded-lg bg-slate-50 p-2 text-teal-600"><Pencil className="h-4 w-4"/></button>}{!departmentScoped && can('students.delete')&&<button type="button" aria-label={locale==='ar'?'حذف الطالب':'Delete student'} title={locale==='ar'?'حذف الطالب':'Delete student'} onClick={event=>handleDeleteStudent(row,event)} className="rounded-lg bg-red-50 p-2 text-red-500"><Trash2 className="h-4 w-4"/></button>}</div>}
               </div>
               {kind==='students'&&<div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]"><div><span className="text-slate-400">{locale==='ar'?'الدفعة':'Batch'}</span><p className="mt-1 font-bold text-slate-700">{getBatchLabel(row)}</p></div><div><span className="text-slate-400">{locale==='ar'?'المجموعة الرئيسية':'Main group'}</span><p className="mt-1 font-bold text-slate-700">{row.registration_main_group||'—'}</p></div></div>}
             </article>
@@ -771,6 +775,11 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                   {kind === 'students' && (
                     <TableCell>
                       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        {studentEmail(row) ? (
+                          <a href={`mailto:${studentEmail(row)}`} className="inline-flex items-center gap-1 rounded-lg bg-teal-50 px-2.5 py-1.5 text-xs font-bold text-teal-700 transition-colors hover:bg-teal-100" title={locale === 'ar' ? 'إرسال بريد للطالب' : 'Email student'} aria-label={`${locale === 'ar' ? 'مراسلة الطالب' : 'Email student'} ${name(row)}`}>
+                            <Mail className="h-4 w-4" />{locale === 'ar' ? 'بريد' : 'Email'}
+                          </a>
+                        ) : <span className="text-[11px] text-slate-400">{locale === 'ar' ? 'لا بريد' : 'No email'}</span>}
                         {can('students.update') && (
                           <button
                             type="button"
