@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 describe("FoundationHome", () => {
-  it("shows role-scoped charts without shortcut clutter or empty panels", async () => {
+  it("places role-scoped charts immediately after the welcome and removes the KPI cards", async () => {
     localStorage.setItem("cdms.locale", "en");
     vi.spyOn(window, "fetch").mockImplementation(async (input) => {
       const url = String(input);
@@ -79,12 +79,15 @@ describe("FoundationHome", () => {
 
     renderWithProviders(<FoundationHome />);
 
-    expect(
-      await screen.findByRole("main", { name: "Daily workspace" }),
-    ).toBeVisible();
+    const main = await screen.findByRole("main", { name: "Daily workspace" });
+    expect(main).toBeVisible();
     expect(screen.queryByRole('navigation', { name: 'Quick access' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Needs your attention' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Recent updates' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Key metrics' })).not.toBeInTheDocument();
+    expect(within(main).getAllByRole('region').map((region) => region.getAttribute('aria-label'))).toEqual([
+      'Dashboard charts', 'Needs your attention', 'Recent updates',
+    ]);
+    expect(screen.getByRole('region', { name: 'Needs your attention' })).toHaveTextContent('Nothing in your scope needs action right now.');
+    expect(screen.getByRole('region', { name: 'Recent updates' })).toHaveTextContent('There are no recent updates in your scope.');
     const tabs = screen.getByRole('tablist', { name: 'Chart areas' });
     expect(within(tabs).getByRole('tab', { name: 'Attendance' })).toHaveAttribute('aria-selected', 'true');
     expect(within(tabs).queryByRole('tab', { name: 'Assessments and grades' })).not.toBeInTheDocument();
@@ -107,7 +110,9 @@ describe("FoundationHome", () => {
           { key: 'students_by_level', type: 'bar', title_ar: 'الدفعات', title_en: 'Students by cohort', items: [{ label_ar: 'الرابعة', label_en: 'Fourth year', value: 209 }] },
           { key: 'correspondence_status', type: 'donut', title_ar: 'المراسلات', title_en: 'Mail status', items: [{ label_ar: 'مرسل', label_en: 'Sent', value: 3 }] },
         ],
-        attention: [], activity: [], generated_at: '2026-10-06T10:00:00+03:00',
+        attention: [{ key: 'minutes_pending', label_ar: 'محاضر بانتظار الاعتماد', label_en: 'Minutes awaiting approval', count: 1, route: '/meetings', severity: 'review' }],
+        activity: [{ key: 'mail-1', type: 'correspondence', title: 'Clinical update', subtitle_ar: 'مراسلة', subtitle_en: 'Mail', at: '2026-10-06T09:00:00+03:00', route: '/inbox' }],
+        generated_at: '2026-10-06T10:00:00+03:00',
       });
       throw new Error(`Unmocked request: ${url}`);
     });
@@ -118,5 +123,8 @@ describe("FoundationHome", () => {
     expect(screen.queryByRole('tab', { name: 'Attendance' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: 'Daily operations' }));
     expect(screen.getByRole('tabpanel', { name: 'Daily operations' })).toHaveTextContent('Mail status');
+    expect(screen.getByRole('region', { name: 'Needs your attention' })).toHaveTextContent('Minutes awaiting approval');
+    expect(screen.getByRole('region', { name: 'Recent updates' })).toHaveTextContent('Clinical update');
+    expect(screen.getByRole('region', { name: 'Needs your attention' }).parentElement).toHaveClass('lg:grid-cols-2');
   });
 });

@@ -8,14 +8,6 @@ import { useI18n } from '@/i18n/I18nContext';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 
-type Metric = {
-  key: string;
-  label_ar: string;
-  label_en: string;
-  value: number;
-  unit: string | null;
-  route: string;
-};
 type ChartItem = { label_ar: string; label_en: string; value: number };
 type Chart = {
   key: string;
@@ -49,7 +41,6 @@ type DashboardOverview = {
     assigned_levels: string[];
     scope_student_count: number;
   };
-  metrics: Metric[];
   charts?: Chart[];
   attention: AttentionItem[];
   activity: ActivityItem[];
@@ -95,14 +86,6 @@ const focusOrder: Record<string, GroupKey[]> = {
   department: ['academic', 'attendance', 'students', 'operations', 'system'],
   operations: ['students', 'operations', 'attendance', 'academic', 'system'],
   system: ['system', 'operations', 'students', 'attendance', 'academic'],
-};
-
-const metricOrder: Record<string, string[]> = {
-  clinical_leadership: ['students_total', 'attendance_rate', 'distribution_coverage', 'grades_completion', 'approval_queue', 'assessments_total'],
-  cohort: ['students_total', 'attendance_rate', 'distribution_coverage', 'assessments_total', 'my_open_tasks'],
-  department: ['students_total', 'assessments_total', 'attendance_rate', 'grades_completion', 'active_courses'],
-  operations: ['students_total', 'active_courses', 'registration_cycles', 'upcoming_meetings', 'correspondence_active'],
-  system: ['system_users', 'system_sessions', 'students_total', 'my_open_tasks'],
 };
 
 const colors = ['#0f766e', '#14b8a6', '#f59e0b', '#6366f1', '#e879f9', '#94a3b8', '#ef4444', '#0891b2'];
@@ -222,51 +205,48 @@ export function FoundationHome() {
   availableGroups.sort((a, b) => preferredGroups.indexOf(a.key) - preferredGroups.indexOf(b.key));
   const currentGroup = availableGroups.find((group) => group.key === activeGroup) ?? availableGroups[0];
   const displayedCharts = currentGroup ? availableCharts.filter((chart) => currentGroup.keys.includes(chart.key)) : [];
-  const metricPriority = metricOrder[dashboard.profile.focus] ?? ['students_total', 'attendance_rate', 'my_open_tasks', 'correspondence_active'];
-  const topMetrics = [...dashboard.metrics]
-    .filter((metric) => metric.value > 0 || (metric.unit === '%' && availableCharts.some((chart) => (metric.key === 'attendance_rate' && chart.key === 'attendance_status') || (metric.key === 'grades_completion' && chart.key === 'grade_workflow'))))
-    .sort((a, b) => (metricPriority.indexOf(a.key) < 0 ? 99 : metricPriority.indexOf(a.key)) - (metricPriority.indexOf(b.key) < 0 ? 99 : metricPriority.indexOf(b.key)))
-    .slice(0, 4);
-  const attentionCount = dashboard.attention.reduce((sum, item) => sum + item.count, 0);
 
   return <main aria-label={tr('مساحة العمل اليومية', 'Daily workspace')} className="mx-auto w-full min-w-0 max-w-[1380px] space-y-4 pb-10 sm:space-y-5">
-    <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm sm:p-6">
-      <div className="min-w-0">
-        <p className="text-[11px] font-bold text-teal-700">{role ? ar ? role.ar : role.en : tr('لوحة العمل', 'Workspace')}</p>
-        <h1 className="mt-1 break-words text-xl font-black text-slate-950 sm:text-2xl">{tr('مرحباً،', 'Welcome,')} {dashboard.profile.name}</h1>
-        <p className="mt-1 text-xs text-slate-500">{localizedDate(dashboard.generated_at, locale, true)}{dashboard.profile.assigned_levels.length > 0 ? ` · ${dashboard.profile.assigned_levels.join('، ')}` : ''}</p>
+    <header className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-5 text-white shadow-lg shadow-slate-900/10 sm:p-8">
+      <div aria-hidden="true" className="pointer-events-none absolute -end-12 -top-20 h-56 w-56 rounded-full border border-white/10 bg-white/5" />
+      <div aria-hidden="true" className="pointer-events-none absolute -bottom-32 end-28 h-56 w-56 rounded-full border border-teal-300/10" />
+      <div className="relative flex flex-wrap items-start justify-between gap-5">
+        <div className="min-w-0">
+          <span className="inline-flex rounded-full border border-teal-200/20 bg-white/10 px-3 py-1 text-[11px] font-bold text-teal-100">{role ? ar ? role.ar : role.en : tr('لوحة العمل', 'Workspace')}</span>
+          <h1 className="mt-4 break-words text-2xl font-black tracking-tight sm:text-3xl">{tr('مرحباً،', 'Welcome,')} {dashboard.profile.name}</h1>
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-300">
+            <time>{localizedDate(dashboard.generated_at, locale, true)}</time>
+            {dashboard.profile.assigned_levels.length > 0 && <span>{tr('دفعاتك:', 'Cohorts:')} {dashboard.profile.assigned_levels.join('، ')}</span>}
+          </div>
+        </div>
+        <button type="button" onClick={() => dashboardQuery.refetch()} disabled={dashboardQuery.isFetching} aria-label={tr('تحديث البيانات', 'Refresh dashboard')} className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-bold text-white transition hover:bg-white/20 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${dashboardQuery.isFetching ? 'animate-spin' : ''}`} />{tr('تحديث', 'Refresh')}</button>
       </div>
-      <button type="button" onClick={() => dashboardQuery.refetch()} disabled={dashboardQuery.isFetching} aria-label={tr('تحديث البيانات', 'Refresh dashboard')} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 text-teal-800 hover:bg-teal-50 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${dashboardQuery.isFetching ? 'animate-spin' : ''}`} /></button>
     </header>
 
-    {topMetrics.length > 0 && <section aria-label={tr('المؤشرات الأساسية', 'Key metrics')} className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
-      {topMetrics.map((metric) => <Link key={metric.key} to={metric.route} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-teal-300 sm:p-4">
-        <strong className="block text-xl font-black tabular-nums text-slate-900 sm:text-2xl">{formatNumber(metric.value, locale)}<small className="ms-1 text-xs text-teal-700">{metric.unit}</small></strong>
-        <span className="mt-1 block text-[11px] leading-5 text-slate-500">{ar ? metric.label_ar : metric.label_en}</span>
-      </Link>)}
-    </section>}
+    <section aria-label={tr('الرسوم البيانية', 'Dashboard charts')} className="space-y-3">
+      <div><h2 className="text-base font-black text-slate-900">{tr('المؤشرات البيانية', 'Visual indicators')}</h2><p className="mt-1 text-[11px] text-slate-500">{tr('اختر المجال لعرض تفاصيله.', 'Choose an area to view its details.')}</p></div>
+      {availableGroups.length > 0 ? <>
+        <div role="tablist" aria-label={tr('مجالات الرسوم', 'Chart areas')} className="flex gap-2 overflow-x-auto pb-1">
+          {availableGroups.map((group) => <button key={group.key} type="button" role="tab" aria-selected={currentGroup?.key === group.key} onClick={() => setActiveGroup(group.key)} className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition ${currentGroup?.key === group.key ? 'bg-teal-700 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:border-teal-200'}`}>{ar ? group.ar : group.en}</button>)}
+        </div>
+        <div role="tabpanel" aria-label={currentGroup ? ar ? currentGroup.ar : currentGroup.en : undefined} className="grid gap-3 lg:grid-cols-2">{displayedCharts.map((chart) => <DashboardChart key={chart.key} chart={chart} locale={locale} />)}</div>
+      </> : <p className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">{tr('لا تتوفر بيانات بيانية ضمن نطاقك بعد.', 'No chart data is available in your scope yet.')}</p>}
+    </section>
 
-    {dashboard.attention.length > 0 && <section aria-label={tr('ما يحتاج متابعتك', 'Needs your attention')} className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="mb-3 flex items-center justify-between gap-2"><h2 className="text-sm font-black text-slate-900">{tr('ما يحتاج متابعتك', 'Needs your attention')}</h2><span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-black text-amber-800">{formatNumber(attentionCount, locale)}</span></div>
-      <div className="grid gap-2 sm:grid-cols-2">{dashboard.attention.slice(0, 6).map((item) => <Link key={item.key} to={item.route} className="flex min-w-0 items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs hover:bg-teal-50"><span className={`grid h-7 min-w-7 place-items-center rounded-lg px-1.5 font-black ${item.severity === 'urgent' ? 'bg-red-100 text-red-700' : item.severity === 'review' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-700'}`}>{formatNumber(item.count, locale)}</span><span className="min-w-0 flex-1 font-bold text-slate-700">{ar ? item.label_ar : item.label_en}</span></Link>)}</div>
-    </section>}
-
-    {availableGroups.length > 0 && <section aria-label={tr('الرسوم البيانية', 'Dashboard charts')} className="space-y-3">
-      <div className="flex flex-wrap items-end justify-between gap-2"><div><h2 className="text-base font-black text-slate-900">{tr('المؤشرات البيانية', 'Visual indicators')}</h2><p className="mt-1 text-[11px] text-slate-500">{tr('بيانات فعلية ضمن صلاحياتك؛ اختر المجال لعرض تفاصيله.', 'Real data within your access; select an area for details.')}</p></div></div>
-      <div role="tablist" aria-label={tr('مجالات الرسوم', 'Chart areas')} className="flex gap-2 overflow-x-auto pb-1">
-        {availableGroups.map((group) => <button key={group.key} type="button" role="tab" aria-selected={currentGroup?.key === group.key} onClick={() => setActiveGroup(group.key)} className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition ${currentGroup?.key === group.key ? 'bg-teal-700 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:border-teal-200'}`}>{ar ? group.ar : group.en}</button>)}
-      </div>
-      <div role="tabpanel" aria-label={currentGroup ? ar ? currentGroup.ar : currentGroup.en : undefined} className="grid gap-3 lg:grid-cols-2">{displayedCharts.map((chart) => <DashboardChart key={chart.key} chart={chart} locale={locale} />)}</div>
-    </section>}
-
-    {dashboard.activity.length > 0 && <section aria-label={tr('آخر التحديثات', 'Recent updates')} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-black text-slate-900"><Clock3 className="h-4 w-4 text-teal-700" />{tr('آخر التحديثات', 'Recent updates')}</h2>
-      <div className="grid gap-1 sm:grid-cols-2">{dashboard.activity.slice(0, 4).map((item) => <Link key={item.key} to={item.route} className="flex min-w-0 items-center gap-2 rounded-xl px-2 py-2.5 hover:bg-slate-50">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-teal-50 text-teal-700">{item.type === 'correspondence' ? <Mail className="h-4 w-4" /> : item.type === 'task' ? <CheckCircle2 className="h-4 w-4" /> : <Activity className="h-4 w-4" />}</span>
-        <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-slate-800">{item.title}</span><span className="block truncate text-[10px] text-slate-500">{ar ? item.subtitle_ar : item.subtitle_en}</span></span>
-        <time className="shrink-0 text-[10px] text-slate-400">{localizedDate(item.at, locale)}</time>
-      </Link>)}</div>
-    </section>}
-    {topMetrics.length === 0 && availableGroups.length === 0 && dashboard.attention.length === 0 && dashboard.activity.length === 0 && <p className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">{tr('لا تتوفر بيانات تشغيلية ضمن نطاقك بعد.', 'No operational data is available in your scope yet.')}</p>}
+    <div className="grid gap-4 pt-1 lg:grid-cols-2">
+      <section aria-label={tr('ما يحتاج متابعتك', 'Needs your attention')} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="mb-3 flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-50 text-amber-700"><CheckCircle2 className="h-4 w-4" /></span><h2 className="text-sm font-black text-slate-900">{tr('ما يحتاج متابعتك', 'Needs your attention')}</h2></div>
+        {dashboard.attention.length > 0 ? <div className="divide-y divide-slate-100">{dashboard.attention.slice(0, 4).map((item) => <Link key={item.key} to={item.route} className="flex min-w-0 items-center gap-3 py-3 text-xs transition hover:text-teal-800"><span className={`grid h-7 min-w-7 place-items-center rounded-lg px-1.5 font-black ${item.severity === 'urgent' ? 'bg-red-100 text-red-700' : item.severity === 'review' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-700'}`}>{formatNumber(item.count, locale)}</span><span className="min-w-0 flex-1 font-bold text-slate-700">{ar ? item.label_ar : item.label_en}</span></Link>)}</div>
+          : <p className="rounded-xl bg-emerald-50 px-3 py-4 text-xs font-medium text-emerald-800">{tr('لا توجد أعمال معلقة ضمن نطاقك الآن.', 'Nothing in your scope needs action right now.')}</p>}
+      </section>
+      <section aria-label={tr('آخر التحديثات', 'Recent updates')} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <h2 className="mb-3 flex items-center gap-2 text-sm font-black text-slate-900"><span className="grid h-8 w-8 place-items-center rounded-lg bg-teal-50 text-teal-700"><Clock3 className="h-4 w-4" /></span>{tr('آخر التحديثات', 'Recent updates')}</h2>
+        {dashboard.activity.length > 0 ? <div className="divide-y divide-slate-100">{dashboard.activity.slice(0, 4).map((item) => <Link key={item.key} to={item.route} className="flex min-w-0 items-center gap-2 py-2.5 hover:bg-slate-50">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-teal-50 text-teal-700">{item.type === 'correspondence' ? <Mail className="h-4 w-4" /> : item.type === 'task' ? <CheckCircle2 className="h-4 w-4" /> : <Activity className="h-4 w-4" />}</span>
+          <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-slate-800">{item.title}</span><span className="block truncate text-[10px] text-slate-500">{ar ? item.subtitle_ar : item.subtitle_en}</span></span>
+          <time className="shrink-0 text-[10px] text-slate-400">{localizedDate(item.at, locale)}</time>
+        </Link>)}</div> : <p className="rounded-xl bg-slate-50 px-3 py-4 text-xs font-medium text-slate-500">{tr('لا توجد تحديثات حديثة ضمن نطاقك.', 'There are no recent updates in your scope.')}</p>}
+      </section>
+    </div>
   </main>;
 }
