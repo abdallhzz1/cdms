@@ -97,6 +97,29 @@ describe('student directory email action', () => {
     expect(fetchSpy.mock.calls.some(([input]) => String(input).includes('academic_level=all'))).toBe(true);
   });
 
+  it('keeps a large cohort entirely in Gmail Bcc instead of opening an empty draft', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    const emails = Array.from({ length: 350 }, (_, index) => 'student' + String(index + 1).padStart(4, '0') + '@students.hebron.edu');
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return envelope({ id: 4, roles: ['SYS_ADMIN'], assigned_levels: [], permissions: [{ code: 'students.view', scope: 'global' }] });
+      if (url.includes('/students/main-groups')) return envelope([]);
+      if (url.includes('/students/email-recipients?')) return envelope({ total_students: emails.length, recipient_count: emails.length, missing_email_count: 0, duplicate_email_count: 0, emails });
+      if (url.includes('/students?')) return envelope([]);
+      throw new Error('Unmocked request: ' + url);
+    });
+
+    renderWithProviders(<DirectoryPage kind="students" />, { route: '/directory' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Email students' }));
+    const dialog = screen.getByRole('dialog', { name: 'Email students' });
+    await userEvent.selectOptions(within(dialog).getByLabelText('Recipient cohort'), 'all');
+    expect(await within(dialog).findByText('350 email recipients')).toBeVisible();
+    const href = within(dialog).getByRole('link', { name: 'Open Gmail' }).getAttribute('href') || '';
+    expect(href.length).toBeGreaterThan(4000);
+    expect(new URL(href).searchParams.get('bcc')?.split(',')).toEqual(emails);
+    expect(within(dialog).queryByRole('button', { name: 'Copy addresses' })).not.toBeInTheDocument();
+  });
+
   it('keeps individually selected students across cohorts and excludes missing addresses', async () => {
     localStorage.setItem('cdms.locale', 'en');
     vi.spyOn(window, 'fetch').mockImplementation(async input => {

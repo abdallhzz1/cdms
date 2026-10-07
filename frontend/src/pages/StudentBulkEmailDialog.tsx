@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Mail, Search, UsersRound, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, ExternalLink, Mail, Search, UsersRound, X } from 'lucide-react';
 import { apiFetch, apiFetchEnvelope } from '@/api/client';
 import { useI18n } from '@/i18n/I18nContext';
-import { GMAIL_COMPOSE_URL_LIMIT, gmailComposeUrl } from './studentEmail';
+import { gmailComposeUrl } from './studentEmail';
 
 type Cohort = { value: string; label_ar: string; label_en: string };
 type Recipients = {
@@ -42,8 +42,6 @@ export function StudentBulkEmailDialog({ cohorts, initialLevel, onClose }: { coh
   const [searchLevel, setSearchLevel] = useState('');
   const [searchPage, setSearchPage] = useState(1);
   const [selected, setSelected] = useState<StudentChoice[]>([]);
-  const [copied, setCopied] = useState(false);
-  const [copyFailed, setCopyFailed] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { setSearch(searchInput.trim()); setSearchPage(1); }, 250);
@@ -76,7 +74,6 @@ export function StudentBulkEmailDialog({ cohorts, initialLevel, onClose }: { coh
   const uniqueSelectedEmails = [...new Set(selected.map(validEmail).filter((email): email is string => Boolean(email)))];
   const emails = mode === 'cohort' ? recipientsQuery.data?.emails || [] : uniqueSelectedEmails;
   const gmailUrl = gmailComposeUrl({ bcc: emails });
-  const needsCopy = gmailUrl.length > GMAIL_COMPOSE_URL_LIMIT;
   const lastPage = Number(studentsQuery.data?.meta.last_page || 1);
   const studentName = (student: StudentChoice) => (ar ? student.full_name_ar : student.full_name_en || student.full_name_ar);
   const cohortLabel = (value: string) => {
@@ -88,18 +85,6 @@ export function StudentBulkEmailDialog({ cohorts, initialLevel, onClose }: { coh
     setSelected(current => current.some(item => item.id === student.id)
       ? current.filter(item => item.id !== student.id)
       : [...current, student]);
-    setCopied(false);
-  };
-  const copyRecipients = async () => {
-    if (!emails.length) return;
-    try {
-      await navigator.clipboard.writeText(emails.join(', '));
-      setCopied(true);
-      setCopyFailed(false);
-    } catch {
-      setCopied(false);
-      setCopyFailed(true);
-    }
   };
 
   return <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
@@ -110,8 +95,8 @@ export function StudentBulkEmailDialog({ cohorts, initialLevel, onClose }: { coh
           <button type="button" onClick={onClose} aria-label={tr('إغلاق', 'Close')} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
         </div>
         <div role="tablist" aria-label={tr('طريقة اختيار المستلمين', 'Recipient selection method')} className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
-          <button type="button" role="tab" aria-selected={mode === 'cohort'} onClick={() => { setMode('cohort'); setCopied(false); }} className={'min-h-10 rounded-lg px-2 text-xs font-black transition ' + (mode === 'cohort' ? 'bg-white text-teal-900 shadow-sm' : 'text-slate-500')}>{tr('دفعة أو كل الدفعات', 'Cohorts')}</button>
-          <button type="button" role="tab" aria-selected={mode === 'students'} onClick={() => { setMode('students'); setCopied(false); }} className={'min-h-10 rounded-lg px-2 text-xs font-black transition ' + (mode === 'students' ? 'bg-white text-teal-900 shadow-sm' : 'text-slate-500')}>{tr('طلاب محددون', 'Specific students')}</button>
+          <button type="button" role="tab" aria-selected={mode === 'cohort'} onClick={() => setMode('cohort')} className={'min-h-10 rounded-lg px-2 text-xs font-black transition ' + (mode === 'cohort' ? 'bg-white text-teal-900 shadow-sm' : 'text-slate-500')}>{tr('دفعة أو كل الدفعات', 'Cohorts')}</button>
+          <button type="button" role="tab" aria-selected={mode === 'students'} onClick={() => setMode('students')} className={'min-h-10 rounded-lg px-2 text-xs font-black transition ' + (mode === 'students' ? 'bg-white text-teal-900 shadow-sm' : 'text-slate-500')}>{tr('طلاب محددون', 'Specific students')}</button>
         </div>
       </header>
 
@@ -119,14 +104,14 @@ export function StudentBulkEmailDialog({ cohorts, initialLevel, onClose }: { coh
         {mode === 'cohort' ? <>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-bold text-slate-700">{tr('المستلمون', 'Recipients')}
-              <select value={level} onChange={event => { setLevel(event.target.value); setGroup(''); setCopied(false); }} aria-label={tr('دفعة المستلمين', 'Recipient cohort')} className={'mt-1.5 ' + selectClass}>
+              <select value={level} onChange={event => { setLevel(event.target.value); setGroup(''); }} aria-label={tr('دفعة المستلمين', 'Recipient cohort')} className={'mt-1.5 ' + selectClass}>
                 <option value="">{tr('اختر الدفعة', 'Choose cohort')}</option>
                 {cohorts.length > 1 && <option value="all">{tr('جميع الدفعات المتاحة', 'All available cohorts')}</option>}
                 {cohorts.map(cohort => <option key={cohort.value} value={cohort.value}>{ar ? cohort.label_ar : cohort.label_en}</option>)}
               </select>
             </label>
             <label className="text-xs font-bold text-slate-700">{tr('المجموعة الرئيسية (اختياري)', 'Main group (optional)')}
-              <select value={group} disabled={!level || level === 'all' || groupsQuery.isLoading} onChange={event => { setGroup(event.target.value); setCopied(false); }} aria-label={tr('مجموعة المستلمين', 'Recipient group')} className={'mt-1.5 ' + selectClass}>
+              <select value={group} disabled={!level || level === 'all' || groupsQuery.isLoading} onChange={event => setGroup(event.target.value)} aria-label={tr('مجموعة المستلمين', 'Recipient group')} className={'mt-1.5 ' + selectClass}>
                 <option value="">{level === 'all' ? tr('كل المجموعات في كل الدفعات', 'All groups in all cohorts') : tr('كل طلاب الدفعة', 'Entire cohort')}</option>
                 {groupsQuery.data?.map(name => <option key={name} value={name}>{name}</option>)}
               </select>
@@ -156,13 +141,12 @@ export function StudentBulkEmailDialog({ cohorts, initialLevel, onClose }: { coh
             })}
           </div>
           {studentsQuery.isSuccess && lastPage > 1 && <div className="flex items-center justify-center gap-3"><button type="button" disabled={searchPage <= 1} onClick={() => setSearchPage(page => page - 1)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-bold disabled:opacity-40"><ChevronRight className="h-3.5 w-3.5" />{tr('السابق', 'Previous')}</button><span className="text-xs text-slate-500">{searchPage} / {lastPage}</span><button type="button" disabled={searchPage >= lastPage} onClick={() => setSearchPage(page => page + 1)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-bold disabled:opacity-40">{tr('التالي', 'Next')}<ChevronLeft className="h-3.5 w-3.5" /></button></div>}
-          {selected.length > 0 && <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-3"><div className="flex items-center justify-between gap-2"><h4 className="flex items-center gap-1.5 text-xs font-black text-teal-950"><UsersRound className="h-4 w-4" />{tr('الطلاب المحددون', 'Selected students')} · {selected.length}</h4><button type="button" onClick={() => { setSelected([]); setCopied(false); }} className="text-[11px] font-bold text-teal-800 underline">{tr('مسح الاختيار', 'Clear selection')}</button></div><div className="mt-2 max-h-28 space-y-1 overflow-y-auto">{selected.map(student => <div key={student.id} className="flex items-center justify-between gap-2 rounded-lg bg-white px-2.5 py-1.5 text-xs"><span className="min-w-0 truncate font-semibold">{studentName(student)} · {cohortLabel(student.academic_level)}</span><button type="button" onClick={() => toggleStudent(student)} aria-label={tr('إزالة الطالب ', 'Remove student ') + studentName(student)} className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-500 hover:bg-rose-50 hover:text-rose-700"><X className="h-3.5 w-3.5" /></button></div>)}</div><p className="mt-2 text-[11px] text-teal-800">{emails.length} {tr('عنوانًا فريدًا في الرسالة', 'unique addresses in the draft')}</p></div>}
+          {selected.length > 0 && <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-3"><div className="flex items-center justify-between gap-2"><h4 className="flex items-center gap-1.5 text-xs font-black text-teal-950"><UsersRound className="h-4 w-4" />{tr('الطلاب المحددون', 'Selected students')} · {selected.length}</h4><button type="button" onClick={() => setSelected([])} className="text-[11px] font-bold text-teal-800 underline">{tr('مسح الاختيار', 'Clear selection')}</button></div><div className="mt-2 max-h-28 space-y-1 overflow-y-auto">{selected.map(student => <div key={student.id} className="flex items-center justify-between gap-2 rounded-lg bg-white px-2.5 py-1.5 text-xs"><span className="min-w-0 truncate font-semibold">{studentName(student)} · {cohortLabel(student.academic_level)}</span><button type="button" onClick={() => toggleStudent(student)} aria-label={tr('إزالة الطالب ', 'Remove student ') + studentName(student)} className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-500 hover:bg-rose-50 hover:text-rose-700"><X className="h-3.5 w-3.5" /></button></div>)}</div><p className="mt-2 text-[11px] text-teal-800">{emails.length} {tr('عنوانًا فريدًا في الرسالة', 'unique addresses in the draft')}</p></div>}
         </>}
 
-        {emails.length > 0 && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs leading-6 text-slate-600"><Check className="me-1 inline h-3.5 w-3.5 text-teal-700" />{tr('ستُفتح مسودة Gmail واحدة، وتُوضع العناوين في BCC لحفظ خصوصية الطلاب. راجع المستلمين قبل الإرسال؛ النظام لا يرسل تلقائيًا.', 'One Gmail draft opens with recipients in Bcc for privacy. Review them before sending; this system does not send automatically.')}</div>}
-        {needsCopy && emails.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-bold leading-5 text-amber-900">{tr('عدد العناوين أكبر من سعة الرابط. انسخها وألصقها في خانة BCC داخل مسودة Gmail الواحدة.', 'The addresses exceed the link size. Copy them into Bcc in the single Gmail draft.')}</p><textarea readOnly aria-label={tr('عناوين الطلاب للنسخ', 'Student addresses to copy')} value={emails.join(', ')} className="mt-2 h-20 w-full resize-none rounded-lg border border-amber-200 bg-white p-2 text-xs" dir="ltr" /><button type="button" onClick={copyRecipients} className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-amber-900"><Copy className="h-4 w-4" />{copied ? tr('تم النسخ', 'Copied') : tr('نسخ العناوين', 'Copy addresses')}</button>{copyFailed && <p role="alert" className="mt-2 text-xs text-rose-700">{tr('تعذر النسخ التلقائي. حدد العناوين من المربع وانسخها يدويًا.', 'Clipboard access failed. Select and copy the addresses manually.')}</p>}</div>}
+        {emails.length > 0 && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs leading-6 text-slate-600"><Check className="me-1 inline h-3.5 w-3.5 text-teal-700" />{tr('ستُفتح مسودة Gmail واحدة وعناوين الطلاب في BCC. قبل الإرسال، تأكد داخل Gmail من ظهور جميع المستلمين وعددهم ', 'One Gmail draft opens with the students in Bcc. Before sending, confirm Gmail shows all ')}<strong className="text-slate-900">{emails.length}</strong>{tr('؛ النظام لا يرسل الرسالة تلقائيًا.', ' recipients; this system does not send automatically.')}</div>}
       </div>
-      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-100 bg-white px-4 py-3 sm:px-6"><span className="text-[11px] font-bold text-slate-500">{emails.length} {tr('مستلم', 'recipients')}</span><div className="flex items-center gap-2"><button type="button" onClick={onClose} className="min-h-10 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-700">{tr('إلغاء', 'Cancel')}</button>{emails.length > 0 && <a href={needsCopy ? gmailComposeUrl() : gmailUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-teal-700 px-3 text-xs font-bold text-white hover:bg-teal-800"><ExternalLink className="h-4 w-4" />{tr('فتح Gmail', 'Open Gmail')}</a>}</div></footer>
+      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-100 bg-white px-4 py-3 sm:px-6"><span className="text-[11px] font-bold text-slate-500">{emails.length} {tr('مستلم', 'recipients')}</span><div className="flex items-center gap-2"><button type="button" onClick={onClose} className="min-h-10 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-700">{tr('إلغاء', 'Cancel')}</button>{emails.length > 0 && <a href={gmailUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-teal-700 px-3 text-xs font-bold text-white hover:bg-teal-800"><ExternalLink className="h-4 w-4" />{tr('فتح Gmail', 'Open Gmail')}</a>}</div></footer>
     </section>
   </div>;
 }
