@@ -38,6 +38,10 @@ class QualityWorkflowTest extends TestCase
         $this->postJson("/api/v1/quality-improvement-plans/{$plan['id']}/transition", [
             'status' => 'closed', 'closure_evidence' => 'محضر لجنة الجودة رقم 4', 'verification_result' => 'تحسن المؤشر إلى 85%',
         ])->assertOk()->assertJsonPath('data.status', 'closed');
+        $this->putJson("/api/v1/quality-improvement-plans/{$plan['id']}", [
+            'source' => 'نتائج استبيان', 'observation' => 'تعديل لاحق', 'improvement_action' => 'إجراء جديد',
+            'responsible' => 'منسق الجودة', 'due_date' => now()->addMonth()->toDateString(), 'priority' => 'high',
+        ])->assertStatus(409);
     }
 
     public function test_kpi_measurement_appears_in_quality_overview(): void
@@ -60,6 +64,9 @@ class QualityWorkflowTest extends TestCase
             ->assertJsonPath('data.counts.kpis', 1)
             ->assertJsonPath('data.counts.kpis_achieved', 1)
             ->assertJsonPath('data.recent_kpis.0.latest_measurement.display_value', '84%');
+        $this->getJson('/api/v1/quality-kpis?search='.urlencode('رضا'))->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.code', 'KPI-QA-01');
     }
 
     public function test_quality_findings_and_evidence_are_operational_records(): void
@@ -78,6 +85,24 @@ class QualityWorkflowTest extends TestCase
         $this->getJson('/api/v1/quality-operations')->assertOk()
             ->assertJsonPath('data.findings.0.reference', $finding['reference'])
             ->assertJsonPath('data.evidence.0.code', 'EVD-001');
+    }
+
+    public function test_finding_can_be_linked_to_one_improvement_plan(): void
+    {
+        $finding = $this->actingAs($this->user)->postJson('/api/v1/quality-findings', [
+            'source' => 'تدقيق داخلي', 'title' => 'فجوة توثيق', 'description' => 'الدليل ناقص', 'severity' => 'high',
+        ])->assertCreated()->json('data');
+        $payload = [
+            'source' => 'ملاحظة داخلية', 'observation' => 'فجوة توثيق', 'improvement_action' => 'استكمال الدليل',
+            'responsible' => 'منسق الجودة', 'due_date' => now()->addWeek()->toDateString(), 'priority' => 'high',
+            'quality_finding_id' => $finding['id'],
+        ];
+        $plan = $this->postJson('/api/v1/quality-improvement-plans', $payload)->assertCreated()->json('data');
+        $this->assertDatabaseHas('quality_findings', [
+            'id' => $finding['id'], 'quality_improvement_plan_id' => $plan['id'], 'status' => 'linked_to_plan',
+        ]);
+        $this->postJson('/api/v1/quality-improvement-plans', $payload)->assertUnprocessable();
+        $this->assertDatabaseCount('quality_improvement_plans', 1);
     }
 
     public function test_published_survey_accepts_one_grouped_public_submission(): void
@@ -104,5 +129,52 @@ class QualityWorkflowTest extends TestCase
         $this->assertDatabaseCount('quality_survey_responses', 2);
         $this->assertDatabaseHas('quality_survey_responses', ['submission_id' => $submission, 'numeric_answer' => 5]);
         $this->assertDatabaseHas('quality_survey_responses', ['submission_id' => $submission, 'text_answer' => 'تجربة ممتازة']);
+        $this->getJson('/api/v1/quality-surveys')->assertOk()
+            ->assertJsonPath('data.0.responses_count', 2)
+            ->assertJsonPath('data.0.submissions_count', 1);
+    }
+
+    public function test_public_survey_rejects_invalid_or_duplicate_answers_without_saving_a_submission(): void
+    {
+        $survey = $this->actingAs($this->user)->postJson('/api/v1/quality-surveys', [
+            'title' => 'فحص سلامة الردود', 'target_group' => 'الطلبة', 'is_anonymous' => true,
+        ])->assertCreated()->json('data');
+        $rating = $this->postJson("/api/v1/quality-surveys/{$survey['id']}/questions", [
+            'question_text' => 'التقييم', 'question_type' => 'rating', 'is_required' => true,
+        ])->assertCreated()->json('data');
+        $this->postJson("/api/v1/quality-surveys/{$survey['id']}/transition", ['status' => 'open'])->assertOk();
+        $url = "/api/v1/public/quality-surveys/{$survey['public_id']}/submit";
+
+        $this->postJson($url, ['answers' => [['question_id' => $rating['id'], 'value' => 9]]])->assertUnprocessable();
+        $this->postJson($url, ['answers' => [
+            ['question_id' => $rating['id'], 'value' => 4], ['question_id' => $rating['id'], 'value' => 5],
+        ]])->assertUnprocessable();
+        $this->postJson($url, ['answers' => [['question_id' => $rating['id'] + 999, 'value' => 4]]])->assertUnprocessable();
+        $this->assertDatabaseCount('quality_survey_submissions', 0);
+        $this->assertDatabaseCount('quality_survey_responses', 0);
+    }
+
+    public function test_answered_question_is_immutable_and_survey_search_finds_its_title(): void
+    {
+        $survey = $this->actingAs($this->user)->postJson('/api/v1/quality-surveys', [
+            'title' => 'استبيان الرضا السريري', 'target_group' => 'الطلبة',
+        ])->assertCreated()->json('data');
+        $question = $this->postJson("/api/v1/quality-surveys/{$survey['id']}/questions", [
+            'question_text' => 'ما رأيك؟', 'question_type' => 'rating', 'is_required' => true,
+        ])->assertCreated()->json('data');
+        $this->postJson("/api/v1/quality-surveys/{$survey['id']}/transition", ['status' => 'open'])->assertOk();
+        $this->postJson("/api/v1/public/quality-surveys/{$survey['public_id']}/submit", [
+            'answers' => [['question_id' => $question['id'], 'value' => 5]],
+        ])->assertCreated();
+
+        $this->putJson("/api/v1/quality-surveys/{$survey['id']}/questions/{$question['id']}", [
+            'question_text' => 'سؤال مختلف', 'question_type' => 'rating', 'is_required' => true,
+        ])->assertStatus(409);
+        $this->postJson("/api/v1/quality-surveys/{$survey['id']}/questions", [
+            'question_text' => 'سؤال جديد', 'question_type' => 'rating', 'is_required' => false,
+        ])->assertStatus(409);
+        $this->getJson('/api/v1/quality-surveys?search='.urlencode('الرضا'))->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.title', 'استبيان الرضا السريري');
     }
 }

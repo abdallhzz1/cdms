@@ -40,9 +40,10 @@ class QualityImprovementController extends Controller
                 'plans_overdue' => (clone $plans)->whereIn('status', $open)->whereDate('due_date', '<', today())->count(),
                 'plans_closed' => (clone $plans)->where('status', 'closed')->count(),
                 'findings_open' => QualityFinding::where('status', '!=', 'closed')->when($year, fn ($q) => $q->where('academic_year', $year))->count(),
+                'evidence_expired' => QualityEvidence::where('status', 'approved')->whereDate('expires_at', '<', today())->count(),
                 'evidence_expiring' => QualityEvidence::where('status', 'approved')->whereBetween('expires_at', [today(), today()->addDays(60)])->count(),
             ],
-            'recent_surveys' => (clone $surveys)->withCount(['questions', 'responses'])->latest('updated_at')->limit(5)->get(),
+            'recent_surveys' => (clone $surveys)->withCount(['questions', 'submissions'])->latest('updated_at')->limit(5)->get(),
             'recent_plans' => (clone $plans)->with('owner:id,name')->latest('updated_at')->limit(6)->get(),
             'recent_kpis' => QualityKpi::with('latestMeasurement')->orderBy('code')->limit(6)->get(),
             'attention' => [
@@ -59,6 +60,7 @@ class QualityImprovementController extends Controller
             'owners' => User::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'email']),
             'kpis' => QualityKpi::where('is_active', true)->orderBy('code')->get(['id', 'code', 'name']),
             'surveys' => QualitySurvey::orderBy('code')->get(['id', 'code', 'title']),
+            'findings' => QualityFinding::where('status', '!=', 'closed')->whereNull('quality_improvement_plan_id')->orderByDesc('created_at')->get(['id', 'reference', 'title', 'description']),
         ]);
     }
 
@@ -79,12 +81,24 @@ class QualityImprovementController extends Controller
 
     public function storePlan(Request $request): JsonResponse
     {
-        $data = $this->validatePlan($request); $data['status'] = 'open'; $data['created_by'] = $request->user()?->id;
-        return ApiResponse::success(QualityImprovementPlan::create($data), 'تم إنشاء خطة التحسين.', [], 201);
+        $data = $this->validatePlan($request);
+        $findingId = $request->validate(['quality_finding_id' => ['nullable', 'integer', 'exists:quality_findings,id']])['quality_finding_id'] ?? null;
+        $data['status'] = 'open';
+        $data['created_by'] = $request->user()?->id;
+        return DB::transaction(function () use ($data, $findingId) {
+            $finding = $findingId ? QualityFinding::whereKey($findingId)->lockForUpdate()->firstOrFail() : null;
+            if ($finding && ($finding->status === 'closed' || $finding->quality_improvement_plan_id !== null)) {
+                throw ValidationException::withMessages(['quality_finding_id' => ['هذه الملاحظة مغلقة أو مرتبطة بخطة تحسين بالفعل.']]);
+            }
+            $plan = QualityImprovementPlan::create($data);
+            $finding?->update(['quality_improvement_plan_id' => $plan->id, 'status' => 'linked_to_plan']);
+            return ApiResponse::success($plan, 'تم إنشاء خطة التحسين.', [], 201);
+        });
     }
 
     public function updatePlan(Request $request, QualityImprovementPlan $plan): JsonResponse
     {
+        abort_if($plan->status === 'closed', 409, 'Closed plans must be reopened before editing.');
         $plan->update($this->validatePlan($request));
         return ApiResponse::success($plan->fresh(), 'تم تحديث خطة التحسين.');
     }
@@ -94,6 +108,10 @@ class QualityImprovementController extends Controller
         $items = QualityKpi::with(['latestMeasurement', 'measurements' => fn ($q) => $q->limit(8)])
             ->when($request->filled('category'), fn ($q) => $q->where('category', $request->string('category')))
             ->when($request->filled('active'), fn ($q) => $q->where('is_active', $request->boolean('active')))
+            ->when($request->filled('search'), fn ($q) => $q->where(fn ($inner) => $inner
+                ->where('name', 'like', '%'.$request->string('search').'%')
+                ->orWhere('code', 'like', '%'.$request->string('search').'%')
+                ->orWhere('category', 'like', '%'.$request->string('search').'%')))
             ->orderBy('code')->paginate(min(100, max(1, $request->integer('per_page', 25))));
         return ApiResponse::success($items->items(), null, ['total' => $items->total()]);
     }
