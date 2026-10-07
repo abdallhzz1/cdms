@@ -349,36 +349,33 @@ class BasicLectureAttendanceTest extends TestCase
     public function test_monthly_summary_and_manual_absence_warnings_use_finalized_lectures_only(): void
     {
         $path = '/api/v1/basic-attendance/sections/'.$this->section;
-        for ($n = 0; $n < 3; $n++) {
-            $session = $this->start('single');
-            $this->transition($session, 'finalize');
-        }
         $student = $this->students[0];
         $warning = $path.'/students/'.$student.'/absence-warning';
-        $this->actingAs($this->lecturer)->postJson($warning, ['threshold' => 4])->assertUnprocessable();
-        $summary = $this->getJson($path.'/monthly-summary?month=2026-09')->assertOk();
-        $this->assertSame(3, $summary->json('data.finalized_sessions'));
-        $this->assertSame(3, $summary->json('data.students.0.total_absent'));
-        $this->assertSame(3, $summary->json('data.students.0.absent'));
+        $session = $this->start('single');
+        $this->transition($session, 'finalize');
+        $this->actingAs($this->lecturer)->postJson($warning, ['threshold' => 2])->assertUnprocessable();
+        $this->postJson($warning, ['threshold' => 4])->assertUnprocessable();
 
         $session = $this->start('single');
         $this->transition($session, 'finalize');
+        $summary = $this->getJson($path.'/monthly-summary?month=2026-09')->assertOk();
+        $this->assertSame(2, $summary->json('data.finalized_sessions'));
+        $this->assertSame(2, $summary->json('data.students.0.total_absent'));
         $sent = [];
         Mail::shouldReceive('raw')->twice()->andReturnUsing(function ($body) use (&$sent) { $sent[] = $body; });
-        $this->actingAs($this->other)->postJson($warning, ['threshold' => 4])->assertNotFound();
-        $this->actingAs($this->lecturer)->postJson($warning, ['threshold' => 4])->assertOk();
-        $this->postJson($warning, ['threshold' => 4])->assertUnprocessable();
-        $this->assertDatabaseHas('basic_absence_notifications', ['section_id' => $this->section, 'student_id' => $student, 'threshold' => 4, 'absence_count' => 4]);
+        $this->actingAs($this->other)->postJson($warning, ['threshold' => 2])->assertNotFound();
+        $this->actingAs($this->lecturer)->postJson($warning, ['threshold' => 2])->assertOk();
+        $this->postJson($warning, ['threshold' => 2])->assertUnprocessable();
+        $this->assertDatabaseHas('basic_absence_notifications', ['section_id' => $this->section, 'student_id' => $student, 'threshold' => 2, 'absence_count' => 2]);
 
-        for ($n = 0; $n < 2; $n++) {
-            $session = $this->start('single');
-            $this->transition($session, 'finalize');
-        }
-        $this->actingAs($this->manager)->postJson($warning, ['threshold' => 6])->assertOk();
+        $session = $this->start('single');
+        $this->transition($session, 'finalize');
+        $this->actingAs($this->manager)->postJson($warning, ['threshold' => 3])->assertOk();
         $this->assertCount(2, $sent);
-        $this->assertStringContainsString('4', $sent[0]);
-        $this->assertStringContainsString('6', $sent[1]);
-        $this->getJson($path.'/monthly-summary?month=2026-09')->assertJsonPath('data.students.0.total_absent', 6)->assertJsonPath('data.students.0.notifications.6', now()->toDateTimeString());
+        $this->assertNotSame($sent[0], $sent[1]);
+        $this->assertNotEmpty($sent[0]);
+        $this->assertNotEmpty($sent[1]);
+        $this->getJson($path.'/monthly-summary?month=2026-09')->assertJsonPath('data.students.0.total_absent', 3)->assertJsonPath('data.students.0.notifications.3', now()->toDateTimeString());
 
         $download = $this->get($path.'/export?month=2026-09')->assertOk();
         $book = IOFactory::load($download->baseResponse->getFile()->getPathname());
@@ -386,9 +383,52 @@ class BasicLectureAttendanceTest extends TestCase
         $this->assertSame(__('basic_attendance.report_monthly_title'), $sheet->getCell('A1')->getValue());
         $this->assertSame('2600001', $sheet->getCell('A8')->getValue());
         $this->assertSame('s', $sheet->getCell('A8')->getDataType());
-        $this->assertSame(6, $sheet->getCell('I8')->getValue());
+        $this->assertSame(3, $sheet->getCell('I8')->getValue());
         $this->assertSame('C8', $sheet->getFreezePane());
         $book->disconnectWorksheets();
+    }
+
+    public function test_bulk_warnings_send_once_only_to_students_at_the_requested_tier(): void
+    {
+        $path = '/api/v1/basic-attendance/sections/'.$this->section;
+        $bulk = $path.'/absence-warnings/bulk';
+        for ($n = 0; $n < 2; $n++) {
+            $session = $this->start('single');
+            $this->transition($session, 'finalize');
+        }
+        Mail::shouldReceive('raw')->times(5);
+        $this->actingAs($this->other)->postJson($bulk, ['threshold' => 2, 'student_ids' => $this->students])->assertNotFound();
+        $this->actingAs($this->manager)->postJson($bulk, ['threshold' => 4, 'student_ids' => $this->students])->assertUnprocessable();
+        $this->postJson($bulk, ['threshold' => 2, 'student_ids' => $this->students])
+            ->assertOk()->assertJsonCount(3, 'data.sent');
+        $this->postJson($bulk, ['threshold' => 2, 'student_ids' => $this->students])
+            ->assertOk()->assertJsonCount(3, 'data.already_sent');
+
+        DB::table('basic_students')->where('id', $this->students[2])->update(['email' => 'invalid-address']);
+        $session = $this->start('single');
+        $this->transition($session, 'finalize');
+        $this->postJson($bulk, ['threshold' => 3, 'student_ids' => $this->students])
+            ->assertOk()->assertJsonCount(2, 'data.sent')->assertJsonCount(1, 'data.missing_email');
+        $this->assertDatabaseCount('basic_absence_notifications', 5);
+        $this->postJson($bulk, ['threshold' => 2, 'student_ids' => $this->students])
+            ->assertOk()->assertJsonCount(3, 'data.not_eligible');
+    }
+
+    public function test_previous_six_absence_notice_is_not_resent_as_a_three_absence_notice(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $session = $this->start('single');
+            $this->transition($session, 'finalize');
+        }
+        DB::table('basic_absence_notifications')->insert([
+            'section_id' => $this->section, 'student_id' => $this->students[0],
+            'threshold' => 6, 'absence_count' => 6, 'sent_by' => $this->manager->id, 'sent_at' => now(),
+        ]);
+        $path = '/api/v1/basic-attendance/sections/'.$this->section;
+        $this->actingAs($this->manager)->getJson($path.'/monthly-summary?month=2026-09')
+            ->assertJsonPath('data.students.0.notifications.3', now()->toDateTimeString());
+        Mail::shouldReceive('raw')->never();
+        $this->postJson($path.'/students/'.$this->students[0].'/absence-warning', ['threshold' => 3])->assertUnprocessable();
     }
 
     public function test_manager_monthly_overview_groups_course_section_and_actual_lecturer(): void
@@ -436,6 +476,7 @@ class BasicLectureAttendanceTest extends TestCase
         $this->getJson($url)->assertNotFound();
         $this->getJson('/api/v1/basic-attendance/sections/'.$this->section.'/report')->assertJsonPath('data.pagination.total', 0);
         $this->getJson('/api/v1/basic-attendance/sections/'.$this->section.'/monthly-summary?month=2026-09')->assertJsonPath('data.finalized_sessions', 0);
+        $this->getJson('/api/v1/basic-attendance/sections/'.$this->section.'/monthly-summary?month=2026-09')->assertJsonPath('data.students.0.total_absent', 0);
     }
 
     public function test_archiving_section_or_course_hides_descendants_without_erasing_student_history(): void

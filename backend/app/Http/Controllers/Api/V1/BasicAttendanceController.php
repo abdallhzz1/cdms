@@ -317,6 +317,9 @@ class BasicAttendanceController extends Controller
                 $student->total_absent = (int) ($allAbsences[$student->id] ?? 0);
                 $student->is_enrolled = (bool) $student->is_active && $currentIds->contains($student->id);
                 $student->notifications = ($sent[$student->id] ?? collect())->mapWithKeys(fn ($notice) => [(string) $notice->threshold => $notice->sent_at]);
+                // Preserve the meaning of notices sent before the thresholds changed from 4/6 to 2/3.
+                if ($student->notifications->has('4') && ! $student->notifications->has('2')) $student->notifications->put('2', $student->notifications->get('4'));
+                if ($student->notifications->has('6') && ! $student->notifications->has('3')) $student->notifications->put('3', $student->notifications->get('6'));
                 return $student;
             });
         return ['month' => $month, 'finalized_sessions' => $sessions, 'students' => $students];
@@ -325,29 +328,62 @@ class BasicAttendanceController extends Controller
     public function sendAbsenceWarning(Request $r, int $section, int $student)
     {
         $sectionData = $this->service->section($r->user(), $section);
-        $data = $r->validate(['threshold' => ['required', 'integer', 'in:4,6']]);
+        $data = $r->validate(['threshold' => ['required', 'integer', 'in:2,3']]);
         $threshold = (int) $data['threshold'];
+        $status = $this->sendAbsenceWarningOnce($r, $section, $sectionData, $student, $threshold);
+        if ($status === 'not_found') abort(404);
+        if ($status !== 'sent') throw ValidationException::withMessages(['student' => [__('basic_attendance.warning_'.$status)]]);
+        return ApiResponse::success(null, __('basic_attendance.warning_sent'));
+    }
 
-        DB::transaction(function () use ($section, $sectionData, $student, $threshold, $r) {
+    public function sendBulkAbsenceWarnings(Request $r, int $section)
+    {
+        $sectionData = $this->service->section($r->user(), $section);
+        $data = $r->validate([
+            'threshold' => ['required', 'integer', 'in:2,3'],
+            'student_ids' => ['required', 'array', 'min:1', 'max:10'],
+            'student_ids.*' => ['required', 'integer', 'distinct', 'min:1'],
+        ]);
+        $ids = array_map('intval', $data['student_ids']);
+        $enrolled = DB::table('basic_enrollments as enrollment')
+            ->join('basic_students as student', 'student.id', '=', 'enrollment.student_id')
+            ->where('enrollment.section_id', $section)->whereIn('student.id', $ids)
+            ->where('enrollment.is_active', true)->where('student.is_active', true)->count();
+        abort_unless($enrolled === count($ids), 404);
+
+        $results = ['sent' => [], 'already_sent' => [], 'not_eligible' => [], 'missing_email' => [], 'failed' => []];
+        foreach ($ids as $student) {
+            $status = $this->sendAbsenceWarningOnce($r, $section, $sectionData, $student, (int) $data['threshold']);
+            $bucket = match ($status) { 'not_found' => 'not_eligible', 'send_failed' => 'failed', default => $status };
+            $results[$bucket][] = $student;
+        }
+        return ApiResponse::success($results);
+    }
+
+    private function sendAbsenceWarningOnce(Request $r, int $section, object $sectionData, int $student, int $threshold): string
+    {
+        return DB::transaction(function () use ($section, $sectionData, $student, $threshold, $r): string {
             $person = DB::table('basic_students')->where('id', $student)->lockForUpdate()->first();
-            abort_unless($person && $person->is_active && DB::table('basic_enrollments')->where('section_id', $section)->where('student_id', $student)->where('is_active', true)->exists(), 404);
-            if (! $person->email) throw ValidationException::withMessages(['student' => [__('basic_attendance.warning_missing_email')]]);
+            if (! $person || ! $person->is_active || ! DB::table('basic_enrollments')->where('section_id', $section)->where('student_id', $student)->where('is_active', true)->exists()) return 'not_found';
+            if (! $person->email || ! filter_var($person->email, FILTER_VALIDATE_EMAIL)) return 'missing_email';
             $count = DB::table('basic_lecture_records as record')->join('basic_lecture_sessions as session', 'session.id', '=', 'record.session_id')
                 ->where('session.section_id', $section)->whereNull('session.archived_at')->where('session.state', 'finalized')->where('record.student_id', $student)->where('record.status', 'absent')->count();
-            if ($count < $threshold) throw ValidationException::withMessages(['student' => [__('basic_attendance.warning_not_eligible')]]);
-            if (DB::table('basic_absence_notifications')->where('section_id', $section)->where('student_id', $student)->where('threshold', $threshold)->exists())
-                throw ValidationException::withMessages(['student' => [__('basic_attendance.warning_already_sent')]]);
+            // At three or more absences send the stronger meeting request, not a late two-absence notice.
+            if (($threshold === 2 && $count !== 2) || ($threshold === 3 && $count < 3)) return 'not_eligible';
+            $priorThresholds = $threshold === 2 ? [2, 4] : [3, 6];
+            if (DB::table('basic_absence_notifications')->where('section_id', $section)->where('student_id', $student)->whereIn('threshold', $priorThresholds)->exists())
+                return 'already_sent';
             $variables = ['student' => $person->name, 'course' => $sectionData->course_name, 'section' => $sectionData->number, 'count' => $count];
             try {
                 Mail::raw(__('basic_attendance.warning_body_'.$threshold, $variables), fn ($mail) => $mail->to($person->email)->subject(__('basic_attendance.warning_subject_'.$threshold)));
             } catch (\Throwable $e) {
                 report($e);
-                throw ValidationException::withMessages(['email' => [__('basic_attendance.warning_send_failed')]]);
+                return 'send_failed';
             }
             DB::table('basic_absence_notifications')->insert(['section_id' => $section, 'student_id' => $student, 'threshold' => $threshold, 'absence_count' => $count, 'sent_by' => $r->user()->id, 'sent_at' => now()]);
             $this->service->audit(null, $r->user()->id, 'absence.warning_sent', ['section_id' => $section, 'student_id' => $student, 'threshold' => $threshold, 'absence_count' => $count]);
+            return 'sent';
         });
-        return ApiResponse::success(null, __('basic_attendance.warning_sent'));
     }
 
     public function export(Request $r, int $section)
