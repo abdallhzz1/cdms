@@ -5,6 +5,7 @@ namespace App\Http\Resources\V1;
 use App\Models\Student;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * @mixin Student
@@ -29,6 +30,7 @@ class StudentResource extends JsonResource
             'photo_url' => $this->photo_url,
             'batch_year' => $this->batch_year,
             'academic_level' => $this->academic_level,
+            'quality_survey_status' => $this->when($request->filled('quality_survey_id') && $request->user() && Gate::forUser($request->user())->allows('permission', ['quality.view']), fn () => $this->quality_survey_status),
             'academic_year_id' => $this->academic_year_id,
             'study_plan_code' => $this->study_plan_code,
             'registration_status' => $this->registration_status,

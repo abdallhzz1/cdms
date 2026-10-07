@@ -428,10 +428,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::put('operational-tasks/{operationalTask}', [OperationalTaskController::class, 'update'])->middleware('permission.any:tasks.view,tasks.manage');
         Route::delete('operational-tasks/{operationalTask}', [OperationalTaskController::class, 'destroy'])->middleware('permission:tasks.manage');
         Route::get('quality-surveys', [QualitySurveyController::class, 'index'])->middleware('permission:quality.view');
+        Route::get('quality-surveys/participation-options', [QualitySurveyController::class, 'participationOptions'])->middleware('permission:quality.view');
         Route::post('quality-surveys', [QualitySurveyController::class, 'store'])->middleware('permission:quality.manage');
         Route::put('quality-surveys/{qualitySurvey}', [QualitySurveyController::class, 'update'])->middleware('permission:quality.manage');
         Route::post('quality-surveys/{qualitySurvey}/transition', [QualitySurveyController::class, 'transition'])->middleware('permission:quality.manage');
         Route::get('quality-surveys/{qualitySurvey}', [QualitySurveyController::class, 'show'])->middleware('permission:quality.view');
+        Route::get('quality-surveys/{qualitySurvey}/participation', [QualitySurveyController::class, 'participation'])->middleware('permission:quality.view');
         Route::get('quality-surveys/{qualitySurvey}/responses', [QualitySurveyController::class, 'responses'])->middleware('permission:quality.view');
         Route::post('quality-surveys/{qualitySurvey}/questions', [QualitySurveyController::class, 'storeQuestion'])->middleware('permission:quality.manage');
         Route::put('quality-surveys/{qualitySurvey}/questions/{question}', [QualitySurveyController::class, 'updateQuestion'])->middleware('permission:quality.manage');

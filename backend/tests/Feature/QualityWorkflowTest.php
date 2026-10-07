@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\Student;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -19,7 +20,7 @@ class QualityWorkflowTest extends TestCase
         parent::setUp();
         $this->seed([\Database\Seeders\RoleSeeder::class, \Database\Seeders\PermissionSeeder::class]);
         $role = Role::create(['code' => 'QUALITY_TEST', 'name_key' => 'quality.test', 'description_key' => 'quality.test']);
-        $role->permissions()->sync(Permission::whereIn('code', ['quality.view', 'quality.manage', 'kpi.manage'])->pluck('id')->mapWithKeys(fn (int $id) => [$id => ['scope_type' => 'global']])->all());
+        $role->permissions()->sync(Permission::whereIn('code', ['quality.view', 'quality.manage', 'kpi.manage', 'students.view'])->pluck('id')->mapWithKeys(fn (int $id) => [$id => ['scope_type' => 'global']])->all());
         $this->user = User::factory()->create();
         $this->user->roles()->attach($role);
     }
@@ -176,5 +177,39 @@ class QualityWorkflowTest extends TestCase
         $this->getJson('/api/v1/quality-surveys?search='.urlencode('الرضا'))->assertOk()
             ->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.title', 'استبيان الرضا السريري');
+    }
+
+    public function test_student_number_records_participation_separately_from_anonymous_answers(): void
+    {
+        $fourth = Student::factory()->forLevel('fourth')->create(['university_number' => '22310001']);
+        $fifth = Student::factory()->forLevel('fifth')->create(['university_number' => '22310002']);
+        $outside = Student::factory()->forLevel('sixth')->create(['university_number' => '22310003']);
+        $survey = $this->actingAs($this->user)->postJson('/api/v1/quality-surveys', [
+            'title' => 'استبيان الدفعات', 'target_group' => 'الطلبة', 'target_levels' => ['fourth', 'fifth'],
+            'is_anonymous' => true,
+        ])->assertCreated()->json('data');
+        $question = $this->postJson("/api/v1/quality-surveys/{$survey['id']}/questions", [
+            'question_text' => 'كيف تقيم التدريب؟', 'question_type' => 'rating', 'is_required' => true,
+        ])->assertCreated()->json('data');
+        $this->postJson("/api/v1/quality-surveys/{$survey['id']}/transition", ['status' => 'open'])->assertOk();
+        $this->assertDatabaseCount('quality_survey_audience_students', 2);
+        $this->getJson("/api/v1/public/quality-surveys/{$survey['public_id']}")->assertOk()->assertJsonPath('data.requires_student_number', true);
+        $url = "/api/v1/public/quality-surveys/{$survey['public_id']}/submit";
+        $answer = ['answers' => [['question_id' => $question['id'], 'value' => 5]]];
+        $this->postJson($url, $answer + ['respondent_identifier' => $outside->university_number])->assertUnprocessable();
+        $this->postJson($url, $answer + ['respondent_identifier' => $fourth->university_number])->assertCreated();
+        $this->postJson($url, $answer + ['respondent_identifier' => $fourth->university_number])->assertStatus(409);
+        $this->assertDatabaseHas('quality_survey_participations', ['quality_survey_id' => $survey['id'], 'student_id' => $fourth->id]);
+        $this->assertDatabaseHas('quality_survey_responses', ['quality_survey_id' => $survey['id'], 'respondent_identifier' => null, 'numeric_answer' => 5]);
+        $this->assertDatabaseHas('quality_survey_submissions', ['quality_survey_id' => $survey['id'], 'respondent_key' => null, 'respondent_identifier' => null]);
+        $this->getJson("/api/v1/quality-surveys/{$survey['id']}/participation")
+            ->assertOk()->assertJsonPath('data.summary.fourth.completed', 1)->assertJsonPath('data.summary.fifth.total', 1);
+        $this->getJson("/api/v1/students?quality_survey_id={$survey['id']}&search=22310002")
+            ->assertOk()->assertJsonPath('data.0.quality_survey_status', 'pending');
+        $this->getJson("/api/v1/students?quality_survey_id={$survey['id']}&quality_participation=completed")
+            ->assertOk()->assertJsonPath('meta.total', 1);
+        $fourth->update(['academic_level' => 'sixth']);
+        $this->getJson("/api/v1/quality-surveys/{$survey['id']}/participation")
+            ->assertOk()->assertJsonPath('data.summary.fourth.total', 1);
     }
 }

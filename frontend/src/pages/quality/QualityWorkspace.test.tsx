@@ -10,6 +10,7 @@ import { QualityOperationsPage } from './QualityOperationsPage';
 import { ImprovementPlansPage } from './ImprovementPlansPage';
 import { KpiPage } from './KpiPage';
 import { PublicQualitySurveyPage } from '@/pages/public/PublicQualitySurveyPage';
+import { SurveyParticipationPage } from './SurveyParticipationPage';
 
 function response(data: unknown, meta: Record<string, unknown> = {}) {
   return new Response(JSON.stringify({ success: true, data, message: null, meta }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -162,5 +163,41 @@ describe('quality workspace', () => {
     renderWithProviders(<Routes><Route path="/survey/:publicId" element={<PublicQualitySurveyPage />} /></Routes>, { route: '/survey/survey-id' });
     expect(await screen.findByText('Unable to verify previous response')).toBeVisible();
     expect(screen.getByRole('button', { name: /retry/i })).toBeVisible();
+  });
+
+  it('asks a targeted student for a number inside the survey without an email code', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    const submissions: any[] = [];
+    vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return response(null);
+      if (url.includes('/sanctum/csrf-cookie')) return response({});
+      if (url.includes('/public/quality-surveys/survey-id/submit')) { submissions.push(JSON.parse(String(init?.body))); return response({ submission_id: 'reply-1' }); }
+      if (url.includes('/public/quality-surveys/survey-id')) return response({ public_id: 'survey-id', title: 'Training', target_group: 'الطلبة', is_anonymous: true, response_policy: 'one_per_identifier', requires_student_number: true, questions: [{ id: 1, question_text: 'Rate', question_type: 'rating', is_required: true }] });
+      throw new Error(`Unmocked request: ${url}`);
+    });
+    renderWithProviders(<Routes><Route path="/survey/:publicId" element={<PublicQualitySurveyPage />} /></Routes>, { route: '/survey/survey-id' });
+    expect(await screen.findByRole('heading', { name: 'Training' })).toBeVisible();
+    await userEvent.type(screen.getByLabelText(/University number/), '22310001');
+    await userEvent.click(screen.getByLabelText('1'));
+    await userEvent.click(screen.getByRole('button', { name: 'Submit responses' }));
+    await waitFor(() => expect(submissions[0]?.respondent_identifier).toBe('22310001'));
+    expect(await screen.findByText('Your response was received')).toBeVisible();
+    expect(screen.queryByText('Verify before opening the survey')).not.toBeInTheDocument();
+  });
+
+  it('shows cohort participation separately from anonymous answers', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return response(user());
+      if (url.includes('/quality-surveys/7/participation')) return response({ summary: { fourth: { total: 2, completed: 1 }, fifth: { total: 1, completed: 0 } }, students: [{ id: 1, full_name_ar: 'أحمد', full_name_en: 'Ahmad', university_number: '22310001', academic_level: 'fourth', completed_on: '2026-10-07' }, { id: 2, full_name_ar: 'ليلى', full_name_en: 'Layla', university_number: '22310002', academic_level: 'fourth', completed_on: null }] }, { last_page: 1 });
+      throw new Error(`Unmocked request: ${url}`);
+    });
+    renderWithProviders(<Routes><Route path="/quality/surveys/:id/participation" element={<SurveyParticipationPage />} /></Routes>, { route: '/quality/surveys/7/participation' });
+    expect(await screen.findByText('Ahmad')).toBeVisible();
+    expect(screen.getByText('Layla')).toBeVisible();
+    expect(screen.getByText(/Only completion status/)).toBeVisible();
+    expect(screen.getAllByText('1 / 2').length).toBeGreaterThan(0);
   });
 });

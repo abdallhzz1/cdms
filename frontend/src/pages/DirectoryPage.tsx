@@ -142,6 +142,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState('50');
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [qualitySurveyId, setQualitySurveyId] = useState('');
+  const [qualityParticipation, setQualityParticipation] = useState('');
 
   useEffect(() => {
     if (kind !== 'students' || !departmentScoped || !scopeQuery.data) return;
@@ -231,11 +233,19 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   if (debouncedSearch.trim()) query.set('search', debouncedSearch.trim());
   if (kind === 'students' && levelFilter) query.set('academic_level', levelFilter);
   if (kind === 'students' && mainGroupFilter) query.set('main_group_code', mainGroupFilter);
+  if (kind === 'students' && qualitySurveyId && can('quality.view')) query.set('quality_survey_id', qualitySurveyId);
+  if (kind === 'students' && qualitySurveyId && qualityParticipation) query.set('quality_participation', qualityParticipation);
   
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['directory', kind, page, perPage, debouncedSearch, levelFilter, mainGroupFilter],
+    queryKey: ['directory', kind, page, perPage, debouncedSearch, levelFilter, mainGroupFilter, qualitySurveyId, qualityParticipation],
     queryFn: () => apiFetch<RecordItem[]>(`${paths[kind]}?${query.toString()}`),
     placeholderData: (previousData) => previousData,
+  });
+
+  const { data: qualitySurveys = [] } = useQuery({
+    queryKey: ['quality-surveys', 'directory-options'],
+    queryFn: () => apiFetch<Array<{id:number;title:string;target_levels?:string[]|null}>>('/quality-surveys/participation-options'),
+    enabled: kind === 'students' && can('quality.view'),
   });
 
   const groupOptionsQuery = new URLSearchParams();
@@ -458,6 +468,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     }
     return <StatusBadge active={!!row.is_active} text={row.is_active ? (locale === 'ar' ? 'نشط' : 'Active') : (locale === 'ar' ? 'غير نشط' : 'Inactive')} />;
   };
+  const qualityStatus = (row: RecordItem) => qualitySurveyId && row.quality_survey_status ? <span className={`rounded-lg px-2 py-1 text-[10px] font-bold ${row.quality_survey_status === 'completed' ? 'bg-emerald-50 text-emerald-800' : row.quality_survey_status === 'pending' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>{row.quality_survey_status === 'completed' ? (locale === 'ar' ? 'أجاب الاستبيان' : 'Survey completed') : row.quality_survey_status === 'pending' ? (locale === 'ar' ? 'لم يجب بعد' : 'Survey pending') : (locale === 'ar' ? 'غير مستهدف' : 'Not targeted')}</span> : null;
 
   const getBatchLabel = (row: RecordItem) => {
     if (row.batch_year) return locale === 'ar' ? `دفعة ${row.batch_year}` : `Batch ${row.batch_year}`;
@@ -610,6 +621,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
         </div>
       )}
 
+      {kind === 'students' && can('quality.view') && qualitySurveys.some(survey => survey.target_levels?.length) && <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center"><label className="min-w-0 flex-1 text-xs font-bold text-slate-600">{locale === 'ar' ? 'متابعة استبيان' : 'Survey participation'}<select value={qualitySurveyId} onChange={event => { setQualitySurveyId(event.target.value); setQualityParticipation(''); setPage(1); }} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="">{locale === 'ar' ? 'بدون تصنيف استبيان' : 'No survey filter'}</option>{qualitySurveys.filter(survey => survey.target_levels?.length).map(survey => <option key={survey.id} value={survey.id}>{survey.title}</option>)}</select></label>{qualitySurveyId && <><label className="text-xs font-bold text-slate-600">{locale === 'ar' ? 'حالة المشاركة' : 'Participation'}<select value={qualityParticipation} onChange={event => { setQualityParticipation(event.target.value); setPage(1); }} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="">{locale === 'ar' ? 'الكل' : 'All'}</option><option value="completed">{locale === 'ar' ? 'أجاب' : 'Completed'}</option><option value="pending">{locale === 'ar' ? 'لم يجب' : 'Pending'}</option></select></label><button type="button" onClick={() => navigate(`/quality/surveys/${qualitySurveyId}/participation`)} className="min-h-10 self-end rounded-xl bg-teal-50 px-3 text-xs font-bold text-teal-800">{locale === 'ar' ? 'ملخص الدفعات' : 'Cohort summary'}</button></>}</div>}
+
       {/* Search & Filter Bar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
         <div className="flex w-full flex-col gap-2 sm:max-w-2xl sm:flex-row">
@@ -690,7 +703,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-teal-100 bg-teal-50 text-sm font-black text-teal-700">
                   {row.photo_url ? <img src={row.photo_url} alt={name(row)} className="h-full w-full object-cover"/> : name(row).substring(0,1)}
                 </div>
-                <div className="min-w-0 flex-1"><h3 className="break-words text-sm font-black leading-6 text-slate-800">{name(row)}</h3>{kind==='students'&&<p className="mt-0.5 font-mono text-[11px] text-slate-500" dir="ltr">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span>}{getStatus(row)}</div></div>
+                <div className="min-w-0 flex-1"><h3 className="break-words text-sm font-black leading-6 text-slate-800">{name(row)}</h3>{kind==='students'&&<p className="mt-0.5 font-mono text-[11px] text-slate-500" dir="ltr">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span>}{getStatus(row)}{qualityStatus(row)}</div></div>
               </div>
               {kind==='students'&&<>
                 <div className="mt-3 grid min-w-0 grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]"><div className="min-w-0"><span className="text-slate-400">{locale==='ar'?'الدفعة':'Batch'}</span><p className="mt-1 truncate font-bold text-slate-700">{getBatchLabel(row)}</p></div><div className="min-w-0"><span className="text-slate-400">{locale==='ar'?'المجموعة الرئيسية':'Main group'}</span><p className="mt-1 truncate font-bold text-slate-700">{row.registration_main_group||'—'}</p></div></div>
@@ -737,6 +750,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                       </div>
                       <div>
                         <span className="hover:text-teal-600 transition-colors block">{name(row)}</span>
+                        {kind === 'students' && qualityStatus(row)}
                         {kind === 'students' && row.full_name_en && locale === 'ar' && (
                           <span className="text-[11px] text-slate-400 font-normal">{row.full_name_en}</span>
                         )}

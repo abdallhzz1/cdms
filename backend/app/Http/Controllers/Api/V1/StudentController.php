@@ -13,6 +13,7 @@ use App\Models\AuditLog;
 use App\Models\ClinicalAssessment;
 use App\Models\GroupRegistrationCycle;
 use App\Models\Person;
+use App\Models\QualitySurvey;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentCourseEnrollment;
@@ -26,6 +27,7 @@ use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -126,6 +128,20 @@ class StudentController extends Controller
         $scopedLevels = $this->getUserScopedLevels();
 
         $query = $this->applyStudentAccessScope(Student::query());
+        $qualitySurvey = null;
+        if ($request->filled('quality_survey_id')) {
+            abort_unless(Gate::forUser($request->user())->allows('permission', ['quality.view']), 403);
+            $qualitySurvey = QualitySurvey::findOrFail($request->integer('quality_survey_id'));
+            abort_if(empty($qualitySurvey->target_levels), 422);
+            if (in_array($request->query('quality_participation'), ['completed', 'pending'], true)) {
+                $query->whereIn('students.id', function ($subquery) use ($qualitySurvey) {
+                    $subquery->select('student_id')->from('quality_survey_audience_students')->where('quality_survey_id', $qualitySurvey->id);
+                });
+                $query->{$request->query('quality_participation') === 'pending' ? 'whereNotIn' : 'whereIn'}('students.id', function ($subquery) use ($qualitySurvey) {
+                    $subquery->select('student_id')->from('quality_survey_participations')->where('quality_survey_id', $qualitySurvey->id);
+                });
+            }
+        }
 
         $students = $query->with(['academicYear', 'academicAdvisor', 'currentGroupAssignments.group', 'groupRegistrationRosters.group'])
             ->when(
@@ -185,6 +201,13 @@ class StudentController extends Controller
             ->when($request->query('search'), fn ($q, $s) => app(StudentDirectorySearch::class)->apply($q, (string) $s))
             ->orderBy('full_name_ar')
             ->paginate($request->integer('per_page', 25));
+
+        if ($qualitySurvey && $students->count() > 0) {
+            $ids = $students->getCollection()->pluck('id')->all();
+            $audience = DB::table('quality_survey_audience_students')->where('quality_survey_id', $qualitySurvey->id)->whereIn('student_id', $ids)->pluck('student_id')->flip();
+            $completed = DB::table('quality_survey_participations')->where('quality_survey_id', $qualitySurvey->id)->whereIn('student_id', $ids)->pluck('student_id')->flip();
+            $students->getCollection()->each(fn ($student) => $student->setAttribute('quality_survey_status', !isset($audience[$student->id]) ? 'not_targeted' : (isset($completed[$student->id]) ? 'completed' : 'pending')));
+        }
 
         return ApiResponse::success(
             StudentResource::collection($students),
