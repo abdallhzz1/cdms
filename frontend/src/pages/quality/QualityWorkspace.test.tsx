@@ -186,6 +186,78 @@ describe('quality workspace', () => {
     expect(screen.queryByText('Verify before opening the survey')).not.toBeInTheDocument();
   });
 
+  it('keeps questions, results and participation in one survey workspace', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return response(user());
+      if (url.includes('/quality-surveys/7/response-matrix')) return response({ survey: { code: 'SUR-0007', title: 'Training', is_anonymous: true }, questions: [{ id: 1, question_text: 'Rate training', question_type: 'rating' }, { id: 2, question_text: 'Best part', question_type: 'single_choice', options: 'Clinic\nTeaching' }], submissions: [{ submission_id: 'one', responded_at: '2026-10-07T10:00:00Z', answers: { 1: 4, 2: 'Clinic' } }] });
+      if (url.includes('/quality-surveys/7/participation')) return response({ summary: { fourth: { total: 2, completed: 1 } }, students: [{ id: 1, full_name_ar: 'أحمد', full_name_en: 'Ahmad', university_number: '22310001', academic_level: 'fourth', completed_on: '2026-10-07' }] }, { last_page: 1 });
+      if (url.endsWith('/quality-surveys/7')) return response({ id: 7, public_id: 'survey-id', title: 'Training', target_group: 'الطلبة', target_levels: ['fourth'], status: 'open', is_anonymous: true, response_policy: 'one_per_identifier', submissions_count: 1, questions: [{ id: 1, question_text: 'Rate training', question_type: 'rating', is_required: true }] });
+      throw new Error(`Unmocked request: ${url}`);
+    });
+    renderWithProviders(<Routes><Route path="/quality/surveys/:id" element={<SurveyDetailsPage />} /></Routes>, { route: '/quality/surveys/7' });
+    expect(await screen.findByText('Rate training')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: /Results & responses/ }));
+    expect(await screen.findByRole('region', { name: 'Score summary' })).toHaveTextContent('4.0');
+    expect(screen.getByRole('region', { name: 'Choice distribution' })).toHaveTextContent('100%');
+    await userEvent.click(screen.getByRole('button', { name: 'Student participation' }));
+    expect(await screen.findByText('Ahmad')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Training' })).toBeVisible();
+  });
+
+  it('edits the respondent introduction and closing date without leaving the survey', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    const saves: any[] = [];
+    vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return response(user(true));
+      if (url.includes('/sanctum/csrf-cookie')) return response({});
+      if (url.endsWith('/quality-surveys/7') && init?.method === 'PUT') { saves.push(JSON.parse(String(init.body))); return response({ id: 7 }); }
+      if (url.endsWith('/quality-surveys/7')) return response({ id: 7, public_id: 'survey-id', title: 'Training', target_group: 'Faculty', purpose: 'Old introduction', status: 'draft', is_anonymous: true, response_policy: 'multiple', questions: [] });
+      throw new Error(`Unmocked request: ${url}`);
+    });
+    renderWithProviders(<Routes><Route path="/quality/surveys/:id" element={<SurveyDetailsPage />} /></Routes>, { route: '/quality/surveys/7' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Settings' }));
+    const settings = screen.getByRole('region', { name: 'Survey settings' });
+    await userEvent.clear(within(settings).getByLabelText('Description shown to respondents'));
+    await userEvent.type(within(settings).getByLabelText('Description shown to respondents'), 'Clear introduction');
+    await userEvent.type(within(settings).getByLabelText('Last response date (optional)'), '2026-12-31');
+    await userEvent.click(within(settings).getByRole('button', { name: 'Save form details' }));
+    await waitFor(() => expect(saves[0]).toMatchObject({ title: 'Training', purpose: 'Clear introduction', closes_at: '2026-12-31' }));
+  });
+
+  it('shows the questions immediately for identifier-limited surveys', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return response(null);
+      if (url.includes('/public/quality-surveys/survey-id')) return response({ public_id: 'survey-id', title: 'Staff feedback', target_group: 'Faculty', is_anonymous: true, response_policy: 'one_per_identifier', questions: [{ id: 1, question_text: 'Your view', question_type: 'short_text', is_required: true }] });
+      throw new Error(`Unmocked request: ${url}`);
+    });
+    renderWithProviders(<Routes><Route path="/survey/:publicId" element={<PublicQualitySurveyPage />} /></Routes>, { route: '/survey/survey-id' });
+    expect(await screen.findByRole('heading', { name: 'Staff feedback' })).toBeVisible();
+    expect(screen.getByLabelText('Your view')).toBeVisible();
+    expect(screen.queryByText('Verify before opening the survey')).not.toBeInTheDocument();
+  });
+
+  it('points the respondent to an unanswered required checkbox question', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    const submitRequest = vi.fn();
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return response(null);
+      if (url.includes('/public/quality-surveys/survey-id/submit')) { submitRequest(); return response({}); }
+      if (url.includes('/public/quality-surveys/survey-id')) return response({ public_id: 'survey-id', title: 'Feedback', target_group: 'Students', is_anonymous: true, response_policy: 'multiple', questions: [{ id: 8, question_text: 'Choose improvements', question_type: 'multiple_choice', options: 'Teaching\nFacilities', is_required: true }] });
+      throw new Error(`Unmocked request: ${url}`);
+    });
+    renderWithProviders(<Routes><Route path="/survey/:publicId" element={<PublicQualitySurveyPage />} /></Routes>, { route: '/survey/survey-id' });
+    expect(await screen.findByRole('heading', { name: 'Feedback' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Submit responses' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('This question is required.');
+    expect(submitRequest).not.toHaveBeenCalled();
+  });
+
   it('shows cohort participation separately from anonymous answers', async () => {
     localStorage.setItem('cdms.locale', 'en');
     vi.spyOn(window, 'fetch').mockImplementation(async input => {

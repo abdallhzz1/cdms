@@ -11,7 +11,6 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { QualitySectionGuide } from '@/components/quality/QualitySectionGuide';
 
 type Year = { id: number; code: string; is_current: boolean };
 type Survey = { id: number; public_id: string; code: string; title: string; purpose?: string; target_group: string; academic_year?: string; status: string; questions_count: number; submissions_count?: number };
@@ -57,7 +56,6 @@ export function SurveysPage() {
     <PageHeader title={ar ? 'الاستبيانات' : 'Surveys'} description={ar ? 'أنشئ النموذج وتابع نشره وردوده.' : 'Create forms and track publishing and responses.'}>
       {can('quality.manage') && <Button onClick={() => { setForm({ ...blank, academic_year: options.data?.academic_years.find(item => item.is_current)?.code || '' }); create.reset(); setOpen(true); }}><Plus className="ms-1 h-4 w-4" />{ar ? 'استبيان جديد' : 'New survey'}</Button>}
     </PageHeader>
-    <QualitySectionGuide titleAr="سير عمل الاستبيان" titleEn="Survey workflow" stepsAr={['أنشئ الاستبيان وحدد الفئة والعام.','أضف الأسئلة، ثم انشر النموذج.','شارك الرابط وتابع الردود في شاشة مستقلة.']} stepsEn={['Create a survey with its audience and year.','Add questions and publish.','Share the link and review responses separately.']} />
     <section aria-label={ar ? 'تصفية الاستبيانات' : 'Filter surveys'} className="grid gap-2 rounded-2xl border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_10rem_11rem] sm:p-4">
       <label className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 px-3"><Search className="h-4 w-4 shrink-0 text-slate-400" /><input aria-label={ar ? 'بحث في الاستبيانات' : 'Search surveys'} value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder={ar ? 'العنوان أو الرمز أو الفئة' : 'Title, code, or audience'} /></label>
       <select aria-label={ar ? 'حالة الاستبيان' : 'Survey status'} value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} className={field}><option value="">{ar ? 'جميع الحالات' : 'All statuses'}</option>{Object.entries(statusText).map(([key, labels]) => <option key={key} value={key}>{labels[ar ? 0 : 1]}</option>)}</select>

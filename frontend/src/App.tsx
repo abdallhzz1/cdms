@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { FoundationHome } from '@/pages/FoundationHome';
 import { LoginPage } from '@/pages/LoginPage';
@@ -49,8 +49,6 @@ import { TasksPage } from '@/pages/TasksPage';
 import { QualityDashboardPage } from '@/pages/quality/QualityDashboardPage';
 import { SurveysPage } from '@/pages/quality/SurveysPage';
 import { SurveyDetailsPage } from '@/pages/quality/SurveyDetailsPage';
-import { SurveyResponsesPage } from '@/pages/quality/SurveyResponsesPage';
-import { SurveyParticipationPage } from '@/pages/quality/SurveyParticipationPage';
 import { ImprovementPlansPage } from '@/pages/quality/ImprovementPlansPage';
 import { KpiPage } from '@/pages/quality/KpiPage';
 import { QualityOperationsPage } from '@/pages/quality/QualityOperationsPage';
@@ -88,6 +86,11 @@ import { StudentPoliciesPage } from '@/pages/StudentPoliciesPage';
 import { StudentPolicyCampaignPage } from '@/pages/StudentPolicyCampaignPage';
 import { PublicStudentPolicyPage } from '@/pages/public/PublicStudentPolicyPage';
 import { PublicClinicalAttendancePage } from '@/pages/public/PublicClinicalAttendancePage';
+
+function SurveyTabRedirect({ tab }: { tab: 'responses' | 'participation' }) {
+  const { id } = useParams();
+  return <Navigate to={`/quality/surveys/${id}?tab=${tab}`} replace />;
+}
 
 function DefaultAuthenticatedHome() {
   const { user } = useAuth();
@@ -246,8 +249,8 @@ export function App() {
                 <Route path="/quality" element={<QualityDashboardPage />} />
                 <Route path="/quality/surveys" element={<SurveysPage />} />
                 <Route path="/quality/surveys/:id" element={<SurveyDetailsPage />} />
-                <Route path="/quality/surveys/:id/responses" element={<SurveyResponsesPage />} />
-                <Route path="/quality/surveys/:id/participation" element={<SurveyParticipationPage />} />
+                <Route path="/quality/surveys/:id/responses" element={<SurveyTabRedirect tab="responses" />} />
+                <Route path="/quality/surveys/:id/participation" element={<SurveyTabRedirect tab="participation" />} />
                 <Route path="/quality/improvement" element={<ImprovementPlansPage />} />
                 <Route path="/quality/kpis" element={<KpiPage />} />
                 <Route path="/quality/operations" element={<QualityOperationsPage />} />

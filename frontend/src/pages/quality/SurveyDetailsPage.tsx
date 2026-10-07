@@ -1,7 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router-dom';
-import { Copy, Eye, Lock, MessageSquarePlus, Pencil, Plus, Send, Settings2, Trash2 } from 'lucide-react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Copy, Eye, Lock, MessageSquarePlus, Pencil, Plus, Send, Trash2 } from 'lucide-react';
 import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
@@ -9,32 +9,38 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { SurveyResponsesPage } from './SurveyResponsesPage';
+import { SurveyParticipationPage } from './SurveyParticipationPage';
 
 type Question={id:number;question_text:string;question_type:string;options?:string|null;is_required:boolean;axis?:string|null};
-type Survey={id:number;public_id:string;title:string;target_group:string;target_levels?:string[]|null;purpose?:string;status:string;is_anonymous:boolean;response_policy:string;submissions_count?:number;questions:Question[]};
+type Survey={id:number;public_id:string;title:string;target_group:string;target_levels?:string[]|null;purpose?:string;closes_at?:string|null;status:string;is_anonymous:boolean;response_policy:string;submissions_count?:number;questions:Question[]};
 const blank={question_text:'',question_type:'rating',options:'',is_required:true,axis:''};
 const field='w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100';
 const types:Record<string,[string,string]>={rating:['مقياس خطي 1–5','Linear scale 1–5'],single_choice:['اختيار من متعدد','Multiple choice'],multiple_choice:['مربعات اختيار','Checkboxes'],short_text:['إجابة قصيرة','Short answer'],long_text:['فقرة','Paragraph'],number:['رقم','Number']};
 
 export function SurveyDetailsPage(){
- const{id}=useParams();const{can}=useAuth();const{locale}=useI18n();const ar=locale==='ar';const qc=useQueryClient();
- const[editor,setEditor]=useState<Question|null|undefined>();const[form,setForm]=useState(blank);const[settings,setSettings]=useState(false);const[copied,setCopied]=useState(false);const[copyFailed,setCopyFailed]=useState(false);
+ const{id}=useParams();const{can}=useAuth();const{locale}=useI18n();const ar=locale==='ar';const qc=useQueryClient();const[params,setParams]=useSearchParams();
+ const[editor,setEditor]=useState<Question|null|undefined>();const[form,setForm]=useState(blank);const[copied,setCopied]=useState(false);const[copyFailed,setCopyFailed]=useState(false);
+ const[details,setDetails]=useState({title:'',purpose:'',closes_at:''});
+ const tab=params.get('tab')||'questions';const selectTab=(next:string)=>setParams(next==='questions'?{}:{tab:next});
  const query=useQuery({queryKey:['quality-survey',id],queryFn:()=>apiFetch<Survey>(`/quality-surveys/${id}`)});const refresh=()=>qc.invalidateQueries({queryKey:['quality-survey',id]});
+ useEffect(()=>{if(query.data)setDetails({title:query.data.title,purpose:query.data.purpose||'',closes_at:query.data.closes_at?.slice(0,10)||''})},[query.data?.title,query.data?.purpose,query.data?.closes_at]);
  const save=useMutation({mutationFn:()=>editor?apiFetch(`/quality-surveys/${id}/questions/${editor.id}`,{method:'PUT',body:form}):apiFetch(`/quality-surveys/${id}/questions`,{method:'POST',body:form}),onSuccess:async()=>{await refresh();setEditor(undefined);setForm(blank)}});
  const remove=useMutation({mutationFn:(qid:number)=>apiFetch(`/quality-surveys/${id}/questions/${qid}`,{method:'DELETE'}),onSuccess:refresh});
  const transition=useMutation({mutationFn:(status:string)=>apiFetch(`/quality-surveys/${id}/transition`,{method:'POST',body:{status}}),onSuccess:refresh});
- const updatePolicy=useMutation({mutationFn:(response_policy:string)=>{const s=query.data!;return apiFetch(`/quality-surveys/${id}`,{method:'PUT',body:{title:s.title,target_group:s.target_group,purpose:s.purpose||null,is_anonymous:s.is_anonymous,response_policy}})},onSuccess:async()=>{await refresh();setSettings(false)}});
+ const updatePolicy=useMutation({mutationFn:(response_policy:string)=>{const s=query.data!;return apiFetch(`/quality-surveys/${id}`,{method:'PUT',body:{title:s.title,target_group:s.target_group,purpose:s.purpose||null,is_anonymous:s.is_anonymous,response_policy}})},onSuccess:refresh});
  const updateLevels=useMutation({mutationFn:(target_levels:string[])=>{const s=query.data!;return apiFetch(`/quality-surveys/${id}`,{method:'PUT',body:{title:s.title,target_group:s.target_group,purpose:s.purpose||null,is_anonymous:true,target_levels}})},onSuccess:refresh});
+ const updateDetails=useMutation({mutationFn:()=>{const s=query.data!;return apiFetch(`/quality-surveys/${id}`,{method:'PUT',body:{title:details.title.trim(),target_group:s.target_group,purpose:details.purpose.trim()||null,closes_at:details.closes_at||null,is_anonymous:s.is_anonymous}})},onSuccess:refresh});
  if(query.isLoading)return <LoadingState/>;if(query.isError||!query.data)return <ErrorState/>;const s=query.data;const url=`${window.location.origin}/survey/${s.public_id}`;const canEditQuestions=can('quality.manage')&&!s.submissions_count;
  const edit=(q:Question)=>{setForm({question_text:q.question_text,question_type:q.question_type,options:q.options||'',is_required:q.is_required,axis:q.axis||''});setEditor(q)};
- return <div className="survey-editor-shell mx-auto w-full max-w-5xl space-y-4 pb-16 sm:space-y-5">
+ return <div className="survey-editor-shell mx-auto w-full max-w-6xl space-y-4 pb-16 sm:space-y-5">
   <header className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
     <div className="p-4 sm:p-6">
       <Link to="/quality/surveys" className="text-xs font-bold text-teal-700">← {ar?'الاستبيانات':'Surveys'}</Link>
       <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0"><h1 className="break-words text-xl font-black text-slate-900 sm:text-2xl">{s.title}</h1><p className="mt-1 text-xs text-slate-500">{s.purpose||s.target_group}</p>{!!s.target_levels?.length&&<p className="mt-2 text-xs font-bold text-teal-700">{ar?'الدفعات المستهدفة: ':'Target cohorts: '}{s.target_levels.map(level=>({fourth:ar?'الرابعة':'Fourth',fifth:ar?'الخامسة':'Fifth',sixth:ar?'السادسة':'Sixth'} as Record<string,string>)[level]||level).join('، ')}</p>}</div>
+        <div className="min-w-0"><div className="mb-2 flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${s.status==='open'?'bg-emerald-50 text-emerald-700':'bg-slate-100 text-slate-600'}`}>{s.status==='open'?(ar?'يستقبل الردود':'Accepting responses'):s.status==='draft'?(ar?'مسودة':'Draft'):s.status==='archived'?(ar?'مؤرشف':'Archived'):(ar?'مغلق':'Closed')}</span><span className="text-xs text-slate-500">{s.submissions_count||0} {ar?'رد':'responses'}</span></div><h1 className="break-words text-xl font-black text-slate-900 sm:text-2xl">{s.title}</h1><p className="mt-1 text-xs leading-5 text-slate-500">{s.purpose||s.target_group}</p>{!!s.target_levels?.length&&<p className="mt-2 text-xs font-bold text-teal-700">{ar?'الدفعات المستهدفة: ':'Target cohorts: '}{s.target_levels.map(level=>({fourth:ar?'الرابعة':'Fourth',fifth:ar?'الخامسة':'Fifth',sixth:ar?'السادسة':'Sixth'} as Record<string,string>)[level]||level).join('، ')}</p>}</div>
         <div className="flex flex-wrap gap-2">
-          {s.status==='open'&&<><a href={`/survey/${s.public_id}`} target="_blank" rel="noopener noreferrer"><Button variant="outline"><Eye className="ml-1 h-4 w-4"/>{ar?'عرض':'Preview'}</Button></a><Button variant="outline" onClick={async()=>{try{await navigator.clipboard.writeText(url);setCopied(true);setCopyFailed(false)}catch{setCopied(false);setCopyFailed(true)}}}><Copy className="ml-1 h-4 w-4"/>{copied?(ar?'تم النسخ':'Copied'):(ar?'نسخ الرابط':'Copy link')}</Button></>}
+          {s.status==='open'&&<><a href={`/survey/${s.public_id}`} target="_blank" rel="noopener noreferrer"><Button variant="outline"><Eye className="ml-1 h-4 w-4"/>{ar?'عرض النموذج':'Open form'}</Button></a><Button variant="outline" onClick={async()=>{try{await navigator.clipboard.writeText(url);setCopied(true);setCopyFailed(false)}catch{setCopied(false);setCopyFailed(true)}}}><Copy className="ml-1 h-4 w-4"/>{copied?(ar?'تم النسخ':'Copied'):(ar?'نسخ الرابط':'Copy link')}</Button></>}
           {can('quality.manage')&&s.status==='draft'&&<Button onClick={()=>transition.mutate('open')} isLoading={transition.isPending}><Send className="ml-1 h-4 w-4"/>{ar?'نشر':'Publish'}</Button>}
           {can('quality.manage')&&s.status==='open'&&<Button variant="outline" onClick={()=>transition.mutate('closed')} isLoading={transition.isPending}><Lock className="ml-1 h-4 w-4"/>{ar?'إيقاف الردود':'Stop responses'}</Button>}
           {can('quality.manage')&&s.status==='closed'&&<Button variant="outline" onClick={()=>transition.mutate('open')} isLoading={transition.isPending}>{ar?'إعادة فتح':'Reopen'}</Button>}
@@ -43,14 +49,11 @@ export function SurveyDetailsPage(){
       {copyFailed&&<label className="mt-3 block text-xs font-bold text-slate-600">{ar?'انسخ الرابط يدويًا':'Copy the link manually'}<input readOnly onFocus={event=>event.currentTarget.select()} value={url} className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-xs font-normal"/></label>}
       {transition.isError&&<p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-xs font-bold text-red-700">{transition.error instanceof ApiError?transition.error.message:(ar?'تعذر تغيير حالة الاستبيان.':'Unable to change survey status.')}</p>}
     </div>
-    <nav aria-label={ar?'أقسام الاستبيان':'Survey sections'} className="flex gap-1 overflow-x-auto border-t border-slate-100 px-3 sm:px-5">
-      <span className="shrink-0 border-b-2 border-teal-600 px-3 py-3 text-xs font-black text-teal-700 sm:text-sm">{ar?'الأسئلة':'Questions'} ({s.questions.length})</span>
-      <Link to={`/quality/surveys/${s.id}/responses`} className="shrink-0 px-3 py-3 text-xs font-bold text-slate-500 sm:text-sm">{ar?'الردود':'Responses'}</Link>
-      {!!s.target_levels?.length && <Link to={`/quality/surveys/${s.id}/participation`} className="shrink-0 px-3 py-3 text-xs font-bold text-slate-500 sm:text-sm">{ar?'مشاركة الطلبة':'Student participation'}</Link>}
-      {can('quality.manage')&&<button type="button" onClick={()=>setSettings(true)} className="shrink-0 px-3 py-3 text-xs font-bold text-slate-500 sm:text-sm"><Settings2 className="ml-1 inline h-4 w-4"/>{ar?'إعدادات الردود':'Response settings'}</button>}
+    <nav aria-label={ar?'أقسام الاستبيان':'Survey sections'} className="grid grid-cols-2 gap-1 border-t border-slate-100 p-2 sm:flex sm:gap-1 sm:px-5 sm:py-0">
+      {([['questions',ar?'الأسئلة':'Questions',s.questions.length],['responses',ar?'النتائج والردود':'Results & responses',s.submissions_count||0],...(s.target_levels?.length?[['participation',ar?'مشاركة الطلبة':'Student participation',null]]:[]),...(can('quality.manage')?[['settings',ar?'الإعدادات':'Settings',null]]:[])] as [string,string,number|null][]).map(([key,label,count])=><button key={key} type="button" aria-current={tab===key?'page':undefined} onClick={()=>selectTab(key)} className={`min-h-11 rounded-xl px-2 py-2 text-xs font-black sm:rounded-none sm:border-b-2 sm:px-4 sm:py-3 sm:text-sm ${tab===key?'bg-teal-50 text-teal-800 sm:border-teal-600 sm:bg-transparent':'text-slate-500 sm:border-transparent hover:bg-slate-50'}`}>{label}{count!==null&&<span className="ms-1 text-[10px] opacity-70">{count}</span>}</button>)}
     </nav>
   </header>
-  <section className="space-y-3">
+  {tab==='questions'&&<section className="space-y-3">
     {!!s.target_levels?.length&&<p className="rounded-xl border border-teal-100 bg-teal-50 px-3 py-2 text-xs text-teal-800">{ar?'حقل الرقم الجامعي يظهر تلقائيًا كأول حقل للطالب؛ لا تضفه كسؤال عادي حتى لا يظهر الرقم مع الإجابات.':'The university-number field appears automatically first. Do not add it as a regular question, which would expose it beside answers.'}</p>}
     {!!s.submissions_count&&<p className="rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-600">{ar?'الأسئلة مقفلة بعد أول رد حفاظًا على اتساق النتائج. أنشئ استبيانًا جديدًا لتغييرها.':'Questions are locked after the first response to preserve results. Create a new survey to change them.'}</p>}
     {!s.questions.length&&<div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center"><MessageSquarePlus className="mx-auto h-8 w-8 text-teal-600"/><h2 className="mt-3 text-sm font-black">{ar?'أضف أول سؤال':'Add your first question'}</h2></div>}
@@ -65,17 +68,21 @@ export function SurveyDetailsPage(){
     </article>)}
     {remove.isError&&<p role="alert" className="rounded-lg bg-red-50 p-3 text-xs font-bold text-red-700">{remove.error instanceof ApiError?remove.error.message:(ar?'تعذر حذف السؤال.':'Unable to delete question.')}</p>}
     {canEditQuestions&&<button type="button" onClick={()=>{setForm(blank);setEditor(null)}} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-teal-300 bg-teal-50/40 p-4 text-sm font-black text-teal-700"><Plus className="h-5 w-5"/>{ar?'إضافة سؤال':'Add question'}</button>}
-  </section>
+  </section>}
+  {tab==='responses'&&<SurveyResponsesPage surveyId={id} embedded/>}
+  {tab==='participation'&&!!s.target_levels?.length&&<SurveyParticipationPage surveyId={id} embedded/>}
   <QuestionModal ar={ar} open={editor!==undefined} editing={Boolean(editor)} form={form} setForm={setForm} close={()=>setEditor(undefined)} save={()=>save.mutate()} loading={save.isPending} error={save.error}/>
-  <Modal isOpen={settings} onClose={()=>setSettings(false)} title={ar?'إعدادات الردود':'Response settings'}>
-    <div className="space-y-3">
+  {tab==='settings'&&can('quality.manage')&&<section aria-label={ar?'إعدادات الاستبيان':'Survey settings'} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+      <div><h2 className="text-lg font-black text-slate-900">{ar?'إعدادات الاستبيان':'Survey settings'}</h2><p className="mt-1 text-xs text-slate-500">{ar?'ضبط طريقة المشاركة والدفعات المستهدفة.':'Manage response policy and target cohorts.'}</p></div>
+      <div className="max-w-2xl space-y-4">
+      <form onSubmit={event=>{event.preventDefault();updateDetails.mutate()}} className="space-y-3 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">{ar?'بيانات النموذج':'Form details'}</h3><label className="block"><span className="mb-1 block text-xs font-bold">{ar?'العنوان':'Title'}</span><input required maxLength={500} value={details.title} onChange={event=>setDetails({...details,title:event.target.value})} className={field}/></label><label className="block"><span className="mb-1 block text-xs font-bold">{ar?'وصف يظهر للمجيب':'Description shown to respondents'}</span><textarea rows={3} maxLength={3000} value={details.purpose} onChange={event=>setDetails({...details,purpose:event.target.value})} className={field}/></label><label className="block"><span className="mb-1 block text-xs font-bold">{ar?'آخر يوم لاستقبال الردود (اختياري)':'Last response date (optional)'}</span><input type="date" value={details.closes_at} onChange={event=>setDetails({...details,closes_at:event.target.value})} className={field}/></label>{updateDetails.isError&&<p role="alert" className="text-xs font-bold text-red-700">{updateDetails.error instanceof ApiError?updateDetails.error.message:(ar?'تعذر حفظ البيانات.':'Unable to save details.')}</p>}<Button type="submit" isLoading={updateDetails.isPending}>{ar?'حفظ بيانات النموذج':'Save form details'}</Button></form>
       <label><span className="mb-1 block text-xs font-bold">{ar?'سياسة الردود':'Response policy'}</span><select value={s.response_policy||'multiple'} onChange={event=>updatePolicy.mutate(event.target.value)} disabled={updatePolicy.isPending || !!s.target_levels?.length} className={field}><option value="multiple">{ar?'السماح بأكثر من رد':'Allow multiple responses'}</option><option value="one_per_device">{ar?'رد واحد لكل جهاز/متصفح':'One response per device/browser'}</option><option value="one_per_identifier">{ar?'رد واحد لكل رقم أو معرّف':'One response per identifier'}</option></select></label>
       {s.target_group==='الطلبة'&&s.status==='draft'&&!s.submissions_count&&<fieldset className="rounded-xl border border-slate-200 p-3"><legend className="px-1 text-xs font-bold">{ar?'متابعة مشاركة الدفعات':'Track cohort participation'}</legend><div className="flex flex-wrap gap-2">{(['fourth','fifth','sixth'] as const).map(level=>{const selected=s.target_levels||[];return <label key={level} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-xs"><input type="checkbox" disabled={updateLevels.isPending} checked={selected.includes(level)} onChange={event=>{const next=event.target.checked?[...selected,level]:selected.filter(value=>value!==level);if(next.length)updateLevels.mutate(next)}}/>{({fourth:ar?'الرابعة':'Fourth',fifth:ar?'الخامسة':'Fifth',sixth:ar?'السادسة':'Sixth'} as Record<string,string>)[level]}</label>})}</div><p className="mt-2 text-[11px] text-slate-500">{ar?'يظهر حقل الرقم الجامعي داخل الاستبيان، ولا يُرسل رمز بريد. تُحفظ الإجابات منفصلة عن حالة المشاركة.':'A university-number field appears in the form, with no email code. Answers stay separate from participation status.'}</p>{updateLevels.isError&&<p role="alert" className="mt-2 text-xs text-red-700">{(updateLevels.error as ApiError).message}</p>}</fieldset>}
       {updatePolicy.isPending&&<p className="text-xs text-slate-500">{ar?'جارٍ الحفظ...':'Saving...'}</p>}
       {updatePolicy.isError&&<p role="alert" className="rounded-lg bg-red-50 p-3 text-xs text-red-700">{updatePolicy.error instanceof ApiError?updatePolicy.error.message:(ar?'تعذر حفظ الإعدادات.':'Unable to save settings.')}</p>}
-      <p className="text-xs leading-5 text-slate-500">{ar?'تقييد الجهاز يعتمد على بيانات هذا المتصفح ويمكن تجاوزه باستخدام جهاز آخر. رقم المجيب أكثر موثوقية إذا كان متاحًا.':'Device restriction depends on this browser and can be bypassed from another device. Use an official identifier when appropriate.'}</p>
-    </div>
-  </Modal>
+      <p className="text-xs leading-5 text-slate-500">{ar?'تقييد الجهاز يعتمد على بيانات هذا المتصفح ويمكن تجاوزه باستخدام جهاز آخر. الرقم الجامعي المدخل يدويًا لا يثبت هوية صاحبه.':'Device restriction depends on this browser and can be bypassed. A manually entered university number does not verify identity.'}</p>
+      </div>
+  </section>}
  </div>;
 }
 
