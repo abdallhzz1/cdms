@@ -80,16 +80,20 @@ class StudentController extends Controller
         return ApiResponse::success($groups);
     }
 
-    /** Preview the complete, permission-scoped cohort/group recipient list for Gmail Bcc. */
+    /** Preview permission-scoped recipients for one cohort, a group, or every visible cohort. */
     public function emailRecipients(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'academic_level' => ['required', 'in:fourth,fifth,sixth'],
-            'main_group_code' => ['nullable', 'string', 'max:20'],
+            'academic_level' => ['required', 'in:fourth,fifth,sixth,all'],
+            'main_group_code' => ['nullable', 'prohibited_if:academic_level,all', 'string', 'max:20'],
         ]);
 
         $students = $this->applyStudentAccessScope(Student::query())
-            ->where('academic_level', $data['academic_level'])
+            ->when(
+                $data['academic_level'] === 'all',
+                fn ($query) => $query->whereIn('academic_level', ['fourth', 'fifth', 'sixth']),
+                fn ($query) => $query->where('academic_level', $data['academic_level'])
+            )
             ->when(! empty($data['main_group_code']), function ($query) use ($data) {
                 $groupCode = strtoupper(trim($data['main_group_code']));
                 $query->whereHas('groupRegistrationRosters', fn ($roster) => $roster

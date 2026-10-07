@@ -166,6 +166,21 @@ class StudentTest extends TestCase
         $this->actingAs($this->admin)->getJson('/api/v1/students/email-recipients?academic_level=fourth')
             ->assertOk()->assertJsonPath('data.recipient_count', 2);
 
+        $studentFifth = Student::factory()->create(['academic_year_id' => $year->id, 'academic_level' => 'fifth']);
+        Student::factory()->create(['academic_year_id' => $year->id, 'academic_level' => 'third']);
+        $allRecipients = $this->actingAs($this->admin)->getJson('/api/v1/students/email-recipients?academic_level=all')
+            ->assertOk()
+            ->assertJsonPath('data.total_students', 3)
+            ->assertJsonPath('data.recipient_count', 3);
+        $this->assertEqualsCanonicalizing(
+            collect([$studentL, $studentM, $studentFifth])
+                ->map(fn (Student $student) => strtolower($student->resolvedUniversityEmail()))->all(),
+            $allRecipients->json('data.emails')
+        );
+
+        $this->actingAs($this->admin)->getJson('/api/v1/students/email-recipients?academic_level=all&main_group_code=L')
+            ->assertUnprocessable();
+
         $this->actingAs($this->admin)->getJson('/api/v1/students/email-recipients')
             ->assertUnprocessable();
     }
@@ -191,6 +206,12 @@ class StudentTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.recipient_count', 0)
             ->assertJsonPath('data.emails', []);
+
+        $this->actingAs($rta)->getJson('/api/v1/students/email-recipients?academic_level=all')
+            ->assertOk()
+            ->assertJsonPath('data.total_students', 1)
+            ->assertJsonPath('data.recipient_count', 1)
+            ->assertJsonPath('data.emails.0', $visible->resolvedUniversityEmail());
     }
 
     public function test_can_create_student()

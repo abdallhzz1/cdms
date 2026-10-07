@@ -554,7 +554,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
         </div>
 
         {kind === 'students' && <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <button type="button" onClick={() => setBulkEmailOpen(true)} className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-teal-200 bg-white px-3 text-xs font-bold text-teal-800 shadow-sm hover:bg-teal-50"><Mail className="h-4 w-4" />{locale === 'ar' ? 'مراسلة جماعية' : 'Group email'}</button>
+          <button type="button" onClick={() => setBulkEmailOpen(true)} className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-teal-200 bg-white px-3 text-xs font-bold text-teal-800 shadow-sm hover:bg-teal-50"><Mail className="h-4 w-4" />{locale === 'ar' ? 'مراسلة الطلبة' : 'Email students'}</button>
         {!departmentScoped && can('students.create') && (
           <div className="flex items-center p-1 bg-white rounded-full border border-slate-200/80 shadow-xs gap-1 shrink-0">
             {/* 1. Download Template */}
