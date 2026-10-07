@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronLeft, ChevronRight, ExternalLink, Mail, Search, UsersRound, X } from 'lucide-react';
 import { apiFetch, apiFetchEnvelope } from '@/api/client';
 import { useI18n } from '@/i18n/I18nContext';
-import { gmailComposeUrl } from './studentEmail';
+import { gmailBccNeedsPaste, gmailComposeUrl } from './studentEmail';
 
 type Cohort = { value: string; label_ar: string; label_en: string };
 type Recipients = {
@@ -42,6 +42,7 @@ export function StudentBulkEmailDialog({ cohorts, initialLevel, onClose }: { coh
   const [searchLevel, setSearchLevel] = useState('');
   const [searchPage, setSearchPage] = useState(1);
   const [selected, setSelected] = useState<StudentChoice[]>([]);
+  const [copyOutcome, setCopyOutcome] = useState<{ addresses: string; status: 'copied' | 'failed' } | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { setSearch(searchInput.trim()); setSearchPage(1); }, 250);
@@ -73,7 +74,20 @@ export function StudentBulkEmailDialog({ cohorts, initialLevel, onClose }: { coh
 
   const uniqueSelectedEmails = [...new Set(selected.map(validEmail).filter((email): email is string => Boolean(email)))];
   const emails = mode === 'cohort' ? recipientsQuery.data?.emails || [] : uniqueSelectedEmails;
-  const gmailUrl = gmailComposeUrl({ bcc: emails });
+  const addresses = emails.join(', ');
+  const needsPaste = gmailBccNeedsPaste(emails);
+  const gmailUrl = needsPaste ? gmailComposeUrl() : gmailComposeUrl({ bcc: emails });
+  const copyStatus = copyOutcome?.addresses === addresses ? copyOutcome.status : null;
+  const copyAndOpenGmail = () => {
+    if (!needsPaste) return;
+    if (!navigator.clipboard?.writeText) {
+      setCopyOutcome({ addresses, status: 'failed' });
+      return;
+    }
+    void navigator.clipboard.writeText(addresses)
+      .then(() => setCopyOutcome({ addresses, status: 'copied' }))
+      .catch(() => setCopyOutcome({ addresses, status: 'failed' }));
+  };
   const lastPage = Number(studentsQuery.data?.meta.last_page || 1);
   const studentName = (student: StudentChoice) => (ar ? student.full_name_ar : student.full_name_en || student.full_name_ar);
   const cohortLabel = (value: string) => {
@@ -144,9 +158,13 @@ export function StudentBulkEmailDialog({ cohorts, initialLevel, onClose }: { coh
           {selected.length > 0 && <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-3"><div className="flex items-center justify-between gap-2"><h4 className="flex items-center gap-1.5 text-xs font-black text-teal-950"><UsersRound className="h-4 w-4" />{tr('الطلاب المحددون', 'Selected students')} · {selected.length}</h4><button type="button" onClick={() => setSelected([])} className="text-[11px] font-bold text-teal-800 underline">{tr('مسح الاختيار', 'Clear selection')}</button></div><div className="mt-2 max-h-28 space-y-1 overflow-y-auto">{selected.map(student => <div key={student.id} className="flex items-center justify-between gap-2 rounded-lg bg-white px-2.5 py-1.5 text-xs"><span className="min-w-0 truncate font-semibold">{studentName(student)} · {cohortLabel(student.academic_level)}</span><button type="button" onClick={() => toggleStudent(student)} aria-label={tr('إزالة الطالب ', 'Remove student ') + studentName(student)} className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-500 hover:bg-rose-50 hover:text-rose-700"><X className="h-3.5 w-3.5" /></button></div>)}</div><p className="mt-2 text-[11px] text-teal-800">{emails.length} {tr('عنوانًا فريدًا في الرسالة', 'unique addresses in the draft')}</p></div>}
         </>}
 
-        {emails.length > 0 && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs leading-6 text-slate-600"><Check className="me-1 inline h-3.5 w-3.5 text-teal-700" />{tr('ستُفتح مسودة Gmail واحدة وعناوين الطلاب في BCC. قبل الإرسال، تأكد داخل Gmail من ظهور جميع المستلمين وعددهم ', 'One Gmail draft opens with the students in Bcc. Before sending, confirm Gmail shows all ')}<strong className="text-slate-900">{emails.length}</strong>{tr('؛ النظام لا يرسل الرسالة تلقائيًا.', ' recipients; this system does not send automatically.')}</div>}
+        {emails.length > 0 && (needsPaste ? <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs leading-6 text-amber-950">
+          <strong>{tr('قائمة كبيرة: ', 'Large list: ')}</strong>{tr('سينسخ الزر ', 'The button will copy ')}<strong>{emails.length}</strong>{tr(' عنوانًا ويفتح مسودة Gmail واحدة. داخل Gmail افتح BCC والصق العناوين مرة واحدة، ثم تأكد من العدد قبل الإرسال. لا يرسل النظام الرسالة تلقائيًا.', ' addresses and open one Gmail draft. In Gmail, open Bcc and paste once, then check the recipient count before sending. The system does not send automatically.')}
+          {copyStatus === 'copied' && <p role="status" className="mt-2 font-bold text-teal-800">{tr('تم نسخ العناوين. الصقها الآن في BCC داخل Gmail.', 'Addresses copied. Paste them into Gmail Bcc now.')}</p>}
+          {copyStatus === 'failed' && <div role="alert" className="mt-2 space-y-2 text-rose-800"><p className="font-bold">{tr('تعذر النسخ التلقائي. حدد العناوين أدناه وانسخها، ثم الصقها في BCC.', 'Automatic copying failed. Select and copy the addresses below, then paste them into Bcc.')}</p><textarea readOnly value={addresses} onFocus={event => event.target.select()} aria-label={tr('عناوين الطلاب للنسخ اليدوي', 'Student addresses for manual copy')} className="h-24 w-full resize-y rounded-lg border border-amber-200 bg-white p-2 text-start text-xs text-slate-800" /></div>}
+        </div> : <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs leading-6 text-slate-600"><Check className="me-1 inline h-3.5 w-3.5 text-teal-700" />{tr('ستُفتح مسودة Gmail واحدة وعناوين الطلاب في BCC. قبل الإرسال، تأكد داخل Gmail من ظهور جميع المستلمين وعددهم ', 'One Gmail draft opens with the students in Bcc. Before sending, confirm Gmail shows all ')}<strong className="text-slate-900">{emails.length}</strong>{tr('؛ النظام لا يرسل الرسالة تلقائيًا.', ' recipients; this system does not send automatically.')}</div>)}
       </div>
-      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-100 bg-white px-4 py-3 sm:px-6"><span className="text-[11px] font-bold text-slate-500">{emails.length} {tr('مستلم', 'recipients')}</span><div className="flex items-center gap-2"><button type="button" onClick={onClose} className="min-h-10 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-700">{tr('إلغاء', 'Cancel')}</button>{emails.length > 0 && <a href={gmailUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-teal-700 px-3 text-xs font-bold text-white hover:bg-teal-800"><ExternalLink className="h-4 w-4" />{tr('فتح Gmail', 'Open Gmail')}</a>}</div></footer>
+      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-100 bg-white px-4 py-3 sm:px-6"><span className="text-[11px] font-bold text-slate-500">{emails.length} {tr('مستلم', 'recipients')}</span><div className="flex items-center gap-2"><button type="button" onClick={onClose} className="min-h-10 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-700">{tr('إلغاء', 'Cancel')}</button>{emails.length > 0 && <a href={gmailUrl} target="_blank" rel="noopener noreferrer" onClick={copyAndOpenGmail} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-teal-700 px-3 text-xs font-bold text-white hover:bg-teal-800"><ExternalLink className="h-4 w-4" />{needsPaste ? tr('نسخ وفتح Gmail', 'Copy & open Gmail') : tr('فتح Gmail', 'Open Gmail')}</a>}</div></footer>
     </section>
   </div>;
 }

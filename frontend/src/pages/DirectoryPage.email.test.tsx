@@ -1,12 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { DirectoryPage } from './DirectoryPage';
 
 const envelope = (data: unknown, meta: Record<string, unknown> = {}) => new Response(JSON.stringify({ success: true, data, message: null, meta }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
-afterEach(() => { vi.restoreAllMocks(); localStorage.removeItem('cdms.locale'); });
+const initialClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  localStorage.removeItem('cdms.locale');
+  if (initialClipboard) Object.defineProperty(navigator, 'clipboard', initialClipboard);
+  else Reflect.deleteProperty(navigator, 'clipboard');
+});
 
 describe('student directory email action', () => {
   it('filters tracked survey participation in the student directory', async () => {
@@ -97,9 +104,11 @@ describe('student directory email action', () => {
     expect(fetchSpy.mock.calls.some(([input]) => String(input).includes('academic_level=all'))).toBe(true);
   });
 
-  it('keeps a large cohort entirely in Gmail Bcc instead of opening an empty draft', async () => {
+  it('copies a large cohort and opens a short Gmail link instead of a link Gmail rejects', async () => {
     localStorage.setItem('cdms.locale', 'en');
     const emails = Array.from({ length: 350 }, (_, index) => 'student' + String(index + 1).padStart(4, '0') + '@students.hebron.edu');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     vi.spyOn(window, 'fetch').mockImplementation(async input => {
       const url = String(input);
       if (url.includes('/auth/me')) return envelope({ id: 4, roles: ['SYS_ADMIN'], assigned_levels: [], permissions: [{ code: 'students.view', scope: 'global' }] });
@@ -114,10 +123,19 @@ describe('student directory email action', () => {
     const dialog = screen.getByRole('dialog', { name: 'Email students' });
     await userEvent.selectOptions(within(dialog).getByLabelText('Recipient cohort'), 'all');
     expect(await within(dialog).findByText('350 email recipients')).toBeVisible();
-    const href = within(dialog).getByRole('link', { name: 'Open Gmail' }).getAttribute('href') || '';
-    expect(href.length).toBeGreaterThan(4000);
-    expect(new URL(href).searchParams.get('bcc')?.split(',')).toEqual(emails);
-    expect(within(dialog).queryByRole('button', { name: 'Copy addresses' })).not.toBeInTheDocument();
+    const link = within(dialog).getByRole('link', { name: 'Copy & open Gmail' });
+    const url = new URL(link.getAttribute('href') || '');
+    expect(url.origin).toBe('https://mail.google.com');
+    expect(url.searchParams.get('bcc')).toBeNull();
+    expect(url.href.length).toBeLessThan(100);
+    await userEvent.click(link);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(emails.join(', ')));
+    expect(await within(dialog).findByRole('status')).toHaveTextContent('Addresses copied');
+
+    writeText.mockRejectedValueOnce(new Error('Clipboard permission denied'));
+    await userEvent.click(link);
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Automatic copying failed');
+    expect(within(dialog).getByRole('textbox', { name: 'Student addresses for manual copy' })).toHaveValue(emails.join(', '));
   });
 
   it('keeps individually selected students across cohorts and excludes missing addresses', async () => {
