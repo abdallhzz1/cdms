@@ -177,7 +177,7 @@ export function BasicAttendanceSection({ section: selectedSection, current: sele
   const report = useQuery({ queryKey: ['basic-report', sectionId, offset], queryFn: () => apiFetch<Report>(`/basic-attendance/sections/${sectionId}/report?offset=${offset}`), enabled: !!section && current === 'report' });
   const reportRecords = useMemo(() => new Map((report.data?.records ?? []).map(r => [`${r.student_id}:${r.session_id}`, r])), [report.data]);
   const mobileSession = report.data?.sessions.find(item => item.id === mobileSessionId) ?? report.data?.sessions.at(-1);
-  const [lecture, setLecture] = useState({ title: `${bt('text013')}${new Date().toLocaleDateString(basicLocale())}`, mode: 'single', window_minutes: 5, late_after_minutes: 2, lecturer_id: 0 });
+  const [lecture, setLecture] = useState({ title: `${bt('text013')}${new Date().toLocaleDateString(basicLocale())}`, mode: 'single', window_minutes: 15, late_after_minutes: 2, lecturer_id: 0 });
   const [showLectureForm, setShowLectureForm] = useState(false); const [showImport, setShowImport] = useState(false); const [showManual, setShowManual] = useState(false);
   const [archiveSession, setArchiveSession] = useState<Session | null>(null);
   const [manualStudent, setManualStudent] = useState({ university_number: '', name: '', email: '' });

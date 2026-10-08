@@ -60,12 +60,14 @@ describe('Isolated basic lecture attendance', () => {
   window.history.replaceState({}, '', '/lecture-attendance?qr=fresh');
   const fetch = mock(path => {
    if (path === '/public/basic-attendance/identity') return envelope({ student: null });
-   if (path === '/public/basic-attendance/prepare') return envelope({ scan_ticket: 'prepared' });
-   if (path === '/public/basic-attendance/request-otp') return envelope({ challenge_token: 'challenge' });
+   if (path === '/public/basic-attendance/prepare') return envelope({ scan_ticket: 'prepared', claim_expires_at: '2026-09-29T09:10:00+03:00' });
+   if (path === '/public/basic-attendance/request-otp') return envelope({ challenge_token: 'challenge', claim_expires_at: '2026-09-29T09:10:00+03:00' });
    if (path === '/public/basic-attendance/verify-otp') return envelope({ student, attendance, attendance_error: null, remembered_days: 30 });
    throw Error(path);
   });
   renderWithProviders(<PublicLectureAttendancePage />);
+  await screen.findByText(/Your QR scan time is saved/);
+  expect(screen.getByText(/Attendance is not recorded yet/)).toBeInTheDocument();
   await userEvent.type(await screen.findByLabelText('University number'), '2600001');
   await waitFor(() => expect(screen.getByRole('button', { name: 'Send verification code' })).toBeEnabled());
   await userEvent.click(screen.getByRole('button', { name: 'Send verification code' }));
@@ -107,5 +109,16 @@ describe('Isolated basic lecture attendance', () => {
   await userEvent.click(screen.getAllByRole('button', { name: 'Correct' })[0]);
   const reason = screen.getByLabelText('Correction reason — required');
   expect(reason).toBeRequired();
+ });
+
+ it('shows pending first-time scans before allowing lecture finalization', async () => {
+  mock(path => {
+   if (path === '/basic-attendance/sessions/1') return envelope({ section, session: { id: 1, title: 'Test Lecture', state: 'paused', mode: 'single', opened_at: '2026-09-29T09:00:00+03:00' }, accepting: false, pending_scans: 1, pending_until: '2026-09-29T09:10:00+03:00', counts: { total: 1, check_in: 0, check_out: 0, late: 0, absent: 0, incomplete: 0 }, rows: [{ id: 1, student_id: 1, name: student.name, university_number: student.university_number, status: 'pending', source: 'qr', check_in_at: null, check_out_at: null, is_late: false }] });
+   if (path === '/basic-attendance/sessions/1/qr') return envelope({ url: null, phase: 'paused' });
+   throw Error(path);
+  });
+  renderWithProviders(<Routes><Route path="/basic-attendance/sessions/:sessionId" element={<BasicLectureSessionPage />} /></Routes>, { route: '/basic-attendance/sessions/1' });
+  await screen.findByText(/QR scans awaiting email verification: 1/);
+  expect(screen.getByRole('button', { name: 'End and finalize lecture' })).toBeDisabled();
  });
 });

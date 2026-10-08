@@ -188,7 +188,7 @@ class BasicLectureAttendanceTest extends TestCase
     {
         $id = $this->start(); $a = $this->device($this->students[0]); $qr = $this->token($id);
         $this->scan($a, $qr.'bad')->assertUnprocessable();
-        $this->travel(19)->seconds(); $this->scan($a, $qr)->assertUnprocessable();
+        $this->travel(36)->seconds(); $this->scan($a, $qr)->assertUnprocessable();
         $this->transition($id, 'close'); $this->transition($id, 'reopen_entry');
         $this->scan($a, $qr)->assertUnprocessable();
         $outsider = DB::table('basic_students')->insertGetId(['university_number' => '2600099', 'name' => 'خارج الشعبة', 'email' => 'outside@example.edu']);
@@ -214,12 +214,17 @@ class BasicLectureAttendanceTest extends TestCase
     public function test_fresh_scan_preparation_otp_delay_and_saved_device(): void
     {
         $this->mail(); $id = $this->start('single');
+        $scanTime = now()->toDateTimeString();
         $ticket = $this->postJson('/api/v1/public/basic-attendance/prepare', ['qr' => $this->token($id)])->assertOk()->json('data.scan_ticket');
         $this->travel(30)->seconds();
-        $challenge = $this->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '٢٦٠٠٠٠١', 'scan_ticket' => $ticket])->assertOk()->json('data.challenge_token');
+        $challenge = $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $ticket)->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '٢٦٠٠٠٠١', 'scan_ticket' => $ticket])->assertOk()->json('data.challenge_token');
         $this->assertSame('basic1@example.edu', $this->recipient);
+        $this->transition($id, 'close');
+        $this->actingAs($this->lecturer)->postJson('/api/v1/basic-attendance/sessions/'.$id.'/transition', ['action' => 'finalize'])->assertUnprocessable();
         $this->travel(30)->seconds();
-        $response = $this->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $challenge, 'otp' => $this->otp, 'remember' => true])->assertOk()->assertJsonPath('data.attendance.phase', 'check_in')->assertJsonPath('data.attendance_error', null)->assertJsonPath('data.remembered_days', 30);
+        $response = $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $ticket)->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $challenge, 'otp' => $this->otp, 'remember' => true])->assertOk()->assertJsonPath('data.attendance.phase', 'check_in')->assertJsonPath('data.attendance_error', null)->assertJsonPath('data.remembered_days', 30);
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'check_in_at' => $scanTime]);
+        $this->transition($id, 'finalize');
         $cookie = $response->getCookie(BasicAttendanceService::COOKIE, false);
         $this->assertTrue($cookie->isHttpOnly()); $this->assertSame('/', $cookie->getPath()); $this->assertSame('lax', $cookie->getSameSite());
         $this->assertEqualsWithDelta(now()->addMinutes(30 * 24 * 60)->timestamp, $cookie->getExpiresTime(), 3);
@@ -229,17 +234,19 @@ class BasicLectureAttendanceTest extends TestCase
         $this->getJson('/api/v1/public/basic-attendance/identity')->assertJsonPath('data.student', null);
     }
 
-    public function test_closed_phase_during_otp_does_not_record_attendance_but_identity_survives(): void
+    public function test_closed_phase_during_otp_preserves_the_original_scan_time(): void
     {
         $this->mail(); $id = $this->start();
-        $challenge = $this->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'qr' => $this->token($id)])->assertOk()->json('data.challenge_token');
+        $scanTime = now()->toDateTimeString();
+        $request = $this->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'qr' => $this->token($id)])->assertOk();
+        $challenge = $request->json('data.challenge_token');
+        $claim = $request->getCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, false)->getValue();
         $this->transition($id, 'close'); $this->transition($id, 'reopen_entry');
-        $r = $this->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $challenge, 'otp' => $this->otp, 'remember' => false])->assertOk()->assertJsonPath('data.attendance', null)->assertJsonPath('data.student.university_number', '2600001');
-        $this->assertNotEmpty($r->json('data.attendance_error'));
-        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'check_in_at' => null]);
+        $r = $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $claim)->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $challenge, 'otp' => $this->otp, 'remember' => false])->assertOk()->assertJsonPath('data.attendance.phase', 'check_in')->assertJsonPath('data.student.university_number', '2600001');
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'check_in_at' => $scanTime]);
         $cookie = $r->getCookie(BasicAttendanceService::COOKIE, false);
         $this->assertEqualsWithDelta(now()->addMinutes(120)->timestamp, $cookie->getExpiresTime(), 3);
-        $this->scan($cookie->getValue(), $this->token($id))->assertOk();
+        $this->scan($cookie->getValue(), $this->token($id))->assertOk()->assertJsonPath('data.already_recorded', true);
     }
 
     public function test_unknown_number_wrong_otp_attempts_and_mail_failure(): void
@@ -293,18 +300,68 @@ class BasicLectureAttendanceTest extends TestCase
         $id = $this->start();
         $ticket = $this->postJson('/api/v1/public/basic-attendance/prepare', ['qr' => $this->token($id)])->assertOk()->json('data.scan_ticket');
         $this->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'scan_ticket' => $ticket.'bad'])->assertUnprocessable();
-        $this->travel(6)->minutes();
-        $this->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'scan_ticket' => $ticket])->assertUnprocessable();
+        $this->travel(11)->minutes();
+        $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $ticket)->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'scan_ticket' => $ticket])->assertUnprocessable();
         $s = DB::table('basic_sections')->find($this->section);
         $this->actingAs($this->manager)->putJson('/api/v1/basic-attendance/sections/'.$s->id, ['course_id' => $s->course_id, 'number' => 'changed', 'academic_year' => $s->academic_year, 'semester' => $s->semester, 'lecturer_ids' => [$this->lecturer->id]])->assertUnprocessable();
+    }
+
+    public function test_unverified_claim_never_counts_and_expires_without_blocking_finalization(): void
+    {
+        $this->mail(); $id = $this->start('single');
+        $ticket = $this->postJson('/api/v1/public/basic-attendance/prepare', ['qr' => $this->token($id)])->assertOk()->json('data.scan_ticket');
+        $challenge = $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $ticket)->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'scan_ticket' => $ticket])->assertOk()->json('data.challenge_token');
+        $this->transition($id, 'close');
+        $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, str_repeat('x', 64))->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $challenge, 'otp' => $this->otp, 'remember' => false])->assertUnprocessable();
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'check_in_at' => null]);
+        $this->actingAs($this->lecturer)->getJson('/api/v1/basic-attendance/sessions/'.$id)->assertJsonPath('data.pending_scans', 1);
+        $this->travel(11)->minutes();
+        $this->transition($id, 'finalize');
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'status' => 'absent']);
+    }
+
+    public function test_a_scan_claim_cannot_be_reused_for_another_student_or_browser(): void
+    {
+        $this->mail(); $id = $this->start('single');
+        $ticket = $this->postJson('/api/v1/public/basic-attendance/prepare', ['qr' => $this->token($id)])->assertOk()->json('data.scan_ticket');
+        $this->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'scan_ticket' => $ticket])->assertUnprocessable();
+        $challenge = $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $ticket)->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'scan_ticket' => $ticket])->assertOk()->json('data.challenge_token');
+        $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $ticket)->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600002', 'scan_ticket' => $ticket])->assertUnprocessable();
+        $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, 'another-browser')->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $challenge, 'otp' => $this->otp, 'remember' => false])->assertUnprocessable();
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'check_in_at' => null]);
+        $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $ticket)->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $challenge, 'otp' => $this->otp, 'remember' => false])->assertOk()->assertJsonPath('data.attendance.phase', 'check_in');
+    }
+
+    public function test_reopening_the_same_qr_in_the_same_browser_reuses_the_pending_scan(): void
+    {
+        $id = $this->start('single');
+        $qr = $this->token($id);
+        $first = $this->postJson('/api/v1/public/basic-attendance/prepare', ['qr' => $qr])->assertOk()->json('data.scan_ticket');
+        $second = $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $first)->postJson('/api/v1/public/basic-attendance/prepare', ['qr' => $qr])->assertOk()->json('data.scan_ticket');
+        $this->assertSame($first, $second);
+        $this->assertDatabaseCount('basic_scan_claims', 1);
+    }
+
+    public function test_double_check_waits_for_first_scan_claim_before_opening_exit(): void
+    {
+        $this->mail(); $id = $this->start('double');
+        $request = $this->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'qr' => $this->token($id)])->assertOk();
+        $claim = $request->getCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, false)->getValue();
+        $this->transition($id, 'close');
+        $this->actingAs($this->lecturer)->postJson('/api/v1/basic-attendance/sessions/'.$id.'/transition', ['action' => 'open_exit'])->assertUnprocessable();
+        $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $claim)->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $request->json('data.challenge_token'), 'otp' => $this->otp, 'remember' => false])->assertOk();
+        $this->transition($id, 'open_exit');
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'check_out_at' => null]);
     }
 
     public function test_same_origin_encrypted_cookie_round_trip_registers_the_second_check(): void
     {
         $this->mail(); $id = $this->start();
         $this->withHeader('Origin', 'http://localhost');
-        $c = $this->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'qr' => $this->token($id)])->assertOk()->json('data.challenge_token');
-        $r = $this->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $c, 'otp' => $this->otp, 'remember' => true])->assertOk();
+        $request = $this->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'qr' => $this->token($id)])->assertOk();
+        $c = $request->json('data.challenge_token');
+        $claim = $request->getCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, false)->getValue();
+        $r = $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $claim)->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $c, 'otp' => $this->otp, 'remember' => true])->assertOk();
         $cookie = $r->getCookie(BasicAttendanceService::COOKIE, false);
         $this->assertGreaterThan(80, strlen($cookie->getValue()));
         $this->withUnencryptedCookie(BasicAttendanceService::COOKIE, $cookie->getValue())->getJson('/api/v1/public/basic-attendance/identity')->assertJsonPath('data.student.university_number', '2600001');

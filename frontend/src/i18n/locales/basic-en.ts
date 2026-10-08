@@ -295,5 +295,9 @@ export const basicAttendanceUi = {
   "auditStudent": "Student: {name}",
   "auditReason": "Reason: {reason}",
   "workLectureLecturer": "Lecture lecturer",
-  "workChooseLecturer": "Choose the assigned lecturer"
+  "workChooseLecturer": "Choose the assigned lecturer",
+  "workPendingScans": "QR scans awaiting email verification: {count}",
+  "workPendingUntil": "Verification can finish until {time}. Do not finalize while scans are pending.",
+  "publicScanCaptured": "Your QR scan time is saved. You can enter the email code until {time}, even if the lecturer closes registration.",
+  "publicScanWaiting": "Attendance is not recorded yet; it is confirmed only after the correct code is entered in this browser."
 } as const;

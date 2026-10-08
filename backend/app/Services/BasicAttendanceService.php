@@ -10,6 +10,8 @@ use Illuminate\Validation\ValidationException;
 
 class BasicAttendanceService
 {
+    public const SCAN_CLAIM_COOKIE = 'basic_attendance_claim';
+    public const SCAN_CLAIM_MINUTES = 10;
     public const COOKIE = 'basic_attendance_device';
 
     public function dates(object $row): object
@@ -85,6 +87,9 @@ class BasicAttendanceService
                 'finalize' => $s->state !== 'finalized', default => false,
             };
             abort_unless($allowed, 409);
+            if (in_array($action, ['open_exit', 'finalize']) && DB::table('basic_scan_claims')->where('session_id', $id)->whereNull('consumed_at')->where('expires_at', '>', now())->exists()) {
+                throw ValidationException::withMessages(['pending_scans' => [__('basic_attendance.pending_scans_block_transition')]]);
+            }
             $state = match ($action) { 'close' => 'paused', 'open_exit' => 'check_out', 'reopen_entry' => 'check_in', 'finalize' => 'finalized' };
             $values = ['state' => $state, 'version' => $s->version + 1, 'phase_expires_at' => in_array($state, ['check_in', 'check_out']) ? now()->addMinutes($s->window_minutes) : null, 'updated_at' => now()];
             if ($action === 'finalize') {
@@ -98,8 +103,62 @@ class BasicAttendanceService
 
     public function token(object $s): string
     {
-        $payload = rtrim(strtr(base64_encode(json_encode([$s->public_id, $s->state, (int) $s->version, intdiv(now()->timestamp, 15)])), '+/', '-_'), '=');
+        $payload = rtrim(strtr(base64_encode(json_encode([$s->public_id, $s->state, (int) $s->version, intdiv(now()->timestamp, 30)])), '+/', '-_'), '=');
         return $payload.'.'.hash_hmac('sha256', 'basic-lecture:'.$payload, (string) config('app.key'));
+    }
+
+    /** A valid, freshly displayed QR reserves its scan time before any email delay. */
+    public function prepareClaim(object $expected, ?string $existingToken = null): array
+    {
+        return DB::transaction(function () use ($expected, $existingToken): array {
+            $s = DB::table('basic_lecture_sessions')->where('id', $expected->id)->whereNull('archived_at')->lockForUpdate()->first();
+            if (! $s || (int) $s->version !== (int) $expected->version || $s->state !== $expected->state || ! $this->accepting($s)) $this->invalidQr();
+            if ($existingToken && strlen($existingToken) === 64) {
+                $existing = DB::table('basic_scan_claims')->where('session_id', $s->id)->where('token_hash', hash('sha256', $existingToken))
+                    ->where('version', $s->version)->where('phase', $s->state)->whereNull('consumed_at')->where('expires_at', '>', now())->first();
+                if ($existing) return ['id' => $existing->id, 'token' => $existingToken, 'expires_at' => Carbon::parse($existing->expires_at)];
+            }
+            $token = Str::random(64);
+            $scannedAt = now();
+            $expiresAt = $scannedAt->copy()->addMinutes(self::SCAN_CLAIM_MINUTES);
+            $id = DB::table('basic_scan_claims')->insertGetId([
+                'session_id' => $s->id, 'token_hash' => hash('sha256', $token), 'phase' => $s->state,
+                'version' => $s->version, 'scanned_at' => $scannedAt, 'expires_at' => $expiresAt,
+                'created_at' => $scannedAt, 'updated_at' => $scannedAt,
+            ]);
+            return ['id' => $id, 'token' => $token, 'expires_at' => $expiresAt];
+        });
+    }
+
+    /** Called inside OTP verification's transaction, after checking the browser-bound claim cookie. */
+    public function confirmClaim(int $student, int $claimId): array
+    {
+        $reference = DB::table('basic_scan_claims')->find($claimId);
+        if (! $reference) throw ValidationException::withMessages(['qr' => [__('basic_attendance.claim_expired')]]);
+        $s = DB::table('basic_lecture_sessions')->where('id', $reference->session_id)->whereNull('archived_at')->lockForUpdate()->first();
+        $claim = DB::table('basic_scan_claims')->where('id', $claimId)->lockForUpdate()->first();
+        if (! $s || $s->state === 'finalized' || ! $claim || (int) $claim->student_id !== $student || $claim->consumed_at || now()->greaterThanOrEqualTo($claim->expires_at)) {
+            throw ValidationException::withMessages(['qr' => [__('basic_attendance.claim_expired')]]);
+        }
+        $visible = DB::table('basic_sections as section')->join('basic_courses as course', 'course.id', '=', 'section.course_id')
+            ->where('section.id', $s->section_id)->whereNull('section.archived_at')->whereNull('course.archived_at')->exists();
+        if (! $visible) throw ValidationException::withMessages(['qr' => [__('basic_attendance.claim_expired')]]);
+        $row = DB::table('basic_lecture_records')->where('session_id', $s->id)->where('student_id', $student)->lockForUpdate()->first();
+        if (! $row) throw ValidationException::withMessages(['student' => [__('basic_attendance.message04')]]);
+        if ($row->source === 'manual') throw ValidationException::withMessages(['student' => [__('basic_attendance.message05')]]);
+        $field = $claim->phase === 'check_in' ? 'check_in_at' : 'check_out_at';
+        if ($field === 'check_out_at' && ! $row->check_in_at) throw ValidationException::withMessages(['student' => [__('basic_attendance.message06')]]);
+        $already = $row->$field !== null;
+        $scannedAt = Carbon::parse($claim->scanned_at);
+        if (! $already) {
+            $values = [$field => $scannedAt, 'updated_at' => now()];
+            if ($field === 'check_in_at') $values['is_late'] = $scannedAt->greaterThan(Carbon::parse($s->opened_at)->addMinutes($s->late_after_minutes));
+            DB::table('basic_lecture_records')->where('id', $row->id)->update($values);
+            $this->audit($s->id, null, 'student.'.$claim->phase, ['student_id' => $student, 'claim_id' => $claim->id, 'scanned_at' => $claim->scanned_at, 'verified_at' => now()->toDateTimeString()]);
+        }
+        DB::table('basic_scan_claims')->where('id', $claimId)->update(['consumed_at' => now(), 'updated_at' => now()]);
+        $section = DB::table('basic_sections as sec')->join('basic_courses as c', 'c.id', '=', 'sec.course_id')->where('sec.id', $s->section_id)->select('c.name', 'sec.number')->first();
+        return ['phase' => $claim->phase, 'already_recorded' => $already, 'time' => $already ? Carbon::parse($row->$field)->toIso8601String() : $scannedAt->toIso8601String(), 'course_name' => $section->name, 'section_number' => $section->number, 'title' => $s->title];
     }
 
     public function validateToken(string $token): object
@@ -108,8 +167,8 @@ class BasicAttendanceService
         if (count($parts) !== 2 || ! hash_equals(hash_hmac('sha256', 'basic-lecture:'.$parts[0], (string) config('app.key')), $parts[1])) $this->invalidQr();
         $payload = json_decode(base64_decode(strtr($parts[0], '-_', '+/'), true) ?: '', true);
         if (! is_array($payload) || count($payload) !== 4 || ! is_int($payload[3])) $this->invalidQr();
-        $age = now()->timestamp - $payload[3] * 15;
-        if ($age < 0 || $age > 18) $this->invalidQr();
+        $age = now()->timestamp - $payload[3] * 30;
+        if ($age < 0 || $age > 35) $this->invalidQr();
         $s = DB::table('basic_lecture_sessions as lecture')->join('basic_sections as section', 'section.id', '=', 'lecture.section_id')->join('basic_courses as course', 'course.id', '=', 'section.course_id')->where('lecture.public_id', $payload[0])->whereNull('lecture.archived_at')->whereNull('section.archived_at')->whereNull('course.archived_at')->select('lecture.*')->first();
         if (! $s || (int) $s->version !== $payload[2] || $s->state !== $payload[1] || ! $this->accepting($s)) $this->invalidQr();
         return $s;

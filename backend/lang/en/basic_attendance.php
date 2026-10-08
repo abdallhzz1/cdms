@@ -83,5 +83,9 @@ return [
     'report_month_sessions' => 'Recorded lectures',
     'report_late' => 'Late',
     'report_total_absent' => 'Total finalized absences',
-    'email_body' => 'Basic Sciences lecture attendance code: :otp. Do not share it. Valid for five minutes.',
+    'email_body' => 'Basic Sciences lecture attendance code: :otp. Do not share it. Valid for up to five minutes, and no later than the scan confirmation deadline shown on screen.',
+    'claim_expired' => 'The QR scan confirmation window expired. Scan a fresh QR code or contact your lecturer.',
+    'claim_browser_mismatch' => 'Complete verification in the same browser that scanned the QR code.',
+    'claim_student_mismatch' => 'This scan is already linked to another student. Scan the QR code on your own device.',
+    'pending_scans_block_transition' => 'Some QR scans are awaiting verification. Wait until the displayed confirmation deadline before moving to the next phase or finalizing the lecture.',
 ];

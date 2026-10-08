@@ -214,14 +214,16 @@ class BasicAttendanceController extends Controller
         $s = $this->service->session($r->user(), $session);
         $rows = DB::table('basic_lecture_records as r')->join('basic_students as st', 'st.id', '=', 'r.student_id')->where('r.session_id', $session)->select('r.*', 'st.name', 'st.university_number', 'st.photo_url')->orderBy('st.name')->get();
         $this->service->dates($s); $rows->each(fn ($row) => $this->service->dates($row));
-        return ApiResponse::success(['session' => $s, 'section' => $this->service->section($r->user(), $s->section_id), 'accepting' => $this->service->accepting($s), 'rows' => $rows, 'counts' => ['total' => $rows->count(), 'check_in' => $rows->whereNotNull('check_in_at')->count(), 'check_out' => $rows->whereNotNull('check_out_at')->count(), 'absent' => $rows->where('status', 'absent')->count(), 'incomplete' => $rows->where('status', 'incomplete')->count(), 'late' => $rows->where('is_late', true)->count()]]);
+        $claims = DB::table('basic_scan_claims')->where('session_id', $session)->whereNull('consumed_at')->where('expires_at', '>', now());
+        $pendingUntil = (clone $claims)->max('expires_at');
+        return ApiResponse::success(['session' => $s, 'section' => $this->service->section($r->user(), $s->section_id), 'accepting' => $this->service->accepting($s), 'pending_scans' => (clone $claims)->count(), 'pending_until' => $pendingUntil ? \Carbon\Carbon::parse($pendingUntil)->toIso8601String() : null, 'rows' => $rows, 'counts' => ['total' => $rows->count(), 'check_in' => $rows->whereNotNull('check_in_at')->count(), 'check_out' => $rows->whereNotNull('check_out_at')->count(), 'absent' => $rows->where('status', 'absent')->count(), 'incomplete' => $rows->where('status', 'incomplete')->count(), 'late' => $rows->where('is_late', true)->count()]]);
     }
 
     public function qr(Request $r, int $session)
     {
         $s = $this->service->session($r->user(), $session);
         if (! $this->service->accepting($s)) return ApiResponse::success(['url' => null, 'phase' => $s->state]);
-        return ApiResponse::success(['url' => url('/lecture-attendance').'?qr='.rawurlencode($this->service->token($s)), 'phase' => $s->state, 'valid_until' => (intdiv(now()->timestamp, 15) + 1) * 15, 'server_time' => now()->timestamp]);
+        return ApiResponse::success(['url' => url('/lecture-attendance').'?qr='.rawurlencode($this->service->token($s)), 'phase' => $s->state, 'valid_until' => (intdiv(now()->timestamp, 30) + 1) * 30, 'server_time' => now()->timestamp]);
     }
 
     public function transition(Request $r, int $session)
@@ -239,6 +241,7 @@ class BasicAttendanceController extends Controller
             DB::table('basic_lecture_sessions')->where('id', $session)->lockForUpdate()->first();
             $row = DB::table('basic_lecture_records')->where('session_id', $session)->where('student_id', $student)->lockForUpdate()->first(); abort_unless($row, 404);
             DB::table('basic_lecture_records')->where('id', $row->id)->update($data + ['source' => 'manual', 'updated_at' => now()]);
+            DB::table('basic_scan_claims')->where('session_id', $session)->where('student_id', $student)->whereNull('consumed_at')->update(['consumed_at' => now(), 'updated_at' => now()]);
             $this->service->audit($session, $r->user()->id, 'record.corrected', ['student_id' => $student, 'previous' => ['status' => $row->status, 'is_late' => $row->is_late], 'new' => $data]);
         });
         return ApiResponse::success(null, __('basic_attendance.message14'));
