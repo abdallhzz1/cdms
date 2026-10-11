@@ -541,6 +541,198 @@ class Phase5CTest extends TestCase
             ->assertOk()->assertJsonPath('data.max_score', '10.00');
     }
 
+    public function test_published_distribution_revision_preserves_assessment_visibility_and_blocks_duplicate_grades(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::whereIn('code', ['assessment.create', 'assessment.review', 'supervisor.workspace.view', 'grades.view'])
+                ->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+        $template = ClinicalAssessmentTemplate::where('is_active', true)->firstOrFail();
+        $payload = [
+            'assignment_id' => $this->assignment1->id,
+            'student_id' => $this->student1->id,
+            'evaluation_week' => 1,
+            'template_id' => $template->id,
+            'score' => 9,
+        ];
+        $assessmentId = $this->actingAs($this->admin)
+            ->postJson(route('api.v1.operational.my-supervisor-assessments'), $payload)
+            ->assertOk()->json('data.id');
+
+        $revision = DistributionVersion::create([
+            'rotation_id' => $this->rotation->id,
+            'source_version_id' => $this->publishedVersion->id,
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+        $this->publishedVersion->update(['is_current' => false]);
+        $replacementBlock = RotationBlock::factory()->create([
+            'rotation_id' => $this->rotation->id,
+            'department_id' => $this->department1->id,
+            'from_week' => 1,
+            'to_week' => 4,
+        ]);
+        $newAssignment = $this->assignment1->replicate();
+        $newAssignment->distribution_version_id = $revision->id;
+        $newAssignment->rotation_block_id = $replacementBlock->id;
+        $newAssignment->save();
+
+        $this->actingAs($this->admin)->getJson(route('api.v1.operational.my-supervisor-workspace'))
+            ->assertOk()->assertJsonPath('data.assessments.0.id', $assessmentId)
+            ->assertJsonPath('data.assessments.0.assessment_rotation_id', $this->rotation->id);
+        $this->actingAs($this->admin)
+            ->getJson('/api/v1/clinical-assessments/review-subgroup?subgroup_id='.$this->subgroup->id)
+            ->assertOk()->assertJsonPath('data.rotations.0.weeks.0.students.0.assessments.0.id', $assessmentId)
+            ->assertJsonPath('data.rotations.0.weeks.0.ready_count', 1);
+
+        $payload['assignment_id'] = $newAssignment->id;
+        $this->actingAs($this->admin)
+            ->postJson(route('api.v1.operational.my-supervisor-assessments'), $payload)
+            ->assertUnprocessable()->assertJsonValidationErrors('assessments');
+        $this->actingAs($this->admin)
+            ->postJson(route('api.v1.operational.my-supervisor-assessment-batches'), [
+                'assignment_id' => $newAssignment->id,
+                'evaluation_week' => 1,
+                'template_id' => $template->id,
+                'assessments' => [['student_id' => $this->student1->id, 'score' => 9]],
+            ])->assertUnprocessable()->assertJsonValidationErrors('assessments');
+        $this->assertSame(1, \App\Models\ClinicalAssessment::query()->count());
+
+        // Existing deployments may already contain duplicate submissions.
+        // Keep both audit records, but count the original logical slot once.
+        $duplicate = \App\Models\ClinicalAssessment::query()->findOrFail($assessmentId)->replicate();
+        $duplicate->student_clinical_assignment_id = $newAssignment->id;
+        $duplicate->score = 2;
+        $duplicate->save();
+        $this->actingAs($this->admin)
+            ->getJson('/api/v1/grade-entries/clinical-assessment-summary?course_id='.$this->course->id.'&academic_year_id='.$this->rotation->academic_year_id)
+            ->assertOk()->assertJsonPath("data.{$this->student1->id}.clinical_score", 18)
+            ->assertJsonPath("data.{$this->student1->id}.assessments_count", 1);
+    }
+
+    public function test_distribution_revision_restores_marks_for_every_assigned_supervisor(): void
+    {
+        $secondUser = User::factory()->create();
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $this->supervisor2->update(['user_id' => $secondUser->id]);
+        $this->assignment2->update(['supervisor_id' => $this->supervisor2->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::whereIn('code', ['assessment.create', 'supervisor.workspace.view'])
+                ->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+        $secondUser->roles()->attach($supervisorRole);
+        $template = ClinicalAssessmentTemplate::where('is_active', true)->firstOrFail();
+
+        $firstMark = $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
+            'assignment_id' => $this->assignment1->id, 'student_id' => $this->student1->id,
+            'evaluation_week' => 1, 'template_id' => $template->id, 'score' => 8,
+        ])->assertOk()->json('data.id');
+        $secondMark = $this->actingAs($secondUser)->postJson(route('api.v1.operational.my-supervisor-assessments'), [
+            'assignment_id' => $this->assignment2->id, 'student_id' => $this->student2->id,
+            'evaluation_week' => 1, 'template_id' => $template->id, 'score' => 9,
+        ])->assertOk()->json('data.id');
+
+        $revision = DistributionVersion::create([
+            'rotation_id' => $this->rotation->id,
+            'source_version_id' => $this->publishedVersion->id,
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+        $this->publishedVersion->update(['is_current' => false]);
+        foreach ([$this->assignment1, $this->assignment2] as $assignment) {
+            $replacement = $assignment->replicate();
+            $replacement->distribution_version_id = $revision->id;
+            $replacement->save();
+        }
+
+        $this->actingAs($this->admin)->getJson(route('api.v1.operational.my-supervisor-workspace'))
+            ->assertOk()->assertJsonCount(1, 'data.assessments')
+            ->assertJsonPath('data.assessments.0.id', $firstMark);
+        $this->actingAs($secondUser)->getJson(route('api.v1.operational.my-supervisor-workspace'))
+            ->assertOk()->assertJsonCount(1, 'data.assessments')
+            ->assertJsonPath('data.assessments.0.id', $secondMark);
+        $this->assertDatabaseCount('clinical_assessments', 2);
+    }
+
+    public function test_period_assessment_survives_distribution_revision_without_resubmission(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::whereIn('code', ['assessment.create', 'assessment.review', 'supervisor.workspace.view', 'grades.view'])
+                ->pluck('id')->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+        $this->course->assessmentComponents()->where('code', 'clinical')->update([
+            'assessment_frequency' => 'period', 'mini_osce_max_score' => 5,
+        ]);
+        $template = ClinicalAssessmentTemplate::where('is_active', true)->firstOrFail();
+        $assessmentId = $this->actingAs($this->admin)
+            ->postJson(route('api.v1.operational.my-supervisor-assessments'), [
+                'assignment_id' => $this->assignment1->id,
+                'student_id' => $this->student1->id,
+                'template_id' => $template->id,
+                'score' => 8,
+            ])->assertOk()->json('data.id');
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/my-supervisor-mini-osce', [
+            'assignment_id' => $this->assignment1->id,
+            'student_id' => $this->student1->id,
+            'score' => 4,
+        ])->assertOk();
+
+        $revision = DistributionVersion::create([
+            'rotation_id' => $this->rotation->id,
+            'source_version_id' => $this->publishedVersion->id,
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+        $this->publishedVersion->update(['is_current' => false]);
+        $replacementBlock = RotationBlock::factory()->create([
+            'rotation_id' => $this->rotation->id,
+            'department_id' => $this->department1->id,
+            'from_week' => 1,
+            'to_week' => 4,
+        ]);
+        $newAssignment = $this->assignment1->replicate();
+        $newAssignment->distribution_version_id = $revision->id;
+        $newAssignment->rotation_block_id = $replacementBlock->id;
+        $newAssignment->save();
+
+        $this->actingAs($this->admin)
+            ->getJson('/api/v1/clinical-assessments/review-subgroup?subgroup_id='.$this->subgroup->id)
+            ->assertOk()->assertJsonPath('data.rotations.0.weeks.0.students.0.assessments.0.id', $assessmentId)
+            ->assertJsonPath('data.rotations.0.weeks.0.students.0.mini_osce.score', 4);
+        $this->actingAs($this->admin)
+            ->getJson(route('api.v1.operational.my-supervisor-workspace'))
+            ->assertOk()->assertJsonPath('data.assessments.0.id', $assessmentId)
+            ->assertJsonCount(1, 'data.mini_osce_scores');
+        $this->actingAs($this->admin)
+            ->getJson('/api/v1/grade-entries/clinical-assessment-summary?course_id='.$this->course->id.'&academic_year_id='.$this->rotation->academic_year_id)
+            ->assertOk()->assertJsonPath("data.{$this->student1->id}.clinical_score", 16);
+        $this->actingAs($this->admin)
+            ->postJson(route('api.v1.operational.my-supervisor-assessments'), [
+                'assignment_id' => $newAssignment->id,
+                'student_id' => $this->student1->id,
+                'template_id' => $template->id,
+                'score' => 8,
+            ])->assertUnprocessable()->assertJsonValidationErrors('assessments');
+        $this->assertDatabaseCount('clinical_assessments', 1);
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/my-supervisor-mini-osce', [
+            'assignment_id' => $newAssignment->id,
+            'student_id' => $this->student1->id,
+            'score' => 3,
+        ])->assertOk();
+        $this->assertDatabaseCount('clinical_mini_osce_scores', 1);
+        $this->actingAs($this->admin)
+            ->getJson('/api/v1/grade-entries/clinical-assessment-summary?course_id='.$this->course->id.'&academic_year_id='.$this->rotation->academic_year_id)
+            ->assertOk()->assertJsonPath("data.{$this->student1->id}.clinical_score", 15);
+    }
+
     public function test_supervisor_qr_attendance_and_assessment_are_saved_in_official_tables(): void
     {
         $this->supervisor1->update(['user_id' => $this->admin->id]);

@@ -19,6 +19,7 @@ use App\Services\WorkflowTransitionService;
 use App\Services\Approvals\ApprovalWorkflowService;
 use App\Traits\ScopesByDepartmentAndLevel;
 use App\Services\DepartmentHeadCourseScope;
+use App\Services\ClinicalAssessmentContinuity;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -677,11 +678,12 @@ class GradeEntryController extends Controller
 
         if ($miniMax > 0) {
             $assessments = app(DepartmentHeadCourseScope::class)->assessments(ClinicalAssessment::query())
-                ->whereIn('status', ['submitted', 'approved'])->where('max_score', '>', 0)
+                ->whereIn('status', ['submitted', 'approved'])->where('max_score', '>', 0)->whereNotNull('score')
                 ->whereIn('student_id', $studentIds)
                 ->when($courseId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $courseId)))
                 ->when($academicYearId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $academicYearId)))
-                ->with('session:id,rotation_block_id')->get(['id', 'student_id', 'clinical_session_id', 'score', 'max_score']);
+                ->with(['session.rotationBlock', 'clinicalAssignment.rotationBlock'])->get();
+            $assessments = app(ClinicalAssessmentContinuity::class)->distinctOfficial($assessments);
             $expectedAssignments = StudentClinicalAssignment::query()
                 ->whereIn('student_id', $studentIds)
                 ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
@@ -690,17 +692,31 @@ class GradeEntryController extends Controller
                 ->with(['rotationBlock', 'student:id,batch_year'])->get();
             $expectedPeriods = $expectedAssignments->groupBy('student_id')->map(fn ($items) => $periodFrequency
                 ? app(\App\Services\ClinicalAssessmentPeriods::class)->groups($items, false)
-                    ->map(fn (array $period) => $period['block_ids']->all())->all()
-                : $items->pluck('rotation_block_id')->filter()->unique()->map(fn ($id) => [(int) $id])->all());
-            $blockIds = $expectedAssignments->pluck('rotation_block_id')->filter()->unique();
-            $mini = DB::table('clinical_mini_osce_scores')->whereIn('student_id', $studentIds)
-                ->whereIn('rotation_block_id', $blockIds)->get()
-                ->keyBy(fn ($row) => $row->student_id.':'.$row->rotation_block_id);
-            return $assessments->groupBy('student_id')->map(function ($studentAssessments, $studentId) use ($mini, $miniMax, $clinicalMax, $withMetadata, $expectedPeriods) {
+                    ->map(fn (array $period) => [
+                        'rotation_id' => (int) $period['assignments']->first()->rotationBlock->rotation_id,
+                        'start_week' => (int) $period['start_week'],
+                        'end_week' => (int) $period['end_week'],
+                    ])->all()
+                : $items->unique('rotation_block_id')->map(fn (StudentClinicalAssignment $item) => [
+                    'rotation_id' => (int) $item->rotationBlock->rotation_id,
+                    'start_week' => (int) $item->rotationBlock->from_week,
+                    'end_week' => (int) $item->rotationBlock->to_week,
+                ])->all());
+            $continuity = app(ClinicalAssessmentContinuity::class);
+            $mini = $continuity->miniScoresForAssignments($expectedAssignments);
+            return $assessments->groupBy('student_id')->map(function ($studentAssessments, $studentId) use ($mini, $miniMax, $clinicalMax, $withMetadata, $expectedPeriods, $continuity) {
                 $periodScores = [];
-                foreach ($expectedPeriods->get($studentId, []) as $blockIds) {
-                    $items = $studentAssessments->filter(fn ($item) => in_array($item->session?->rotation_block_id, $blockIds));
-                    $miniScore = collect($blockIds)->map(fn ($blockId) => $mini->get($studentId.':'.$blockId))->filter()->first();
+                foreach ($expectedPeriods->get($studentId, []) as $period) {
+                    $items = $studentAssessments->filter(function (ClinicalAssessment $item) use ($period) {
+                        $block = $item->clinicalAssignment?->rotationBlock ?? $item->session?->rotationBlock;
+                        return $block && (int) $block->rotation_id === $period['rotation_id']
+                            && ($item->evaluation_week !== null
+                                ? (int) $item->evaluation_week >= $period['start_week'] && (int) $item->evaluation_week <= $period['end_week']
+                                : (int) $block->from_week <= $period['end_week'] && (int) $block->to_week >= $period['start_week']);
+                    });
+                    $miniScore = $continuity->miniForPeriod(
+                        $mini, (int) $studentId, $period['rotation_id'], $period['start_week'], $period['end_week'],
+                    );
                     if ($items->isEmpty() || ! $miniScore || (float) $miniScore->max_score <= 0) return $withMetadata
                         ? ['clinical_score' => null, 'assessments_count' => $studentAssessments->count()]
                         : null;
@@ -713,17 +729,21 @@ class GradeEntryController extends Controller
             });
         }
 
-        return app(DepartmentHeadCourseScope::class)->assessments(ClinicalAssessment::query())
+        $assessments = app(DepartmentHeadCourseScope::class)->assessments(ClinicalAssessment::query())
             // A supervisor's submitted weekly assessment is the official
             // clinical input. Administrative approval applies to the final
             // grade sheet, not to each weekly clinical assessment.
-            ->whereIn('status', ['submitted', 'approved'])->where('max_score', '>', 0)->whereIn('student_id', $studentIds)
+            ->whereIn('status', ['submitted', 'approved'])->where('max_score', '>', 0)->whereNotNull('score')->whereIn('student_id', $studentIds)
             ->when($courseId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $courseId)))
             ->when($academicYearId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $academicYearId)))
-            ->selectRaw('student_id, ROUND(AVG((score * ?) / max_score), 2) as clinical_score, COUNT(*) as assessments_count', [$clinicalMax])
-            ->groupBy('student_id')->get()->keyBy('student_id')->map(fn ($item) => $withMetadata
-                ? ['clinical_score' => (float) $item->clinical_score, 'assessments_count' => (int) $item->assessments_count]
-                : (float) $item->clinical_score);
+            ->with(['session.rotationBlock', 'clinicalAssignment.rotationBlock'])->get();
+        return app(ClinicalAssessmentContinuity::class)->distinctOfficial($assessments)
+            ->groupBy('student_id')->map(function ($items) use ($clinicalMax, $withMetadata) {
+                $score = round($items->avg(fn (ClinicalAssessment $item) => (float) $item->score * $clinicalMax / (float) $item->max_score), 2);
+                return $withMetadata
+                    ? ['clinical_score' => $score, 'assessments_count' => $items->count()]
+                    : $score;
+            });
     }
 
     private function totalScore(mixed $clinical, mixed $osce, mixed $written): ?float

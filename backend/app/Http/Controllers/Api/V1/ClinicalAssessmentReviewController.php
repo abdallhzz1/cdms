@@ -11,6 +11,7 @@ use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentSubgroup;
 use App\Services\ClinicalAssessmentPeriods;
+use App\Services\ClinicalAssessmentContinuity;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -111,15 +112,11 @@ class ClinicalAssessmentReviewController extends Controller
         $students = $roster->concat($assignments->pluck('student')->filter())
             ->unique('id')->sortBy('university_number')->values();
 
-        $assessments = ClinicalAssessment::query()
-            ->whereIn('student_clinical_assignment_id', $assignments->pluck('id'))
+        $assessments = app(ClinicalAssessmentContinuity::class)->forAssignments($assignments)
             ->where(fn ($query) => $query->whereNotNull('evaluation_week')->orWhere('assessment_kind', 'period'))
-            ->with('evaluator:id,full_name_ar,full_name_en')
+            ->with(['evaluator:id,full_name_ar,full_name_en', 'clinicalAssignment:id,rotation_block_id', 'clinicalAssignment.rotationBlock:id,rotation_id', 'session:id,rotation_block_id', 'session.rotationBlock:id,rotation_id'])
             ->orderBy('id')->get();
-        $miniScores = DB::table('clinical_mini_osce_scores')
-            ->whereIn('rotation_block_id', $assignments->pluck('rotation_block_id')->filter()->unique())
-            ->whereIn('student_id', $students->pluck('id'))
-            ->get()->keyBy(fn ($item) => $item->student_id.':'.$item->rotation_block_id);
+        $miniScores = app(ClinicalAssessmentContinuity::class)->miniScoresForAssignments($assignments);
 
         // Final OSCE belongs to the course and academic year, not to an
         // assessment week. Keep its roster limited to the already scoped,
@@ -193,10 +190,21 @@ class ClinicalAssessmentReviewController extends Controller
                 && (int) $assignment->rotationBlock->from_week <= $number
                 && (int) $assignment->rotationBlock->to_week >= $number)
             );
+            $periodStart = $period && $rotation?->start_date
+                ? Carbon::parse($rotation->start_date)->addWeeks($period['start_week'] - 1)->toDateString() : null;
+            $periodEnd = $period && $rotation?->start_date
+                ? Carbon::parse($rotation->start_date)->addWeeks($period['end_week'])->subDay()->toDateString() : null;
             $weekAssessments = ($number < 0 ? $assessments->where('assessment_kind', 'period') : $assessments->where('evaluation_week', $number))
-                ->whereIn('student_clinical_assignment_id', $active->pluck('id'));
+                ->filter(fn (ClinicalAssessment $assessment) => (int) ($assessment->clinicalAssignment?->rotationBlock?->rotation_id
+                    ?? $assessment->session?->rotationBlock?->rotation_id) === (int) $rotation?->id)
+                ->when($number < 0, fn (Collection $records) => $records->filter(fn (ClinicalAssessment $assessment) =>
+                    ($period['block_ids'] ?? collect())->contains((int) ($assessment->clinicalAssignment?->rotation_block_id
+                        ?? $assessment->session?->rotation_block_id))
+                    || ($periodStart && $periodEnd && $assessment->week_start && $assessment->week_end
+                        && $assessment->week_start->toDateString() <= $periodEnd
+                        && $assessment->week_end->toDateString() >= $periodStart)));
             $students = $active->unique('student_id')->sortBy(fn (StudentClinicalAssignment $assignment) => $assignment->student?->university_number ?? '')
-                ->map(function (StudentClinicalAssignment $assignment) use ($active, $weekAssessments, $miniScores) {
+                ->map(function (StudentClinicalAssignment $assignment) use ($active, $weekAssessments, $miniScores, $rotation, $period, $number) {
                     $studentAssignments = $active->where('student_id', $assignment->student_id);
                     $records = $weekAssessments->where('student_id', $assignment->student_id)->map(fn (ClinicalAssessment $assessment) => [
                         'id' => $assessment->id,
@@ -213,7 +221,10 @@ class ClinicalAssessmentReviewController extends Controller
                         'supervisors' => $studentAssignments->pluck('supervisor')->filter()->unique('id')->values(),
                         'training_sites' => $studentAssignments->pluck('trainingSite')->filter()->unique('id')->values(),
                         'assessments' => $records,
-                        'mini_osce' => $studentAssignments->map(fn (StudentClinicalAssignment $item) => $miniScores->get($item->student_id.':'.$item->rotation_block_id))->filter()->first(),
+                        'mini_osce' => app(ClinicalAssessmentContinuity::class)->miniForPeriod(
+                            $miniScores, (int) $assignment->student_id, (int) $rotation?->id,
+                            $period['start_week'] ?? $number, $period['end_week'] ?? $number,
+                        ),
                         'ready' => $records->contains(fn (array $record) => in_array($record['status'], ['submitted', 'approved'], true)),
                     ];
                 })->values();
