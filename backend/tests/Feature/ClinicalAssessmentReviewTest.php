@@ -220,6 +220,7 @@ class ClinicalAssessmentReviewTest extends TestCase
         ]);
         DB::table('clinical_mini_osce_scores')->insert([
             'student_id' => $assignments[0]->student_id, 'rotation_block_id' => $block->id,
+            'distribution_version_id' => $version->id,
             'entered_by_person_id' => $supervisor->id, 'score' => 4, 'max_score' => 5,
             'created_at' => now(), 'updated_at' => now(),
         ]);

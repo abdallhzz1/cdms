@@ -145,11 +145,13 @@ class DepartmentHeadCourseScope
     public function assessments(Builder|Relation $query): Builder|Relation
     {
         $ids = $this->courseIds();
-        if ($ids === null) return $query;
-        return $query->where(function ($records) use ($ids) {
-            $records->whereHas('clinicalAssignment.rotationBlock.rotation', fn ($rotation) => $rotation->whereIn('course_id', $ids))
-                ->orWhere(fn ($legacy) => $legacy->whereNull('student_clinical_assignment_id')
-                    ->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->whereIn('course_id', $ids)));
+        return $query->whereHas('clinicalAssignment', function ($assignment) use ($ids) {
+            $assignment->whereColumn('student_clinical_assignments.student_id', 'clinical_assessments.student_id')
+                ->whereColumn('student_clinical_assignments.supervisor_id', 'clinical_assessments.evaluator_person_id')
+                ->whereHas('distributionVersion', fn ($version) => $version->where('status', 'published')->where('is_current', true));
+            if ($ids !== null) {
+                $assignment->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->whereIn('course_id', $ids));
+            }
         });
     }
 

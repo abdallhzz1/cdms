@@ -35,6 +35,33 @@ class GradeAndRtaIntegrationTest extends TestCase
         $this->seed([\Database\Seeders\PermissionSeeder::class, \Database\Seeders\RoleSeeder::class]);
     }
 
+    private function createCurrentAssessment(Student $student, ClinicalSession $session, float $score, float $maxScore, string $status): ClinicalAssessment
+    {
+        $block = $session->rotationBlock;
+        $version = DistributionVersion::firstOrCreate(
+            ['rotation_id' => $block->rotation_id, 'is_current' => true],
+            ['status' => 'published'],
+        );
+        $assignment = StudentClinicalAssignment::where('distribution_version_id', $version->id)
+            ->where('student_id', $student->id)->where('rotation_block_id', $block->id)->first();
+        if (! $assignment) {
+            $assignment = StudentClinicalAssignment::create([
+                'distribution_version_id' => $version->id,
+                'student_id' => $student->id,
+                'rotation_block_id' => $block->id,
+                'training_site_id' => TrainingSite::factory()->create()->id,
+                'supervisor_id' => Person::factory()->create()->id,
+            ]);
+        }
+
+        return ClinicalAssessment::create([
+            'student_id' => $student->id, 'clinical_session_id' => $session->id,
+            'student_clinical_assignment_id' => $assignment->id,
+            'evaluator_person_id' => $assignment->supervisor_id,
+            'score' => $score, 'max_score' => $maxScore, 'status' => $status,
+        ]);
+    }
+
     public function test_rta_without_cohort_sees_no_grade_roster_and_assignment_is_enforced(): void
     {
         $year = AcademicYear::factory()->create();
@@ -58,17 +85,16 @@ class GradeAndRtaIntegrationTest extends TestCase
             ->assertOk()->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.student.id', $fourth->id);
 
-        $this->actingAs($rta)->getJson('/api/v1/grade-entries/options')
+        $options = $this->actingAs($rta)->getJson('/api/v1/grade-entries/options')
             ->assertOk()
             ->assertJsonCount(1, 'data.courses')
             ->assertJsonPath('data.courses.0.id', $course->id)
             ->assertJsonCount(3, 'data.courses.0.assessment_components')
             ->assertJsonPath('data.courses.0.assessment_components.0.code', 'clinical')
-            ->assertJsonPath('data.courses.0.assessment_components.0.max_score', '20.00')
             ->assertJsonPath('data.courses.0.assessment_components.1.code', 'osce')
-            ->assertJsonPath('data.courses.0.assessment_components.1.max_score', '40.00')
-            ->assertJsonPath('data.courses.0.assessment_components.2.code', 'written')
-            ->assertJsonPath('data.courses.0.assessment_components.2.max_score', '40.00');
+            ->assertJsonPath('data.courses.0.assessment_components.2.code', 'written');
+        $components = $options->json('data.courses.0.assessment_components');
+        $this->assertSame([20.0, 40.0, 40.0], array_map(fn ($item) => (float) $item['max_score'], $components));
 
         $this->actingAs($rta)->getJson('/api/v1/students?per_page=100')
             ->assertOk()
@@ -307,7 +333,7 @@ class GradeAndRtaIntegrationTest extends TestCase
         $rotation = Rotation::factory()->create(['course_id' => $course->id, 'academic_year_id' => $year->id, 'academic_level' => 'fourth']);
         $block = RotationBlock::factory()->create(['rotation_id' => $rotation->id]);
         $session = ClinicalSession::create(['rotation_block_id' => $block->id, 'session_date' => '2026-09-10', 'title' => 'Weekly assessment']);
-        ClinicalAssessment::create(['student_id' => $student->id, 'clinical_session_id' => $session->id, 'score' => 9, 'max_score' => 10, 'status' => 'submitted']);
+        $this->createCurrentAssessment($student, $session, 9, 10, 'submitted');
 
         $role = Role::create(['code' => 'DYNAMIC_GRADE_EDITOR', 'name_key' => 'test.dynamic.grade']);
         $role->permissions()->attach(Permission::where('code', 'grades.create')->firstOrFail()->id, ['scope_type' => 'global']);
@@ -323,7 +349,7 @@ class GradeAndRtaIntegrationTest extends TestCase
         $this->assertSame([15.0, 25.0, 60.0], array_map('floatval', [$report['rows'][0][5], $report['rows'][0][7], $report['rows'][0][9]]));
         // Old /10 and new direct /15 assessments remain normalized independently.
         $directSession = ClinicalSession::create(['rotation_block_id' => $block->id, 'session_date' => '2026-09-17', 'title' => 'Direct weekly assessment']);
-        ClinicalAssessment::create(['student_id' => $student->id, 'clinical_session_id' => $directSession->id, 'score' => 12, 'max_score' => 15, 'status' => 'submitted']);
+        $this->createCurrentAssessment($student, $directSession, 12, 15, 'submitted');
         $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch', $payload)->assertOk();
         $this->assertDatabaseHas('grade_entries', ['clinical_score' => 12.75, 'osce_score' => 23, 'written_score' => 54, 'score' => 89.75]);
         $payload['grades'][0]['osce_score'] = 26;
@@ -346,7 +372,7 @@ class GradeAndRtaIntegrationTest extends TestCase
         $rotation = Rotation::factory()->create(['course_id' => $course->id, 'academic_year_id' => $year->id, 'academic_level' => 'fourth']);
         $block = RotationBlock::factory()->create(['rotation_id' => $rotation->id]);
         $session = ClinicalSession::create(['rotation_block_id' => $block->id, 'session_date' => '2026-09-10', 'title' => 'Assessment']);
-        ClinicalAssessment::create(['student_id' => $student->id, 'clinical_session_id' => $session->id, 'score' => 8, 'max_score' => 10, 'status' => 'submitted']);
+        $this->createCurrentAssessment($student, $session, 8, 10, 'submitted');
         $role = Role::create(['code' => 'NO_OSCE_GRADE_EDITOR', 'name_key' => 'test.no_osce']);
         $role->permissions()->attach(Permission::where('code', 'grades.create')->firstOrFail()->id, ['scope_type' => 'global']);
         $editor = User::factory()->create();
@@ -429,10 +455,7 @@ class GradeAndRtaIntegrationTest extends TestCase
         $session = ClinicalSession::create([
             'rotation_block_id' => $block->id, 'session_date' => '2026-09-10', 'title' => 'Clinical assessment',
         ]);
-        ClinicalAssessment::create([
-            'student_id' => $student->id, 'clinical_session_id' => $session->id,
-            'score' => 9, 'max_score' => 10, 'status' => 'approved',
-        ]);
+        $this->createCurrentAssessment($student, $session, 9, 10, 'approved');
 
         $this->actingAs($editor)->withHeader('Accept-Language', 'ar')
             ->postJson('/api/v1/grade-entries/batch-submit', $payload)->assertOk();
@@ -468,10 +491,7 @@ class GradeAndRtaIntegrationTest extends TestCase
         $session = ClinicalSession::create([
             'rotation_block_id' => $block->id, 'session_date' => '2026-09-10', 'title' => 'Clinical assessment',
         ]);
-        ClinicalAssessment::create([
-            'student_id' => $student->id, 'clinical_session_id' => $session->id,
-            'score' => 9, 'max_score' => 10, 'status' => 'approved',
-        ]);
+        $this->createCurrentAssessment($student, $session, 9, 10, 'approved');
         $payload = ['course_code' => $course->code, 'academic_year_id' => $year->id];
         $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch-submit', $payload)->assertOk();
         $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch-approve', $payload)->assertUnprocessable();
@@ -528,10 +548,8 @@ class GradeAndRtaIntegrationTest extends TestCase
         $session = ClinicalSession::create([
             'rotation_block_id' => $block->id, 'session_date' => '2026-09-10', 'title' => 'Clinical assessment',
         ]);
-        ClinicalAssessment::create([
-            'student_id' => $newStudent->id, 'clinical_session_id' => $session->id,
-            'score' => 8.5, 'max_score' => 10, 'status' => 'submitted',
-        ]);
+        $this->createCurrentAssessment($oldStudent, $session, 9, 10, 'submitted');
+        $this->createCurrentAssessment($newStudent, $session, 8.5, 10, 'submitted');
 
         $savePayload = [
             'course_code' => $course->code, 'academic_year_id' => $year->id,
@@ -570,10 +588,7 @@ class GradeAndRtaIntegrationTest extends TestCase
         $this->assertNotNull($firstRequestId);
 
         $lateStudent = Student::factory()->create(['academic_level' => 'fourth', 'registration_status' => 'active']);
-        ClinicalAssessment::create([
-            'student_id' => $lateStudent->id, 'clinical_session_id' => $session->id,
-            'score' => 9, 'max_score' => 10, 'status' => 'submitted',
-        ]);
+        $this->createCurrentAssessment($lateStudent, $session, 9, 10, 'submitted');
         $this->actingAs($editor)->postJson('/api/v1/grade-entries/batch', [
             'course_code' => $course->code, 'academic_year_id' => $year->id,
             'grades' => [[

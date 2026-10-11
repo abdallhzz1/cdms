@@ -51,10 +51,11 @@ class DepartmentHeadCourseScopeTest extends TestCase
         $block = RotationBlock::factory()->create(['rotation_id' => $rotation->id, 'department_id' => null]);
         $version = DistributionVersion::create(['rotation_id' => $rotation->id, 'version_number' => 1, 'status' => 'published', 'is_current' => true]);
         $site = TrainingSite::factory()->create();
-        $assignment = StudentClinicalAssignment::create(['distribution_version_id' => $version->id, 'rotation_block_id' => $block->id, 'student_id' => $student->id, 'student_subgroup_id' => $subgroup, 'training_site_id' => $site->id, 'department_id' => null]);
+        $supervisor = Person::factory()->create();
+        $assignment = StudentClinicalAssignment::create(['distribution_version_id' => $version->id, 'rotation_block_id' => $block->id, 'student_id' => $student->id, 'student_subgroup_id' => $subgroup, 'training_site_id' => $site->id, 'department_id' => null, 'supervisor_id' => $supervisor->id]);
         $session = ClinicalSession::create(['rotation_block_id' => $block->id, 'training_site_id' => $site->id, 'session_date' => '2026-09-28', 'title' => $course->code]);
         AttendanceRecord::create(['student_id' => $student->id, 'clinical_session_id' => $session->id, 'status' => 'present']);
-        ClinicalAssessment::create(['student_id' => $student->id, 'clinical_session_id' => $session->id, 'student_clinical_assignment_id' => $assignment->id, 'score' => 9, 'max_score' => 10, 'status' => 'draft']);
+        ClinicalAssessment::create(['student_id' => $student->id, 'clinical_session_id' => $session->id, 'student_clinical_assignment_id' => $assignment->id, 'evaluator_person_id' => $supervisor->id, 'score' => 9, 'max_score' => 10, 'status' => 'draft']);
         $enrollment = StudentCourseEnrollment::firstOrCreate(['student_id' => $student->id, 'course_id' => $course->id, 'academic_year_id' => $this->year->id, 'semester' => 'annual']);
         GradeEntry::create(['student_course_enrollment_id' => $enrollment->id, 'score' => 80, 'max_score' => 100, 'status' => 'draft']);
         return $assignment;

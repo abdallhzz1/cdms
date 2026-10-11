@@ -26,24 +26,29 @@ const oldAssessment: Assessment = {
   session: { rotation_block_id: 9, session_date: '2026-10-01' },
 };
 
-describe('clinical assessment continuity in the supervisor workspace', () => {
-  it('shows a submitted mark from the previous distribution version', () => {
+describe('current clinical assessment selection in the supervisor workspace', () => {
+  it('keeps an old-version mark hidden until the assigned supervisor records a current one', () => {
     const [group] = groupSupervisorAssignments([currentAssignment], true);
-    expect(group.rotationId).toBe(19);
-    expect(assessmentForGroup([oldAssessment], group, 7, 5)?.id).toBe(10);
+    expect(group.distributionVersionId).toBe(28);
+    expect(assessmentForGroup([oldAssessment], group, 7, 5)).toBeUndefined();
+    const current = { ...oldAssessment, id: 11, student_clinical_assignment_id: 31, score: 6 };
+    expect(assessmentForGroup([oldAssessment, current], group, 7, 5)?.id).toBe(11);
     expect(assessmentForGroup([oldAssessment], group, 7, 6)).toBeUndefined();
-    expect(assessmentForGroup([{ ...oldAssessment, assessment_rotation_id: 20 }], group, 7, 5)).toBeUndefined();
   });
 
-  it('prefers the first official submission when a later revision already contains a duplicate', () => {
+  it('prefers the latest official current-version mark if one slot already contains duplicates', () => {
     const [group] = groupSupervisorAssignments([currentAssignment], true);
-    const duplicate = { ...oldAssessment, id: 11, student_clinical_assignment_id: 31, score: 2 };
-    expect(assessmentForGroup([duplicate, oldAssessment], group, 7, 5)?.id).toBe(10);
+    const first = { ...oldAssessment, id: 11, student_clinical_assignment_id: 31, score: 8 };
+    const latest = { ...first, id: 12, score: 6 };
+    expect(assessmentForGroup([first, latest], group, 7, 5)?.id).toBe(12);
   });
 
-  it('finds a mini OSCE from the previous distribution block', () => {
+  it('requires the same distribution version and block for mini OSCE', () => {
     const [group] = groupSupervisorAssignments([currentAssignment], true);
-    expect(miniOsceForGroup([{ student_id: 7, rotation_block_id: 8, rotation_id: 19, from_week: 5, to_week: 5, score: 4, max_score: 5 }], group, 7)?.score).toBe(4);
-    expect(miniOsceForGroup([{ student_id: 7, rotation_block_id: 8, rotation_id: 20, from_week: 5, to_week: 5, score: 4, max_score: 5 }], group, 7)).toBeUndefined();
+    const old = { student_id: 7, rotation_block_id: 9, distribution_version_id: 27, score: 4, max_score: 5 };
+    const current = { ...old, distribution_version_id: 28, score: 3 };
+    expect(miniOsceForGroup([old], group, 7)).toBeUndefined();
+    expect(miniOsceForGroup([old, current], group, 7)?.score).toBe(3);
+    expect(miniOsceForGroup([{ ...current, rotation_block_id: 8 }], group, 7)).toBeUndefined();
   });
 });

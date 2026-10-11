@@ -128,4 +128,21 @@ describe('GradesPage official workflow',()=>{
     await userEvent.click(withdraw);
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).endsWith('/grade-entries/batch-withdraw-approval')&&String(init?.body).includes('Student data must be corrected'))).toBe(true));
   });
+
+  it('flags stale submitted clinical marks and prevents their approval while keeping return available',async()=>{
+    vi.spyOn(window,'fetch').mockImplementation(async(input)=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope({id:9,name:'Director',email:'director@hebron.edu',roles:['CLINICAL_DIRECTOR'],assigned_levels:null,permissions:[{code:'grades.view',scope:'global'},{code:'grades.approve',scope:'global'},{code:'approvals.decide',scope:'global'}]});
+      if(url.includes('/grade-entries/options'))return envelope({academic_years:[{id:3,code:'2026-2027',is_current:true}],courses:[{id:8,code:'MED401',name_ar:'الجراحة',name_en:'Surgery',academic_level:'fourth',is_active:true}],assigned_levels:null});
+      if(url.includes('/grade-entries/approval-status'))return envelope(null);
+      if(url.includes('/grade-entries/roster'))return envelope([{student:{id:5,university_number:'22210001',full_name_ar:'طالب',full_name_en:'Clinical Student',academic_level:'fourth'},official_clinical_score:null,clinical_score_outdated:true,grade_entry:{id:11,clinical_score:18,osce_score:35,written_score:37,score:90,status:'submitted'}}]);
+      throw new Error(`Unmocked request: ${url}`);
+    });
+    renderWithProviders(<GradesPage/>,{route:'/grades'});
+    expect(await screen.findByText('Clinical Student')).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('no longer match the current distribution');
+    expect(screen.getByText('Clinical review needed')).toBeVisible();
+    expect(screen.getByRole('button',{name:'Approve my stage'})).toBeDisabled();
+    expect(screen.getByRole('button',{name:'Return'})).toBeEnabled();
+  });
 });

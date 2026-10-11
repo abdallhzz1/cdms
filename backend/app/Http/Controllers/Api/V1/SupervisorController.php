@@ -232,6 +232,7 @@ class SupervisorController extends Controller
             ->with(['student:id,university_number,full_name_ar,full_name_en', 'session:id,rotation_block_id,training_site_id,session_date,title', 'session.rotationBlock:id,rotation_id', 'clinicalAssignment:id,rotation_block_id', 'clinicalAssignment.rotationBlock:id,rotation_id', 'template.criteria', 'workflowTransitions'])
             ->where('evaluator_person_id', $person->id)
             ->latest('id')->get();
+        $assessments = $this->assessmentContinuity->distinctForReview($assessments);
         $assessments->each(function (ClinicalAssessment $assessment): void {
             $assessment->setAttribute('return_reason', $assessment->workflowTransitions->firstWhere('to_state', 'returned')?->reason);
             $assessment->setAttribute('assessment_rotation_id', $assessment->clinicalAssignment?->rotationBlock?->rotation_id
@@ -541,13 +542,17 @@ class SupervisorController extends Controller
                 $this->assessmentContinuity->miniScoresForAssignments($periodAssignments),
                 (int) $data['student_id'], (int) $rotation->id, $startWeek, $endWeek,
             );
-            $key = ['student_id' => $data['student_id'], 'rotation_block_id' => $previous?->rotation_block_id ?: $periodAssignments->first()->rotation_block_id];
+            $key = [
+                'student_id' => $data['student_id'],
+                'rotation_block_id' => $previous?->rotation_block_id ?: $periodAssignments->first()->rotation_block_id,
+                'distribution_version_id' => $assignment->distribution_version_id,
+                'entered_by_person_id' => $person->id,
+            ];
             $old = DB::table('clinical_mini_osce_scores')->where($key)->lockForUpdate()->first();
             if ($old && (float) $data['score'] > (float) $old->max_score) {
                 throw ValidationException::withMessages(['score' => ['العلامة تتجاوز سقف الميني أوسكي المحفوظ لهذه الفترة.']]);
             }
             DB::table('clinical_mini_osce_scores')->updateOrInsert($key, [
-                'entered_by_person_id' => $person->id,
                 'score' => round((float) $data['score'], 2),
                 'max_score' => $old?->max_score ?? $max,
                 'created_at' => $old?->created_at ?? now(),
@@ -557,6 +562,7 @@ class SupervisorController extends Controller
                 'user_id' => auth()->id(), 'action' => 'grade.mini_osce.recorded',
                 'entity_type' => \App\Models\Course::class, 'entity_id' => $course->id,
                 'changes' => ['student_id' => $data['student_id'], 'rotation_block_id' => $key['rotation_block_id'],
+                    'distribution_version_id' => $key['distribution_version_id'],
                     'previous' => $old?->score, 'current' => round((float) $data['score'], 2)],
             ]);
         });

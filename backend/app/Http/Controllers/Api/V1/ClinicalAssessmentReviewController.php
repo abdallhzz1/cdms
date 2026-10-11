@@ -112,11 +112,13 @@ class ClinicalAssessmentReviewController extends Controller
         $students = $roster->concat($assignments->pluck('student')->filter())
             ->unique('id')->sortBy('university_number')->values();
 
-        $assessments = app(ClinicalAssessmentContinuity::class)->forAssignments($assignments)
+        $continuity = app(ClinicalAssessmentContinuity::class);
+        $assessments = $continuity->forAssignments($assignments)
             ->where(fn ($query) => $query->whereNotNull('evaluation_week')->orWhere('assessment_kind', 'period'))
             ->with(['evaluator:id,full_name_ar,full_name_en', 'clinicalAssignment:id,rotation_block_id', 'clinicalAssignment.rotationBlock:id,rotation_id', 'session:id,rotation_block_id', 'session.rotationBlock:id,rotation_id'])
             ->orderBy('id')->get();
-        $miniScores = app(ClinicalAssessmentContinuity::class)->miniScoresForAssignments($assignments);
+        $assessments = $continuity->distinctForReview($assessments);
+        $miniScores = $continuity->miniScoresForAssignments($assignments);
 
         // Final OSCE belongs to the course and academic year, not to an
         // assessment week. Keep its roster limited to the already scoped,

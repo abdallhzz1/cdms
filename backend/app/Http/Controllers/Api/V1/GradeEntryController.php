@@ -88,11 +88,17 @@ class GradeEntryController extends Controller
 
         return ApiResponse::success($students->map(function (Student $student) use ($enrollments, $clinical) {
             $enrollment = $enrollments->get($student->id);
+            $official = $clinical->get($student->id);
+            $saved = $enrollment?->gradeEntry;
+            $outdated = $saved && in_array($saved->status, ['submitted', 'approved'], true)
+                && ($official === null || $saved->clinical_score === null
+                    || abs((float) $saved->clinical_score - (float) $official) > 0.005);
             return [
                 'student' => $student,
                 'enrollment_id' => $enrollment?->id,
-                'grade_entry' => $enrollment?->gradeEntry,
-                'official_clinical_score' => $clinical->get($student->id),
+                'grade_entry' => $saved,
+                'official_clinical_score' => $official,
+                'clinical_score_outdated' => (bool) $outdated,
             ];
         })->values());
     }
@@ -458,15 +464,20 @@ class GradeEntryController extends Controller
         $result = DB::transaction(function () use ($course, $academicYearId, $workflow, $approvals, $request) {
             $enrollments = StudentCourseEnrollment::where('course_id', $course->id)
                 ->where('academic_year_id', $academicYearId)
-                ->pluck('id');
+                ->get(['id', 'student_id'])->keyBy('id');
 
-            $grades = GradeEntry::whereIn('student_course_enrollment_id', $enrollments)
+            $grades = GradeEntry::whereIn('student_course_enrollment_id', $enrollments->keys())
                 ->where('status', 'submitted')->lockForUpdate()->get();
             if ($grades->isEmpty()) {
                 throw \Illuminate\Validation\ValidationException::withMessages(['grades' => ['There are no submitted grades to approve.']]);
             }
             if ($grades->contains(fn (GradeEntry $grade) => (int) $grade->prepared_by_user_id === (int) auth()->id())) {
                 throw \Illuminate\Validation\ValidationException::withMessages(['grades' => ['The preparer cannot approve the same grade sheet.']]);
+            }
+            $officialClinical = $this->clinicalScores($enrollments->pluck('student_id')->all(), $course->id, $academicYearId);
+            foreach ($grades as $grade) {
+                $studentId = $enrollments->get($grade->student_course_enrollment_id)?->student_id;
+                $this->assertCurrentClinicalScore($grade, $studentId ? $officialClinical->get($studentId) : null);
             }
             if (! $approvals->pending('grade_sheet', 'grade_sheet', $course->id.':'.$academicYearId)) {
                 $requester = \App\Models\User::findOrFail((int) $grades->first()->prepared_by_user_id);
@@ -632,6 +643,10 @@ class GradeEntryController extends Controller
         if ((int) $gradeEntry->prepared_by_user_id === (int) auth()->id()) {
             throw \Illuminate\Validation\ValidationException::withMessages(['grade' => ['The preparer cannot approve the same grade.']]);
         }
+        $enrollment = $gradeEntry->enrollment;
+        $officialClinical = $this->clinicalScores([$enrollment->student_id], $enrollment->course_id, $enrollment->academic_year_id)
+            ->get($enrollment->student_id);
+        $this->assertCurrentClinicalScore($gradeEntry, $officialClinical);
 
         if (! $approvals->pending('grade_sheet', 'grade_entry', $gradeEntry->id)) {
             $requester = \App\Models\User::findOrFail((int) $gradeEntry->prepared_by_user_id);
@@ -675,21 +690,17 @@ class GradeEntryController extends Controller
             : 0.0;
         $periodFrequency = $courseId && CourseAssessmentComponent::where('course_id', $courseId)
             ->where('code', 'clinical')->value('assessment_frequency') === 'period';
+        $expectedAssignments = app(DepartmentHeadCourseScope::class)
+            ->publishedAssignments($courseId, $academicYearId)
+            ->whereIn('student_id', $studentIds)
+            ->with(['rotationBlock', 'student:id,batch_year'])->get();
+        $currentAssessments = app(ClinicalAssessmentContinuity::class)->forAssignments($expectedAssignments)
+            ->whereIn('status', ['submitted', 'approved'])->where('max_score', '>', 0)
+            ->whereNotNull('score')
+            ->with(['session.rotationBlock', 'clinicalAssignment.rotationBlock'])->get();
+        $currentAssessments = app(ClinicalAssessmentContinuity::class)->distinctOfficial($currentAssessments);
 
         if ($miniMax > 0) {
-            $assessments = app(DepartmentHeadCourseScope::class)->assessments(ClinicalAssessment::query())
-                ->whereIn('status', ['submitted', 'approved'])->where('max_score', '>', 0)->whereNotNull('score')
-                ->whereIn('student_id', $studentIds)
-                ->when($courseId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $courseId)))
-                ->when($academicYearId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $academicYearId)))
-                ->with(['session.rotationBlock', 'clinicalAssignment.rotationBlock'])->get();
-            $assessments = app(ClinicalAssessmentContinuity::class)->distinctOfficial($assessments);
-            $expectedAssignments = StudentClinicalAssignment::query()
-                ->whereIn('student_id', $studentIds)
-                ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
-                ->whereHas('rotationBlock.rotation', fn ($query) => $query->where('course_id', $courseId)
-                    ->when($academicYearId, fn ($rotation) => $rotation->where('academic_year_id', $academicYearId)))
-                ->with(['rotationBlock', 'student:id,batch_year'])->get();
             $expectedPeriods = $expectedAssignments->groupBy('student_id')->map(fn ($items) => $periodFrequency
                 ? app(\App\Services\ClinicalAssessmentPeriods::class)->groups($items, false)
                     ->map(fn (array $period) => [
@@ -704,7 +715,7 @@ class GradeEntryController extends Controller
                 ])->all());
             $continuity = app(ClinicalAssessmentContinuity::class);
             $mini = $continuity->miniScoresForAssignments($expectedAssignments);
-            return $assessments->groupBy('student_id')->map(function ($studentAssessments, $studentId) use ($mini, $miniMax, $clinicalMax, $withMetadata, $expectedPeriods, $continuity) {
+            return $currentAssessments->groupBy('student_id')->map(function ($studentAssessments, $studentId) use ($mini, $miniMax, $clinicalMax, $withMetadata, $expectedPeriods, $continuity) {
                 $periodScores = [];
                 foreach ($expectedPeriods->get($studentId, []) as $period) {
                     $items = $studentAssessments->filter(function (ClinicalAssessment $item) use ($period) {
@@ -729,15 +740,9 @@ class GradeEntryController extends Controller
             });
         }
 
-        $assessments = app(DepartmentHeadCourseScope::class)->assessments(ClinicalAssessment::query())
-            // A supervisor's submitted weekly assessment is the official
-            // clinical input. Administrative approval applies to the final
-            // grade sheet, not to each weekly clinical assessment.
-            ->whereIn('status', ['submitted', 'approved'])->where('max_score', '>', 0)->whereNotNull('score')->whereIn('student_id', $studentIds)
-            ->when($courseId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $courseId)))
-            ->when($academicYearId, fn ($query) => $query->whereHas('session.rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $academicYearId)))
-            ->with(['session.rotationBlock', 'clinicalAssignment.rotationBlock'])->get();
-        return app(ClinicalAssessmentContinuity::class)->distinctOfficial($assessments)
+        // Administrative approval applies to the final grade sheet, not to
+        // each weekly assessment. Old distribution versions are audit-only.
+        return $currentAssessments
             ->groupBy('student_id')->map(function ($items) use ($clinicalMax, $withMetadata) {
                 $score = round($items->avg(fn (ClinicalAssessment $item) => (float) $item->score * $clinicalMax / (float) $item->max_score), 2);
                 return $withMetadata
@@ -752,6 +757,17 @@ class GradeEntryController extends Controller
             return null;
         }
         return round((float) $clinical + (float) $osce + (float) $written, 2);
+    }
+
+    private function assertCurrentClinicalScore(GradeEntry $grade, mixed $officialClinical): void
+    {
+        if ($officialClinical === null || $grade->clinical_score === null
+            || abs((float) $grade->clinical_score - (float) $officialClinical) > 0.005) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['grades' => [$this->tr(
+                'تغيّر التوزيع أو التقييم السريري منذ إرسال الكشف. لا يمكن اعتماده قبل مراجعة العلامات وإعادة إرساله.',
+                'The clinical distribution or assessment changed since submission. Review and resubmit the grade sheet before approval.',
+            )]]);
+        }
     }
 
     private function standardAssessmentPlan(Course $course)
