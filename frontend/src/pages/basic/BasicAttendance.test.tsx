@@ -111,14 +111,25 @@ describe('Isolated basic lecture attendance', () => {
   expect(reason).toBeRequired();
  });
 
- it('shows pending first-time scans before allowing lecture finalization', async () => {
-  mock(path => {
-   if (path === '/basic-attendance/sessions/1') return envelope({ section, session: { id: 1, title: 'Test Lecture', state: 'paused', mode: 'single', opened_at: '2026-09-29T09:00:00+03:00' }, accepting: false, pending_scans: 1, pending_until: '2026-09-29T09:10:00+03:00', counts: { total: 1, check_in: 0, check_out: 0, late: 0, absent: 0, incomplete: 0 }, rows: [{ id: 1, student_id: 1, name: student.name, university_number: student.university_number, status: 'pending', source: 'qr', check_in_at: null, check_out_at: null, is_late: false }] });
+ it('shows real pending students and requires confirmation before finalizing over them', async () => {
+  const fetchSpy=mock(path => {
+   if (path === '/basic-attendance/sessions/1') return envelope({ section, session: { id: 1, title: 'Test Lecture', state: 'paused', mode: 'single', opened_at: '2026-09-29T09:00:00+03:00' }, accepting: false, pending_scans: 1, pending_students: [{name: student.name, university_number: student.university_number}], pending_until: '2026-09-29T09:10:00+03:00', counts: { total: 1, check_in: 0, check_out: 0, late: 0, absent: 0, incomplete: 0 }, rows: [{ id: 1, student_id: 1, name: student.name, university_number: student.university_number, status: 'pending', source: 'qr', check_in_at: null, check_out_at: null, is_late: false }] });
    if (path === '/basic-attendance/sessions/1/qr') return envelope({ url: null, phase: 'paused' });
+   if (path === '/basic-attendance/sessions/1/transition') return envelope(null);
    throw Error(path);
   });
+  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
   renderWithProviders(<Routes><Route path="/basic-attendance/sessions/:sessionId" element={<BasicLectureSessionPage />} /></Routes>, { route: '/basic-attendance/sessions/1' });
-  await screen.findByText(/QR scans awaiting email verification: 1/);
-  expect(screen.getByRole('button', { name: 'End and finalize lecture' })).toBeDisabled();
+  await screen.findByText(/Enrolled students awaiting email verification: 1/);
+  expect(screen.getByRole('status')).toHaveTextContent(student.university_number);
+  const finalize=screen.getByRole('button', { name: 'End and finalize lecture' });
+  expect(finalize).toBeEnabled();
+  await userEvent.click(finalize);
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Finalizing now will close their requests'));
+  expect(fetchSpy.mock.calls.some(([input])=>String(input).includes('/sessions/1/transition'))).toBe(false);
+  confirm.mockReturnValue(true);
+  await userEvent.click(finalize);
+  await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/sessions/1/transition')&&String(init?.body).includes('"override_pending":true'))).toBe(true));
+  expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/sessions/1/transition')&&String(init?.body).includes('"expected_pending_count":1'))).toBe(true);
  });
 });

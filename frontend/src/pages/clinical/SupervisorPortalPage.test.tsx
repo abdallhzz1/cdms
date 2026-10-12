@@ -28,10 +28,13 @@ describe('clinical supervisor workspace',()=>{
     ]);
   });
 
-  it('uses Sunday-based weeks and selects the nearest upcoming week on mobile',()=>{
-    expect(agendaWeekStart('2026-09-24')).toBe('2026-09-20');
-    expect(preferredAgendaWeek([{date:'2026-09-17'},{date:'2026-09-27'}],'2026-09-24')).toBe('2026-09-27');
-    expect(preferredAgendaWeek([{date:'2026-09-17'},{date:'2026-09-24'}],'2026-09-24')).toBe('2026-09-20');
+  it('uses Saturday-to-Friday weeks and selects the nearest upcoming week on mobile',()=>{
+    expect(agendaWeekStart('2026-09-24')).toBe('2026-09-19');
+    expect(agendaWeekStart('2026-09-25')).toBe('2026-09-19');
+    expect(agendaWeekStart('2026-09-26')).toBe('2026-09-26');
+    expect(agendaWeekStart('2026-09-27')).toBe('2026-09-26');
+    expect(preferredAgendaWeek([{date:'2026-09-17'},{date:'2026-09-27'}],'2026-09-24')).toBe('2026-09-26');
+    expect(preferredAgendaWeek([{date:'2026-09-17'},{date:'2026-09-24'}],'2026-09-24')).toBe('2026-09-19');
   });
 
   it('fills all seven days and includes a second work site without a student assignment there',()=>{
@@ -39,9 +42,11 @@ describe('clinical supervisor workspace',()=>{
       {training_site_id:5,training_site:{name_ar:'المستشفى الأهلي',name_en:'Al Ahli Hospital'},valid_from:'2026-08-23',valid_until:'2026-08-29',days:[{day:'thursday',status:'work'}]},
       {training_site_id:8,training_site:{name_ar:'مركز تدريب ثانٍ',name_en:'Second Training Centre'},valid_from:'2026-08-23',valid_until:'2026-08-29',days:[{day:'monday',status:'work'}]},
     ]},'2026-08-24');
-    const firstWeek=agenda.filter(item=>agendaWeekStart(item.date)==='2026-08-23');
+    const firstWeek=agenda.filter(item=>agendaWeekStart(item.date)==='2026-08-22');
     expect(firstWeek).toHaveLength(7);
-    expect(firstWeek.find(item=>item.date==='2026-08-23')?.duties).toHaveLength(0);
+    expect(firstWeek[0].date).toBe('2026-08-22');
+    expect(firstWeek.at(-1)?.date).toBe('2026-08-28');
+    expect(firstWeek.find(item=>item.date==='2026-08-22')?.duties).toHaveLength(0);
     expect(firstWeek.find(item=>item.date==='2026-08-24')?.duties).toMatchObject([{siteId:8,siteEn:'Second Training Centre',groups:[]}]);
     expect(firstWeek.find(item=>item.date==='2026-08-27')?.duties[0].groups).toHaveLength(1);
   });
@@ -53,7 +58,7 @@ describe('clinical supervisor workspace',()=>{
     ]}));
     renderWithProviders(<SupervisorPortalPage/>);
     const weekSelect=await screen.findByRole('combobox',{name:'Choose week'});
-    await userEvent.selectOptions(weekSelect,'2026-08-23');
+    await userEvent.selectOptions(weekSelect,'2026-08-22');
     const table=screen.getByRole('table');
     expect(within(table).getAllByRole('row')).toHaveLength(8);
     expect(within(table).getByText('Second Training Centre')).toBeVisible();
@@ -171,10 +176,10 @@ describe('clinical supervisor workspace',()=>{
     const weekSelect=await screen.findByRole('combobox',{name:'Choose week'});
     const phoneTable=screen.getAllByRole('table')[0];
     expect(within(phoneTable).getAllByRole('row')).toHaveLength(8);
-    expect(screen.getByRole('option',{name:'Week starting 23/08'})).toBeInTheDocument();
+    expect(screen.getByRole('option',{name:'Week starting 22/08'})).toBeInTheDocument();
     expect(within(weekSelect).getAllByRole('option').every(option=>!option.textContent?.includes('–'))).toBe(true);
-    await userEvent.selectOptions(weekSelect,'2026-08-23');
-    expect(screen.getByText('23/08/2026 – 29/08/2026')).toBeVisible();
+    await userEvent.selectOptions(weekSelect,'2026-08-22');
+    expect(screen.getByText('22/08/2026 – 28/08/2026')).toBeVisible();
     expect(within(phoneTable).getByText('27/08/2026')).toBeVisible();
     expect(within(phoneTable).getAllByRole('link',{name:'Record attendance'})).toHaveLength(1);
   });

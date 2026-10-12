@@ -75,10 +75,38 @@ class BasicAttendanceService
         });
     }
 
-    public function transition(User $user, int $id, string $action): void
+    /** Only roster students with a usable email challenge can delay finalization. */
+    public function pendingScanStudents(int $sessionId): \Illuminate\Support\Collection
+    {
+        return DB::table('basic_scan_claims as claim')
+            ->join('basic_lecture_records as record', function ($join) {
+                $join->on('record.session_id', '=', 'claim.session_id')->on('record.student_id', '=', 'claim.student_id');
+            })
+            ->join('basic_students as student', 'student.id', '=', 'claim.student_id')
+            ->join('basic_otp_challenges as otp', function ($join) {
+                $join->on('otp.scan_claim_id', '=', 'claim.id')->on('otp.student_id', '=', 'claim.student_id');
+            })
+            ->where('claim.session_id', $sessionId)
+            ->whereNull('claim.consumed_at')->where('claim.expires_at', '>', now())
+            ->whereNull('otp.consumed_at')->where('otp.expires_at', '>', now())->where('otp.attempts', '<', 5)
+            ->where('record.source', 'qr')
+            ->where(function ($query) {
+                $query->where(function ($entry) {
+                    $entry->where('claim.phase', 'check_in')->whereNull('record.check_in_at');
+                })->orWhere(function ($exit) {
+                    $exit->where('claim.phase', 'check_out')->whereNotNull('record.check_in_at')->whereNull('record.check_out_at');
+                });
+            })
+            ->select('claim.student_id', 'student.name', 'student.university_number')
+            ->selectRaw('MAX(otp.expires_at) as pending_until')
+            ->groupBy('claim.student_id', 'student.name', 'student.university_number')
+            ->get();
+    }
+
+    public function transition(User $user, int $id, string $action, bool $overridePending = false, ?int $expectedPendingCount = null): void
     {
         $this->session($user, $id);
-        DB::transaction(function () use ($user, $id, $action) {
+        DB::transaction(function () use ($user, $id, $action, $overridePending, $expectedPendingCount) {
             $s = DB::table('basic_lecture_sessions')->where('id', $id)->lockForUpdate()->first();
             $allowed = match ($action) {
                 'close' => in_array($s->state, ['check_in', 'check_out']),
@@ -87,17 +115,22 @@ class BasicAttendanceService
                 'finalize' => $s->state !== 'finalized', default => false,
             };
             abort_unless($allowed, 409);
-            if (in_array($action, ['open_exit', 'finalize']) && DB::table('basic_scan_claims')->where('session_id', $id)->whereNull('consumed_at')->where('expires_at', '>', now())->exists()) {
+            $pending = $action === 'finalize' ? $this->pendingScanStudents($id) : collect();
+            if ($action === 'finalize' && $pending->isNotEmpty() && ! $overridePending) {
                 throw ValidationException::withMessages(['pending_scans' => [__('basic_attendance.pending_scans_block_transition')]]);
+            }
+            if ($action === 'finalize' && $overridePending && $expectedPendingCount !== $pending->count()) {
+                throw ValidationException::withMessages(['pending_scans' => [__('basic_attendance.pending_scans_changed')]]);
             }
             $state = match ($action) { 'close' => 'paused', 'open_exit' => 'check_out', 'reopen_entry' => 'check_in', 'finalize' => 'finalized' };
             $values = ['state' => $state, 'version' => $s->version + 1, 'phase_expires_at' => in_array($state, ['check_in', 'check_out']) ? now()->addMinutes($s->window_minutes) : null, 'updated_at' => now()];
             if ($action === 'finalize') {
                 $values += ['active_guard' => null, 'finalized_at' => now()];
                 DB::table('basic_lecture_records')->where('session_id', $id)->where('source', 'qr')->update(['status' => DB::raw($s->mode === 'double' ? "CASE WHEN check_in_at IS NULL THEN 'absent' WHEN check_out_at IS NULL THEN 'incomplete' ELSE 'present' END" : "CASE WHEN check_in_at IS NULL THEN 'absent' ELSE 'present' END"), 'updated_at' => now()]);
+                DB::table('basic_scan_claims')->where('session_id', $id)->whereNull('consumed_at')->update(['consumed_at' => now(), 'updated_at' => now()]);
             }
             DB::table('basic_lecture_sessions')->where('id', $id)->update($values);
-            $this->audit($id, $user->id, 'session.'.$action, ['previous_state' => $s->state, 'state' => $state]);
+            $this->audit($id, $user->id, 'session.'.$action, ['previous_state' => $s->state, 'state' => $state, 'pending_students' => $pending->count(), 'override_pending' => $action === 'finalize' && $pending->isNotEmpty() && $overridePending]);
         });
     }
 

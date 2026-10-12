@@ -214,9 +214,9 @@ class BasicAttendanceController extends Controller
         $s = $this->service->session($r->user(), $session);
         $rows = DB::table('basic_lecture_records as r')->join('basic_students as st', 'st.id', '=', 'r.student_id')->where('r.session_id', $session)->select('r.*', 'st.name', 'st.university_number', 'st.photo_url')->orderBy('st.name')->get();
         $this->service->dates($s); $rows->each(fn ($row) => $this->service->dates($row));
-        $claims = DB::table('basic_scan_claims')->where('session_id', $session)->whereNull('consumed_at')->where('expires_at', '>', now());
-        $pendingUntil = (clone $claims)->max('expires_at');
-        return ApiResponse::success(['session' => $s, 'section' => $this->service->section($r->user(), $s->section_id), 'accepting' => $this->service->accepting($s), 'pending_scans' => (clone $claims)->count(), 'pending_until' => $pendingUntil ? \Carbon\Carbon::parse($pendingUntil)->toIso8601String() : null, 'rows' => $rows, 'counts' => ['total' => $rows->count(), 'check_in' => $rows->whereNotNull('check_in_at')->count(), 'check_out' => $rows->whereNotNull('check_out_at')->count(), 'absent' => $rows->where('status', 'absent')->count(), 'incomplete' => $rows->where('status', 'incomplete')->count(), 'late' => $rows->where('is_late', true)->count()]]);
+        $pending = $this->service->pendingScanStudents($session);
+        $pendingUntil = $pending->max('pending_until');
+        return ApiResponse::success(['session' => $s, 'section' => $this->service->section($r->user(), $s->section_id), 'accepting' => $this->service->accepting($s), 'pending_scans' => $pending->count(), 'pending_students' => $pending->map(fn ($student) => ['name' => $student->name, 'university_number' => $student->university_number])->values(), 'pending_until' => $pendingUntil ? \Carbon\Carbon::parse($pendingUntil)->toIso8601String() : null, 'rows' => $rows, 'counts' => ['total' => $rows->count(), 'check_in' => $rows->whereNotNull('check_in_at')->count(), 'check_out' => $rows->whereNotNull('check_out_at')->count(), 'absent' => $rows->where('status', 'absent')->count(), 'incomplete' => $rows->where('status', 'incomplete')->count(), 'late' => $rows->where('is_late', true)->count()]]);
     }
 
     public function qr(Request $r, int $session)
@@ -228,8 +228,8 @@ class BasicAttendanceController extends Controller
 
     public function transition(Request $r, int $session)
     {
-        $data = $r->validate(['action' => ['required', 'in:close,open_exit,reopen_entry,finalize']]);
-        $this->service->transition($r->user(), $session, $data['action']);
+        $data = $r->validate(['action' => ['required', 'in:close,open_exit,reopen_entry,finalize'], 'override_pending' => ['sometimes', 'boolean'], 'expected_pending_count' => ['sometimes', 'integer', 'min:0']]);
+        $this->service->transition($r->user(), $session, $data['action'], $data['action'] === 'finalize' && ($data['override_pending'] ?? false), $data['expected_pending_count'] ?? null);
         return $this->show($r, $session);
     }
 

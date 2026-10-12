@@ -55,10 +55,12 @@ class PublicBasicAttendanceController extends Controller
     private function bindClaimToStudent(int $claimId, int $student, string $token): array
     {
         return DB::transaction(function () use ($claimId, $student, $token): array {
+            $reference = DB::table('basic_scan_claims')->where('id', $claimId)->first();
+            if (! $reference) throw ValidationException::withMessages(['qr' => [__('basic_attendance.claim_expired')]]);
+            $session = DB::table('basic_lecture_sessions')->where('id', $reference->session_id)->whereNull('archived_at')->lockForUpdate()->first();
             $claim = DB::table('basic_scan_claims')->where('id', $claimId)->lockForUpdate()->first();
             if (! $claim || $claim->consumed_at || now()->greaterThanOrEqualTo($claim->expires_at)) throw ValidationException::withMessages(['qr' => [__('basic_attendance.claim_expired')]]);
             if ($claim->student_id && (int) $claim->student_id !== $student) throw ValidationException::withMessages(['qr' => [__('basic_attendance.claim_student_mismatch')]]);
-            $session = DB::table('basic_lecture_sessions')->where('id', $claim->session_id)->whereNull('archived_at')->first();
             if (! $session || $session->state === 'finalized') throw ValidationException::withMessages(['qr' => [__('basic_attendance.claim_expired')]]);
             $visible = DB::table('basic_sections as section')->join('basic_courses as course', 'course.id', '=', 'section.course_id')
                 ->where('section.id', $session->section_id)->whereNull('section.archived_at')->whereNull('course.archived_at')->exists();

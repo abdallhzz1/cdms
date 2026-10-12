@@ -21,10 +21,10 @@ export function sortAgendaByNextSession<T extends {date:string}>(items:T[],curre
   });
 }
 
-/** Calendar weeks begin on Sunday, matching the clinical work-week display. */
+/** The clinical calendar runs from Saturday through Friday. */
 export function agendaWeekStart(date:string):string{
   const day=new Date(`${date}T12:00:00Z`);
-  day.setUTCDate(day.getUTCDate()-day.getUTCDay());
+  day.setUTCDate(day.getUTCDate()-((day.getUTCDay()+1)%7));
   return day.toISOString().slice(0,10);
 }
 

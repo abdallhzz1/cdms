@@ -315,9 +315,46 @@ class BasicLectureAttendanceTest extends TestCase
         $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, str_repeat('x', 64))->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $challenge, 'otp' => $this->otp, 'remember' => false])->assertUnprocessable();
         $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'check_in_at' => null]);
         $this->actingAs($this->lecturer)->getJson('/api/v1/basic-attendance/sessions/'.$id)->assertJsonPath('data.pending_scans', 1);
-        $this->travel(11)->minutes();
+        $this->travel(6)->minutes();
+        $this->actingAs($this->lecturer)->getJson('/api/v1/basic-attendance/sessions/'.$id)->assertJsonPath('data.pending_scans', 0);
         $this->transition($id, 'finalize');
         $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'status' => 'absent']);
+    }
+
+    public function test_anonymous_and_out_of_section_scans_cannot_block_finalization(): void
+    {
+        $id = $this->start('single');
+        $ticket = $this->postJson('/api/v1/public/basic-attendance/prepare', ['qr' => $this->token($id)])->assertOk()->json('data.scan_ticket');
+        $outsider = DB::table('basic_students')->insertGetId(['university_number' => '2699999', 'name' => 'طالب خارج الشعبة', 'email' => 'outsider@example.edu', 'created_at' => now(), 'updated_at' => now()]);
+        $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $ticket)
+            ->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2699999', 'scan_ticket' => $ticket])->assertUnprocessable();
+        $this->assertDatabaseHas('basic_scan_claims', ['session_id' => $id, 'student_id' => null, 'consumed_at' => null]);
+        $this->assertDatabaseMissing('basic_otp_challenges', ['student_id' => $outsider]);
+        $this->transition($id, 'close');
+        $this->actingAs($this->lecturer)->getJson('/api/v1/basic-attendance/sessions/'.$id)->assertJsonPath('data.pending_scans', 0);
+        $this->transition($id, 'finalize');
+        $this->assertDatabaseHas('basic_lecture_sessions', ['id' => $id, 'state' => 'finalized']);
+    }
+
+    public function test_lecturer_can_explicitly_finalize_with_a_real_pending_student(): void
+    {
+        $this->mail(); $id = $this->start('single');
+        $ticket = $this->postJson('/api/v1/public/basic-attendance/prepare', ['qr' => $this->token($id)])->assertOk()->json('data.scan_ticket');
+        $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $ticket)
+            ->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'scan_ticket' => $ticket])->assertOk();
+        $this->transition($id, 'close');
+        $this->actingAs($this->lecturer)->getJson('/api/v1/basic-attendance/sessions/'.$id)
+            ->assertJsonPath('data.pending_scans', 1)
+            ->assertJsonPath('data.pending_students.0.university_number', '2600001');
+        $this->postJson('/api/v1/basic-attendance/sessions/'.$id.'/transition', ['action' => 'finalize'])->assertUnprocessable();
+        $this->postJson('/api/v1/basic-attendance/sessions/'.$id.'/transition', ['action' => 'finalize', 'override_pending' => true, 'expected_pending_count' => 0])->assertUnprocessable();
+        $this->postJson('/api/v1/basic-attendance/sessions/'.$id.'/transition', ['action' => 'finalize', 'override_pending' => true, 'expected_pending_count' => 1])
+            ->assertOk()->assertJsonPath('data.pending_scans', 0);
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'status' => 'absent']);
+        $this->assertDatabaseMissing('basic_scan_claims', ['session_id' => $id, 'consumed_at' => null]);
+        $audit = DB::table('basic_attendance_audits')->where('session_id', $id)->where('event', 'session.finalize')->first();
+        $this->assertSame(1, json_decode($audit->details, true)['pending_students']);
+        $this->assertTrue(json_decode($audit->details, true)['override_pending']);
     }
 
     public function test_a_scan_claim_cannot_be_reused_for_another_student_or_browser(): void
@@ -342,16 +379,17 @@ class BasicLectureAttendanceTest extends TestCase
         $this->assertDatabaseCount('basic_scan_claims', 1);
     }
 
-    public function test_double_check_waits_for_first_scan_claim_before_opening_exit(): void
+    public function test_double_check_can_open_exit_while_a_valid_check_in_is_waiting_for_email(): void
     {
         $this->mail(); $id = $this->start('double');
         $request = $this->postJson('/api/v1/public/basic-attendance/request-otp', ['university_number' => '2600001', 'qr' => $this->token($id)])->assertOk();
         $claim = $request->getCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, false)->getValue();
         $this->transition($id, 'close');
-        $this->actingAs($this->lecturer)->postJson('/api/v1/basic-attendance/sessions/'.$id.'/transition', ['action' => 'open_exit'])->assertUnprocessable();
-        $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $claim)->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $request->json('data.challenge_token'), 'otp' => $this->otp, 'remember' => false])->assertOk();
         $this->transition($id, 'open_exit');
-        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'check_out_at' => null]);
+        $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $claim)->postJson('/api/v1/public/basic-attendance/verify-otp', ['challenge_token' => $request->json('data.challenge_token'), 'otp' => $this->otp, 'remember' => false])->assertOk();
+        $record = DB::table('basic_lecture_records')->where('session_id', $id)->where('student_id', $this->students[0])->first();
+        $this->assertNotNull($record->check_in_at);
+        $this->assertNull($record->check_out_at);
     }
 
     public function test_same_origin_encrypted_cookie_round_trip_registers_the_second_check(): void

@@ -296,8 +296,9 @@ export const basicAttendanceUi = {
   "auditReason": "السبب: {reason}",
   "workLectureLecturer": "مدرس المحاضرة",
   "workChooseLecturer": "اختر المدرس المكلّف",
-  "workPendingScans": "عمليات مسح بانتظار رمز البريد: {count}",
-  "workPendingUntil": "يمكن إكمال التحقق حتى {time}. لا تعتمد المحاضرة قبل انتهاء الطلبات المعلّقة.",
+  "workPendingScans": "طلاب الشعبة بانتظار تأكيد البريد: {count}",
+  "workPendingUntil": "يمكن إكمال التحقق حتى {time}. اعتماد المحاضرة الآن يُنهي الطلبات المعلّقة دون احتساب حضورها.",
+  "workFinalizeWithPending": "يوجد {count} من طلاب الشعبة بانتظار تأكيد البريد. إذا اعتمدت المحاضرة الآن فلن يُحتسب حضورهم من هذه الطلبات. هل تريد الاعتماد رغم ذلك؟",
   "publicScanCaptured": "تم حفظ وقت مسح الباركود. يمكنك إكمال رمز البريد حتى {time} حتى لو أغلق المدرس التسجيل.",
   "publicScanWaiting": "لم يُسجّل الحضور بعد؛ سيُعتمد بعد إدخال الرمز الصحيح من هذا المتصفح."
 } as const;

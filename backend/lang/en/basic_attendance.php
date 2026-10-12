@@ -87,5 +87,6 @@ return [
     'claim_expired' => 'The QR scan confirmation window expired. Scan a fresh QR code or contact your lecturer.',
     'claim_browser_mismatch' => 'Complete verification in the same browser that scanned the QR code.',
     'claim_student_mismatch' => 'This scan is already linked to another student. Scan the QR code on your own device.',
-    'pending_scans_block_transition' => 'Some QR scans are awaiting verification. Wait until the displayed confirmation deadline before moving to the next phase or finalizing the lecture.',
+    'pending_scans_block_transition' => 'Enrolled students are awaiting email verification. Review their names and wait, or explicitly finalize the lecture despite the pending requests.',
+    'pending_scans_changed' => 'The number of waiting students changed. Refresh the page and review their names before finalizing.',
 ];

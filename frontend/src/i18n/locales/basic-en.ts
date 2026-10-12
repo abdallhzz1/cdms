@@ -296,8 +296,9 @@ export const basicAttendanceUi = {
   "auditReason": "Reason: {reason}",
   "workLectureLecturer": "Lecture lecturer",
   "workChooseLecturer": "Choose the assigned lecturer",
-  "workPendingScans": "QR scans awaiting email verification: {count}",
-  "workPendingUntil": "Verification can finish until {time}. Do not finalize while scans are pending.",
+  "workPendingScans": "Enrolled students awaiting email verification: {count}",
+  "workPendingUntil": "Verification can finish until {time}. Finalizing now closes these requests without recording their attendance.",
+  "workFinalizeWithPending": "{count} enrolled students are awaiting email verification. Finalizing now will close their requests without recording attendance. Finalize anyway?",
   "publicScanCaptured": "Your QR scan time is saved. You can enter the email code until {time}, even if the lecturer closes registration.",
   "publicScanWaiting": "Attendance is not recorded yet; it is confirmed only after the correct code is entered in this browser."
 } as const;
