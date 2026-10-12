@@ -75,3 +75,24 @@ score at every approval step. A mismatch or missing current score blocks
 approval; the grade roster flags the affected students. Previously approved
 grade entries are not silently rewritten and need administrative review if a
 later distribution revision changes their official clinical scores.
+
+### Explicit recovery of an unchanged supervisor assignment
+
+`php artisan clinical:restore-assessments EMAIL FROM_VERSION TO_VERSION`
+previews saved marks without changing data. It is intended only for a direct
+published revision when the student, supervisor, rotation block, training
+site, subgroup, and department are unchanged. Any existing mark in the
+current version, ambiguous match, out-of-block week, or approved grade entry
+blocks the *whole* apply operation. The command cannot reconstruct a week
+for which no saved assessment exists.
+
+After reviewing the preview and taking the normal database backup, an
+operator may run the same command with `--apply --expect=N
+--actor-email=OPERATOR_EMAIL`. The exact count is mandatory. Inside a single
+transaction it changes only the assignment link; the assessment ID, score,
+evaluator, status and original submission time remain unchanged. Each relink
+gets an `assessment.assignment_relinked` audit entry containing both version
+and assignment IDs. A failed check rolls back everything. This is an explicit,
+audited recovery of an unchanged assignment, not automatic reuse of a former
+supervisor's mark after reassignment. Mini-OSCE scores are not changed by this
+command.

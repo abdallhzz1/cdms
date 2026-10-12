@@ -5,6 +5,7 @@ namespace Tests\Feature\Phase5C;
 use App\Models\AuditLog;
 use App\Models\AttendanceRecord;
 use App\Models\ClinicalSession;
+use App\Models\ClinicalAssessment;
 use App\Models\Department;
 use App\Models\Course;
 use App\Models\GradeEntry;
@@ -24,6 +25,7 @@ use App\Models\SupervisorAvailability;
 use App\Models\TrainingSite;
 use App\Models\User;
 use App\Services\ClinicalAttendance\QrAttendanceService;
+use App\Services\ClinicalAssessmentContinuity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -716,6 +718,165 @@ class Phase5CTest extends TestCase
             ->assertOk()->assertJsonPath("data.{$this->student1->id}.clinical_score", 12)
             ->assertJsonPath("data.{$this->student1->id}.assessments_count", 1);
         $this->assertDatabaseHas('clinical_assessments', ['id' => $oldId, 'student_clinical_assignment_id' => $this->assignment1->id]);
+    }
+
+    public function test_explicit_recovery_relinks_unchanged_assessment_with_audit_and_keeps_its_original_id(): void
+    {
+        $this->supervisor1->update(['email' => 'khalilz@hebron.edu']);
+        $assessment = ClinicalAssessment::create([
+            'student_id' => $this->student1->id,
+            'evaluator_person_id' => $this->supervisor1->id,
+            'student_clinical_assignment_id' => $this->assignment1->id,
+            'evaluation_week' => 2,
+            'assessment_kind' => 'weekly',
+            'week_start' => '2026-09-08',
+            'week_end' => '2026-09-14',
+            'score' => 8,
+            'max_score' => 10,
+            'status' => 'submitted',
+            'submitted_at' => '2026-09-14 12:00:00',
+        ]);
+        $revision = DistributionVersion::create([
+            'rotation_id' => $this->rotation->id,
+            'source_version_id' => $this->publishedVersion->id,
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+        $this->publishedVersion->update(['is_current' => false]);
+        $current = $this->assignment1->replicate();
+        $current->distribution_version_id = $revision->id;
+        $current->save();
+        $arguments = [
+            'email' => 'khalilz@hebron.edu',
+            'from-version' => $this->publishedVersion->id,
+            'to-version' => $revision->id,
+        ];
+
+        $this->artisan('clinical:restore-assessments', $arguments)->assertExitCode(0);
+        $this->assertDatabaseHas('clinical_assessments', [
+            'id' => $assessment->id,
+            'student_clinical_assignment_id' => $this->assignment1->id,
+        ]);
+        $this->artisan('clinical:restore-assessments', $arguments + [
+            '--apply' => true,
+            '--expect' => 1,
+            '--actor-email' => $this->admin->email,
+        ])->assertExitCode(0);
+        $this->assertDatabaseHas('clinical_assessments', [
+            'id' => $assessment->id,
+            'student_clinical_assignment_id' => $current->id,
+            'evaluator_person_id' => $this->supervisor1->id,
+            'score' => 8,
+            'status' => 'submitted',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'assessment.assignment_relinked',
+            'entity_id' => $assessment->id,
+            'user_id' => $this->admin->id,
+        ]);
+        $this->assertDatabaseCount('clinical_assessments', 1);
+        $this->assertSame([$assessment->id], app(ClinicalAssessmentContinuity::class)
+            ->forAssignments(collect([$current]))->pluck('id')->all());
+        $this->artisan('clinical:restore-assessments', $arguments)->assertExitCode(0);
+    }
+
+    public function test_recovery_refuses_changed_supervisor_and_never_partially_applies(): void
+    {
+        $this->supervisor1->update(['email' => 'khalilz@hebron.edu']);
+        $assessment = ClinicalAssessment::create([
+            'student_id' => $this->student1->id,
+            'evaluator_person_id' => $this->supervisor1->id,
+            'student_clinical_assignment_id' => $this->assignment1->id,
+            'evaluation_week' => 2,
+            'assessment_kind' => 'weekly',
+            'score' => 8,
+            'max_score' => 10,
+            'status' => 'submitted',
+            'submitted_at' => now(),
+        ]);
+        $revision = DistributionVersion::create([
+            'rotation_id' => $this->rotation->id,
+            'source_version_id' => $this->publishedVersion->id,
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+        $this->publishedVersion->update(['is_current' => false]);
+        $current = $this->assignment1->replicate();
+        $current->distribution_version_id = $revision->id;
+        $current->supervisor_id = $this->supervisor2->id;
+        $current->save();
+
+        $this->artisan('clinical:restore-assessments', [
+            'email' => 'khalilz@hebron.edu',
+            'from-version' => $this->publishedVersion->id,
+            'to-version' => $revision->id,
+            '--apply' => true,
+            '--expect' => 1,
+            '--actor-email' => $this->admin->email,
+        ])->assertExitCode(1);
+        $this->assertDatabaseHas('clinical_assessments', [
+            'id' => $assessment->id,
+            'student_clinical_assignment_id' => $this->assignment1->id,
+        ]);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'assessment.assignment_relinked',
+            'entity_id' => $assessment->id,
+        ]);
+    }
+
+    public function test_recovery_never_overwrites_a_current_assessment(): void
+    {
+        $this->supervisor1->update(['email' => 'khalilz@hebron.edu']);
+        $old = ClinicalAssessment::create([
+            'student_id' => $this->student1->id,
+            'evaluator_person_id' => $this->supervisor1->id,
+            'student_clinical_assignment_id' => $this->assignment1->id,
+            'evaluation_week' => 2,
+            'assessment_kind' => 'weekly',
+            'score' => 8,
+            'max_score' => 10,
+            'status' => 'submitted',
+            'submitted_at' => now(),
+        ]);
+        $revision = DistributionVersion::create([
+            'rotation_id' => $this->rotation->id,
+            'source_version_id' => $this->publishedVersion->id,
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+        $this->publishedVersion->update(['is_current' => false]);
+        $currentAssignment = $this->assignment1->replicate();
+        $currentAssignment->distribution_version_id = $revision->id;
+        $currentAssignment->save();
+        $current = ClinicalAssessment::create([
+            'student_id' => $this->student1->id,
+            'evaluator_person_id' => $this->supervisor1->id,
+            'student_clinical_assignment_id' => $currentAssignment->id,
+            'evaluation_week' => 2,
+            'assessment_kind' => 'weekly',
+            'score' => 6,
+            'max_score' => 10,
+            'status' => 'submitted',
+            'submitted_at' => now(),
+        ]);
+
+        $this->artisan('clinical:restore-assessments', [
+            'email' => 'khalilz@hebron.edu',
+            'from-version' => $this->publishedVersion->id,
+            'to-version' => $revision->id,
+            '--apply' => true,
+            '--expect' => 1,
+            '--actor-email' => $this->admin->email,
+        ])->assertExitCode(1);
+        $this->assertDatabaseHas('clinical_assessments', [
+            'id' => $old->id, 'student_clinical_assignment_id' => $this->assignment1->id, 'score' => 8,
+        ]);
+        $this->assertDatabaseHas('clinical_assessments', [
+            'id' => $current->id, 'student_clinical_assignment_id' => $currentAssignment->id, 'score' => 6,
+        ]);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'assessment.assignment_relinked', 'entity_id' => $old->id,
+        ]);
     }
 
     public function test_grade_approval_rejects_a_submitted_score_from_an_outdated_distribution(): void
