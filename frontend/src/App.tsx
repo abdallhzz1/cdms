@@ -73,6 +73,7 @@ import { ApprovalsPage } from '@/pages/ApprovalsPage';
 import { DepartmentsManagementPage } from '@/pages/admin/DepartmentsManagementPage';
 import { SystemHealthPage } from '@/pages/admin/SystemHealthPage';
 import { SystemSettingsPage } from '@/pages/admin/SystemSettingsPage';
+import { AdminClinicalAssessmentsPage } from '@/pages/admin/AdminClinicalAssessmentsPage';
 import { InboxPage } from '@/pages/InboxPage';
 import { OutboxPage } from '@/pages/OutboxPage';
 import { CorrespondenceDetailsPage } from '@/pages/CorrespondenceDetailsPage';
@@ -238,6 +239,7 @@ export function App() {
                 <Route path="/clinical/dashboard" element={<ClinicalDashboard />} />
                 <Route path="/attendance" element={<ProtectedRoute requiredPermission="attendance.review"><AttendanceMasterPage /></ProtectedRoute>} />
                 <Route path="/assessments" element={<ProtectedRoute requiredPermission="assessment.review"><AssessmentsMasterPage /></ProtectedRoute>} />
+                <Route path="/admin/clinical-assessments" element={<ProtectedRoute requiredRole="SYS_ADMIN"><AdminClinicalAssessmentsPage /></ProtectedRoute>} />
                 
                 {/* Correspondence & Tasks */}
                 <Route path="/inbox" element={<InboxPage />} />

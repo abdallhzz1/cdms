@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AcademicCalendarEventController;
+use App\Http\Controllers\Api\V1\AdminClinicalAssessmentController;
 use App\Http\Controllers\Api\V1\AcademicYearController;
 use App\Http\Controllers\Api\V1\AdminDepartmentController;
 use App\Http\Controllers\Api\V1\AdvisingRecordController;
@@ -772,6 +773,16 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         // Technical administration. These endpoints intentionally live only
         // under /admin; the UI routes use the same canonical API namespace.
         Route::prefix('admin')->name('admin.')->group(function () {
+            Route::get('clinical-assessments/overview', [AdminClinicalAssessmentController::class, 'overview']);
+            Route::get('clinical-assessments', [AdminClinicalAssessmentController::class, 'index']);
+            Route::get('clinical-assessments/gaps', [AdminClinicalAssessmentController::class, 'gaps']);
+            Route::post('clinical-assessments/manual', [AdminClinicalAssessmentController::class, 'manual']);
+            Route::get('clinical-assessments/{type}/{id}', [AdminClinicalAssessmentController::class, 'show']);
+            Route::post('clinical-assessments/{type}/{id}/restore', [AdminClinicalAssessmentController::class, 'restore']);
+            Route::post('clinical-assessments/{type}/{id}/correct', [AdminClinicalAssessmentController::class, 'correct']);
+            Route::post('clinical-assessments/{type}/{id}/choose', [AdminClinicalAssessmentController::class, 'choose']);
+            Route::post('clinical-assessments/{type}/{id}/review', [AdminClinicalAssessmentController::class, 'review']);
+            Route::post('clinical-assessments/{type}/{id}/resync', [AdminClinicalAssessmentController::class, 'resync']);
             Route::get('health', [SystemAdminController::class, 'health'])
                 ->middleware('permission:settings.manage')->name('health');
             Route::get('sessions', [SystemAdminController::class, 'sessions'])
