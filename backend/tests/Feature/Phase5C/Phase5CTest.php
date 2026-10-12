@@ -859,6 +859,177 @@ class Phase5CTest extends TestCase
         ]);
     }
 
+    public function test_recovery_can_select_exact_unchanged_marks_without_moving_changed_assignments(): void
+    {
+        $this->supervisor1->update(['email' => 'qaysar@hebron.edu']);
+        $this->assignment2->update(['supervisor_id' => $this->supervisor1->id]);
+        $unchanged = ClinicalAssessment::create([
+            'student_id' => $this->student1->id,
+            'evaluator_person_id' => $this->supervisor1->id,
+            'student_clinical_assignment_id' => $this->assignment1->id,
+            'evaluation_week' => 2,
+            'assessment_kind' => 'weekly',
+            'score' => 8,
+            'max_score' => 10,
+            'status' => 'submitted',
+            'submitted_at' => now(),
+        ]);
+        $changed = ClinicalAssessment::create([
+            'student_id' => $this->student2->id,
+            'evaluator_person_id' => $this->supervisor1->id,
+            'student_clinical_assignment_id' => $this->assignment2->id,
+            'evaluation_week' => 2,
+            'assessment_kind' => 'weekly',
+            'score' => 7,
+            'max_score' => 10,
+            'status' => 'submitted',
+            'submitted_at' => now(),
+        ]);
+        $revision = DistributionVersion::create([
+            'rotation_id' => $this->rotation->id,
+            'source_version_id' => $this->publishedVersion->id,
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+        $this->publishedVersion->update(['is_current' => false]);
+        $sameTarget = $this->assignment1->replicate();
+        $sameTarget->distribution_version_id = $revision->id;
+        $sameTarget->save();
+        $changedTarget = $this->assignment2->replicate();
+        $changedTarget->distribution_version_id = $revision->id;
+        $changedTarget->supervisor_id = $this->supervisor2->id;
+        $changedTarget->save();
+
+        $arguments = [
+            'email' => 'qaysar@hebron.edu',
+            'from-version' => $this->publishedVersion->id,
+            'to-version' => $revision->id,
+            '--only-ids' => (string) $unchanged->id,
+        ];
+        $this->artisan('clinical:restore-assessments', $arguments)->assertExitCode(0);
+        $this->artisan('clinical:restore-assessments', $arguments + [
+            '--apply' => true,
+            '--expect' => 1,
+            '--actor-email' => $this->admin->email,
+        ])->assertExitCode(0);
+        $this->assertDatabaseHas('clinical_assessments', [
+            'id' => $unchanged->id, 'student_clinical_assignment_id' => $sameTarget->id,
+        ]);
+        $this->assertDatabaseHas('clinical_assessments', [
+            'id' => $changed->id, 'student_clinical_assignment_id' => $this->assignment2->id,
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'assessment.assignment_relinked', 'entity_id' => $unchanged->id,
+        ]);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'assessment.assignment_relinked', 'entity_id' => $changed->id,
+        ]);
+    }
+
+    public function test_recovery_selection_rejects_unknown_or_repeated_ids_without_writes(): void
+    {
+        $this->supervisor1->update(['email' => 'qaysar@hebron.edu']);
+        $assessment = ClinicalAssessment::create([
+            'student_id' => $this->student1->id,
+            'evaluator_person_id' => $this->supervisor1->id,
+            'student_clinical_assignment_id' => $this->assignment1->id,
+            'evaluation_week' => 2,
+            'assessment_kind' => 'weekly',
+            'score' => 8,
+            'max_score' => 10,
+            'status' => 'submitted',
+            'submitted_at' => now(),
+        ]);
+        $revision = DistributionVersion::create([
+            'rotation_id' => $this->rotation->id,
+            'source_version_id' => $this->publishedVersion->id,
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+        $this->publishedVersion->update(['is_current' => false]);
+        $current = $this->assignment1->replicate();
+        $current->distribution_version_id = $revision->id;
+        $current->save();
+
+        $arguments = [
+            'email' => 'qaysar@hebron.edu',
+            'from-version' => $this->publishedVersion->id,
+            'to-version' => $revision->id,
+            '--apply' => true,
+            '--expect' => 2,
+            '--actor-email' => $this->admin->email,
+        ];
+        $this->artisan('clinical:restore-assessments', $arguments + [
+            '--only-ids' => $assessment->id.','.($assessment->id + 999),
+        ])->assertExitCode(1);
+        $this->artisan('clinical:restore-assessments', $arguments + [
+            '--only-ids' => $assessment->id.','.$assessment->id,
+        ])->assertExitCode(1);
+        $this->assertDatabaseHas('clinical_assessments', [
+            'id' => $assessment->id, 'student_clinical_assignment_id' => $this->assignment1->id,
+        ]);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'assessment.assignment_relinked', 'entity_id' => $assessment->id,
+        ]);
+    }
+
+    public function test_recovery_selection_cannot_hide_another_old_mark_for_the_same_slot(): void
+    {
+        $this->supervisor1->update(['email' => 'qaysar@hebron.edu']);
+        $first = ClinicalAssessment::create([
+            'student_id' => $this->student1->id,
+            'evaluator_person_id' => $this->supervisor1->id,
+            'student_clinical_assignment_id' => $this->assignment1->id,
+            'evaluation_week' => null,
+            'assessment_kind' => 'period',
+            'week_start' => '2026-09-01',
+            'week_end' => '2026-09-28',
+            'score' => 8,
+            'max_score' => 10,
+            'status' => 'submitted',
+            'submitted_at' => now(),
+        ]);
+        ClinicalAssessment::create([
+            'student_id' => $this->student1->id,
+            'evaluator_person_id' => $this->supervisor1->id,
+            'student_clinical_assignment_id' => $this->assignment1->id,
+            'evaluation_week' => null,
+            'assessment_kind' => 'period',
+            'week_start' => '2026-09-01',
+            'week_end' => '2026-09-28',
+            'score' => 6,
+            'max_score' => 10,
+            'status' => 'submitted',
+            'submitted_at' => now(),
+        ]);
+        $revision = DistributionVersion::create([
+            'rotation_id' => $this->rotation->id,
+            'source_version_id' => $this->publishedVersion->id,
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+        $this->publishedVersion->update(['is_current' => false]);
+        $current = $this->assignment1->replicate();
+        $current->distribution_version_id = $revision->id;
+        $current->save();
+
+        $this->artisan('clinical:restore-assessments', [
+            'email' => 'qaysar@hebron.edu',
+            'from-version' => $this->publishedVersion->id,
+            'to-version' => $revision->id,
+            '--only-ids' => (string) $first->id,
+            '--apply' => true,
+            '--expect' => 1,
+            '--actor-email' => $this->admin->email,
+        ])->assertExitCode(1);
+        $this->assertDatabaseHas('clinical_assessments', [
+            'id' => $first->id, 'student_clinical_assignment_id' => $this->assignment1->id,
+        ]);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'assessment.assignment_relinked', 'entity_id' => $first->id,
+        ]);
+    }
+
     public function test_recovery_never_overwrites_a_current_assessment(): void
     {
         $this->supervisor1->update(['email' => 'khalilz@hebron.edu']);

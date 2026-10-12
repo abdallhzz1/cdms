@@ -105,6 +105,13 @@ current version, ambiguous match, out-of-block week, or approved grade entry
 blocks the *whole* apply operation. The command cannot reconstruct a week
 for which no saved assessment exists.
 
+If a supervisor has both unchanged and changed assignments in the old
+version, append `--only-ids=ID1,ID2,...` to preview and restore only the
+explicitly reviewed assessment IDs. Every ID must belong to the specified
+evaluator and source version; missing, repeated, blocked, or extra records
+abort the apply transaction. Do not include marks whose current assignment
+has a different supervisor or already has a current mark.
+
 After reviewing the preview and taking the normal database backup, an
 operator may run the same command with `--apply --expect=N
 --actor-email=OPERATOR_EMAIL`. The exact count is mandatory. Inside a single

@@ -21,6 +21,7 @@ class RestoreClinicalAssessments extends Command
         {email : University email of the evaluator}
         {from-version : Superseded distribution version ID}
         {to-version : Current published distribution version ID}
+        {--only-ids= : Comma-separated assessment IDs to inspect or restore; every ID must belong to this evaluator and source version}
         {--apply : Relink eligible records after a successful preview}
         {--expect= : Exact number of records required before any write}
         {--actor-email= : Existing active administrator account for the audit trail}';
@@ -42,8 +43,20 @@ class RestoreClinicalAssessments extends Command
             return self::FAILURE;
         }
 
+        try {
+            $selectedIds = $this->selectedIds();
+        } catch (RuntimeException $e) {
+            $this->error($e->getMessage().' No records changed.');
+            return self::FAILURE;
+        }
+
         if (! $this->option('apply')) {
-            $this->displayPlan($this->plan($person, $from, $to));
+            $plan = $this->plan($person, $from, $to, false, $selectedIds);
+            if (! $this->selectionMatches($plan, $selectedIds)) {
+                $this->error('One or more selected assessment IDs do not belong to this evaluator and source version. No records changed.');
+                return self::FAILURE;
+            }
+            $this->displayPlan($plan);
             $this->info('Preview only. No assessments were changed.');
             return self::SUCCESS;
         }
@@ -60,15 +73,17 @@ class RestoreClinicalAssessments extends Command
         }
 
         try {
-            $result = DB::transaction(function () use ($person, $from, $to, $actor, $expected): array {
+            $result = DB::transaction(function () use ($person, $from, $to, $actor, $expected, $selectedIds): array {
                 DistributionVersion::query()->whereIn('id', [$from->id, $to->id])->orderBy('id')->lockForUpdate()->get();
                 $from->refresh();
                 $to->refresh();
                 if ($from->is_current || ! $to->is_current || $from->status !== 'published' || $to->status !== 'published') {
                     throw new RuntimeException('Distribution changed since preview.');
                 }
-                $plan = $this->plan($person, $from, $to, true);
-                if ($plan->count() !== $expected || $plan->contains(fn (array $row) => $row['reason'] !== null)) {
+                $plan = $this->plan($person, $from, $to, true, $selectedIds);
+                if (! $this->selectionMatches($plan, $selectedIds)
+                    || $plan->count() !== $expected
+                    || $plan->contains(fn (array $row) => $row['reason'] !== null)) {
                     throw new RuntimeException('Expected count or assignment checks failed; nothing was restored.');
                 }
 
@@ -113,7 +128,7 @@ class RestoreClinicalAssessments extends Command
     }
 
     /** @return Collection<int, array{assessment: ClinicalAssessment, target: ?StudentClinicalAssignment, reason: ?string}> */
-    private function plan(Person $person, DistributionVersion $from, DistributionVersion $to, bool $lock = false): Collection
+    private function plan(Person $person, DistributionVersion $from, DistributionVersion $to, bool $lock = false, ?array $selectedIds = null): Collection
     {
         $targets = StudentClinicalAssignment::query()->where('distribution_version_id', $to->id)
             ->get()->groupBy(fn (StudentClinicalAssignment $item) => $this->assignmentKey($item));
@@ -185,7 +200,41 @@ class RestoreClinicalAssessments extends Command
             });
         }
 
-        return $rows;
+        // Determine duplicate logical slots across *all* source marks before
+        // narrowing the preview. A selected ID must not hide its conflicting peer.
+        return $selectedIds === null ? $rows : $rows
+            ->filter(fn (array $row) => in_array((int) $row['assessment']->id, $selectedIds, true))
+            ->values();
+    }
+
+    /** @return list<int>|null Null means that the complete evaluator/version is selected. */
+    private function selectedIds(): ?array
+    {
+        $raw = $this->option('only-ids');
+        if ($raw === null) return null;
+
+        $ids = [];
+        foreach (explode(',', (string) $raw) as $part) {
+            $part = trim($part);
+            $id = filter_var($part, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($id === false || isset($ids[$id])) {
+                throw new RuntimeException('Invalid or repeated --only-ids value. Use unique positive assessment IDs separated by commas.');
+            }
+            $ids[$id] = $id;
+        }
+
+        return array_values($ids);
+    }
+
+    /** @param list<int>|null $selectedIds */
+    private function selectionMatches(Collection $plan, ?array $selectedIds): bool
+    {
+        if ($selectedIds === null) return true;
+
+        $found = $plan->pluck('assessment.id')->map(fn ($id) => (int) $id)->sort()->values()->all();
+        $selected = collect($selectedIds)->sort()->values()->all();
+
+        return $found === $selected;
     }
 
     private function assignmentKey(StudentClinicalAssignment $assignment): string
