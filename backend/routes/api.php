@@ -782,6 +782,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::post('clinical-assessments/{type}/{id}/correct', [AdminClinicalAssessmentController::class, 'correct']);
             Route::post('clinical-assessments/{type}/{id}/choose', [AdminClinicalAssessmentController::class, 'choose']);
             Route::post('clinical-assessments/{type}/{id}/review', [AdminClinicalAssessmentController::class, 'review']);
+            Route::post('clinical-assessments/{type}/{id}/confirm-current', [AdminClinicalAssessmentController::class, 'confirmCurrent']);
             Route::post('clinical-assessments/{type}/{id}/resync', [AdminClinicalAssessmentController::class, 'resync']);
             Route::get('health', [SystemAdminController::class, 'health'])
                 ->middleware('permission:settings.manage')->name('health');

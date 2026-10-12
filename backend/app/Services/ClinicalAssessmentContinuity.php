@@ -92,7 +92,9 @@ class ClinicalAssessmentContinuity
             ?? $assessment->session?->rotationBlock?->rotation_id;
         if (! $rotationId) return 'record:'.$assessment->id;
 
-        $prefix = implode(':', [$rotationId, $assessment->student_id, $assessment->evaluator_person_id ?? 0]);
+        // One student has one official mark per rotation and assessment slot,
+        // even when the supervisor changed between submissions.
+        $prefix = implode(':', [$rotationId, $assessment->student_id]);
         if ($assessment->assessment_kind === 'period' && $assessment->week_start && $assessment->week_end) {
             return $prefix.':period:'.$assessment->week_start->toDateString().':'.$assessment->week_end->toDateString();
         }
@@ -111,6 +113,7 @@ class ClinicalAssessmentContinuity
 
         return DB::table('clinical_mini_osce_scores as scores')
             ->join('rotation_blocks as blocks', 'blocks.id', '=', 'scores.rotation_block_id')
+            ->whereNull('scores.superseded_at')
             ->whereExists(fn ($query) => $query->selectRaw('1')
                 ->from('student_clinical_assignments as assigned')
                 ->join('distribution_versions as versions', 'versions.id', '=', 'assigned.distribution_version_id')
@@ -126,9 +129,11 @@ class ClinicalAssessmentContinuity
 
     public function miniForPeriod(Collection $scores, int $studentId, int $rotationId, int $startWeek, int $endWeek): ?object
     {
-        return $scores->first(fn (object $score) => (int) $score->student_id === $studentId
+        $matches = $scores->filter(fn (object $score) => (int) $score->student_id === $studentId
             && (int) $score->rotation_id === $rotationId
             && (int) $score->from_week <= $endWeek
             && (int) $score->to_week >= $startWeek);
+        // A disputed period must not silently inherit whichever duplicate was read first.
+        return $matches->count() === 1 ? $matches->first() : null;
     }
 }

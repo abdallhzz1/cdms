@@ -165,6 +165,141 @@ class AdminClinicalAssessmentRegistryTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['entity_id' => $current->id, 'action' => 'assessment.admin_score_corrected']);
     }
 
+    public function test_identical_historical_copy_can_be_closed_without_changing_the_official_mark_or_approved_grade(): void
+    {
+        $old = $this->oldMark(9);
+        $current = ClinicalAssessment::create([
+            'student_id' => $this->student->id, 'evaluator_person_id' => $this->supervisor->id,
+            'student_clinical_assignment_id' => $this->target->id,
+            'assessment_kind' => 'weekly', 'evaluation_week' => 2,
+            'score' => 9, 'max_score' => 10, 'status' => 'submitted', 'submitted_at' => now(),
+        ]);
+        $grade = $this->approvedGrade();
+        $this->actingAs($this->admin)->getJson("/api/v1/admin/clinical-assessments/clinical/{$old->id}")
+            ->assertOk()->assertJsonPath('data.restore.reason', 'current_assessment_exists')
+            ->assertJsonPath('data.current_authoritative.id', $current->id);
+        $this->getJson('/api/v1/admin/clinical-assessments?issues_only=1')
+            ->assertOk()->assertJsonPath('data.pagination.total', 1);
+
+        $this->postJson("/api/v1/admin/clinical-assessments/clinical/{$old->id}/confirm-current", [
+            'expected_updated_at' => $old->updated_at->format('Y-m-d H:i:s'),
+            'snapshot' => $this->snapshot('clinical', $old->id),
+            'expected_current_assessment_id' => $current->id,
+            'expected_current_snapshot' => $this->snapshot('clinical', $current->id),
+            'reason' => 'Verified matching marks and the signed current supervisor assignment.',
+        ])->assertOk();
+
+        $this->assertSame('superseded', $old->fresh()->status);
+        $this->assertEquals(9, $old->fresh()->score);
+        $this->assertSame('submitted', $current->fresh()->status);
+        $this->assertEquals(9, $current->fresh()->score);
+        $this->assertEquals(0, $grade->fresh()->clinical_score);
+        $this->assertEquals(65, $grade->fresh()->score);
+        $this->getJson('/api/v1/admin/clinical-assessments?issues_only=1')
+            ->assertOk()->assertJsonPath('data.pagination.total', 0);
+        $this->getJson("/api/v1/admin/clinical-assessments/clinical/{$old->id}")
+            ->assertOk()->assertJsonPath('data.record.finding', 'superseded');
+        $this->assertDatabaseHas('audit_logs', [
+            'entity_id' => $old->id, 'action' => 'assessment.admin_historical_closed_for_current',
+            'user_id' => $this->admin->id,
+        ]);
+    }
+
+    public function test_changed_supervisor_and_different_score_still_keep_only_the_current_assigned_mark(): void
+    {
+        $old = $this->oldMark(9);
+        $newSupervisor = Person::factory()->create();
+        $this->target->update(['supervisor_id' => $newSupervisor->id]);
+        $current = ClinicalAssessment::create([
+            'student_id' => $this->student->id, 'evaluator_person_id' => $newSupervisor->id,
+            'student_clinical_assignment_id' => $this->target->id,
+            'assessment_kind' => 'weekly', 'evaluation_week' => 2,
+            'score' => 8, 'max_score' => 10, 'status' => 'submitted', 'submitted_at' => now(),
+        ]);
+        $this->actingAs($this->admin)->getJson("/api/v1/admin/clinical-assessments/clinical/{$old->id}")
+            ->assertOk()->assertJsonPath('data.restore.reason', 'assignment_changed')
+            ->assertJsonPath('data.current_authoritative.id', $current->id);
+        $this->postJson("/api/v1/admin/clinical-assessments/clinical/{$old->id}/confirm-current", [
+            'expected_updated_at' => $old->updated_at->format('Y-m-d H:i:s'),
+            'snapshot' => $this->snapshot('clinical', $old->id),
+            'expected_current_assessment_id' => $current->id,
+            'expected_current_snapshot' => $this->snapshot('clinical', $current->id),
+            'reason' => 'Confirmed the newly assigned supervisor is authoritative for this week.',
+        ])->assertOk();
+        $this->assertSame('superseded', $old->fresh()->status);
+        $this->assertEquals(9, $old->fresh()->score);
+        $this->assertEquals(8, $current->fresh()->score);
+        $this->getJson('/api/v1/admin/clinical-assessments?issues_only=1')
+            ->assertOk()->assertJsonPath('data.pagination.total', 0);
+    }
+
+    public function test_historical_closure_is_blocked_until_current_clinical_duplicates_are_resolved(): void
+    {
+        $old = $this->oldMark();
+        $current = ClinicalAssessment::create([
+            'student_id' => $this->student->id, 'evaluator_person_id' => $this->supervisor->id,
+            'student_clinical_assignment_id' => $this->target->id,
+            'assessment_kind' => 'weekly', 'evaluation_week' => 2,
+            'score' => 8, 'max_score' => 10, 'status' => 'submitted', 'submitted_at' => now(),
+        ]);
+        $other = Person::factory()->create();
+        ClinicalAssessment::create([
+            'student_id' => $this->student->id, 'evaluator_person_id' => $other->id,
+            'student_clinical_assignment_id' => $this->target->id,
+            'assessment_kind' => 'weekly', 'evaluation_week' => 2,
+            'score' => 6, 'max_score' => 10, 'status' => 'submitted', 'submitted_at' => now(),
+        ]);
+        $this->actingAs($this->admin)->getJson("/api/v1/admin/clinical-assessments/clinical/{$old->id}")
+            ->assertOk()->assertJsonPath('data.current_authoritative', null);
+        $this->postJson("/api/v1/admin/clinical-assessments/clinical/{$old->id}/confirm-current", [
+            'expected_updated_at' => $old->updated_at->format('Y-m-d H:i:s'),
+            'snapshot' => $this->snapshot('clinical', $old->id),
+            'expected_current_assessment_id' => $current->id,
+            'expected_current_snapshot' => $this->snapshot('clinical', $current->id),
+            'reason' => 'Attempted to close history while two current marks remain unresolved.',
+        ])->assertStatus(409);
+        $this->assertSame('submitted', $old->fresh()->status);
+    }
+
+    public function test_mini_osce_keeps_the_current_assigned_supervisor_and_preserves_old_score(): void
+    {
+        $oldSupervisor = $this->supervisor;
+        $newSupervisor = Person::factory()->create();
+        $this->target->update(['supervisor_id' => $newSupervisor->id]);
+        $oldId = DB::table('clinical_mini_osce_scores')->insertGetId([
+            'student_id' => $this->student->id, 'rotation_block_id' => $this->block->id,
+            'entered_by_person_id' => $oldSupervisor->id, 'distribution_version_id' => $this->old->id,
+            'score' => 4, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $currentId = DB::table('clinical_mini_osce_scores')->insertGetId([
+            'student_id' => $this->student->id, 'rotation_block_id' => $this->block->id,
+            'entered_by_person_id' => $newSupervisor->id, 'distribution_version_id' => $this->current->id,
+            'score' => 3, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $stamp = DB::table('clinical_mini_osce_scores')->where('id', $oldId)->value('updated_at');
+        $this->actingAs($this->admin)->getJson("/api/v1/admin/clinical-assessments/mini_osce/{$oldId}")
+            ->assertOk()->assertJsonPath('data.current_authoritative.id', $currentId);
+        $this->postJson("/api/v1/admin/clinical-assessments/mini_osce/{$oldId}/confirm-current", [
+            'expected_updated_at' => $stamp,
+            'snapshot' => $this->snapshot('mini_osce', $oldId),
+            'expected_current_assessment_id' => $currentId,
+            'expected_current_snapshot' => $this->snapshot('mini_osce', $currentId),
+            'reason' => 'Confirmed the mini OSCE entered by the supervisor on the current distribution.',
+        ])->assertOk();
+        $old = DB::table('clinical_mini_osce_scores')->where('id', $oldId)->first();
+        $current = DB::table('clinical_mini_osce_scores')->where('id', $currentId)->first();
+        $this->assertNotNull($old->superseded_at);
+        $this->assertSame($currentId, (int) $old->superseded_by_score_id);
+        $this->assertSame($this->admin->id, (int) $old->superseded_by_user_id);
+        $this->assertEquals(4, $old->score);
+        $this->assertNull($current->superseded_at);
+        $this->assertEquals(3, $current->score);
+        $this->getJson('/api/v1/admin/clinical-assessments?type=mini_osce&issues_only=1')
+            ->assertOk()->assertJsonPath('data.pagination.total', 0);
+        $this->getJson("/api/v1/admin/clinical-assessments/mini_osce/{$oldId}")
+            ->assertOk()->assertJsonPath('data.record.finding', 'superseded');
+    }
+
     public function test_mini_osce_and_final_osce_are_visible_and_correctable(): void
     {
         $miniId = DB::table('clinical_mini_osce_scores')->insertGetId([
@@ -264,6 +399,72 @@ class AdminClinicalAssessmentRegistryTest extends TestCase
         } finally {
             Carbon::setTestNow();
         }
+    }
+
+    public function test_admin_can_choose_assigned_supervisors_mini_osce_and_preserve_duplicate(): void
+    {
+        $this->course->assessmentComponents()->where('code', 'clinical')->update(['mini_osce_max_score' => 5]);
+        $otherSupervisor = Person::factory()->create();
+        $first = DB::table('clinical_mini_osce_scores')->insertGetId([
+            'student_id' => $this->student->id, 'rotation_block_id' => $this->block->id,
+            'entered_by_person_id' => $this->supervisor->id, 'distribution_version_id' => $this->current->id,
+            'score' => 4, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $second = DB::table('clinical_mini_osce_scores')->insertGetId([
+            'student_id' => $this->student->id, 'rotation_block_id' => $this->block->id,
+            'entered_by_person_id' => $otherSupervisor->id, 'distribution_version_id' => $this->current->id,
+            'score' => 3, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->actingAs($this->admin)->getJson("/api/v1/admin/clinical-assessments/mini_osce/{$first}")
+            ->assertOk()->assertJsonPath('data.record.finding', 'duplicate_current');
+        $this->postJson("/api/v1/admin/clinical-assessments/mini_osce/{$second}/choose", [
+            'expected_updated_at' => (string) DB::table('clinical_mini_osce_scores')->where('id', $second)->value('updated_at'),
+            'snapshot' => $this->snapshot('mini_osce', $second),
+            'reason' => 'Attempt to choose a supervisor who is not assigned in the current distribution.',
+        ])->assertStatus(409);
+        $this->postJson("/api/v1/admin/clinical-assessments/mini_osce/{$first}/choose", [
+            'expected_updated_at' => (string) DB::table('clinical_mini_osce_scores')->where('id', $first)->value('updated_at'),
+            'snapshot' => $this->snapshot('mini_osce', $first),
+            'reason' => 'Verified the currently assigned supervisor and retained the other mark for audit.',
+        ])->assertOk();
+        $this->assertDatabaseHas('clinical_mini_osce_scores', ['id' => $first, 'superseded_at' => null]);
+        $this->assertDatabaseHas('clinical_mini_osce_scores', ['id' => $second, 'superseded_by_score_id' => $first]);
+        $this->getJson("/api/v1/admin/clinical-assessments/mini_osce/{$first}")
+            ->assertOk()->assertJsonPath('data.record.finding', 'current');
+    }
+
+    public function test_mini_osce_conflict_across_consecutive_blocks_is_resolved_as_one_period(): void
+    {
+        $this->course->assessmentComponents()->where('code', 'clinical')->update(['mini_osce_max_score' => 5]);
+        $this->block->update(['to_week' => 1]);
+        $nextBlock = RotationBlock::factory()->create([
+            'rotation_id' => $this->rotation->id, 'from_week' => 2, 'to_week' => 2,
+        ]);
+        $nextAssignment = $this->target->replicate();
+        $nextAssignment->rotation_block_id = $nextBlock->id;
+        $nextAssignment->save();
+        $first = DB::table('clinical_mini_osce_scores')->insertGetId([
+            'student_id' => $this->student->id, 'rotation_block_id' => $this->block->id,
+            'entered_by_person_id' => $this->supervisor->id, 'distribution_version_id' => $this->current->id,
+            'score' => 4, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $second = DB::table('clinical_mini_osce_scores')->insertGetId([
+            'student_id' => $this->student->id, 'rotation_block_id' => $nextBlock->id,
+            'entered_by_person_id' => $this->supervisor->id, 'distribution_version_id' => $this->current->id,
+            'score' => 3, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->actingAs($this->admin)->getJson("/api/v1/admin/clinical-assessments/mini_osce/{$first}")
+            ->assertOk()->assertJsonPath('data.record.finding', 'duplicate_current');
+        $this->getJson('/api/v1/admin/clinical-assessments?type=mini_osce&issues_only=1')
+            ->assertOk()->assertJsonPath('data.pagination.total', 2);
+        $this->postJson("/api/v1/admin/clinical-assessments/mini_osce/{$first}/choose", [
+            'expected_updated_at' => (string) DB::table('clinical_mini_osce_scores')->where('id', $first)->value('updated_at'),
+            'snapshot' => $this->snapshot('mini_osce', $first),
+            'reason' => 'Verified the single official mini OSCE for both consecutive training weeks.',
+        ])->assertOk();
+        $this->assertDatabaseHas('clinical_mini_osce_scores', ['id' => $second, 'superseded_by_score_id' => $first]);
+        $this->getJson('/api/v1/admin/clinical-assessments?type=mini_osce&issues_only=1')
+            ->assertOk()->assertJsonPath('data.pagination.total', 0);
     }
 
     public function test_manual_entry_cannot_replace_a_safely_restorable_historical_mark(): void

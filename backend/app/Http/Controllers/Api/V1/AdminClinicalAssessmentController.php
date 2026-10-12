@@ -44,7 +44,8 @@ class AdminClinicalAssessmentController extends Controller
                 'mini_osce' => DB::table('clinical_mini_osce_scores')->count(),
                 'mini_historical' => DB::table('clinical_mini_osce_scores as m')
                     ->join('distribution_versions as v', 'v.id', '=', 'm.distribution_version_id')
-                    ->where('v.status', 'published')->where('v.is_current', false)->count(),
+                    ->where('v.status', 'published')->where('v.is_current', false)
+                    ->whereNull('m.superseded_at')->count(),
                 'final_osce' => DB::table('grade_entries')->whereNotNull('osce_score')->count(),
             ],
             'courses' => DB::table('courses')->whereIn('id', DB::table('rotations')->select('course_id'))
@@ -87,6 +88,26 @@ class AdminClinicalAssessmentController extends Controller
             'final_osce' => $this->osceQuery(),
             default => $this->clinicalQuery(),
         };
+        if ($type === 'mini_osce' && ! empty($filters['issues_only'])) {
+            // A training period can span several blocks. SQL matching only one block
+            // misses those conflicts, so classify the full filtered stream first.
+            $this->applyFilters($query, $type, array_diff_key($filters, ['issues_only' => true]));
+            $perPage = (int) ($filters['per_page'] ?? 25);
+            $pageNumber = (int) ($filters['page'] ?? 1);
+            $offset = ($pageNumber - 1) * $perPage;
+            $total = 0;
+            $items = [];
+            foreach ($query->orderByDesc('record_id')->cursor() as $row) {
+                $presented = $this->present($row, $type);
+                if (in_array($presented['finding'], ['current', 'superseded'], true)) continue;
+                if ($total >= $offset && count($items) < $perPage) $items[] = $presented;
+                $total++;
+            }
+            return ApiResponse::success(['items' => $items, 'pagination' => [
+                'current_page' => $pageNumber, 'last_page' => max(1, (int) ceil($total / $perPage)),
+                'per_page' => $perPage, 'total' => $total,
+            ]]);
+        }
         $this->applyFilters($query, $type, $filters);
         $page = $query->orderByDesc('record_id')->paginate((int) ($filters['per_page'] ?? 25));
         return ApiResponse::success([
@@ -111,6 +132,7 @@ class AdminClinicalAssessmentController extends Controller
         abort_unless($row, 404);
         $assessment = $type === 'clinical' ? ClinicalAssessment::findOrFail($id) : null;
         $mini = $type === 'mini_osce' ? DB::table('clinical_mini_osce_scores')->where('id', $id)->first() : null;
+        $miniCurrent = $mini ? $service->currentMiniForHistorical($mini) : null;
         $plan = $assessment ? $service->restorePlan($assessment) : ($mini ? $service->miniRestorePlan($mini) : null);
         $grade = $type === 'final_osce' ? GradeEntry::find($id)
             : GradeEntry::query()->whereHas('enrollment', fn ($q) => $q
@@ -130,7 +152,9 @@ class AdminClinicalAssessmentController extends Controller
                 ->orderBy('ca.id')->get()->map(fn ($peer) => $this->present($peer, 'clinical'))->all()
             : ($type === 'mini_osce'
                 ? $this->miniQuery()->where('m.student_id', $row->student_id)
-                    ->where('m.rotation_block_id', $row->rotation_block_id)
+                    ->where('r.id', $row->rotation_id)
+                    ->when($miniCurrent, fn ($q) => $q->where('b.from_week', '<=', $miniCurrent['period']['end_week'])
+                        ->where('b.to_week', '>=', $miniCurrent['period']['start_week']))
                     ->orderBy('m.id')->get()->map(fn ($peer) => $this->present($peer, 'mini_osce'))->all()
                 : []);
         $audits = AuditLog::query()->with('user:id,name')->where('entity_type', $type === 'clinical'
@@ -146,6 +170,19 @@ class AdminClinicalAssessmentController extends Controller
             'restore' => $plan ? ['allowed' => $plan['reason'] === null, 'reason' => $plan['reason'],
                 'current_version_id' => $plan['current_version_id'],
                 'target_assignment_id' => $plan['target']->id ?? null] : null,
+            'current_authoritative' => $assessment
+                ? (($match = $service->currentOfficialMarkForHistorical($assessment)) ? [
+                    'id' => $match->id, 'score' => $match->score, 'max_score' => $match->max_score,
+                    'version_id' => $match->clinicalAssignment?->distribution_version_id,
+                    'supervisor_name' => $match->evaluator?->full_name_ar,
+                    'snapshot' => $service->fingerprint('clinical', $match->id),
+                ] : null) : ($miniCurrent ? [
+                    'id' => $miniCurrent['score']->id, 'score' => $miniCurrent['score']->score,
+                    'max_score' => $miniCurrent['score']->max_score,
+                    'version_id' => $miniCurrent['version_id'],
+                    'supervisor_name' => DB::table('people')->where('id', $miniCurrent['score']->entered_by_person_id)->value('full_name_ar'),
+                    'snapshot' => $service->fingerprint('mini_osce', $miniCurrent['score']->id),
+                ] : null),
             'grade' => $grade ? [
                 'id' => $grade->id, 'status' => $grade->status, 'clinical_score' => $grade->clinical_score,
                 'osce_score' => $grade->osce_score, 'written_score' => $grade->written_score, 'total_score' => $grade->score,
@@ -245,6 +282,7 @@ class AdminClinicalAssessmentController extends Controller
         foreach ($assignments->pluck('version_id')->unique()->chunk(300) as $ids) {
             $mini = $mini->concat(DB::table('clinical_mini_osce_scores')
                 ->whereIn('distribution_version_id', $ids)
+                ->whereNull('superseded_at')
                 ->get(['student_id', 'rotation_block_id', 'distribution_version_id', 'entered_by_person_id']));
         }
         $weeklyKeys = $official->where('assessment_kind', 'weekly')
@@ -610,14 +648,16 @@ class AdminClinicalAssessmentController extends Controller
                 $assignments = StudentClinicalAssignment::query()->where('distribution_version_id', $mini->distribution_version_id)
                     ->where('student_id', $mini->student_id)->where('rotation_block_id', $mini->rotation_block_id)
                     ->where('supervisor_id', $mini->entered_by_person_id)->get();
-                abort_if(! $version || $version->status !== 'published' || ! $version->is_current || $assignments->count() !== 1,
+                abort_if(! $version || $version->status !== 'published' || ! $version->is_current
+                    || $mini->superseded_at || $assignments->count() !== 1,
                     409, 'Mini-OSCE is not uniquely assigned to the current supervisor.');
                 abort_if((float) $mini->max_score <= 0 || (float) $data['score'] > (float) $mini->max_score,
                     422, 'The mini-OSCE maximum is invalid or the score exceeds it.');
                 $duplicate = DB::table('clinical_mini_osce_scores')->where('id', '<>', $id)
                     ->where('distribution_version_id', $mini->distribution_version_id)
                     ->where('student_id', $mini->student_id)
-                    ->where('rotation_block_id', $mini->rotation_block_id)->exists();
+                    ->where('rotation_block_id', $mini->rotation_block_id)
+                    ->whereNull('superseded_at')->exists();
                 abort_if($duplicate, 409, 'Multiple mini-OSCE scores exist for this slot. Review the conflict before correction.');
                 $rotation = $assignments->first()->rotationBlock->rotation;
                 DB::table('clinical_mini_osce_scores')->where('id', $id)->update(['score' => round((float) $data['score'], 2), 'updated_at' => now()]);
@@ -654,14 +694,61 @@ class AdminClinicalAssessmentController extends Controller
     public function choose(Request $request, string $type, int $id, ClinicalAssessmentAdminService $service): JsonResponse
     {
         $this->authorizeAdmin($request);
-        abort_unless($type === 'clinical', 404);
+        abort_unless(in_array($type, ['clinical', 'mini_osce'], true), 404);
         $data = $request->validate([
             'expected_updated_at' => ['required', 'string'],
             'snapshot' => ['required', 'string', 'size:64'],
             'reason' => ['required', 'string', 'min:10', 'max:2000'],
             'acknowledge_approved_grade' => ['nullable', 'boolean'],
         ]);
+        if ($type === 'mini_osce') {
+            DB::transaction(function () use ($request, $id, $data, $service): void {
+                $winner = DB::table('clinical_mini_osce_scores')->where('id', $id)->first();
+                abort_unless($winner, 404);
+                $rotationId = DB::table('rotation_blocks')->where('id', $winner->rotation_block_id)->value('rotation_id');
+                abort_unless($rotationId, 409, 'The mini OSCE has no valid rotation.');
+                DistributionVersion::query()->where('rotation_id', $rotationId)->orderBy('id')->lockForUpdate()->get();
+                DB::table('students')->where('id', $winner->student_id)->lockForUpdate()->first();
+                $winner = DB::table('clinical_mini_osce_scores')->where('id', $id)->lockForUpdate()->first();
+                $this->assertFingerprint($service, 'mini_osce', $id, $data['snapshot']);
+                $this->assertSnapshot($winner->updated_at, $data['expected_updated_at']);
+                $scope = $this->currentMiniPeriod($winner);
+                abort_if(! $scope || (int) $winner->entered_by_person_id !== (int) $scope['supervisor_id']
+                    || (float) $winner->score < 0 || (float) $winner->max_score <= 0
+                    || (float) $winner->score > (float) $winner->max_score,
+                    409, 'Only the currently assigned supervisor’s valid mini OSCE mark can be chosen.');
+                $peers = DB::table('clinical_mini_osce_scores')->where('student_id', $winner->student_id)
+                    ->where('distribution_version_id', $winner->distribution_version_id)
+                    ->whereIn('rotation_block_id', $scope['period']['block_ids']->all())
+                    ->whereNull('superseded_at')->orderBy('id')->lockForUpdate()->get();
+                abort_if($peers->count() < 2 || $peers->where('id', $id)->isEmpty(), 409,
+                    'No duplicate current mini OSCE marks remain. Refresh the record.');
+                foreach ($peers as $peer) {
+                    if ((int) $peer->id === $id) continue;
+                    DB::table('clinical_mini_osce_scores')->where('id', $peer->id)->update([
+                        'superseded_at' => now(), 'superseded_by_score_id' => $id,
+                        'superseded_by_user_id' => $request->user()->id, 'updated_at' => now(),
+                    ]);
+                    $service->audit($request->user(), 'grade.mini_osce.admin_superseded_duplicate',
+                        'clinical_mini_osce_scores', $peer->id, $peer->student_id, $peer->distribution_version_id,
+                        ['authoritative_score_id' => $id, 'score_preserved' => $peer->score], $data['reason']);
+                }
+                $rotation = DB::table('rotations')->where('id', $scope['rotation_id'])->firstOrFail();
+                $service->syncGrade($winner->student_id, $rotation->course_id, $rotation->academic_year_id,
+                    $request->user(), $data['reason'], (bool) ($data['acknowledge_approved_grade'] ?? false));
+                $service->audit($request->user(), 'grade.mini_osce.admin_chosen_authoritative',
+                    'clinical_mini_osce_scores', $id, $winner->student_id, $winner->distribution_version_id,
+                    ['superseded_score_ids' => $peers->where('id', '!=', $id)->pluck('id')->all(),
+                        'score' => $winner->score], $data['reason']);
+            }, 3);
+            return ApiResponse::success(null, 'The assigned supervisor’s mini OSCE mark is authoritative; duplicates remain as audited history.');
+        }
         DB::transaction(function () use ($request, $type, $id, $data, $service): void {
+            $winner = ClinicalAssessment::query()->with('clinicalAssignment.rotationBlock')->findOrFail($id);
+            $rotationId = $winner->clinicalAssignment?->rotationBlock?->rotation_id;
+            abort_unless($rotationId, 409, 'The assessment has no valid rotation.');
+            DistributionVersion::query()->where('rotation_id', $rotationId)->orderBy('id')->lockForUpdate()->get();
+            DB::table('students')->where('id', $winner->student_id)->lockForUpdate()->first();
             $winner = ClinicalAssessment::query()->lockForUpdate()->findOrFail($id);
             $this->assertFingerprint($service, $type, $id, $data['snapshot']);
             $this->assertSnapshot($winner->updated_at?->format('Y-m-d H:i:s'), $data['expected_updated_at']);
@@ -674,7 +761,6 @@ class AdminClinicalAssessmentController extends Controller
                 || ! in_array($winner->status, ['submitted', 'approved'], true) || $winner->score === null,
                 409, 'Only a valid current official assessment can be chosen.');
             $peers = ClinicalAssessment::query()->where('student_id', $winner->student_id)
-                ->where('evaluator_person_id', $winner->evaluator_person_id)
                 ->where('assessment_kind', $winner->assessment_kind)
                 ->where('evaluation_week', $winner->evaluation_week)
                 ->when($winner->assessment_kind === 'period' && $winner->week_start && $winner->week_end,
@@ -742,6 +828,121 @@ class AdminClinicalAssessmentController extends Controller
             }
         }, 3);
         return ApiResponse::success(null, 'Academic decision documented. No historical score was altered.');
+    }
+
+    public function confirmCurrent(Request $request, string $type, int $id, ClinicalAssessmentAdminService $service): JsonResponse
+    {
+        $this->authorizeAdmin($request);
+        abort_unless(in_array($type, ['clinical', 'mini_osce'], true), 404);
+        $data = $request->validate([
+            'expected_updated_at' => ['required', 'string'],
+            'snapshot' => ['required', 'string', 'size:64'],
+            'expected_current_assessment_id' => ['required', 'integer'],
+            'expected_current_snapshot' => ['required', 'string', 'size:64'],
+            'reason' => ['required', 'string', 'min:10', 'max:2000'],
+        ]);
+        if ($type === 'mini_osce') {
+            DB::transaction(function () use ($request, $id, $data, $service): void {
+                $historical = DB::table('clinical_mini_osce_scores')->where('id', $id)->first();
+                abort_unless($historical, 404);
+                $rotationId = DB::table('rotation_blocks')->where('id', $historical->rotation_block_id)->value('rotation_id');
+                abort_unless($rotationId, 409, 'The historical mini-OSCE has no valid rotation.');
+                DistributionVersion::query()->where('rotation_id', $rotationId)->orderBy('id')->lockForUpdate()->get();
+                DB::table('students')->where('id', $historical->student_id)->lockForUpdate()->first();
+                $historical = DB::table('clinical_mini_osce_scores')->where('id', $id)->lockForUpdate()->first();
+                $this->assertFingerprint($service, 'mini_osce', $id, $data['snapshot']);
+                $this->assertSnapshot($historical->updated_at, $data['expected_updated_at']);
+                $candidate = $service->currentMiniForHistorical($historical);
+                abort_if(! $candidate || (int) $candidate['score']->id !== (int) $data['expected_current_assessment_id'], 409,
+                    'The currently assigned supervisor does not have one unique mini-OSCE mark for this period.');
+                DB::table('clinical_mini_osce_scores')->where('id', $candidate['score']->id)->lockForUpdate()->first();
+                $this->assertFingerprint($service, 'mini_osce', $candidate['score']->id, $data['expected_current_snapshot']);
+                $candidate = $service->currentMiniForHistorical($historical);
+                abort_if(! $candidate || (int) $candidate['score']->id !== (int) $data['expected_current_assessment_id'], 409,
+                    'The current mini-OSCE mark changed. Refresh and review the records.');
+                $period = $candidate['period'];
+                $oldScores = DB::table('clinical_mini_osce_scores as m')
+                    ->join('rotation_blocks as b', 'b.id', '=', 'm.rotation_block_id')
+                    ->join('distribution_versions as v', 'v.id', '=', 'm.distribution_version_id')
+                    ->where('m.student_id', $historical->student_id)
+                    ->where('b.rotation_id', $rotationId)
+                    ->where('v.status', 'published')->where('v.is_current', false)
+                    ->whereNull('m.superseded_at')
+                    ->where('b.from_week', '<=', $period['end_week'])
+                    ->where('b.to_week', '>=', $period['start_week'])
+                    ->orderBy('m.id')->lockForUpdate()->get(['m.*']);
+                abort_if(! $oldScores->contains('id', $id), 409, 'This mini-OSCE no longer belongs to the unresolved period.');
+                foreach ($oldScores as $oldScore) {
+                    DB::table('clinical_mini_osce_scores')->where('id', $oldScore->id)->update([
+                        'superseded_at' => now(), 'superseded_by_score_id' => $candidate['score']->id,
+                        'superseded_by_user_id' => $request->user()->id, 'updated_at' => now(),
+                    ]);
+                    $service->audit($request->user(), 'grade.mini_osce.admin_historical_closed_for_current',
+                        'clinical_mini_osce_scores', $oldScore->id, $oldScore->student_id,
+                        $oldScore->distribution_version_id, [
+                            'authoritative_score_id' => $candidate['score']->id,
+                            'source_supervisor_id' => $oldScore->entered_by_person_id,
+                            'current_supervisor_id' => $candidate['score']->entered_by_person_id,
+                            'source_score_preserved' => $oldScore->score,
+                            'current_score' => $candidate['score']->score,
+                        ], $data['reason']);
+                }
+                $service->audit($request->user(), 'grade.mini_osce.admin_current_confirmed',
+                    'clinical_mini_osce_scores', $candidate['score']->id, $candidate['score']->student_id,
+                    $candidate['version_id'], ['historical_score_ids' => $oldScores->pluck('id')->all(),
+                        'score_unchanged' => $candidate['score']->score], $data['reason']);
+            }, 3);
+            return ApiResponse::success(null, 'The current assigned supervisor’s mini-OSCE remains authoritative; historical marks are preserved and closed.');
+        }
+        DB::transaction(function () use ($request, $id, $data, $service): void {
+            $historical = ClinicalAssessment::query()->with('clinicalAssignment.rotationBlock')->findOrFail($id);
+            $rotationId = $historical->clinicalAssignment?->rotationBlock?->rotation_id;
+            abort_unless($rotationId, 409, 'The historical assessment has no valid rotation.');
+            DistributionVersion::query()->where('rotation_id', $rotationId)->orderBy('id')->lockForUpdate()->get();
+            DB::table('students')->where('id', $historical->student_id)->lockForUpdate()->first();
+            $historical = ClinicalAssessment::query()->lockForUpdate()->findOrFail($id);
+            $this->assertFingerprint($service, 'clinical', $id, $data['snapshot']);
+            $this->assertSnapshot($historical->updated_at?->format('Y-m-d H:i:s'), $data['expected_updated_at']);
+            $current = $service->currentOfficialMarkForHistorical($historical);
+            abort_if(! $current || $current->id !== (int) $data['expected_current_assessment_id'], 409,
+                'The current assigned supervisor does not have one unique official mark. Refresh and inspect the slot.');
+            ClinicalAssessment::query()->whereKey($current->id)->lockForUpdate()->first();
+            $this->assertFingerprint($service, 'clinical', $current->id, $data['expected_current_snapshot']);
+            $current = $service->currentOfficialMarkForHistorical($historical);
+            abort_if(! $current || $current->id !== (int) $data['expected_current_assessment_id'], 409,
+                'The current mark changed. Refresh before confirming it.');
+
+            $oldMarks = ClinicalAssessment::query()->where('student_id', $historical->student_id)
+                ->where('assessment_kind', $historical->assessment_kind)
+                ->where('evaluation_week', $historical->evaluation_week)
+                ->whereIn('status', ['submitted', 'approved'])
+                ->whereHas('clinicalAssignment', fn ($assignment) => $assignment
+                    ->whereHas('distributionVersion', fn ($version) => $version
+                        ->where('status', 'published')->where('is_current', false))
+                    ->whereHas('rotationBlock', fn ($block) => $block->where('rotation_id', $rotationId)))
+                ->when($historical->assessment_kind === 'period', fn ($query) => $query
+                    ->whereDate('week_start', '<=', $current->week_end?->toDateString())
+                    ->whereDate('week_end', '>=', $current->week_start?->toDateString()))
+                ->orderBy('id')->lockForUpdate()->get();
+            abort_if(! $oldMarks->contains('id', $historical->id), 409,
+                'The historical record no longer belongs to this unresolved slot.');
+            foreach ($oldMarks as $oldMark) {
+                $oldStatus = $oldMark->status;
+                $oldMark->status = 'superseded';
+                $oldMark->save();
+                $service->audit($request->user(), 'assessment.admin_historical_closed_for_current', ClinicalAssessment::class,
+                    $oldMark->id, $oldMark->student_id, $oldMark->clinicalAssignment->distribution_version_id,
+                    ['before_status' => $oldStatus, 'after_status' => 'superseded',
+                        'authoritative_assessment_id' => $current->id, 'source_evaluator_person_id' => $oldMark->evaluator_person_id,
+                        'current_evaluator_person_id' => $current->evaluator_person_id,
+                        'source_score_preserved' => $oldMark->score, 'current_score' => $current->score], $data['reason']);
+            }
+            $service->audit($request->user(), 'assessment.admin_current_confirmed', ClinicalAssessment::class,
+                $current->id, $current->student_id, $current->clinicalAssignment->distribution_version_id,
+                ['historical_assessment_ids' => $oldMarks->pluck('id')->all(), 'score_unchanged' => $current->score,
+                    'max_score_unchanged' => $current->max_score], $data['reason']);
+        }, 3);
+        return ApiResponse::success(null, 'The current assigned supervisor’s assessment remains authoritative; historical marks for this slot are preserved and closed.');
     }
 
     public function resync(Request $request, string $type, int $id, ClinicalAssessmentAdminService $service): JsonResponse
@@ -824,11 +1025,34 @@ class AdminClinicalAssessmentController extends Controller
             ->join('students as s', 's.id', '=', 'm.student_id')
             ->join('people as p', 'p.id', '=', 'm.entered_by_person_id')
             ->select('m.id as record_id', 'm.student_id', 'm.rotation_block_id', 'm.entered_by_person_id as supervisor_id',
-                'm.score', 'm.max_score', 'm.created_at', 'm.updated_at', 's.full_name_ar as student_name',
+                'm.score', 'm.max_score', 'm.superseded_at', 'm.superseded_by_score_id',
+                'm.created_at', 'm.updated_at', 's.full_name_ar as student_name',
                 's.university_number', 'p.full_name_ar as supervisor_name', 'v.id as version_id',
                 'v.is_current', 'v.status as version_status', 'r.id as rotation_id', 'r.academic_year_id',
                 'c.id as course_id', 'c.code as course_code', 'c.name_ar as course_name',
                 'b.from_week', 'b.to_week');
+    }
+
+    /** @return array{period: array, supervisor_id: int, rotation_id: int}|null */
+    private function currentMiniPeriod(object $mini): ?array
+    {
+        if ($mini->superseded_at) return null;
+        $block = DB::table('rotation_blocks')->where('id', $mini->rotation_block_id)->first();
+        $version = DistributionVersion::query()->find($mini->distribution_version_id);
+        if (! $block || ! $version || $version->status !== 'published' || ! $version->is_current
+            || (int) $version->rotation_id !== (int) $block->rotation_id) return null;
+        $assignments = StudentClinicalAssignment::query()->where('student_id', $mini->student_id)
+            ->where('distribution_version_id', $mini->distribution_version_id)
+            ->whereHas('rotationBlock', fn ($q) => $q->where('rotation_id', $block->rotation_id))
+            ->with(['rotationBlock', 'student:id,batch_year'])->get();
+        $periods = app(ClinicalAssessmentPeriods::class)->groups($assignments)
+            ->filter(fn (array $period) => $period['block_ids']->contains((int) $mini->rotation_block_id))->values();
+        if ($periods->count() !== 1) return null;
+        $period = $periods->first();
+        $supervisors = $period['assignments']->pluck('supervisor_id')->filter()->unique();
+        if ($supervisors->count() !== 1) return null;
+        return ['period' => $period, 'supervisor_id' => (int) $supervisors->first(),
+            'rotation_id' => (int) $block->rotation_id];
     }
 
     private function osceQuery()
@@ -890,6 +1114,7 @@ class AdminClinicalAssessmentController extends Controller
         if (($filters['version'] ?? 'all') === 'historical') $query->where('v.status', 'published')->where('v.is_current', false);
         if (! empty($filters['issues_only'])) {
             if ($type === 'clinical') $query->where('ca.status', '<>', 'superseded');
+            else $query->whereNull('m.superseded_at');
             $query->where(function ($q) use ($type) {
                 $q->whereNull('v.id')->orWhere('v.status', '<>', 'published')->orWhere('v.is_current', false);
                 if ($type === 'clinical') {
@@ -910,7 +1135,6 @@ class AdminClinicalAssessmentController extends Controller
                             ->join('student_clinical_assignments as a2', 'a2.id', '=', 'ca2.student_clinical_assignment_id')
                             ->join('rotation_blocks as b2', 'b2.id', '=', 'a2.rotation_block_id')
                             ->whereColumn('ca2.student_id', 'ca.student_id')
-                            ->whereColumn('ca2.evaluator_person_id', 'ca.evaluator_person_id')
                             ->whereColumn('ca2.assessment_kind', 'ca.assessment_kind')
                             ->whereColumn('b2.rotation_id', 'b.rotation_id')
                             ->whereRaw('(ca2.evaluation_week = ca.evaluation_week OR (ca2.evaluation_week IS NULL AND ca.evaluation_week IS NULL))')
@@ -933,6 +1157,7 @@ class AdminClinicalAssessmentController extends Controller
                             ->whereColumn('m2.student_id', 'm.student_id')
                             ->whereColumn('m2.rotation_block_id', 'm.rotation_block_id')
                             ->whereColumn('m2.distribution_version_id', 'm.distribution_version_id')
+                            ->whereNull('m2.superseded_at')
                             ->whereColumn('m2.id', '<>', 'm.id'));
                 }
             });
@@ -954,10 +1179,11 @@ class AdminClinicalAssessmentController extends Controller
             $type === 'final_osce' => 'current',
             $row->version_id === null => 'unlinked',
             $row->version_status !== 'published' => 'unpublished',
+            $type === 'clinical' && $row->status === 'superseded' => 'superseded',
+            $type === 'mini_osce' && $row->superseded_at !== null => 'superseded',
             ! (bool) $row->is_current => 'historical',
             $type === 'clinical' && ((int) $row->student_id !== (int) $row->assigned_student_id
                 || (int) $row->supervisor_id !== (int) $row->assigned_supervisor_id) => 'assignment_mismatch',
-            $type === 'clinical' && $row->status === 'superseded' => 'superseded',
             $type === 'clinical' && ! in_array($row->status, ['submitted', 'approved'], true) => 'not_submitted',
             $type === 'clinical' && $row->assessment_kind === 'weekly'
                 && ($row->evaluation_week === null || $row->evaluation_week < $row->from_week
@@ -977,7 +1203,7 @@ class AdminClinicalAssessmentController extends Controller
         } elseif ($data['finding'] === 'current' && $type === 'clinical') {
             $duplicate = ClinicalAssessment::query()->whereKeyNot($row->record_id)
                 ->where('status', '<>', 'superseded')
-                ->where('student_id', $row->student_id)->where('evaluator_person_id', $row->supervisor_id)
+                ->where('student_id', $row->student_id)
                 ->where('assessment_kind', $row->assessment_kind)->where('evaluation_week', $row->evaluation_week)
                 ->when($row->assessment_kind === 'period' && $row->week_start && $row->week_end,
                     fn ($q) => $q->whereDate('week_start', '<=', $row->week_end)
@@ -988,13 +1214,12 @@ class AdminClinicalAssessmentController extends Controller
                 ->exists();
             if ($duplicate) $data['finding'] = 'duplicate_current';
         } elseif ($data['finding'] === 'current' && $type === 'mini_osce') {
-            $assigned = StudentClinicalAssignment::query()->where('distribution_version_id', $row->version_id)
-                ->where('student_id', $row->student_id)->where('rotation_block_id', $row->rotation_block_id)
-                ->where('supervisor_id', $row->supervisor_id)->count();
+            $scope = $this->currentMiniPeriod(DB::table('clinical_mini_osce_scores')->where('id', $row->record_id)->first());
             $duplicate = DB::table('clinical_mini_osce_scores')->where('id', '<>', $row->record_id)
                 ->where('distribution_version_id', $row->version_id)->where('student_id', $row->student_id)
-                ->where('rotation_block_id', $row->rotation_block_id)->exists();
-            if ($assigned !== 1) $data['finding'] = 'assignment_mismatch';
+                ->whereIn('rotation_block_id', $scope['period']['block_ids']->all() ?? [$row->rotation_block_id])
+                ->whereNull('superseded_at')->exists();
+            if (! $scope || (int) $scope['supervisor_id'] !== (int) $row->supervisor_id) $data['finding'] = 'assignment_mismatch';
             elseif ($duplicate) $data['finding'] = 'duplicate_current';
         }
         return $data;

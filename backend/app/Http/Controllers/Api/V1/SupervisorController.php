@@ -562,10 +562,20 @@ class SupervisorController extends Controller
             DB::table('students')->where('id', $data['student_id'])->lockForUpdate()->first();
             $startWeek = (int) $periodAssignments->min(fn (StudentClinicalAssignment $item) => $item->rotationBlock?->from_week);
             $endWeek = (int) $periodAssignments->max(fn (StudentClinicalAssignment $item) => $item->rotationBlock?->to_week);
-            $previous = $this->assessmentContinuity->miniForPeriod(
-                $this->assessmentContinuity->miniScoresForAssignments($periodAssignments),
-                (int) $data['student_id'], (int) $rotation->id, $startWeek, $endWeek,
-            );
+            $periodScores = DB::table('clinical_mini_osce_scores as score')
+                ->join('rotation_blocks as block', 'block.id', '=', 'score.rotation_block_id')
+                ->where('score.student_id', $data['student_id'])
+                ->where('score.distribution_version_id', $assignment->distribution_version_id)
+                ->whereNull('score.superseded_at')
+                ->where('block.rotation_id', $rotation->id)
+                ->where('block.from_week', '<=', $endWeek)
+                ->where('block.to_week', '>=', $startWeek)
+                ->get(['score.*']);
+            if ($periodScores->count() > 1 || ($periodScores->count() === 1
+                && (int) $periodScores->first()->entered_by_person_id !== (int) $person->id)) {
+                throw ValidationException::withMessages(['score' => ['يوجد تعارض في علامة الميني أوسكي لهذه الفترة. يجب حسمه من شاشة إدارة التقييمات قبل الرصد.']]);
+            }
+            $previous = $periodScores->first();
             $key = [
                 'student_id' => $data['student_id'],
                 'rotation_block_id' => $previous?->rotation_block_id ?: $periodAssignments->first()->rotation_block_id,
@@ -573,6 +583,9 @@ class SupervisorController extends Controller
                 'entered_by_person_id' => $person->id,
             ];
             $old = DB::table('clinical_mini_osce_scores')->where($key)->lockForUpdate()->first();
+            if ($old?->superseded_at) {
+                throw ValidationException::withMessages(['score' => ['هذه العلامة متجاوزة بقرار إداري. راجع إدارة التقييمات بدل تعديلها.']]);
+            }
             if ($old && (float) $data['score'] > (float) $old->max_score) {
                 throw ValidationException::withMessages(['score' => ['العلامة تتجاوز سقف الميني أوسكي المحفوظ لهذه الفترة.']]);
             }
@@ -752,6 +765,24 @@ class SupervisorController extends Controller
         // Serialize writes for a student, including requests arriving against
         // different distribution revisions at nearly the same time.
         DB::table('students')->where('id', $studentAssignment->student_id)->lockForUpdate()->first();
+        $currentAssignmentIds = StudentClinicalAssignment::query()
+            ->where('distribution_version_id', $studentAssignment->distribution_version_id)
+            ->where('student_id', $studentAssignment->student_id)
+            ->whereHas('rotationBlock', fn ($query) => $query
+                ->where('rotation_id', $studentAssignment->rotationBlock?->rotation_id))
+            ->pluck('id');
+        $otherOfficial = ClinicalAssessment::query()
+            ->whereIn('student_clinical_assignment_id', $currentAssignmentIds)
+            ->where('student_id', $studentAssignment->student_id)
+            ->where('assessment_kind', $kind)->where('evaluation_week', $week)
+            ->whereIn('status', ['submitted', 'approved'])
+            ->when($kind === 'period', fn ($query) => $query
+                ->whereDate('week_start', '<=', $weekEnd->toDateString())
+                ->whereDate('week_end', '>=', $weekStart->toDateString()))
+            ->exists();
+        if ($otherOfficial) {
+            throw ValidationException::withMessages(['assessments' => ['يوجد تقييم مرسل أو معتمد لهذا الطالب في هذا الموعد، وقد يكون من مشرف آخر. راجع سجل التقييمات قبل الرصد.']]);
+        }
         $slot = $this->assessmentContinuity->forSlot(
             $studentAssignment, (int) $studentAssignment->student_id, (int) $person->id,
             $kind, $week, $weekStart, $weekEnd,

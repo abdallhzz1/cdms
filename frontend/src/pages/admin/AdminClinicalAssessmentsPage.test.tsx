@@ -79,4 +79,36 @@ describe('admin clinical assessment registry', () => {
     expect(screen.getByRole('button', { name: 'Inspect and enter' })).toBeVisible();
     expect(fetchSpy.mock.calls.some(([input]) => String(input).includes('/gaps?kind=clinical'))).toBe(true);
   });
+
+  it('offers one clear action to keep the assigned supervisor mark and close old-version alerts', async () => {
+    window.localStorage.setItem('cdms.locale', 'en');
+    document.cookie = 'XSRF-TOKEN=test';
+    const old = { ...record, finding: 'current_assessment_exists' };
+    const current = { ...record, record_id: 50, version_id: 28, is_current: true, assignment_id: 90, finding: 'current' };
+    const matching = { ...detail, record: old, restore: { allowed: false, reason: 'current_assessment_exists', current_version_id: 28, target_assignment_id: 90 },
+      current_authoritative: { id: 50, score: '8.00', max_score: '10.00', version_id: 28, supervisor_name: 'Dr. Ahmad', snapshot: 'c'.repeat(64) }, peers: [old, current] };
+    const fetchSpy = vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return envelope(admin);
+      if (url.includes('/overview')) return envelope(overview);
+      if (url.includes('/clinical/44/confirm-current')) return envelope(null);
+      if (url.includes('/clinical/44')) return envelope(matching);
+      if (url.includes('/clinical-assessments?')) return envelope({ ...listing, items: [old] });
+      throw new Error(`Unexpected request: ${url} ${init?.method}`);
+    });
+    vi.stubGlobal('confirm', () => true);
+    renderWithProviders(<AdminClinicalAssessmentsPage />, { route: '/admin/clinical-assessments' });
+    await userEvent.click(await screen.findByRole('button', { name: /Student One.*M1470/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Assessment detail' });
+    expect(within(dialog).getByText(/The official mark is record #50/)).toBeVisible();
+    const confirm = within(dialog).getByRole('button', { name: 'Keep assigned supervisor’s mark and close old marks' });
+    expect(confirm).toBeDisabled();
+    expect(within(dialog).queryByRole('button', { name: 'Document decision without changing score' })).not.toBeInTheDocument();
+    await userEvent.type(within(dialog).getByPlaceholderText('Describe evidence and academic decision...'), 'Verified the two matching signed marks and current assignment.');
+    expect(confirm).toBeEnabled();
+    await userEvent.click(confirm);
+    expect(fetchSpy.mock.calls.some(([input, init]) => String(input).includes('/clinical/44/confirm-current') &&
+      String(init?.body).includes('"expected_current_assessment_id":50') &&
+      String(init?.body).includes('"expected_current_snapshot"'))).toBe(true);
+  });
 });

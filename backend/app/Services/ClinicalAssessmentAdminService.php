@@ -117,9 +117,47 @@ class ClinicalAssessmentAdminService
         return $result;
     }
 
+    /** Current published assignment wins; a historical supervisor's mark is never silently promoted. */
+    public function currentOfficialMarkForHistorical(ClinicalAssessment $historical): ?ClinicalAssessment
+    {
+        $historical->loadMissing('clinicalAssignment.distributionVersion', 'clinicalAssignment.rotationBlock');
+        $source = $historical->clinicalAssignment;
+        $rotationId = $source?->rotationBlock?->rotation_id;
+        if (! $rotationId || ! $source->distributionVersion
+            || $source->distributionVersion->status !== 'published' || $source->distributionVersion->is_current
+            || ! in_array($historical->status, ['submitted', 'approved'], true)
+            || $historical->score === null) return null;
+        $versions = DistributionVersion::query()->where('rotation_id', $rotationId)
+            ->where('status', 'published')->where('is_current', true)->pluck('id');
+        if ($versions->count() !== 1) return null;
+        $matches = ClinicalAssessment::query()
+            ->where('student_id', $historical->student_id)
+            ->where('assessment_kind', $historical->assessment_kind)
+            ->where('evaluation_week', $historical->evaluation_week)
+            ->whereIn('status', ['submitted', 'approved'])->whereNotNull('score')
+            ->whereHas('clinicalAssignment', fn ($q) => $q
+                ->where('distribution_version_id', $versions->first())
+                ->whereColumn('student_clinical_assignments.student_id', 'clinical_assessments.student_id')
+                ->whereHas('rotationBlock', fn ($block) => $block->where('rotation_id', $rotationId)
+                    ->when($historical->assessment_kind === 'weekly' && $historical->evaluation_week,
+                        fn ($weekBlock) => $weekBlock->where('from_week', '<=', $historical->evaluation_week)
+                            ->where('to_week', '>=', $historical->evaluation_week))))
+            ->when($historical->assessment_kind === 'period', fn ($q) => $q
+                ->whereDate('week_start', '<=', $historical->week_end?->toDateString())
+                ->whereDate('week_end', '>=', $historical->week_start?->toDateString()))
+            ->orderBy('id')->get();
+        if ($matches->count() !== 1) return null;
+        $current = $matches->first();
+        if ((int) $current->clinicalAssignment->supervisor_id !== (int) $current->evaluator_person_id
+            || (float) $current->score < 0 || (float) $current->max_score <= 0
+            || (float) $current->score > (float) $current->max_score) return null;
+        return $current;
+    }
+
     /** @return array{reason: ?string, current_version_id: ?int} */
     public function miniRestorePlan(object $mini): array
     {
+        if ($mini->superseded_at ?? null) return ['reason' => 'superseded', 'current_version_id' => null];
         $sourceVersion = DistributionVersion::query()->find($mini->distribution_version_id);
         if (! $sourceVersion || $sourceVersion->status !== 'published' || $sourceVersion->is_current)
             return ['reason' => 'not_historical_published', 'current_version_id' => null];
@@ -138,12 +176,46 @@ class ClinicalAssessmentAdminService
         if ($targets->count() !== 1) return ['reason' => $targets->isEmpty() ? 'assignment_changed' : 'ambiguous_current_assignment', 'current_version_id' => $currentId];
         $peer = DB::table('clinical_mini_osce_scores')->where('student_id', $mini->student_id)
             ->where('rotation_block_id', $mini->rotation_block_id)
-            ->where('distribution_version_id', $currentId)->exists();
+            ->where('distribution_version_id', $currentId)->whereNull('superseded_at')->exists();
         if ($peer) return ['reason' => 'current_assessment_exists', 'current_version_id' => $currentId];
         $historicalPeers = DB::table('clinical_mini_osce_scores')->where('id', '<>', $mini->id)
             ->where('student_id', $mini->student_id)->where('rotation_block_id', $mini->rotation_block_id)
-            ->where('entered_by_person_id', $mini->entered_by_person_id)->exists();
+            ->where('entered_by_person_id', $mini->entered_by_person_id)->whereNull('superseded_at')->exists();
         return ['reason' => $historicalPeers ? 'ambiguous_old_assessments' : null, 'current_version_id' => $currentId];
+    }
+
+    /** @return array{score: object, period: array, version_id: int}|null */
+    public function currentMiniForHistorical(object $historical): ?array
+    {
+        if ($historical->superseded_at ?? null) return null;
+        $sourceVersion = DistributionVersion::query()->find($historical->distribution_version_id);
+        $sourceBlock = DB::table('rotation_blocks')->where('id', $historical->rotation_block_id)
+            ->first(['rotation_id', 'from_week', 'to_week']);
+        if (! $sourceVersion || $sourceVersion->status !== 'published' || $sourceVersion->is_current
+            || ! $sourceBlock || (int) $sourceBlock->rotation_id !== (int) $sourceVersion->rotation_id) return null;
+        $currentVersions = DistributionVersion::query()->where('rotation_id', $sourceVersion->rotation_id)
+            ->where('status', 'published')->where('is_current', true)->pluck('id');
+        if ($currentVersions->count() !== 1) return null;
+        $currentId = (int) $currentVersions->first();
+        $assignments = StudentClinicalAssignment::query()->where('student_id', $historical->student_id)
+            ->where('distribution_version_id', $currentId)
+            ->whereHas('rotationBlock', fn ($q) => $q->where('rotation_id', $sourceBlock->rotation_id))
+            ->with(['rotationBlock', 'student:id,batch_year'])->get();
+        $periods = app(ClinicalAssessmentPeriods::class)->groups($assignments)
+            ->filter(fn (array $period) => (int) $period['start_week'] <= (int) $sourceBlock->to_week
+                && (int) $period['end_week'] >= (int) $sourceBlock->from_week)->values();
+        if ($periods->count() !== 1) return null;
+        $period = $periods->first();
+        $assignedSupervisorId = $period['assignments']->first()?->supervisor_id;
+        if (! $assignedSupervisorId) return null;
+        $scores = DB::table('clinical_mini_osce_scores')->where('student_id', $historical->student_id)
+            ->where('distribution_version_id', $currentId)
+            ->whereIn('rotation_block_id', $period['block_ids']->all())
+            ->whereNull('superseded_at')->orderBy('id')->get();
+        if ($scores->count() !== 1 || (int) $scores->first()->entered_by_person_id !== (int) $assignedSupervisorId
+            || (float) $scores->first()->score < 0 || (float) $scores->first()->max_score <= 0
+            || (float) $scores->first()->score > (float) $scores->first()->max_score) return null;
+        return ['score' => $scores->first(), 'period' => $period, 'version_id' => $currentId];
     }
 
     public function syncGrade(int $studentId, int $courseId, int $academicYearId, User $actor, string $reason, bool $acknowledgeApproved): void
