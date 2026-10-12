@@ -8,6 +8,7 @@ use App\Models\AcademicYear;
 use App\Models\AuditLog;
 use App\Models\Course;
 use App\Models\ClinicalPeriod;
+use App\Models\ClinicalAssessment;
 use App\Models\CourseScheduleCell;
 use App\Models\CourseScheduleBlockActivity;
 use App\Models\CourseScheduleRow;
@@ -611,6 +612,16 @@ class CourseDistributionController extends Controller
             // contain more than one current flag, and leaving one behind makes the
             // schedule appear published even after a successful unpublish request.
             foreach ($versions as $publishedVersion) {
+                $hasAssessments = ClinicalAssessment::query()->whereNotNull('score')
+                    ->whereHas('clinicalAssignment', fn ($query) => $query
+                        ->where('distribution_version_id', $publishedVersion->id))->exists();
+                $hasMini = DB::table('clinical_mini_osce_scores')
+                    ->where('distribution_version_id', $publishedVersion->id)->exists();
+                if ($hasAssessments || $hasMini) {
+                    throw ValidationException::withMessages(['version' => [
+                        'لا يمكن إلغاء نشر توزيع له تقييمات سريرية أو ميني أوسكي محفوظة؛ سيؤدي ذلك إلى إخفاء العلامات. راجع العلامات أولاً.',
+                    ]]);
+                }
                 $publishedVersion->update(['status' => 'withdrawn', 'is_current' => false]);
                 AuditLog::create([
                     'user_id' => $request->user()->id,
@@ -634,6 +645,15 @@ class CourseDistributionController extends Controller
         $this->authorizeRotationCourseAccess($rotation);
         if ($rotation->distributionVersions()->where('status', 'published')->where('is_current', true)->exists()) {
             throw ValidationException::withMessages(['rotation' => ['يجب إلغاء نشر الجدول قبل حذفه.']]);
+        }
+
+        if (ClinicalAssessment::query()->whereHas('clinicalAssignment.rotationBlock', fn ($query) => $query
+            ->where('rotation_id', $rotation->id))->exists()
+            || DB::table('clinical_mini_osce_scores')->join('rotation_blocks', 'rotation_blocks.id', '=', 'clinical_mini_osce_scores.rotation_block_id')
+                ->where('rotation_blocks.rotation_id', $rotation->id)->exists()) {
+            throw ValidationException::withMessages(['rotation' => [
+                'لا يمكن حذف جدول له تقييمات سريرية أو ميني أوسكي محفوظة، حتى لو أُلغي نشره.',
+            ]]);
         }
 
         $data = $request->validate(['reason' => ['nullable', 'string', 'max:1000']]);

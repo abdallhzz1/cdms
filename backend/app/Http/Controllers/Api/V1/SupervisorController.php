@@ -434,10 +434,13 @@ class SupervisorController extends Controller
         [$weekStart, $weekEnd] = $kind === 'weekly' ? $this->assignmentWeek($assignment, $week) : $this->assignmentPeriod($assignment);
         [$template, $snapshot, $score, $entryMax] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $data['score'], $week, $person->id, $kind, $weekStart, $weekEnd);
 
-        $assessment = DB::transaction(fn () => $this->persistWeeklyAssessment(
-            $studentAssignment, $person, $template, $week, $weekStart, $weekEnd,
-            $snapshot, $score, $entryMax, $data['notes'] ?? null, (string) Str::uuid(), $workflow, $kind,
-        ));
+        $assessment = DB::transaction(function () use ($studentAssignment, $person, $template, $weekStart, $weekEnd, $snapshot, $score, $entryMax, $data, $workflow, $kind, $week) {
+            $this->lockCurrentAssessmentVersion($studentAssignment->distribution_version_id);
+            return $this->persistWeeklyAssessment(
+                $studentAssignment, $person, $template, $week, $weekStart, $weekEnd,
+                $snapshot, $score, $entryMax, $data['notes'] ?? null, (string) Str::uuid(), $workflow, $kind,
+            );
+        });
 
         return ApiResponse::success($assessment->load('student', 'session', 'template.criteria'), 'Clinical assessment saved successfully.');
     }
@@ -492,6 +495,7 @@ class SupervisorController extends Controller
 
         $batchUuid = (string) Str::uuid();
         $items = DB::transaction(function () use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd, $kind, $week) {
+            $this->lockCurrentAssessmentVersion($assignment->distribution_version_id);
             return collect($data['assessments'])->map(function (array $row) use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd, $kind, $week) {
                 $studentAssignment = $groupAssignments->get($row['student_id']);
                 [$template, $snapshot, $score, $entryMax] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $row['score'], $week, $person->id, $kind, $weekStart, $weekEnd);
@@ -508,6 +512,25 @@ class SupervisorController extends Controller
                 ? 'تم إرسال التقييم السريري إلى مساعد البحث والتدريس وإتاحته في كشف العلامات.'
                 : 'The clinical assessment was sent to the research and teaching assistant and is now available in the grade sheet.'
         );
+    }
+
+    /** Read-after-write receipt: only the evaluator's marks still visible in the current distribution. */
+    public function showAssessmentBatch(Request $request, string $batchUuid): JsonResponse
+    {
+        [, $person] = $this->supervisorIdentity($request);
+        if (! Str::isUuid($batchUuid)) abort(404);
+
+        $rows = ClinicalAssessment::query()
+            ->where('assessment_batch_uuid', $batchUuid)
+            ->where('evaluator_person_id', $person->id)
+            ->whereHas('clinicalAssignment', fn ($assignment) => $assignment
+                ->where('supervisor_id', $person->id)
+                ->whereHas('distributionVersion', fn ($version) => $version
+                    ->where('status', 'published')->where('is_current', true)))
+            ->orderBy('id')->get(['id', 'student_id', 'student_clinical_assignment_id',
+                'assessment_batch_uuid', 'evaluation_week', 'assessment_kind', 'score', 'status', 'submitted_at']);
+
+        return ApiResponse::success(['batch_uuid' => $batchUuid, 'assessments' => $rows]);
     }
 
     public function recordMiniOsce(Request $request): JsonResponse
@@ -530,6 +553,7 @@ class SupervisorController extends Controller
         }
         $this->assignmentPeriod($assignment);
         DB::transaction(function () use ($data, $assignment, $periodAssignments, $person, $course, $rotation, $max) {
+            $this->lockCurrentAssessmentVersion($assignment->distribution_version_id);
             $locked = GradeEntry::query()->whereHas('enrollment', fn ($query) => $query
                 ->where('student_id', $data['student_id'])->where('course_id', $course->id)
                 ->where('academic_year_id', $rotation->academic_year_id))
@@ -939,6 +963,16 @@ class SupervisorController extends Controller
             ->whereKey($assignmentId)->where('supervisor_id', $person->id)
             ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
             ->firstOrFail();
+    }
+
+    private function lockCurrentAssessmentVersion(int $versionId): void
+    {
+        $version = DistributionVersion::query()->whereKey($versionId)->lockForUpdate()->first();
+        if (! $version || $version->status !== 'published' || ! $version->is_current) {
+            throw ValidationException::withMessages(['assignment_id' => [
+                'تغيّر التوزيع أثناء إرسال العلامات. حدّث الصفحة وتحقق من التكليف قبل إعادة الإرسال.',
+            ]]);
+        }
     }
 
     private function assignmentGroupQuery(StudentClinicalAssignment $assignment)

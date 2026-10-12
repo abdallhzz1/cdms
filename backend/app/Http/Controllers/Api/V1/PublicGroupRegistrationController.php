@@ -162,14 +162,18 @@ class PublicGroupRegistrationController extends Controller
             $current=StudentGroupAssignment::where('student_id',$challenge->student_id)
                 ->whereHas('subgroup', fn($query) => $query->where('student_group_id',$roster->student_group_id))
                 ->whereNull('valid_until')->lockForUpdate()->latest('id')->first();
-            if($current?->student_subgroup_id===$subgroup->id) return $current;
+            if($current?->student_subgroup_id===$subgroup->id) {
+                $this->scheduleSync->syncStudent($challenge->student_id, $cycle->academic_year_id);
+                return $current;
+            }
             if($current) throw ValidationException::withMessages(['subgroup_id'=>['يجب سحب تسجيلك من مجموعتك الحالية أولاً قبل اختيار مجموعة أخرى.']]);
             $capacity=(int)($subgroup->capacity ?: $subgroup->max_size ?: $cycle->default_capacity);
             $occupied=StudentGroupAssignment::where('student_subgroup_id',$subgroup->id)->whereNull('valid_until')->count();
             if($occupied >= $capacity) throw ValidationException::withMessages(['subgroup_id'=>['اكتملت سعة المجموعة. يرجى اختيار مجموعة أخرى.']]);
-            return StudentGroupAssignment::create(['student_id'=>$challenge->student_id,'academic_year_id'=>$cycle->academic_year_id,'student_group_id'=>$roster->student_group_id,'student_subgroup_id'=>$subgroup->id,'valid_from'=>now()->toDateString(),'change_reason'=>'student_self_registration','data_source'=>'public_otp_portal']);
+            $assignment = StudentGroupAssignment::create(['student_id'=>$challenge->student_id,'academic_year_id'=>$cycle->academic_year_id,'student_group_id'=>$roster->student_group_id,'student_subgroup_id'=>$subgroup->id,'valid_from'=>now()->toDateString(),'change_reason'=>'student_self_registration','data_source'=>'public_otp_portal']);
+            $this->scheduleSync->syncStudent($challenge->student_id, $cycle->academic_year_id);
+            return $assignment;
         });
-        $this->scheduleSync->syncStudent($challenge->student_id, $cycle->academic_year_id);
         $this->audit('group_registration.student_selected',$assignment->id,$challenge->student_id,['subgroup_id'=>$assignment->student_subgroup_id]);
         return ApiResponse::success(['subgroup_id'=>$assignment->student_subgroup_id],'تم حجز مقعدك بنجاح.');
     }
@@ -183,8 +187,8 @@ class PublicGroupRegistrationController extends Controller
                 ->whereHas('subgroup', fn($query) => $query->where('student_group_id',$roster->student_group_id))
                 ->whereNull('valid_until')->lockForUpdate()
                 ->update(['valid_until'=>now()->toDateString(),'change_reason'=>'student_self_withdrawal']);
+            $this->scheduleSync->syncStudent($challenge->student_id, $cycle->academic_year_id);
         });
-        $this->scheduleSync->syncStudent($challenge->student_id, $cycle->academic_year_id);
         $this->audit('group_registration.student_withdrew',$cycle->id,$challenge->student_id);
         return ApiResponse::success(null,'تم الانسحاب من المجموعة وأصبح المقعد متاحاً.');
     }

@@ -3,6 +3,7 @@
 namespace App\Services\Distribution;
 
 use App\Models\AuditLog;
+use App\Models\ClinicalAssessment;
 use App\Models\DistributionVersion;
 use App\Models\Person;
 use App\Models\StudentClinicalAssignment;
@@ -96,6 +97,29 @@ class SupervisorReassignmentService
         $oldSupervisorId = $assignment->supervisor_id;
 
         $updated = DB::transaction(function () use ($version, $assignment, $newSupervisorId, $user, $oldSupervisorId) {
+            $lockedVersion = DistributionVersion::query()->whereKey($version->id)->lockForUpdate()->firstOrFail();
+            $assignment = StudentClinicalAssignment::query()->whereKey($assignment->id)->lockForUpdate()->firstOrFail();
+            if ($lockedVersion->status !== 'published' || ! $lockedVersion->is_current) {
+                throw ValidationException::withMessages(['version' => ['لا يمكن تغيير مشرف تكليف من نسخة توزيع غير حالية.']]);
+            }
+            if ((int) $assignment->supervisor_id !== (int) $oldSupervisorId) {
+                throw ValidationException::withMessages(['supervisor_id' => ['تغير تكليف المشرف من جلسة أخرى. حدّث الصفحة ثم حاول مجددًا.']]);
+            }
+            if ((int) $assignment->supervisor_id !== (int) $newSupervisorId) {
+                $hasAssessment = ClinicalAssessment::query()
+                    ->where('student_clinical_assignment_id', $assignment->id)
+                    ->whereNotNull('score')->exists();
+                $hasMini = DB::table('clinical_mini_osce_scores')
+                    ->where('distribution_version_id', $version->id)
+                    ->where('student_id', $assignment->student_id)
+                    ->where('rotation_block_id', $assignment->rotation_block_id)
+                    ->where('entered_by_person_id', $assignment->supervisor_id)->exists();
+                if ($hasAssessment || $hasMini) {
+                    throw ValidationException::withMessages(['supervisor_id' => [
+                        'لا يمكن تغيير المشرف لهذا التكليف لأن له علامات محفوظة. راجع التقييمات قبل تعديل التوزيع؛ لم تتغير العلامات.',
+                    ]]);
+                }
+            }
             $assignment->supervisor_id = $newSupervisorId;
             $assignment->save();
 

@@ -15,7 +15,8 @@ class DistributionPublicationService
 {
     public function __construct(
         private DistributionStateValidator $stateValidator,
-        private DistributionApprovalService $approvalService
+        private DistributionApprovalService $approvalService,
+        private ClinicalScorePublicationGuard $clinicalScoreGuard,
     ) {}
 
     /**
@@ -120,6 +121,11 @@ class DistributionPublicationService
                 ->where('id', '!=', $version->id)
                 ->get();
 
+            $transferred = ['assessments' => 0, 'mini_osce' => 0];
+            foreach ($previousPublished->where('is_current', true) as $currentVersion) {
+                $transferred = $this->clinicalScoreGuard->transfer($currentVersion, $version, $user->id);
+            }
+
             foreach ($previousPublished as $oldVersion) {
                 // Remove current designation while retaining status = published
                 if ($oldVersion->is_current) {
@@ -161,7 +167,8 @@ class DistributionPublicationService
                 'distribution_version_id' => $version->id,
                 'changes' => [
                     'approval_id' => $approvalLog->id,
-                    'superseded_versions' => $previousPublished->pluck('id')->toArray()
+                    'superseded_versions' => $previousPublished->pluck('id')->toArray(),
+                    'clinical_scores_relinked' => $transferred,
                 ],
                 'is_override' => $force,
                 'override_reason' => $overrideReason

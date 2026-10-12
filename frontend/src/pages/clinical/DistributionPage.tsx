@@ -856,6 +856,14 @@ export function DistributionPage() {
         await showUnassignedStudents("publish");
         return;
       }
+      if (hasValidationError(error, "clinical_scores") && error instanceof ApiError) {
+        const findings = error.errors.clinical_scores;
+        setNotice({
+          type: "error",
+          text: Array.isArray(findings) ? findings.map(String).join("\n") : String(findings),
+        });
+        return;
+      }
       setNotice({
         type: "error",
         text: message(
@@ -1058,7 +1066,7 @@ export function DistributionPage() {
         <div
           className={`flex justify-between rounded-xl border px-4 py-3 text-xs font-bold ${notice.type === "success" ? "border-teal-200 bg-teal-50 text-teal-800" : "border-red-200 bg-red-50 text-red-800"}`}
         >
-          <span>{notice.text}</span>
+          <span className="min-w-0 whitespace-pre-line break-words">{notice.text}</span>
           <button onClick={() => setNotice(null)}>×</button>
         </div>
       )}

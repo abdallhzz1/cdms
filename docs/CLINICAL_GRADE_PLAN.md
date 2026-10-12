@@ -56,12 +56,31 @@ feature tests use a separate testing database.
 Only a student assignment in the **current published distribution version**
 can supply a clinical assessment or mini OSCE to the supervisor workspace,
 review screens, reports, and grade calculation. The evaluator must still be
-the supervisor assigned to that student. A mark on a superseded version is
-retained for audit, but is not carried forward, even when the assigned doctor
-has not changed. The current cell stays blank until its assigned doctor enters
-a new mark. Duplicate current-version records for the same student, doctor,
+the supervisor assigned to that student. When a new revision is published,
+saved clinical and mini-OSCE marks on an *unchanged* student, supervisor,
+rotation block, training site, subgroup and department are relinked in the
+same publication transaction, preserving their mark IDs and scores with an
+audit log. If any scored assignment changed or a target mark would conflict,
+publication is rejected before superseding the current version. A changed
+supervisor's historical mark is never silently reused. Duplicate
+current-version records for the same student, doctor,
 course rotation and evaluation slot display/count only the latest official
 entry; older records remain available in the database for investigation.
+
+Post-publication supervisor reassignment, membership sync, unpublication and
+schedule deletion also refuse changes that would hide or detach saved marks.
+Membership sync preserves the assignment ID for unchanged placements. A
+supervisor batch sends a UUID receipt and the UI reads the saved records back
+from the server before claiming the submission was verified. If read-back
+fails, the UI warns that the marks may already be saved and asks for a refresh
+before retrying. The mini-OSCE entry similarly reads back its current mark.
+
+Run `php artisan clinical:audit-assessment-continuity` to scan *all*
+superseded published distributions for submitted clinical or mini-OSCE marks
+hidden despite an unchanged current assignment. It is read-only and returns
+a nonzero exit code when such marks exist. `--details` also lists marks with
+changed assignments or a current replacement. This audit identifies older
+issues; it never relinks data automatically.
 
 Migration `2026_10_11_100000_version_clinical_mini_osce_scores` adds a
 distribution-version key to mini-OSCE marks. A pre-migration mini mark is

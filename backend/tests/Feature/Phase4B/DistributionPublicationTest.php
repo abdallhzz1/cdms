@@ -3,7 +3,9 @@
 namespace Tests\Feature\Phase4B;
 
 use App\Models\AuditLog;
+use App\Models\ClinicalAssessment;
 use App\Models\DistributionVersion;
+use App\Models\Person;
 use App\Models\Rotation;
 use App\Models\RotationBlock;
 use App\Models\Student;
@@ -164,5 +166,69 @@ class DistributionPublicationTest extends TestCase
             'action' => 'version.superseded',
             'entity_id' => $oldVersion->id
         ]);
+    }
+
+    public function test_publish_relinks_existing_supervisor_marks_before_superseding_current_version(): void
+    {
+        $supervisor = Person::factory()->create(['primary_site_id' => $this->site1->id]);
+        $target = StudentClinicalAssignment::where('distribution_version_id', $this->version->id)->firstOrFail();
+        $target->update(['supervisor_id' => $supervisor->id]);
+        $sourceVersion = DistributionVersion::create([
+            'rotation_id' => $this->version->rotation_id, 'status' => 'published', 'is_current' => true,
+        ]);
+        $source = $target->replicate();
+        $source->distribution_version_id = $sourceVersion->id;
+        $source->save();
+        $mark = ClinicalAssessment::create([
+            'student_id' => $this->student1->id, 'evaluator_person_id' => $supervisor->id,
+            'student_clinical_assignment_id' => $source->id, 'assessment_kind' => 'weekly',
+            'evaluation_week' => $this->block1->from_week, 'score' => 8, 'max_score' => 10,
+            'status' => 'submitted',
+        ]);
+        $miniId = \Illuminate\Support\Facades\DB::table('clinical_mini_osce_scores')->insertGetId([
+            'student_id' => $this->student1->id, 'rotation_block_id' => $this->block1->id,
+            'distribution_version_id' => $sourceVersion->id, 'entered_by_person_id' => $supervisor->id,
+            'score' => 4, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->actingAs($this->publishAdmin)->postJson(route('api.v1.distribution-versions.approve', $this->version->id))->assertOk();
+
+        $this->actingAs($this->publishAdmin)->postJson(
+            route('api.v1.distribution-versions.publish', $this->version->id),
+            ['last_updated_at' => $this->version->fresh()->updated_at->toIso8601String()],
+        )->assertOk();
+
+        $this->assertTrue($this->version->fresh()->is_current);
+        $this->assertFalse($sourceVersion->fresh()->is_current);
+        $this->assertSame($target->id, $mark->fresh()->student_clinical_assignment_id);
+        $this->assertDatabaseHas('clinical_mini_osce_scores', ['id' => $miniId, 'distribution_version_id' => $this->version->id]);
+    }
+
+    public function test_publish_rejects_changed_scored_assignment_and_keeps_old_version_current(): void
+    {
+        $supervisor = Person::factory()->create();
+        $target = StudentClinicalAssignment::where('distribution_version_id', $this->version->id)->firstOrFail();
+        $sourceVersion = DistributionVersion::create([
+            'rotation_id' => $this->version->rotation_id, 'status' => 'published', 'is_current' => true,
+        ]);
+        $source = $target->replicate();
+        $source->distribution_version_id = $sourceVersion->id;
+        $source->supervisor_id = $supervisor->id;
+        $source->save();
+        $mark = ClinicalAssessment::create([
+            'student_id' => $this->student1->id, 'evaluator_person_id' => $supervisor->id,
+            'student_clinical_assignment_id' => $source->id, 'assessment_kind' => 'weekly',
+            'evaluation_week' => $this->block1->from_week, 'score' => 8, 'max_score' => 10,
+            'status' => 'submitted',
+        ]);
+        $this->approveVersion();
+
+        $this->actingAs($this->publishAdmin)->postJson(
+            route('api.v1.distribution-versions.publish', $this->version->id),
+            ['last_updated_at' => $this->version->fresh()->updated_at->toIso8601String()],
+        )->assertUnprocessable()->assertJsonValidationErrors('clinical_scores');
+
+        $this->assertTrue($sourceVersion->fresh()->is_current);
+        $this->assertNotSame('published', $this->version->fresh()->status);
+        $this->assertSame($source->id, $mark->fresh()->student_clinical_assignment_id);
     }
 }

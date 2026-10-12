@@ -264,6 +264,41 @@ class Phase5CTest extends TestCase
         ]);
     }
 
+    public function test_scored_published_assignment_cannot_be_reassigned_silently(): void
+    {
+        $mark = ClinicalAssessment::create([
+            'student_id' => $this->student1->id,
+            'evaluator_person_id' => $this->supervisor1->id,
+            'student_clinical_assignment_id' => $this->assignment1->id,
+            'evaluation_week' => 1, 'assessment_kind' => 'weekly',
+            'score' => 8, 'max_score' => 10, 'status' => 'submitted',
+        ]);
+
+        $this->actingAs($this->admin)->putJson(
+            route('api.v1.operational.assignments.supervisor.reassign', $this->assignment1->id),
+            ['supervisor_id' => $this->supervisor2->id],
+        )->assertUnprocessable()->assertJsonValidationErrors('supervisor_id');
+        $this->assertSame($this->supervisor1->id, $this->assignment1->fresh()->supervisor_id);
+        $this->assertSame($this->assignment1->id, $mark->fresh()->student_clinical_assignment_id);
+    }
+
+    public function test_mini_osce_alone_prevents_silent_supervisor_reassignment(): void
+    {
+        DB::table('clinical_mini_osce_scores')->insert([
+            'student_id' => $this->student1->id,
+            'rotation_block_id' => $this->block1->id,
+            'distribution_version_id' => $this->publishedVersion->id,
+            'entered_by_person_id' => $this->supervisor1->id,
+            'score' => 4, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->actingAs($this->admin)->putJson(
+            route('api.v1.operational.assignments.supervisor.reassign', $this->assignment1->id),
+            ['supervisor_id' => $this->supervisor2->id],
+        )->assertUnprocessable()->assertJsonValidationErrors('supervisor_id');
+        $this->assertSame($this->supervisor1->id, $this->assignment1->fresh()->supervisor_id);
+    }
+
     public function test_supervisor_reassignment_generates_audit_log(): void
     {
         $this->actingAs($this->admin)
@@ -881,6 +916,10 @@ class Phase5CTest extends TestCase
 
     public function test_grade_approval_rejects_a_submitted_score_from_an_outdated_distribution(): void
     {
+        // The roster intentionally filters by level; align randomized factories
+        // so this test exercises stale-grade detection rather than an empty roster.
+        $this->course->update(['academic_level' => $this->rotation->academic_level]);
+        $this->student1->update(['academic_level' => $this->rotation->academic_level]);
         $enrollment = StudentCourseEnrollment::create([
             'student_id' => $this->student1->id, 'course_id' => $this->course->id,
             'academic_year_id' => $this->rotation->academic_year_id,
@@ -1198,8 +1237,11 @@ class Phase5CTest extends TestCase
             'assignment_id' => $this->assignment1->id,
             'evaluation_week' => 1,
             'template_id' => $template->id,
-            'assessments' => [['student_id' => $this->student1->id, 'score' => 11]],
-        ])->assertUnprocessable()->assertJsonValidationErrors('assessments.0.score');
+            'assessments' => [
+                ['student_id' => $this->student1->id, 'score' => 11],
+                ['student_id' => $this->student2->id, 'score' => 9],
+            ],
+        ])->assertUnprocessable()->assertJsonValidationErrors('score');
 
         $response = $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessment-batches'), [
             'assignment_id' => $this->assignment1->id,
@@ -1214,6 +1256,10 @@ class Phase5CTest extends TestCase
         $batchUuid = $response->json('data.batch_uuid');
         $this->assertDatabaseCount('clinical_assessments', 2);
         $this->assertSame(2, \App\Models\ClinicalAssessment::where('assessment_batch_uuid', $batchUuid)->where('status', 'submitted')->count());
+        $this->actingAs($this->admin)
+            ->getJson('/api/v1/operational/my-supervisor-assessment-batches/'.$batchUuid)
+            ->assertOk()->assertJsonCount(2, 'data.assessments')
+            ->assertJsonPath('data.assessments.0.score', '8.50');
 
         $this->assertDatabaseCount('approval_requests', 0);
         $this->actingAs($this->admin)
@@ -1442,8 +1488,29 @@ class Phase5CTest extends TestCase
             ->getJson(route('api.v1.operational.my-supervisor-assignments'))
             ->assertStatus(200);
 
-        $queryCount = count(DB::getQueryLog());
-        $this->assertLessThanOrEqual(15, $queryCount);
+        $baseline = count(DB::getQueryLog());
+        for ($index = 0; $index < 5; $index++) {
+            $student = Student::factory()->create([
+                'academic_year_id' => $this->rotation->academic_year_id,
+                'academic_level' => $this->rotation->academic_level,
+            ]);
+            StudentClinicalAssignment::create([
+                'distribution_version_id' => $this->publishedVersion->id,
+                'student_id' => $student->id,
+                'student_subgroup_id' => $this->subgroup->id,
+                'rotation_block_id' => $this->block1->id,
+                'training_site_id' => $this->site1->id,
+                'department_id' => $this->department1->id,
+                'supervisor_id' => $this->supervisor1->id,
+            ]);
+        }
+        DB::flushQueryLog();
+        $this->actingAs($this->admin)
+            ->getJson(route('api.v1.operational.my-supervisor-assignments'))
+            ->assertOk();
+        // N+1 is growth with each student, not a fixed query count that varies
+        // when authentication or scope checks are added independently.
+        $this->assertLessThanOrEqual($baseline + 2, count(DB::getQueryLog()));
     }
 
     public function test_student_schedule_exposes_complete_nested_clinical_context(): void

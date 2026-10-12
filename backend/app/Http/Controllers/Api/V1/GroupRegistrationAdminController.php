@@ -476,6 +476,7 @@ class GroupRegistrationAdminController extends Controller
                 ->get();
 
             if ($subgroup && $currentAssignments->count() === 1 && (int) $currentAssignments->first()->student_subgroup_id === (int) $subgroup->id) {
+                $this->scheduleSync->syncStudent($student->id, $cycle->academic_year_id);
                 return $currentAssignments->first();
             }
 
@@ -496,9 +497,12 @@ class GroupRegistrationAdminController extends Controller
                     'change_reason' => 'administrative_override: '.$data['reason'],
                 ]);
             }
-            if (! $subgroup) return null;
+            if (! $subgroup) {
+                $this->scheduleSync->syncStudent($student->id, $cycle->academic_year_id);
+                return null;
+            }
 
-            return StudentGroupAssignment::create([
+            $assignment = StudentGroupAssignment::create([
                 'student_id' => $student->id,
                 'academic_year_id' => $cycle->academic_year_id,
                 'student_group_id' => $roster->student_group_id,
@@ -508,9 +512,9 @@ class GroupRegistrationAdminController extends Controller
                 'approved_by' => $approvedBy,
                 'data_source' => 'administrative_override',
             ]);
+            $this->scheduleSync->syncStudent($student->id, $cycle->academic_year_id);
+            return $assignment;
         });
-
-        $this->scheduleSync->syncStudent($student->id, $cycle->academic_year_id);
 
         AuditLog::create([
             'user_id' => $request->user()->id,

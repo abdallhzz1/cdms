@@ -411,6 +411,28 @@ class CourseDistributionWorkflowTest extends TestCase
             'course_schedule_row_id' => $rowId,
             'student_subgroup_id' => $emptySubgroup->id,
         ]);
+
+        $assignment = StudentClinicalAssignment::where('student_id', $student->id)
+            ->where('distribution_version_id', $versionId)->firstOrFail();
+        $mark = \App\Models\ClinicalAssessment::create([
+            'student_id' => $student->id, 'evaluator_person_id' => $this->doctor->id,
+            'student_clinical_assignment_id' => $assignment->id,
+            'evaluation_week' => 1, 'assessment_kind' => 'weekly',
+            'score' => 8, 'max_score' => 10, 'status' => 'submitted',
+        ]);
+        app(CourseScheduleMembershipSyncService::class)->syncStudent($student->id, $this->year->id);
+        $this->assertSame($assignment->id, $mark->fresh()->student_clinical_assignment_id);
+        $this->assertSame(1, StudentClinicalAssignment::where('student_id', $student->id)
+            ->where('distribution_version_id', $versionId)->count());
+
+        StudentGroupAssignment::where('student_id', $student->id)->update(['valid_until' => now()->toDateString()]);
+        try {
+            app(CourseScheduleMembershipSyncService::class)->syncStudent($student->id, $this->year->id);
+            $this->fail('A scored assignment must not be removed by roster sync.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            $this->assertArrayHasKey('student_subgroup_id', $exception->errors());
+        }
+        $this->assertSame($assignment->id, $mark->fresh()->student_clinical_assignment_id);
     }
 
     public function test_adding_doctor_creates_linked_clinical_supervisor_account(): void
@@ -534,6 +556,20 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->assertSame(2, StudentClinicalAssignment::where('distribution_version_id', $revisionId)->count());
         $this->assertSame(1, CourseScheduleCell::where('distribution_version_id', $revisionId)->count());
 
+        $scoredAssignment = StudentClinicalAssignment::where('distribution_version_id', $version->id)->firstOrFail();
+        $mark = \App\Models\ClinicalAssessment::create([
+            'student_id' => $scoredAssignment->student_id,
+            'evaluator_person_id' => $this->doctor->id,
+            'student_clinical_assignment_id' => $scoredAssignment->id,
+            'assessment_kind' => 'weekly', 'evaluation_week' => 1,
+            'score' => 8, 'max_score' => 10, 'status' => 'submitted',
+        ]);
+        $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$version->id}/unpublish", [
+            'reason' => 'محاولة إلغاء مع وجود علامات',
+        ])->assertUnprocessable()->assertJsonValidationErrors('version');
+        $this->assertTrue($version->fresh()->is_current);
+        $mark->delete();
+
         $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$version->id}/unpublish", [
             'reason' => 'جدول تجريبي للفحص',
         ])->assertOk()->assertJsonPath('data.status', 'withdrawn');
@@ -541,6 +577,17 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->assertDatabaseHas('distribution_versions', ['id' => $duplicateCurrent->id, 'status' => 'withdrawn', 'is_current' => false]);
 
         $rotationId = $version->rotation_id;
+        $historicalMark = \App\Models\ClinicalAssessment::create([
+            'student_id' => $scoredAssignment->student_id,
+            'evaluator_person_id' => $this->doctor->id,
+            'student_clinical_assignment_id' => $scoredAssignment->id,
+            'assessment_kind' => 'weekly', 'evaluation_week' => 1,
+            'score' => 7, 'max_score' => 10, 'status' => 'submitted',
+        ]);
+        $this->actingAs($this->user)->deleteJson("/api/v1/course-distribution/rotations/{$rotationId}", [
+            'reason' => 'محاولة حذف سجلات علامات',
+        ])->assertUnprocessable()->assertJsonValidationErrors('rotation');
+        $historicalMark->delete();
         $this->actingAs($this->user)->deleteJson("/api/v1/course-distribution/rotations/{$rotationId}", [
             'reason' => 'حذف الجدول التجريبي',
         ])->assertOk();

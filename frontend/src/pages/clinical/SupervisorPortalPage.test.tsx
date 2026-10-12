@@ -188,6 +188,59 @@ describe('clinical supervisor workspace',()=>{
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessment-batches')&&String(init?.body).includes('"student_id":7')&&String(init?.body).includes('"score":9'))).toBe(true));
   });
 
+  it('shows a submission receipt only after reading back the same saved mark',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    const mark={id:44,student_id:7,student_clinical_assignment_id:21,evaluation_week:1,assessment_kind:'weekly',score:'9.00',max_score:'10.00',status:'submitted',created_at:'2026-10-12'};
+    let saved=false;
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope(user);
+      if(url.includes('/my-supervisor-workspace'))return envelope({...workspace,assessments:saved?[mark]:[]});
+      if(url.endsWith('/my-supervisor-assessment-batches/receipt-1'))return envelope({batch_uuid:'receipt-1',assessments:[mark]});
+      if(url.endsWith('/my-supervisor-assessment-batches')&&init?.method==='POST'){saved=true;return envelope({batch_uuid:'receipt-1',assessments:[mark]});}
+      throw new Error(`Unmocked ${url} ${init?.method}`);
+    });
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=1'});
+    await userEvent.type(await screen.findByRole('spinbutton'),'9');
+    await userEvent.click(screen.getByRole('button',{name:'Submit group assessment'}));
+    expect(await screen.findByText(/Receipt: receipt-1/)).toBeVisible();
+    expect(fetchSpy.mock.calls.some(([input,init])=>String(input).endsWith('/my-supervisor-assessment-batches/receipt-1')&&init?.method!=='POST')).toBe(true);
+  });
+
+  it('warns instead of claiming success when the read-back receipt is missing',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope(user);
+      if(url.includes('/my-supervisor-workspace'))return envelope(workspace);
+      if(url.endsWith('/my-supervisor-assessment-batches/receipt-2'))return envelope({batch_uuid:'receipt-2',assessments:[]});
+      if(url.endsWith('/my-supervisor-assessment-batches')&&init?.method==='POST')return envelope({batch_uuid:'receipt-2',assessments:[{id:45,student_id:7,score:9,status:'submitted'}]});
+      throw new Error(`Unmocked ${url} ${init?.method}`);
+    });
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=1'});
+    await userEvent.type(await screen.findByRole('spinbutton'),'9');
+    await userEvent.click(screen.getByRole('button',{name:'Submit group assessment'}));
+    expect(await screen.findByText(/Could not verify all submitted marks/)).toBeVisible();
+    expect(screen.queryByText(/Receipt: receipt-2/)).not.toBeInTheDocument();
+  });
+
+  it('verifies mini OSCE from a fresh workspace before showing saved',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    const assignment={...workspace.assignments[0],rotation_block:{...workspace.assignments[0].rotation_block,rotation:{...workspace.assignments[0].rotation_block.rotation,course:{...workspace.assignments[0].rotation_block.rotation.course,assessment_components:[{code:'clinical',max_score:20,entry_max_score:10,assessment_frequency:'period',mini_osce_max_score:5}]}}}};
+    let saved=false;
+    vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope(user);
+      if(url.includes('/my-supervisor-workspace'))return envelope({...workspace,assignments:[assignment],mini_osce_scores:saved?[{student_id:7,rotation_block_id:4,distribution_version_id:3,score:4,max_score:5}]:[]});
+      if(url.includes('/my-supervisor-mini-osce')&&init?.method==='POST'){saved=true;return envelope({score:4,max_score:5});}
+      throw new Error(`Unmocked ${url} ${init?.method}`);
+    });
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=0'});
+    await userEvent.type(await screen.findByRole('spinbutton',{name:'Mini OSCE Clinical Student'}),'4');
+    await userEvent.click(screen.getByRole('button',{name:'Save'}));
+    expect(await screen.findByText('Mini OSCE mark verified for the period.')).toBeVisible();
+  });
+
   it('uses the course-specific direct clinical scale while keeping previous scores on their saved scale',async()=>{
     document.cookie='XSRF-TOKEN=test; path=/';
     const directAssignment={...workspace.assignments[0],rotation_block:{...workspace.assignments[0].rotation_block,rotation:{...workspace.assignments[0].rotation_block.rotation,course:{...workspace.assignments[0].rotation_block.rotation.course,assessment_components:[{code:'clinical',max_score:15,entry_max_score:15}]}}}};

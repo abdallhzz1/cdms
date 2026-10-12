@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, CircleAlert, ChevronLeft, ChevronRight, Save } from 'lucide-react';
-import { apiFetch } from '@/api/client';
+import { apiFetch, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { SupervisorStudentNotesButton } from '@/components/clinical/SupervisorStudentNotesButton';
@@ -76,8 +76,52 @@ export function SupervisorAssessmentsPage() {
   const payloadFor = (group: SupervisorGroup) => { const template = templateForGroup(workspace.data?.assessment_templates ?? [], group); if (!template) throw new Error('missing-template'); return { assignment_id: group.assignmentId, ...(week > 0 ? { evaluation_week: week } : {}), template_id: template.id, assessments: pendingStudents(group).map(student => ({ student_id: student.id, score: Number(scores[`${group.key}:${week}:${student.id}`]), notes: notes[`${group.key}:${week}:${student.id}`] || null })) }; };
   const validScoreFor = (group: SupervisorGroup, student: Student, template: AssessmentTemplate) => { const raw = scores[`${group.key}:${week}:${student.id}`]; const value = Number(raw); const oldMax = existingFor(group, student.id)?.max_score; return raw !== '' && raw !== undefined && Number.isFinite(value) && value >= 0 && value <= (oldMax == null ? entryMaxFor(group, template) : Number(oldMax)); };
   const groupComplete = (group: SupervisorGroup) => { if (futureWeek || (week === 0 && group.startDate > today())) return false; const template = templateForGroup(workspace.data?.assessment_templates ?? [], group); const pending = pendingStudents(group); return !!template && pending.length > 0 && pending.every(student => validScoreFor(group, student, template)); };
-  const save = useMutation({ mutationFn: (group: SupervisorGroup) => apiFetch('/operational/my-supervisor-assessment-batches', { method: 'POST', body: payloadFor(group) }), onSuccess: async (_, group) => { setNotice(week === 0 ? tr(`تم إرسال تقييم ${group.group} للفترة.`, `Period assessment for ${group.group} was submitted.`) : tr(`تم إرسال تقييم ${group.group} للأسبوع ${week}.`, `Assessment for ${group.group}, week ${week}, was submitted.`)); await queryClient.invalidateQueries({ queryKey: workspaceQueryKey }); } });
-  const miniSave = useMutation({ mutationFn: ({group, student, score}: {group:SupervisorGroup;student:Student;score:number}) => apiFetch('/operational/my-supervisor-mini-osce', { method: 'POST', body: { assignment_id: group.assignmentId, student_id: student.id, score } }), onSuccess: async () => { setNotice(tr('تم حفظ علامة الميني أوسكي للفترة.', 'Mini OSCE mark saved for the period.')); await queryClient.invalidateQueries({ queryKey: workspaceQueryKey }); } });
+  const save = useMutation({
+    onMutate: () => setNotice(''),
+    mutationFn: async (group: SupervisorGroup) => {
+      const payload = payloadFor(group);
+      const savedWeek = week;
+      const receipt = await apiFetch<{batch_uuid:string;assessments:Assessment[]}>('/operational/my-supervisor-assessment-batches', { method: 'POST', body: payload });
+      const verified = receipt.batch_uuid ? await apiFetch<{batch_uuid:string;assessments:Assessment[]}>(`/operational/my-supervisor-assessment-batches/${receipt.batch_uuid}`) : null;
+      const submitted = verified?.assessments ?? [];
+      const expected = payload.assessments;
+      const confirmed = receipt.assessments?.length === expected.length && submitted.length === expected.length
+        && expected.every(row => {
+          const saved = submitted.find(item => item.student_id === row.student_id);
+          return saved && receipt.assessments.some(item => item.id === saved.id)
+            && group.studentAllAssignmentIds[row.student_id]?.includes(Number(saved.student_clinical_assignment_id))
+            && ['submitted', 'approved'].includes(saved.status)
+            && Math.abs(Number(saved.score) - row.score) < 0.001;
+        });
+      if (!confirmed) throw new ApiError(tr(
+        'تعذر تأكيد ظهور كل العلامات بعد الإرسال. قد تكون حُفظت بالفعل؛ حدّث الصفحة وتحقق منها قبل محاولة الإرسال مجددًا.',
+        'Could not verify all submitted marks. They may already be saved; refresh and check before retrying.',
+      ), 409);
+      return { count: submitted.length, batchUuid: receipt.batch_uuid, savedWeek };
+    },
+    onSuccess: async (result, group) => {
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+      setNotice(result.savedWeek === 0
+        ? tr(`تأكد حفظ ${result.count} تقييم لفترة ${group.group}. رقم العملية: ${result.batchUuid}`, `Verified ${result.count} period assessments for ${group.group}. Receipt: ${result.batchUuid}`)
+        : tr(`تأكد حفظ ${result.count} تقييم للأسبوع ${result.savedWeek}. رقم العملية: ${result.batchUuid}`, `Verified ${result.count} assessments for week ${result.savedWeek}. Receipt: ${result.batchUuid}`));
+    },
+    onError: async () => { await queryClient.invalidateQueries({ queryKey: workspaceQueryKey }); },
+  });
+  const miniSave = useMutation({
+    onMutate: () => setNotice(''),
+    mutationFn: async ({group, student, score}: {group:SupervisorGroup;student:Student;score:number}) => {
+      await apiFetch('/operational/my-supervisor-mini-osce', { method: 'POST', body: { assignment_id: group.assignmentId, student_id: student.id, score } });
+      const fresh = await apiFetch<Workspace>('/operational/my-supervisor-workspace');
+      const confirmed = miniOsceForGroup(fresh.mini_osce_scores ?? [], group, student.id);
+      queryClient.setQueryData(workspaceQueryKey, fresh);
+      if (!confirmed || Math.abs(Number(confirmed.score) - score) >= 0.001) throw new ApiError(tr(
+        'تعذر تأكيد ظهور علامة الميني أوسكي. قد تكون حُفظت؛ حدّث الصفحة وتحقق قبل إعادة الحفظ.',
+        'Could not verify the mini OSCE mark. It may be saved; refresh and check before retrying.',
+      ), 409);
+    },
+    onSuccess: () => setNotice(tr('تأكد حفظ علامة الميني أوسكي للفترة.', 'Mini OSCE mark verified for the period.')),
+    onError: async () => { await queryClient.invalidateQueries({ queryKey: workspaceQueryKey }); },
+  });
   const moveWeek = (step: number) => { const next = weeks[selectedWeekIndex + step]; if (next) { setWeek(next.number); setNotice(''); } };
 
   if (!isSupervisor) return <ErrorState title={tr('تقييمات المشرف', 'Supervisor assessments')} message={tr('هذه الشاشة مخصصة للمشرف السريري.', 'This page is for clinical supervisors.')} />;
@@ -88,7 +132,9 @@ export function SupervisorAssessmentsPage() {
     <PageHeader className="!mb-0" title={tr('التقييم السريري', 'Clinical assessment')} description={tr('المساق يحدد إن كان التقييم أسبوعياً أو مرة لكل فترة تدريب.', 'The course determines whether assessment is weekly or once per training period.')} />
     {!weeks.length ? <ErrorState title={tr('لا توجد أسابيع تكليف', 'No assignment weeks')} /> : <>
       <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4"><div className="grid min-w-0 gap-3 lg:grid-cols-2 lg:items-end"><div className="min-w-0"><label className="mb-1.5 block text-[11px] font-black text-slate-500">{tr('موعد التقييم', 'Assessment time')}</label><div className="flex min-w-0 gap-2"><button type="button" disabled={selectedWeekIndex <= 0} onClick={() => moveWeek(-1)} className="hidden h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 text-slate-500 disabled:opacity-30 sm:grid">{ar ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}</button><select value={week} onChange={event => { setWeek(Number(event.target.value)); setNotice(''); }} className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold outline-none focus:border-teal-500 sm:h-10">{weeks.map(item => <option key={item.number} value={item.number}>{item.number === 0 ? tr('تقييم واحد لكل فترة تدريب', 'One assessment per training period') : `${tr(`الأسبوع ${item.number}`, `Week ${item.number}`)} — \u200E${formatDate(item.start_date, ar)}\u200E`}</option>)}</select><button type="button" disabled={selectedWeekIndex < 0 || selectedWeekIndex >= weeks.length - 1} onClick={() => moveWeek(1)} className="hidden h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 text-slate-500 disabled:opacity-30 sm:grid">{ar ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button></div></div><div className="min-w-0"><label className="mb-1.5 block text-[11px] font-black text-slate-500">{tr('المجموعة', 'Group')}</label><select value={selectedGroup} onChange={event => setSelectedGroup(event.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold outline-none focus:border-teal-500 sm:h-10">{weeklyGroups.length ? weeklyGroups.map(group => <option key={group.key} value={group.key}>{groupName(group, ar)}</option>) : <option value="">{tr('لا توجد مجموعة لهذا الموعد', 'No group at this time')}</option>}</select></div></div>{selectedWeek && week > 0 && <div className="mt-3 hidden flex-wrap gap-2 border-t border-slate-100 pt-3 text-[11px] sm:flex"><span className="rounded-lg bg-teal-50 px-2.5 py-1.5 font-black text-teal-800">{tr(`الأسبوع ${week}`, `Week ${week}`)}</span><span dir="ltr" className="rounded-lg bg-slate-100 px-2.5 py-1.5 font-bold text-slate-700">{formatDate(selectedWeek.start_date, ar)} — {formatDate(selectedWeek.end_date, ar)}</span></div>}</section>
-      {futureWeek && <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">{tr('هذا الأسبوع لم يبدأ بعد. سيُفعّل إدخال العلامات عند بدايته.', 'This week has not started yet. Score entry becomes available when it starts.')}</p>}{notice && <p className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{notice}</p>}
+      {futureWeek && <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">{tr('هذا الأسبوع لم يبدأ بعد. سيُفعّل إدخال العلامات عند بدايته.', 'This week has not started yet. Score entry becomes available when it starts.')}</p>}{notice && <p role="status" className="break-all rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{notice}</p>}
+      {save.isError && <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{supervisorErrorMessage(save.error, ar, tr('تعذر إرسال التقييم. تأكد من علامة كل طالب وسقف المساق.', 'Unable to submit. Check each score against the course entry scale.'))}</p>}
+      {miniSave.isError && <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{supervisorErrorMessage(miniSave.error, ar, tr('تعذر حفظ الميني أوسكي.', 'Could not save mini OSCE.'))}</p>}
       <div className="space-y-4">{visibleGroups.map(group => {
         const template = templateForGroup(workspace.data.assessment_templates ?? [], group);
         const pending = pendingStudents(group);
@@ -115,7 +161,5 @@ export function SupervisorAssessmentsPage() {
         </section>;
       })}</div>
     </>}
-    {save.isError && <p className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{supervisorErrorMessage(save.error, ar, tr('تعذر إرسال التقييم. تأكد من علامة كل طالب وسقف المساق.', 'Unable to submit. Check each score against the course entry scale.'))}</p>}
-    {miniSave.isError && <p className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{supervisorErrorMessage(miniSave.error, ar, tr('تعذر حفظ الميني أوسكي.', 'Could not save mini OSCE.'))}</p>}
   </div>;
 }
