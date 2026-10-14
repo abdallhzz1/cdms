@@ -1,0 +1,65 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Save } from 'lucide-react';
+import { ApiError, apiFetch } from '@/api/client';
+import { useI18n } from '@/i18n/I18nContext';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { LoadingState } from '@/components/ui/LoadingState';
+import { SupervisorStudentPhoto } from '@/components/clinical/SupervisorStudentPhoto';
+import { formatDate, formatWeekday, studentName, today, type AttendanceStatus, type Student } from './supervisorWorkspace';
+
+export type UniversityLecture = { id:number; title:string; weekday:string; starts_at:string; ends_at:string; scheduled_dates:string[]; student_group_id:number; group:{name:string;academic_year?:{code:string}}; supervisor?:{full_name_ar:string;full_name_en?:string|null}; is_active:boolean };
+type UniversityRow = { student:Student; subgroup:{id:number;name:string}|null; status:AttendanceStatus|null; excuse_note:string|null; recorded_by:string|null; updated_at:string|null };
+type UniversityDay = { session_id:number|null; lecture:UniversityLecture; rows:UniversityRow[] };
+type Draft = { status:AttendanceStatus|''; note:string };
+const statuses:{value:AttendanceStatus;ar:string;en:string}[]=[
+  {value:'present',ar:'حاضر',en:'Present'}, {value:'absent',ar:'غائب',en:'Absent'},
+  {value:'late',ar:'متأخر',en:'Late'}, {value:'excused',ar:'بعذر',en:'Excused'},
+];
+
+export function SupervisorUniversityAttendance(){
+  const {locale}=useI18n();const ar=locale==='ar';const tr=(a:string,e:string)=>ar?a:e;
+  const [params]=useSearchParams();const cache=useQueryClient();
+  const plans=useQuery({queryKey:['university-attendance-mine'],queryFn:()=>apiFetch<UniversityLecture[]>('/operational/university-attendance/mine')});
+  const lectures=plans.data??[];
+  const dates=useMemo(()=>[...new Set(lectures.flatMap(item=>item.scheduled_dates??[]))].sort(),[lectures]);
+  const [date,setDate]=useState('');const [lectureId,setLectureId]=useState<number|null>(null);
+  const [draft,setDraft]=useState<Record<number,Draft>>({});const [notice,setNotice]=useState('');
+  useEffect(()=>{setDate(current=>{const requested=params.get('date');return requested&&dates.includes(requested)?requested:dates.includes(current)?current:dates.filter(value=>value<=today()).at(-1)??dates[0]??'';});},[dates,params]);
+  const daily=lectures.filter(item=>item.scheduled_dates?.includes(date));
+  useEffect(()=>{setLectureId(current=>{const requested=Number(params.get('lecture'));return daily.some(item=>item.id===requested)?requested:daily.some(item=>item.id===current)?current:daily[0]?.id??null;});},[date,plans.data,params]);
+  const selected=daily.find(item=>item.id===lectureId)??daily[0];
+  const day=useQuery({queryKey:['university-attendance-day',selected?.id,date],queryFn:()=>apiFetch<UniversityDay>(`/operational/university-attendance/plans/${selected!.id}/day?session_date=${date}`),enabled:Boolean(selected&&date)});
+  useEffect(()=>{if(!day.data)return;setDraft(Object.fromEntries(day.data.rows.map(row=>[row.student.id,{status:row.status??'',note:row.excuse_note??''}])));setNotice('');},[day.data]);
+  const rows=day.data?.rows??[];
+  const sections=useMemo(()=>{const result=new Map<string,UniversityRow[]>();for(const row of rows){const key=row.subgroup?.name??tr('دون مجموعة فرعية','No subgroup');result.set(key,[...(result.get(key)??[]),row]);}return [...result.entries()];},[rows,ar]);
+  const completed=rows.filter(row=>draft[row.student.id]?.status).length;
+  const missingExcuse=rows.some(row=>draft[row.student.id]?.status==='excused'&&!draft[row.student.id]?.note.trim());
+  const changed=rows.some(row=>draft[row.student.id]?.status!==(row.status??'')||draft[row.student.id]?.note.trim()!==(row.excuse_note??''));
+  const future=Boolean(date&&date>today());
+  const canSave=Boolean(rows.length&&completed===rows.length&&!missingExcuse&&changed&&!future);
+  const save=useMutation({mutationFn:()=>apiFetch(`/operational/university-attendance/plans/${selected!.id}/day`,{method:'POST',body:{session_date:date,records:rows.map(row=>({student_id:row.student.id,status:draft[row.student.id].status,excuse_note:draft[row.student.id].note.trim()||null}))}}),onSuccess:async()=>{await cache.invalidateQueries({queryKey:['university-attendance-day',selected?.id,date]});setNotice(tr('تم حفظ كشف محاضرة الجامعة.','University lecture attendance saved.'));}});
+  const setStatus=(id:number,status:AttendanceStatus)=>setDraft(current=>({...current,[id]:{status,note:current[id]?.note??''}}));
+  const error=save.error instanceof ApiError?Object.values(save.error.errors).flat().find(value=>typeof value==='string')??save.error.message:tr('تعذر حفظ الكشف.','Could not save attendance.');
+
+  if(plans.isLoading)return <LoadingState/>;
+  if(plans.isError)return <ErrorState onRetry={()=>plans.refetch()}/>;
+  if(!lectures.length)return <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-600">{tr('لم تُحدد لك محاضرة جامعة أسبوعية بعد. يحددها مساعد البحث والتدريس أو مدير الدائرة للمجموعة الرئيسية.','No weekly university lecture has been assigned to you yet.')}</div>;
+  return <div className="space-y-3 pb-24 sm:pb-4">
+    <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2">
+      <label className="text-xs font-bold text-slate-700">{tr('يوم المحاضرة','Lecture day')}<select value={date} onChange={event=>setDate(event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="" disabled>{tr('اختر اليوم','Choose day')}</option>{dates.map(value=><option key={value} value={value}>{formatWeekday(value,ar)} · {formatDate(value,ar)}</option>)}</select></label>
+      <label className="text-xs font-bold text-slate-700">{tr('المحاضرة والمجموعة الرئيسية','Lecture and main group')}<select value={selected?.id??''} onChange={event=>setLectureId(Number(event.target.value))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="" disabled>{tr('اختر المحاضرة','Choose lecture')}</option>{daily.map(item=><option key={item.id} value={item.id}>{item.group.name} · {item.title} · {item.starts_at.slice(0,5)}</option>)}</select></label>
+    </section>
+    {selected&&<section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-4"><div><h2 className="text-sm font-black text-slate-900">{selected.title} · {tr('المجموعة','Group')} {selected.group.name}</h2><p className="mt-1 text-xs text-slate-500">{selected.starts_at.slice(0,5)}–{selected.ends_at.slice(0,5)} · {selected.group.academic_year?.code} · {tr('جميع المجموعات الفرعية','All subgroups')}</p></div><span className="rounded-lg bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-800">{completed}/{rows.length}</span></header>
+      {day.isLoading?<LoadingState/>:day.isError?<div className="p-4"><ErrorState onRetry={()=>day.refetch()}/></div>:!rows.length?<p className="p-5 text-sm text-amber-800">{tr('لا يوجد طلاب مرتبطون بهذه المجموعة الرئيسية في هذا التاريخ. راجع تكليفات مجموعات الطلبة.','No students belong to this main group on this date. Check group memberships.')}</p>:<>
+        <div className="flex items-center justify-between gap-2 bg-slate-50 px-4 py-2"><p className="text-[11px] text-slate-600">{day.data?.session_id?tr('الكشف محفوظ؛ أي تعديل يُوثق.','Saved register; changes are audited.'):tr('حالة مستقلة لهذه المحاضرة فقط.','Separate attendance for this lecture only.')}</p><button type="button" disabled={future} onClick={()=>setDraft(current=>Object.fromEntries(rows.map(row=>[row.student.id,{status:'present',note:current[row.student.id]?.note??''}]))) } className="rounded-lg border border-teal-200 bg-white px-3 py-2 text-[11px] font-bold text-teal-800 disabled:opacity-40">{tr('الكل حاضر','All present')}</button></div>
+        {sections.map(([subgroup,members])=><div key={subgroup}><h3 className="border-y border-slate-100 bg-teal-50/50 px-4 py-2 text-xs font-black text-teal-900">{tr('المجموعة الفرعية','Subgroup')} {subgroup} · {members.length}</h3><div className="divide-y divide-slate-100">{members.map(row=>{const value=draft[row.student.id]??{status:'',note:''};return <article key={row.student.id} className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(140px,1fr)_minmax(260px,1.5fr)] sm:items-center"><div className="flex min-w-0 items-center gap-2"><SupervisorStudentPhoto student={row.student} ar={ar}/><div className="min-w-0"><b className="block truncate text-xs text-slate-900">{studentName(row.student,ar)}</b><small dir="ltr" className="text-[10px] text-slate-500">{row.student.university_number}</small></div></div><div className="grid grid-cols-4 gap-1" role="group" aria-label={`${tr('حالة','Status of')} ${studentName(row.student,ar)}`}>{statuses.map(option=><button key={option.value} type="button" disabled={future} aria-pressed={value.status===option.value} onClick={()=>setStatus(row.student.id,option.value)} className={`min-h-10 rounded-lg border text-[11px] font-bold disabled:opacity-40 ${value.status===option.value?'border-teal-400 bg-teal-50 text-teal-900':'border-slate-200 text-slate-600'}`}>{ar?option.ar:option.en}</button>)}</div><label className="text-[11px] font-medium text-slate-600 sm:col-span-2">{tr('ملاحظة أو سبب العذر','Note or excuse reason')}{value.status==='excused'?' *':''}<input aria-label={`${tr('ملاحظة','Note for')} ${studentName(row.student,ar)}`} value={value.note} onChange={event=>setDraft(current=>({...current,[row.student.id]:{status:current[row.student.id]?.status??'',note:event.target.value}}))} maxLength={2000} disabled={future} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-xs"/></label></article>;})}</div></div>)}
+        <footer className="hidden items-center justify-between gap-3 border-t border-slate-100 p-4 sm:flex"><p className="text-xs text-slate-600">{missingExcuse?tr('سبب العذر مطلوب.','Excuse reason required.'):completed<rows.length?tr(`باقي ${rows.length-completed} طالب.`,`${rows.length-completed} students remaining.`):future?tr('لا يمكن تسجيل يوم قادم.','Future day cannot be recorded.'):notice||''}</p><button type="button" disabled={!canSave||save.isPending} onClick={()=>save.mutate()} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-teal-700 px-5 text-xs font-black text-white disabled:bg-slate-300"><Save className="h-4 w-4"/>{tr('حفظ كشف المحاضرة','Save lecture attendance')}</button></footer>
+        {save.isError&&<p role="alert" className="px-4 pb-3 text-xs font-bold text-rose-700">{String(error)}</p>}{notice&&<p role="status" className="inline-flex items-center gap-1 px-4 pb-3 text-xs font-bold text-teal-800"><Check className="h-4 w-4"/>{notice}</p>}
+      </>}
+    </section>}
+    {selected&&day.data&&rows.length>0&&<div className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t border-slate-200 bg-white/95 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-lg sm:hidden"><span className="flex-1 text-[11px] font-bold text-slate-700">{completed}/{rows.length} {tr('طالب','students')}{missingExcuse?<small className="block text-amber-700">{tr('سبب العذر مطلوب','Excuse reason required')}</small>:null}</span><button type="button" disabled={!canSave||save.isPending} onClick={()=>save.mutate()} className="min-h-11 flex-[1.3] rounded-xl bg-teal-700 px-3 text-xs font-black text-white disabled:bg-slate-300">{save.isPending?tr('جارٍ الحفظ…','Saving…'):tr('حفظ كشف المحاضرة','Save lecture')}</button></div>}
+  </div>;
+}

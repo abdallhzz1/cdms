@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ChevronLeft, ChevronRight, Mail, Users } from 'lucide-react';
 import { ApiError, apiFetch } from '@/api/client';
@@ -45,7 +46,7 @@ const nameOf = (value: Named | null | undefined, ar: boolean) => ar ? value?.nam
 const statusOf = (status: Day['status'], tr: (a: string, e: string) => string) => status === 'present' ? tr('حاضر', 'Present') : status === 'absent' ? tr('غائب', 'Absent') : status === 'late' ? tr('متأخر', 'Late') : status === 'excused' ? tr('بعذر', 'Excused') : tr('لم يُرصد', 'Not recorded');
 
 export function AttendanceMasterPage() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const { locale } = useI18n();
   const ar = locale === 'ar';
   const tr = (a: string, e: string) => ar ? a : e;
@@ -68,6 +69,7 @@ export function AttendanceMasterPage() {
   if (groupsQuery.isError) return <ErrorState onRetry={() => groupsQuery.refetch()} />;
   return <div className="mx-auto max-w-[1500px] space-y-5 pb-14">
     <PageHeader title={tr('سجل الحضور والغياب', 'Attendance register')} />
+    {(user?.roles??[]).some(role=>['SYS_ADMIN','RTA','CLINICAL_DIRECTOR'].includes(String(role).toUpperCase()))&&<Link to="/attendance/university" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-4 text-xs font-black text-teal-900 hover:bg-teal-100">{tr('إعداد ومراجعة حضور محاضرات الجامعة','University lectures: setup and attendance')}</Link>}
     {!groups.length ? <EmptyState message={tr('لا توجد مجموعات في توزيع سريري منشور ضمن صلاحياتك.', 'No published groups in your access scope.')} /> : <>
       <section className="flex flex-wrap items-end justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><label className="block w-full max-w-lg text-xs font-black text-slate-700">{tr('المجموعة الرئيسية', 'Main group')}<select value={main?.key ?? ''} onChange={event => { setMainKey(event.target.value); setSelection(null); setMailNotice(''); }} className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 focus:border-teal-500">{groups.map(group => <option key={group.key} value={group.key}>{group.name} · {group.academicYear?.code ?? '—'}</option>)}</select></label><span className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800"><Users className="h-4 w-4" />{reviewQuery.data?.subgroups.length ?? main?.subgroups.length ?? 0} {tr('مجموعات فرعية', 'subgroups')}</span></section>
       {reviewQuery.isLoading ? <LoadingState /> : reviewQuery.isError ? <ErrorState onRetry={() => reviewQuery.refetch()} /> : !reviewQuery.data?.subgroups.length ? <EmptyState message={tr('لا توجد مجموعات فرعية مكلّفة.', 'No assigned subgroups.')} /> : <>

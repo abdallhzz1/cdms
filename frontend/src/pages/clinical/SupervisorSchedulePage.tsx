@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarDays, MapPin, Users } from 'lucide-react';
+import { BookOpen, CalendarDays, MapPin, Users } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nContext';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { formatDate, formatWeekday, groupName, groupSupervisorAssignments, today, type SupervisorGroup, type Workspace } from './supervisorWorkspace';
+import { formatDate, formatWeekday, groupName, groupSupervisorAssignments, today, type SupervisorGroup, type UniversityAgendaLecture, type Workspace } from './supervisorWorkspace';
 
 function target(group:SupervisorGroup,date:string,screen:'attendance'|'assessments'){
   const values=new URLSearchParams({group:group.key});
@@ -43,7 +43,7 @@ export function preferredAgendaWeek<T extends {date:string}>(items:T[],currentDa
 }
 
 export type AgendaDuty={siteId:number|null;siteAr:string;siteEn:string;groups:SupervisorGroup[]};
-export type AgendaDay={date:string;duties:AgendaDuty[]};
+export type AgendaDay={date:string;duties:AgendaDuty[];universityLectures:UniversityAgendaLecture[]};
 
 /** Work sites are independent of student assignments: a site without a group must still appear. */
 export function buildSupervisorAgenda(workspace:Workspace,currentDate=today()):AgendaDay[]{
@@ -76,10 +76,15 @@ export function buildSupervisorAgenda(workspace:Workspace,currentDate=today()):A
     if(!duty.groups.some(item=>item.key===group.key))duty.groups.push(group);
   }
 
-  const weeks=[...new Set([...duties.keys()].map(agendaWeekStart))].sort();
+  const lectures=new Map<string,UniversityAgendaLecture[]>();
+  for(const lecture of workspace.university_lectures??[])for(const date of lecture.scheduled_dates??[]){
+    lectures.set(date,[...(lectures.get(date)??[]),lecture]);
+  }
+
+  const weeks=[...new Set([...duties.keys(),...lectures.keys()].map(agendaWeekStart))].sort();
   return weeks.flatMap(week=>Array.from({length:7},(_,index)=>{
     const date=addDays(week,index);
-    return {date,duties:[...(duties.get(date)?.values()??[])].sort((a,b)=>a.siteAr.localeCompare(b.siteAr,'ar'))};
+    return {date,duties:[...(duties.get(date)?.values()??[])].sort((a,b)=>a.siteAr.localeCompare(b.siteAr,'ar')),universityLectures:(lectures.get(date)??[]).sort((a,b)=>a.starts_at.localeCompare(b.starts_at))};
   }));
 }
 
@@ -91,7 +96,7 @@ export function SupervisorScheduleAgenda({workspace}:{workspace:Workspace}){
   useEffect(()=>{const timer=window.setInterval(()=>setCurrentDate(value=>{const next=today();return next===value?value:next;}),60_000);return()=>window.clearInterval(timer);},[]);
   const agenda=useMemo(()=>buildSupervisorAgenda(workspace,currentDate),[workspace,currentDate]);
   const weeks=useMemo(()=>[...new Set(agenda.map(item=>agendaWeekStart(item.date)))],[agenda]);
-  const activeWeek=selectedWeek&&weeks.includes(selectedWeek)?selectedWeek:preferredAgendaWeek(agenda.filter(item=>item.duties.length),currentDate);
+  const activeWeek=selectedWeek&&weeks.includes(selectedWeek)?selectedWeek:preferredAgendaWeek(agenda.filter(item=>item.duties.length||item.universityLectures.length),currentDate);
   const rows=agenda.filter(item=>agendaWeekStart(item.date)===activeWeek);
   const currentWeek=agendaWeekStart(currentDate);
   const weekLabel=(week:string)=>{
@@ -126,9 +131,9 @@ export function SupervisorScheduleAgenda({workspace}:{workspace:Workspace}){
       </div>
       <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
         <table className="w-full table-fixed text-right text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-black text-slate-500"><tr><th className="w-[94px] px-2.5 py-3 sm:w-[180px] sm:px-5">{tr('اليوم','Day')}</th><th className="px-2.5 py-3 sm:px-5">{tr('المركز والمجموعة','Site and group')}</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">{rows.map(({date,duties})=>{const isToday=date===currentDate;return <tr key={date} className={isToday?'bg-teal-50/40':''}>
+          <tbody className="divide-y divide-slate-100">{rows.map(({date,duties,universityLectures})=>{const isToday=date===currentDate;return <tr key={date} className={isToday?'bg-teal-50/40':''}>
             <td className="align-top px-2.5 py-3 sm:px-5"><span className={`block w-fit rounded-lg px-2 py-1 text-[11px] font-black ${isToday?'bg-amber-100 text-amber-900':'bg-slate-100 text-slate-700'}`}>{isToday?`${tr('اليوم','Today')} · ${formatWeekday(date,ar)}`:formatWeekday(date,ar)}</span><span dir="ltr" className="mt-1.5 block text-[10px] font-bold text-slate-500">{formatDate(date,ar)}</span></td>
-            <td className="min-w-0 align-top px-2.5 py-2.5 sm:px-5">{duties.length?<div className="space-y-2">{duties.map(duty=>dutyContent(duty,date))}</div>:<span className="inline-flex rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-500">{tr('لا يوجد دوام','No duty')}</span>}</td>
+            <td className="min-w-0 align-top px-2.5 py-2.5 sm:px-5">{duties.length||universityLectures.length?<div className="space-y-2">{universityLectures.map(lecture=><div key={lecture.id} className="rounded-xl border border-sky-100 bg-sky-50/60 px-3 py-2.5"><p className="flex items-center gap-1.5 text-xs font-black text-sky-900"><BookOpen className="h-3.5 w-3.5 shrink-0"/>{tr('محاضرة الجامعة','University lecture')} · {lecture.group.name}</p><p className="mt-1 text-[11px] text-slate-700">{lecture.title} · {lecture.starts_at.slice(0,5)}–{lecture.ends_at.slice(0,5)}</p><p className="mt-0.5 text-[10px] text-slate-500">{tr('المجموعة الرئيسية كاملة بجميع مجموعاتها الفرعية','Full main group, including all subgroups')}</p>{canRecordAttendance&&<Link to={`/supervisor/attendance?mode=university&date=${date}&lecture=${lecture.id}`} className="mt-2 inline-flex rounded-lg bg-sky-800 px-2.5 py-1.5 text-[10px] font-black text-white hover:bg-sky-900">{tr('تسجيل الحضور','Record attendance')}</Link>}</div>)}{duties.map(duty=>dutyContent(duty,date))}</div>:<span className="inline-flex rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-500">{tr('لا يوجد دوام','No duty')}</span>}</td>
           </tr>})}</tbody>
         </table>
       </div>

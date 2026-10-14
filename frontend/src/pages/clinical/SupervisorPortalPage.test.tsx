@@ -51,6 +51,23 @@ describe('clinical supervisor workspace',()=>{
     expect(firstWeek.find(item=>item.date==='2026-08-27')?.duties[0].groups).toHaveLength(1);
   });
 
+  it('shows the full main group once per university lecture in the assigned day',async()=>{
+    const lectures=[
+      {id:11,title:'محاضرة أولى',starts_at:'08:00:00',ends_at:'09:00:00',scheduled_dates:['2026-08-27'],group:{name:'A'}},
+      {id:12,title:'محاضرة ثانية',starts_at:'10:00:00',ends_at:'11:00:00',scheduled_dates:['2026-08-27'],group:{name:'A'}},
+    ];
+    const agenda=buildSupervisorAgenda({...workspace,university_lectures:lectures},'2026-08-27');
+    expect(agenda.find(day=>day.date==='2026-08-27')?.universityLectures.map(item=>item.id)).toEqual([11,12]);
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,university_lectures:lectures}));
+    renderWithProviders(<SupervisorPortalPage/>);
+    const weekSelect=await screen.findByRole('combobox',{name:'Choose week'});
+    await userEvent.selectOptions(weekSelect,'2026-08-22');
+    const links=screen.getAllByRole('link',{name:'Record attendance'});
+    expect(links.map(link=>link.getAttribute('href'))).toContain('/supervisor/attendance?mode=university&date=2026-08-27&lecture=11');
+    expect(links.map(link=>link.getAttribute('href'))).toContain('/supervisor/attendance?mode=university&date=2026-08-27&lecture=12');
+    expect(screen.getAllByText('Full main group, including all subgroups')).toHaveLength(2);
+  });
+
   it('shows every day, a no-duty label, and the second site in the portal week',async()=>{
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,work_schedules:[
       {training_site_id:5,training_site:{name_ar:'المستشفى الأهلي',name_en:'Al Ahli Hospital'},valid_from:'2026-08-23',valid_until:'2026-08-29',days:[{day:'thursday',status:'work'}]},

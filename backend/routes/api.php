@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\ClinicalAssessmentReviewController;
 use App\Http\Controllers\Api\V1\ClinicalAssessmentTemplateController;
 use App\Http\Controllers\Api\V1\ClinicalSessionController;
 use App\Http\Controllers\Api\V1\ClinicalQrAttendanceController;
+use App\Http\Controllers\Api\V1\ClinicalUniversityAttendanceController;
 use App\Http\Controllers\Api\V1\ClinicalSupervisorController;
 use App\Http\Controllers\Api\V1\ClinicalSupervisorEvaluationController;
 use App\Http\Controllers\Api\V1\ConfidentialFinancialVaultController;
@@ -911,6 +912,15 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('operational/my-supervisor-attendance', [SupervisorController::class, 'recordAttendance'])
             ->middleware('permission:attendance.record')
             ->name('operational.my-supervisor-attendance');
+        Route::prefix('operational/university-attendance')->group(function () {
+            Route::get('plans', [ClinicalUniversityAttendanceController::class, 'index'])->middleware('permission:attendance.review');
+            Route::post('plans', [ClinicalUniversityAttendanceController::class, 'store'])->middleware('permission:attendance.review');
+            Route::put('plans/{lecture}', [ClinicalUniversityAttendanceController::class, 'update'])->middleware('permission:attendance.review');
+            Route::post('plans/{lecture}/archive', [ClinicalUniversityAttendanceController::class, 'archive'])->middleware('permission:attendance.review');
+            Route::get('mine', [ClinicalUniversityAttendanceController::class, 'mine'])->middleware('permission:attendance.record');
+            Route::get('plans/{lecture}/day', [ClinicalUniversityAttendanceController::class, 'day'])->middleware('permission.any:attendance.record,attendance.review');
+            Route::post('plans/{lecture}/day', [ClinicalUniversityAttendanceController::class, 'record'])->middleware('permission:attendance.record');
+        });
         Route::prefix('operational/clinical-qr-attendance')->middleware(['permission:attendance.record'])->group(function () {
             Route::get('sessions', [ClinicalQrAttendanceController::class, 'index']);
             Route::post('sessions', [ClinicalQrAttendanceController::class, 'store']);

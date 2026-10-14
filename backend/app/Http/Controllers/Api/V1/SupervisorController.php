@@ -10,6 +10,7 @@ use App\Models\ClinicalAssessment;
 use App\Models\ClinicalAssessmentTemplate;
 use App\Models\ClinicalQrAttendanceSession;
 use App\Models\ClinicalSession;
+use App\Models\ClinicalUniversityLecture;
 use App\Models\GradeEntry;
 use App\Models\StudentCourseEnrollment;
 use App\Models\DistributionVersion;
@@ -243,6 +244,17 @@ class SupervisorController extends Controller
             ->whereIn('student_id', $studentIds)
             ->latest('note_date')->latest('id')->get();
         $miniOsce = $this->assessmentContinuity->miniScoresForAssignments($assignments);
+        $universityLectures = ClinicalUniversityLecture::query()
+            ->where('supervisor_person_id', $person->id)->where('is_active', true)
+            ->with('group.academicYear:id,code')->orderBy('starts_on')->orderBy('starts_at')->get()
+            ->map(fn (ClinicalUniversityLecture $lecture) => [
+                'id' => $lecture->id,
+                'title' => $lecture->title,
+                'starts_at' => $lecture->starts_at,
+                'ends_at' => $lecture->ends_at,
+                'scheduled_dates' => $lecture->scheduledDates(),
+                'group' => $lecture->group,
+            ]);
 
         return ApiResponse::success([
             'supervisor' => [
@@ -253,6 +265,7 @@ class SupervisorController extends Controller
             ],
             'assignments' => $assignments,
             'work_schedules' => $this->workScheduleService->schedules($person),
+            'university_lectures' => $universityLectures,
             'attendance_records' => $attendance,
             'assessments' => $assessments,
             'student_notes' => $studentNotes,
