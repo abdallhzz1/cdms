@@ -14,6 +14,8 @@ use App\Models\StudentSubgroup;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class ClinicalUniversityAttendanceTest extends TestCase
@@ -35,6 +37,27 @@ class ClinicalUniversityAttendanceTest extends TestCase
     {
         Carbon::setTestNow();
         parent::tearDown();
+    }
+
+    public function test_migration_completes_a_partially_created_sessions_table_without_dropping_it(): void
+    {
+        Schema::drop('clinical_university_attendance_records');
+        Schema::drop('clinical_university_sessions');
+        Schema::create('clinical_university_sessions', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('clinical_university_lecture_id');
+            $table->date('session_date');
+            $table->foreignId('supervisor_person_id');
+            $table->foreignId('recorded_by_user_id')->nullable();
+            $table->timestamps();
+        });
+
+        (require database_path('migrations/2026_10_14_100000_create_clinical_university_attendance.php'))->up();
+
+        $this->assertTrue(Schema::hasTable('clinical_university_attendance_records'));
+        $this->assertTrue(Schema::hasIndex('clinical_university_sessions', 'university_session_lecture_date_unique'));
+        $this->assertContains(['clinical_university_lecture_id'], array_column(Schema::getForeignKeys('clinical_university_sessions'), 'columns'));
+        $this->assertContains(['clinical_university_session_id'], array_column(Schema::getForeignKeys('clinical_university_attendance_records'), 'columns'));
     }
 
     public function test_main_group_has_one_roster_across_subgroups_and_separate_registers_for_same_day_lectures(): void
