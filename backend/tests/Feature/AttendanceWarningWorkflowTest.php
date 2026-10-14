@@ -4,14 +4,24 @@ namespace Tests\Feature;
 
 use App\Models\AcademicYear;
 use App\Models\AttendanceRecord;
+use App\Models\ClinicalUniversityAttendanceRecord;
+use App\Models\ClinicalUniversityLecture;
+use App\Models\ClinicalUniversitySession;
 use App\Models\ClinicalSession;
 use App\Models\Course;
 use App\Models\Department;
+use App\Models\DistributionVersion;
 use App\Models\Permission;
+use App\Models\Person;
 use App\Models\Role;
 use App\Models\Rotation;
 use App\Models\RotationBlock;
 use App\Models\Student;
+use App\Models\StudentClinicalAssignment;
+use App\Models\StudentGroup;
+use App\Models\StudentGroupAssignment;
+use App\Models\StudentSubgroup;
+use App\Models\TrainingSite;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -89,6 +99,78 @@ class AttendanceWarningWorkflowTest extends TestCase
             ->assertJsonPath('data.0.absent_days', 3)
             ->assertJsonPath('data.0.absence_percentage', 30)
             ->assertJsonPath('data.0.current_threshold', 20);
+    }
+
+    public function test_two_university_lectures_on_one_day_count_as_two_absences_in_current_rotation_even_without_a_hospital_register(): void
+    {
+        $this->rotation->update(['start_date' => '2026-09-01', 'end_date' => '2026-09-28']);
+        $this->block->update(['from_week' => 1, 'to_week' => 4]);
+        $group = StudentGroup::factory()->create(['academic_year_id' => $this->rotation->academic_year_id]);
+        $subgroup = StudentSubgroup::factory()->create(['student_group_id' => $group->id]);
+        StudentGroupAssignment::factory()->create([
+            'student_id' => $this->student->id, 'academic_year_id' => $this->rotation->academic_year_id,
+            'student_group_id' => $group->id, 'student_subgroup_id' => $subgroup->id,
+        ]);
+        $version = DistributionVersion::create(['rotation_id' => $this->rotation->id, 'status' => 'published', 'is_current' => true]);
+        StudentClinicalAssignment::create([
+            'distribution_version_id' => $version->id, 'student_id' => $this->student->id,
+            'student_subgroup_id' => $subgroup->id, 'rotation_block_id' => $this->block->id,
+            'training_site_id' => TrainingSite::factory()->create()->id,
+        ]);
+        $supervisor = Person::factory()->create();
+        foreach (['09:00:00', '12:00:00'] as $time) {
+            $lecture = ClinicalUniversityLecture::create([
+                'student_group_id' => $group->id, 'supervisor_person_id' => $supervisor->id,
+                'title' => 'University lecture '.$time, 'weekday' => 'wednesday',
+                'starts_on' => '2026-09-02', 'ends_on' => '2026-09-02',
+                'starts_at' => $time, 'ends_at' => '13:00:00', 'is_active' => true,
+            ]);
+            $session = ClinicalUniversitySession::create([
+                'clinical_university_lecture_id' => $lecture->id,
+                'session_date' => '2026-09-02', 'supervisor_person_id' => $supervisor->id,
+            ]);
+            ClinicalUniversityAttendanceRecord::create([
+                'clinical_university_session_id' => $session->id, 'student_id' => $this->student->id,
+                'student_subgroup_id' => $subgroup->id, 'status' => 'absent',
+            ]);
+        }
+
+        $this->actingAs($this->rta)->getJson('/api/v1/attendance-warnings?course_id='.$this->rotation->course_id)
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.rotation_id', $this->rotation->id)
+            ->assertJsonPath('data.0.recorded_days', 2)
+            ->assertJsonPath('data.0.absent_days', 2)
+            ->assertJsonPath('data.0.absence_percentage', 20)
+            ->assertJsonPath('data.0.current_threshold', 10);
+        $review = $this->actingAs($this->rta)->getJson('/api/v1/attendance-records/review-group?student_group_id='.$group->id)
+            ->assertOk()->json('data.subgroups.0.rotations.0.weeks.0.students.0.days');
+        $this->assertCount(2, $review);
+        $this->assertCount(2, collect($review)->pluck('lecture_id')->unique());
+        $this->assertEqualsCanonicalizing(['absent', 'absent'], collect($review)->pluck('status')->all());
+
+        // A bad overlapping distribution must not silently assign campus absences to either course,
+        // even when the warning screen is filtered to the first course.
+        $other = Rotation::factory()->create([
+            'academic_year_id' => $this->rotation->academic_year_id,
+            'course_id' => Course::factory()->create(['academic_level' => 'fourth', 'credit_hours' => 2])->id,
+            'academic_level' => 'fourth', 'start_date' => '2026-09-01', 'end_date' => '2026-09-28',
+        ]);
+        $otherBlock = RotationBlock::factory()->create([
+            'rotation_id' => $other->id, 'department_id' => $this->block->department_id,
+            'from_week' => 1, 'to_week' => 4,
+        ]);
+        $otherVersion = DistributionVersion::create(['rotation_id' => $other->id, 'status' => 'published', 'is_current' => true]);
+        StudentClinicalAssignment::create([
+            'distribution_version_id' => $otherVersion->id, 'student_id' => $this->student->id,
+            'student_subgroup_id' => $subgroup->id, 'rotation_block_id' => $otherBlock->id,
+            'training_site_id' => TrainingSite::factory()->create()->id,
+        ]);
+        $this->actingAs($this->rta)->getJson('/api/v1/attendance-warnings?course_id='.$this->rotation->course_id)
+            ->assertOk()->assertJsonCount(0, 'data');
+        $ambiguous = $this->actingAs($this->rta)->getJson('/api/v1/attendance-records/review-group?student_group_id='.$group->id)
+            ->assertOk()->json('data.subgroups.0.rotations');
+        $this->assertTrue(collect($ambiguous)->every(fn (array $rotation) => collect($rotation['weeks'])
+            ->every(fn (array $week) => empty($week['students'][0]['days']))));
     }
 
     public function test_authorized_user_can_send_and_explicitly_resend_a_warning(): void

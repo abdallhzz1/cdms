@@ -13,6 +13,8 @@ use App\Models\Person;
 use App\Models\StudentGroup;
 use App\Models\StudentGroupAssignment;
 use App\Models\User;
+use App\Services\ClinicalAttendance\UniversityAttendanceRoster;
+use App\Services\ClinicalAttendance\UniversityQrAttendanceService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,7 +22,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
-/** Campus lectures are cohort-wide and intentionally separate from hospital/course attendance. */
+/** Campus lectures have independent registers, projected into the student's active course attendance. */
 class ClinicalUniversityAttendanceController extends Controller
 {
     private const DAYS = ['saturday', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
@@ -47,6 +49,10 @@ class ClinicalUniversityAttendanceController extends Controller
             ->when($request->filled('student_group_id'), fn ($query) => $query->whereHas('lecture', fn ($lecture) => $lecture->where('student_group_id', $request->integer('student_group_id'))))
             ->withCount('records')->orderByDesc('session_date')->orderByDesc('id')->limit(250)->get();
 
+        $lectures = $lectures->map(fn (ClinicalUniversityLecture $lecture) => $this->planPayload($lecture));
+        $sessions = $sessions->map(fn (ClinicalUniversitySession $session) => [
+            ...$session->toArray(), 'session_date' => $session->session_date->toDateString(),
+        ]);
         return ApiResponse::success(compact('groups', 'supervisors', 'lectures', 'sessions'));
     }
 
@@ -86,6 +92,7 @@ class ClinicalUniversityAttendanceController extends Controller
         $this->authorizeManager($request);
         $lecture = DB::transaction(function () use ($request, $lecture) {
             $locked = ClinicalUniversityLecture::query()->whereKey($lecture->id)->lockForUpdate()->firstOrFail();
+            abort_if($locked->sessions()->where('qr_state', 'open')->exists(), 409, 'أغلق QR المفتوح قبل إيقاف المحاضرة.');
             if ($locked->is_active) {
                 $locked->update(['is_active' => false]);
                 $this->audit($request, 'clinical_university.lecture_archived', $locked->id, []);
@@ -93,6 +100,26 @@ class ClinicalUniversityAttendanceController extends Controller
             return $locked;
         });
         return ApiResponse::success($lecture, 'تم إيقاف المواعيد القادمة مع إبقاء كشوف الحضور السابقة.');
+    }
+
+    public function destroy(Request $request, ClinicalUniversityLecture $lecture): JsonResponse
+    {
+        $this->authorizeManager($request);
+        $result = DB::transaction(function () use ($request, $lecture): string {
+            $locked = ClinicalUniversityLecture::query()->whereKey($lecture->id)->lockForUpdate()->firstOrFail();
+            abort_if($locked->sessions()->where('qr_state', 'open')->exists(), 409, 'أغلق QR المفتوح قبل حذف المحاضرة.');
+            if ($locked->sessions()->exists()) {
+                if ($locked->is_active) $locked->update(['is_active' => false]);
+                $this->audit($request, 'clinical_university.lecture_archived', $locked->id, ['reason' => 'delete_requested_with_attendance']);
+                return 'archived';
+            }
+            $this->audit($request, 'clinical_university.lecture_deleted', $locked->id, ['plan' => $locked->toArray()]);
+            $locked->delete();
+            return 'deleted';
+        });
+        return ApiResponse::success(['result' => $result], $result === 'deleted'
+            ? 'حُذفت المحاضرة التي لا تملك كشف حضور.'
+            : 'أُوقفت المحاضرة مع إبقاء كشف الحضور محفوظًا للتدقيق.');
     }
 
     public function mine(Request $request): JsonResponse
@@ -121,7 +148,9 @@ class ClinicalUniversityAttendanceController extends Controller
                 'student' => $membership->student, 'subgroup' => $membership->subgroup,
                 'status' => null, 'excuse_note' => null, 'recorded_by' => null, 'updated_at' => null,
             ]);
-        return ApiResponse::success(['session_id' => $session?->id, 'lecture' => $this->planPayload($lecture->loadMissing('group.academicYear')), 'rows' => $rows->sortBy(fn ($row) => ($row['subgroup']?->name ?? '').'|'.($row['student']?->full_name_ar ?? ''))->values()]);
+        return ApiResponse::success(['session_id' => $session?->id, 'qr_state' => $session?->qr_state,
+            'lecture' => $this->planPayload($lecture->loadMissing('group.academicYear')),
+            'rows' => $rows->sortBy(fn ($row) => ($row['subgroup']?->name ?? '').'|'.($row['student']?->full_name_ar ?? ''))->values()]);
     }
 
     public function record(Request $request, ClinicalUniversityLecture $lecture): JsonResponse
@@ -145,6 +174,7 @@ class ClinicalUniversityAttendanceController extends Controller
             abort_unless((int) $locked->supervisor_person_id === (int) $person->id, 403);
             $this->validateOccurrence($locked, $data['session_date'], true);
             $session = $locked->sessions()->whereDate('session_date', $data['session_date'])->lockForUpdate()->first();
+            abort_if($session?->qr_state === 'open', 409, 'كشف QR مفتوح. أغلقه قبل إجراء تصحيح يدوي.');
             $existing = $session ? $session->records()->lockForUpdate()->get()->keyBy('student_id') : collect();
             $membership = $session ? collect() : $this->roster($locked, $data['session_date'])->keyBy('student_id');
             $allowed = ($session ? $existing->keys() : $membership->keys())->map(fn ($id) => (int) $id)->sort()->values()->all();
@@ -182,6 +212,32 @@ class ClinicalUniversityAttendanceController extends Controller
         return ApiResponse::success(['session_id' => $session->id], 'تم حفظ كشف محاضرة الجامعة لجميع المجموعات الفرعية.');
     }
 
+    public function openQr(Request $request, ClinicalUniversityLecture $lecture, UniversityQrAttendanceService $qr): JsonResponse
+    {
+        $person = $this->supervisor($request);
+        $date = $request->validate(['session_date' => ['required', 'date_format:Y-m-d']])['session_date'];
+        $session = $qr->open($lecture, $person, $request->user(), $date);
+        return ApiResponse::success(['session_id' => $session->id, 'qr_state' => $session->qr_state], 'فُتح QR لمحاضرة الجامعة.');
+    }
+
+    public function qr(Request $request, ClinicalUniversityLecture $lecture, UniversityQrAttendanceService $qr): JsonResponse
+    {
+        $person = $this->supervisor($request);
+        $date = $request->validate(['session_date' => ['required', 'date_format:Y-m-d']])['session_date'];
+        abort_unless((int) $lecture->supervisor_person_id === (int) $person->id, 403);
+        $session = $lecture->sessions()->whereDate('session_date', $date)->firstOrFail();
+        return ApiResponse::success($qr->payload($session));
+    }
+
+    public function closeQr(Request $request, ClinicalUniversityLecture $lecture, UniversityQrAttendanceService $qr): JsonResponse
+    {
+        $person = $this->supervisor($request);
+        $date = $request->validate(['session_date' => ['required', 'date_format:Y-m-d']])['session_date'];
+        abort_unless((int) $lecture->supervisor_person_id === (int) $person->id, 403);
+        $session = $qr->close($lecture, $person, $request->user(), $date);
+        return ApiResponse::success(['session_id' => $session->id, 'qr_state' => $session->qr_state], 'أُغلق QR وسُجل غير الماسحين غائبين.');
+    }
+
     private function validateLecture(Request $request): array
     {
         $data = $request->validate([
@@ -215,31 +271,31 @@ class ClinicalUniversityAttendanceController extends Controller
         }
         $overlapping = ClinicalUniversityLecture::query()->where('student_group_id', $group->id)->where('is_active', true)
             ->whereDate('starts_on', '<=', $data['ends_on'])->whereDate('ends_on', '>=', $data['starts_on'])
-            ->when($exceptId, fn ($query) => $query->where('id', '!=', $exceptId));
-        if ((clone $overlapping)->where('weekday', $data['weekday'])
-            ->where('starts_at', '<', $data['ends_at'])->where('ends_at', '>', $data['starts_at'])->exists()) {
-            throw ValidationException::withMessages(['starts_at' => ['يوجد موعد متداخل للمجموعة في هذا اليوم.']]);
-        }
-        if ($overlapping->count() >= 2) {
-            throw ValidationException::withMessages(['student_group_id' => ['لا يمكن إضافة أكثر من محاضرتين أسبوعيًا للمجموعة الرئيسية في الفترة نفسها.']]);
+            ->when($exceptId, fn ($query) => $query->where('id', '!=', $exceptId))->get();
+        for ($date = Carbon::parse($data['starts_on']); $date->lte(Carbon::parse($data['ends_on'])); $date->addDay()) {
+            if (strtolower($date->format('l')) !== $data['weekday']) continue;
+            $day = $date->toDateString();
+            $sameDay = $overlapping->filter(fn (ClinicalUniversityLecture $lecture) => $lecture->weekday === $data['weekday']
+                && $lecture->starts_on->toDateString() <= $day && $lecture->ends_on->toDateString() >= $day);
+            if ($sameDay->contains(fn (ClinicalUniversityLecture $lecture) => $lecture->starts_at < $data['ends_at'] && $lecture->ends_at > $data['starts_at'])) {
+                throw ValidationException::withMessages(['starts_at' => ['يوجد موعد متداخل للمجموعة في هذا اليوم.']]);
+            }
+            if ($sameDay->count() >= 2) {
+                throw ValidationException::withMessages(['student_group_id' => ['لا يمكن إضافة أكثر من محاضرتين في اليوم نفسه للمجموعة الرئيسية.']]);
+            }
         }
     }
 
     private function roster(ClinicalUniversityLecture $lecture, string $date)
     {
-        $lecture->loadMissing('group');
-        return StudentGroupAssignment::query()->where('student_group_id', $lecture->student_group_id)
-            ->where('academic_year_id', $lecture->group->academic_year_id)
-            ->where(fn ($query) => $query->whereNull('valid_from')->orWhereDate('valid_from', '<=', $date))
-            ->where(fn ($query) => $query->whereNull('valid_until')->orWhereDate('valid_until', '>=', $date))
-            ->with(['student:id,university_number,full_name_ar,full_name_en,photo_url', 'subgroup:id,name'])
-            ->orderByDesc('id')->get()->unique('student_id')->values();
+        return app(UniversityAttendanceRoster::class)->members($lecture, $date);
     }
 
     private function planPayload(ClinicalUniversityLecture $lecture): array
     {
         $lecture->loadMissing('group.academicYear', 'supervisor');
-        return [...$lecture->toArray(), 'scheduled_dates' => $lecture->scheduledDates()];
+        return [...$lecture->toArray(), 'starts_on' => $lecture->starts_on->toDateString(),
+            'ends_on' => $lecture->ends_on->toDateString(), 'scheduled_dates' => $lecture->scheduledDates()];
     }
 
     private function validateOccurrence(ClinicalUniversityLecture $lecture, string $date, bool $write): void

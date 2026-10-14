@@ -12,7 +12,9 @@ use App\Models\StudentGroup;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentSubgroup;
 use App\Models\User;
+use App\Services\ClinicalAttendance\QrAttendanceService;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -97,6 +99,13 @@ class ClinicalUniversityAttendanceTest extends TestCase
         $this->actingAs($rta)->postJson('/api/v1/operational/university-attendance/plans', [
             ...$plan, 'title' => 'محاضرة ثالثة', 'starts_at' => '12:00', 'ends_at' => '13:00',
         ])->assertUnprocessable();
+        $temporary = $this->actingAs($rta)->postJson('/api/v1/operational/university-attendance/plans', [
+            ...$plan, 'title' => 'محاضرة قابلة للحذف', 'weekday' => 'friday',
+            'starts_on' => '2026-10-16', 'ends_on' => '2026-10-16',
+        ])->assertCreated()->json('data.id');
+        $this->actingAs($rta)->deleteJson("/api/v1/operational/university-attendance/plans/$temporary")
+            ->assertOk()->assertJsonPath('data.result', 'deleted');
+        $this->assertDatabaseMissing('clinical_university_lectures', ['id' => $temporary]);
         $this->actingAs($stranger)->getJson("/api/v1/operational/university-attendance/plans/$first/day?session_date=2026-10-08")
             ->assertForbidden();
         $this->actingAs($stranger)->postJson("/api/v1/operational/university-attendance/plans/$first/day", [
@@ -128,6 +137,9 @@ class ClinicalUniversityAttendanceTest extends TestCase
         $this->assertDatabaseCount('clinical_university_sessions', 2);
         $this->assertDatabaseCount('clinical_university_attendance_records', 4);
         $this->assertDatabaseHas('clinical_university_attendance_records', ['student_id' => $students[0]->id, 'status' => 'absent']);
+        $this->actingAs($rta)->getJson('/api/v1/operational/university-attendance/plans?student_group_id='.$group->id)
+            ->assertOk()->assertJsonPath('data.sessions.0.session_date', '2026-10-08')
+            ->assertJsonPath('data.lectures.0.starts_on', '2026-09-01');
         $this->actingAs($doctor)->postJson("/api/v1/operational/university-attendance/plans/$first/day", [
             'session_date' => '2026-10-08', 'records' => [
                 ['student_id' => $students[0]->id, 'status' => 'late'],
@@ -140,6 +152,32 @@ class ClinicalUniversityAttendanceTest extends TestCase
         $this->assertSame('present', $correction->changes['previous_status']);
         $this->assertSame('late', $correction->changes['status']);
 
+        config()->set('clinical_attendance.enabled', true);
+        $this->actingAs($doctor)->postJson("/api/v1/operational/university-attendance/plans/$first/qr/open", [
+            'session_date' => '2026-10-15',
+        ])->assertOk()->assertJsonPath('data.qr_state', 'open');
+        $token = $this->actingAs($doctor)->getJson("/api/v1/operational/university-attendance/plans/$first/qr?session_date=2026-10-15")
+            ->assertOk()->json('data.token');
+        $this->actingAs($rta)->deleteJson("/api/v1/operational/university-attendance/plans/$first")
+            ->assertStatus(409);
+        $scan = app(QrAttendanceService::class)->scan(Request::create('/api/v1/public/clinical-attendance/scan', 'POST'), $students[0], $token);
+        $this->assertSame('check_in', $scan['operation']);
+        try {
+            app(QrAttendanceService::class)->scan(Request::create('/api/v1/public/clinical-attendance/scan', 'POST'),
+                Student::factory()->create(['academic_year_id' => $year->id]), $token);
+            $this->fail('A student outside the main-group roster scanned the lecture QR.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $exception) {
+            $this->assertSame(403, $exception->getStatusCode());
+        }
+        $this->actingAs($doctor)->postJson("/api/v1/operational/university-attendance/plans/$first/qr/close", [
+            'session_date' => '2026-10-15',
+        ])->assertOk()->assertJsonPath('data.qr_state', 'closed');
+        $this->assertDatabaseHas('clinical_university_attendance_records', ['student_id' => $students[0]->id, 'status' => 'present']);
+        $this->assertDatabaseHas('clinical_university_attendance_records', ['student_id' => $students[1]->id, 'status' => 'absent']);
+        $this->actingAs($doctor)->postJson("/api/v1/operational/university-attendance/plans/$first/qr/open", [
+            'session_date' => '2026-10-15',
+        ])->assertStatus(409);
+
         // A later membership change must not silently rewrite a saved historical register.
         $newStudent = Student::factory()->create(['academic_year_id' => $year->id]);
         StudentGroupAssignment::factory()->create(['student_id' => $newStudent->id, 'academic_year_id' => $year->id,
@@ -150,6 +188,9 @@ class ClinicalUniversityAttendanceTest extends TestCase
             ->assertStatus(409);
         $this->actingAs($rta)->postJson("/api/v1/operational/university-attendance/plans/$first/archive")
             ->assertOk();
+        $this->actingAs($rta)->deleteJson("/api/v1/operational/university-attendance/plans/$first")
+            ->assertOk()->assertJsonPath('data.result', 'archived');
+        $this->assertDatabaseHas('clinical_university_sessions', ['clinical_university_lecture_id' => $first]);
         $this->actingAs($doctor)->getJson('/api/v1/operational/university-attendance/mine')
             ->assertOk()->assertJsonCount(1, 'data');
         $this->assertDatabaseHas('audit_logs', ['action' => 'clinical_university.attendance_recorded', 'student_id' => $students[0]->id]);

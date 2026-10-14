@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AttendanceRecord;
+use App\Models\ClinicalUniversityAttendanceRecord;
 use App\Models\AttendanceWarningNotification;
 use App\Models\AuditLog;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
+use Carbon\Carbon;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -185,11 +187,73 @@ class AttendanceWarningController extends Controller
             && $record->session?->session_date
             && $record->session?->rotationBlock?->rotation?->course);
 
-        $keys = $records->map(function (AttendanceRecord $record) {
+        $recordKeys = $records->map(function (AttendanceRecord $record) {
             $rotation = $record->session->rotationBlock->rotation;
 
             return [(int) $record->student_id, (int) $rotation->id];
         });
+
+        // Resolve the course against *all* current assignments, before applying a course filter.
+        // Otherwise filtering to one course could hide an overlapping assignment and misattribute a lecture.
+        $mappingAssignments = StudentClinicalAssignment::query()
+            ->whereIn('student_id', $this->applyStudentAccessScope(Student::query())->select('students.id'))
+            ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
+            ->with(['studentSubgroup:id,student_group_id', 'rotationBlock:id,rotation_id,from_week,to_week',
+                'rotationBlock.rotation:id,academic_year_id,start_date'])
+            ->get()->groupBy('student_id');
+
+        // Campus attendance may be a student's first recorded session in a rotation.
+        // Seed the summary from the authoritative current assignments, not hospital records alone.
+        $assignmentQuery = StudentClinicalAssignment::query()
+            ->whereIn('student_id', $this->applyStudentAccessScope(Student::query())->select('students.id'))
+            ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
+            ->whereHas('rotationBlock.rotation.course')
+            ->with([
+                'student:id,university_number,full_name_ar,full_name_en,university_email,academic_level',
+                'studentSubgroup:id,student_group_id',
+                'rotationBlock:id,rotation_id,department_id,from_week,to_week',
+                'rotationBlock.rotation:id,academic_year_id,course_id,clinical_period_id,name,start_date',
+                'rotationBlock.rotation.course:id,code,name_ar,name_en,credit_hours',
+                'rotationBlock.rotation.academicYear:id,code,start_date,end_date',
+                'rotationBlock.rotation.clinicalPeriod:id,academic_year_id,code,name_ar,name_en,sequence',
+            ]);
+        if ($departmentId) $assignmentQuery->whereHas('rotationBlock', fn ($block) => $block->where('department_id', $departmentId));
+        if ($this->isSupervisorOnly($roles)) $assignmentQuery->where('supervisor_id', $user?->person?->id ?: 0);
+        $assignmentQuery
+            ->when($request->filled('student_id'), fn ($q) => $q->where('student_id', $request->integer('student_id')))
+            ->when($request->filled('course_id'), fn ($q) => $q->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->where('course_id', $request->integer('course_id'))))
+            ->when($request->filled('academic_year_id'), fn ($q) => $q->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->where('academic_year_id', $request->integer('academic_year_id'))))
+            ->when($request->filled('clinical_period_id'), fn ($q) => $q->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->where('clinical_period_id', $request->integer('clinical_period_id'))));
+        $currentAssignments = $assignmentQuery->get();
+        $assignmentByPair = $currentAssignments->filter(fn (StudentClinicalAssignment $assignment) => $assignment->student && $assignment->rotationBlock?->rotation?->course)
+            ->keyBy(fn (StudentClinicalAssignment $assignment) => $assignment->student_id.'|'.$assignment->rotationBlock->rotation_id);
+        $keys = collect($recordKeys->all())->merge($assignmentByPair->map(fn (StudentClinicalAssignment $assignment) => [
+            (int) $assignment->student_id, (int) $assignment->rotationBlock->rotation_id,
+        ])->values());
+        $allowedPairs = $keys->map(fn (array $pair) => implode('|', $pair))->unique()->flip();
+        $campusRecords = ClinicalUniversityAttendanceRecord::query()
+            ->whereIn('student_id', $keys->pluck(0)->unique())->whereNotNull('status')
+            ->whereHas('session.lecture')
+            ->with(['session.lecture:id,student_group_id', 'session.lecture.group:id,academic_year_id'])
+            ->get()->map(function (ClinicalUniversityAttendanceRecord $record) use ($mappingAssignments, $allowedPairs) {
+                $lecture = $record->session?->lecture;
+                $date = $record->session?->session_date?->toDateString();
+                if (!$lecture || !$date) return null;
+                $matching = ($mappingAssignments->get($record->student_id) ?? collect())->filter(function (StudentClinicalAssignment $assignment) use ($lecture, $date) {
+                    $block = $assignment->rotationBlock;
+                    $rotation = $block?->rotation;
+                    if (!$rotation?->start_date || !$block?->from_week || !$block?->to_week
+                        || (int) $assignment->studentSubgroup?->student_group_id !== (int) $lecture->student_group_id
+                        || (int) $rotation->academic_year_id !== (int) $lecture->group?->academic_year_id) return false;
+                    $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->toDateString();
+                    $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->toDateString();
+                    return $date >= $start && $date <= $end;
+                })->map(fn (StudentClinicalAssignment $assignment) => $assignment->rotationBlock->rotation_id)->unique()->values();
+                // Never attribute a lecture to the wrong course when an assignment is ambiguous.
+                if ($matching->count() !== 1) return null;
+                $key = $record->student_id.'|'.$matching->first();
+                return $allowedPairs->has($key) ? ['key' => $key, 'record' => $record] : null;
+            })->filter()->groupBy('key')->map(fn (Collection $items) => $items->pluck('record'));
 
         $history = AttendanceWarningNotification::query()
             ->whereIn('student_id', $keys->pluck(0)->unique())
@@ -200,18 +264,22 @@ class AttendanceWarningController extends Controller
             ->groupBy(fn (AttendanceWarningNotification $item) => $item->student_id.'|'.$item->rotation_id.'|'.$item->threshold_percent)
             ->map(fn (Collection $items) => $items->first());
 
-        return $records
-            ->groupBy(function (AttendanceRecord $record) {
+        $hospitalGroups = $records->groupBy(function (AttendanceRecord $record) {
                 $rotation = $record->session->rotationBlock->rotation;
 
                 return $record->student_id.'|'.$rotation->id;
-            })
-            ->map(function (Collection $group) use ($history) {
+            });
+        return $hospitalGroups->keys()->merge($campusRecords->keys())->unique()
+            ->map(function (string $key) use ($history, $campusRecords, $hospitalGroups, $assignmentByPair) {
+                $group = $hospitalGroups->get($key) ?? collect();
                 /** @var AttendanceRecord $first */
                 $first = $group->first();
-                $student = $first->student;
-                $rotation = $first->session->rotationBlock->rotation;
+                $assignment = $assignmentByPair->get($key);
+                $student = $first?->student ?? $assignment?->student;
+                $rotation = $first?->session?->rotationBlock?->rotation ?? $assignment?->rotationBlock?->rotation;
+                if (! $student || ! $rotation?->course) return null;
                 $course = $rotation->course;
+                $campus = $campusRecords->get($key) ?? collect();
                 $requiredDays = max(0, (int) $course->credit_hours * 5);
 
                 if ($requiredDays === 0) {
@@ -222,7 +290,7 @@ class AttendanceWarningController extends Controller
                     ->where('status', $status)
                     ->map(fn (AttendanceRecord $record) => $record->session->session_date->toDateString())
                     ->unique()
-                    ->count();
+                    ->count() + $campus->where('status', $status)->count();
 
                 $absentDays = $statusDates('absent');
                 $percentage = round(($absentDays / $requiredDays) * 100, 2);
@@ -260,7 +328,7 @@ class AttendanceWarningController extends Controller
                         'sequence' => $rotation->clinicalPeriod->sequence,
                     ] : null,
                     'total_required_days' => $requiredDays,
-                    'recorded_days' => $group->map(fn (AttendanceRecord $record) => $record->session->session_date->toDateString())->unique()->count(),
+                    'recorded_days' => $group->map(fn (AttendanceRecord $record) => $record->session->session_date->toDateString())->unique()->count() + $campus->count(),
                     'present_days' => $statusDates('present'),
                     'absent_days' => $absentDays,
                     'late_days' => $statusDates('late'),
@@ -298,7 +366,7 @@ class AttendanceWarningController extends Controller
 
 الموضوع: إنذار رسمي بسبب تجاوز نسبة الغياب المسموح بها
 
-تشير سجلات الحضور في مساق {$courseName} ({$summary['course']['code']}) إلى أن نسبة غيابك بلغت {$summary['absence_percentage']}%، بواقع {$summary['absent_days']} أيام غياب من أصل {$summary['total_required_days']} يوماً تدريبياً معتمداً للمساق (الساعات المعتمدة × 5 أيام).
+تشير سجلات الحضور في مساق {$courseName} ({$summary['course']['code']}) إلى أن نسبة غيابك بلغت {$summary['absence_percentage']}%، بواقع {$summary['absent_days']} غيابات من أصل {$summary['total_required_days']} وحدة حضور معتمدة للمساق (الساعات المعتمدة × 5). وتُحسب محاضرات الجامعة بكشوف مستقلة، حتى عند وقوع محاضرتين في اليوم نفسه.
 
 نظراً لتجاوز نسبة الغياب 20%، يرجى مراجعة عمادة كلية الطب في أقرب وقت ممكن للتحقق من السجل واستكمال الإجراءات الأكاديمية اللازمة.
 
@@ -306,7 +374,7 @@ Dear Student,
 
 Subject: Formal warning for exceeding the permitted absence rate
 
-Your recorded absence in {$courseNameEn} ({$summary['course']['code']}) has reached {$summary['absence_percentage']}% ({$summary['absent_days']} of {$summary['total_required_days']} required clinical days).
+Your recorded absence in {$courseNameEn} ({$summary['course']['code']}) has reached {$summary['absence_percentage']}% ({$summary['absent_days']} of {$summary['total_required_days']} required attendance units). University lectures have separate registers, even when two occur on the same day.
 
 As your absence rate has exceeded 20%, please visit the Dean's Office of the Faculty of Medicine as soon as possible to review your attendance record and complete the required academic procedures.
 
@@ -321,7 +389,7 @@ TEXT;
 الموضوع: تنبيه أولي بخصوص نسبة الغياب
 
 نود تنبيهك إلى أن نسبة غيابك المسجلة في مساق {$courseName} ({$summary['course']['code']}) بلغت {$summary['absence_percentage']}%.
-عدد أيام الغياب: {$summary['absent_days']} من أصل {$summary['total_required_days']} يوماً تدريبياً معتمداً للمساق (الساعات المعتمدة × 5 أيام).
+عدد الغيابات: {$summary['absent_days']} من أصل {$summary['total_required_days']} وحدة حضور معتمدة للمساق (الساعات المعتمدة × 5). وتُحسب محاضرات الجامعة بكشوف مستقلة، حتى عند وقوع محاضرتين في اليوم نفسه.
 
 هذا تنبيه أولي بعد تجاوز نسبة 10%. يرجى الالتزام بالدوام ومراجعة سجل حضورك مع مساعد البحث والتدريس أو إدارة الدائرة السريرية لتجنب الوصول إلى مرحلة الإنذار الرسمي.
 
@@ -329,7 +397,7 @@ Dear Student,
 
 Subject: Initial attendance notice
 
-Your recorded absence in {$courseNameEn} ({$summary['course']['code']}) is currently {$summary['absence_percentage']}% ({$summary['absent_days']} of {$summary['total_required_days']} required clinical days), which exceeds the 10% initial-notice threshold.
+Your recorded absence in {$courseNameEn} ({$summary['course']['code']}) is currently {$summary['absence_percentage']}% ({$summary['absent_days']} of {$summary['total_required_days']} required attendance units), which exceeds the 10% initial-notice threshold. University lectures have separate registers, even when two occur on the same day.
 
 Please maintain regular attendance and review your record with the Research and Teaching Assistant or the Clinical Department administration to avoid reaching the formal-warning stage.
 

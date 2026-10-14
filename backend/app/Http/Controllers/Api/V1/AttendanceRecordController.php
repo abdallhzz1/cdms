@@ -7,6 +7,8 @@ use App\Http\Responses\ApiResponse;
 use App\Models\AttendanceRecord;
 use App\Models\ClinicalQrAttendanceSession;
 use App\Models\ClinicalSession;
+use App\Models\ClinicalUniversityLecture;
+use App\Models\ClinicalUniversityAttendanceRecord;
 use App\Models\StudentClinicalAssignment;
 use App\Models\Student;
 use App\Models\StudentGroupAssignment;
@@ -237,33 +239,46 @@ class AttendanceRecordController extends Controller
                 $session->supervisor_id ?: 0, $session->session_date?->toDateString(),
             ]));
 
-        $rows = $subgroups->map(function (StudentSubgroup $subgroup) use ($assignments, $memberships, $records, $qrSessions) {
+        $universityLectures = ClinicalUniversityLecture::query()->where('student_group_id', $groupId)
+            ->with('supervisor:id,full_name_ar,full_name_en')->get();
+        $universityRecords = ClinicalUniversityAttendanceRecord::query()
+            ->whereIn('student_id', $assignments->pluck('student_id')->unique())
+            ->whereHas('session.lecture', fn ($query) => $query->where('student_group_id', $groupId))
+            ->with(['session:id,clinical_university_lecture_id,session_date,qr_state', 'recorder:id,name'])
+            ->get()->keyBy(fn (ClinicalUniversityAttendanceRecord $record) => implode('|', [
+                $record->student_id, $record->session?->clinical_university_lecture_id,
+                $record->session?->session_date?->toDateString(),
+            ]));
+        $universityMemberships = StudentGroupAssignment::query()->where('student_group_id', $groupId)
+            ->whereIn('student_id', $assignments->pluck('student_id')->unique())->get()->groupBy('student_id');
+
+        $rows = $subgroups->map(function (StudentSubgroup $subgroup) use ($assignments, $memberships, $records, $qrSessions, $universityLectures, $universityRecords, $universityMemberships) {
                 $subgroupAssignments = $assignments->where('student_subgroup_id', $subgroup->id);
                 $students = $subgroupAssignments->pluck('student')->merge(
                     ($memberships->get($subgroup->id) ?? collect())->pluck('student')
                 )->filter()->unique('id')->sortBy('full_name_ar')->values();
                 $rotations = $subgroupAssignments->groupBy(fn (StudentClinicalAssignment $row) => $row->rotationBlock?->rotation_id)
                     ->filter(fn ($items, $rotationId) => (bool) $rotationId)
-                    ->map(function ($rotationAssignments) use ($students, $records, $qrSessions) {
+                    ->map(function ($rotationAssignments) use ($students, $records, $qrSessions, $universityLectures, $universityRecords, $universityMemberships, $assignments) {
                         $rotation = $rotationAssignments->first()?->rotationBlock?->rotation;
                         if (! $rotation?->start_date) return null;
                         $weekNumbers = $rotationAssignments->pluck('rotationBlock')->filter()
                             ->flatMap(fn ($block) => $block->from_week && $block->to_week
                                 ? range((int) $block->from_week, (int) $block->to_week) : [])
                             ->unique()->sort()->values();
-                        $weeks = $weekNumbers->map(function ($number) use ($rotation, $rotationAssignments, $students, $records, $qrSessions) {
+                        $weeks = $weekNumbers->map(function ($number) use ($rotation, $rotationAssignments, $students, $records, $qrSessions, $universityLectures, $universityRecords, $universityMemberships, $assignments) {
                             $start = Carbon::parse($rotation->start_date)->addWeeks($number - 1)->startOfDay();
                             $end = $start->copy()->addDays(6)->endOfDay();
                             return [
                                 'number' => $number,
                                 'start_date' => $start->toDateString(),
                                 'end_date' => $end->toDateString(),
-                                'students' => $students->map(function (Student $student) use ($rotationAssignments, $number, $start, $end, $records, $qrSessions) {
+                                'students' => $students->map(function (Student $student) use ($rotation, $rotationAssignments, $number, $start, $end, $records, $qrSessions, $universityLectures, $universityRecords, $universityMemberships, $assignments) {
                                     $studentAssignments = $rotationAssignments->where('student_id', $student->id)
                                         ->filter(fn (StudentClinicalAssignment $assignment) => $assignment->rotationBlock
                                             && (int) $assignment->rotationBlock->from_week <= $number
                                             && (int) $assignment->rotationBlock->to_week >= $number);
-                                    $days = $studentAssignments->flatMap(function (StudentClinicalAssignment $assignment) use ($start, $end, $records, $qrSessions) {
+                                    $hospitalDays = $studentAssignments->flatMap(function (StudentClinicalAssignment $assignment) use ($start, $end, $records, $qrSessions) {
                                         $scheduled = $this->scheduledDates($assignment, $start, $end);
                                         $matchingRecords = $records->filter(fn ($items, $key) => str_starts_with($key, implode('|', [
                                             $assignment->student_id, $assignment->rotation_block_id, $assignment->training_site_id ?: 0,
@@ -297,7 +312,44 @@ class AttendanceRecordController extends Controller
                                                 'training_site' => $assignment->trainingSite,
                                             ];
                                         });
-                                    })->unique(fn ($day) => implode('|', [$day['date'], $day['rotation_block_id'], $day['training_site']?->id ?: 0, $day['supervisor']['id'] ?? 0]))->sortBy('date')->values();
+                                    });
+                                    $universityDays = $studentAssignments->isEmpty() ? collect() : $universityLectures->flatMap(function (ClinicalUniversityLecture $lecture) use ($student, $rotation, $start, $end, $universityRecords, $universityMemberships, $assignments) {
+                                        $planned = $lecture->is_active ? $lecture->scheduledDates() : [];
+                                        $recorded = $universityRecords->filter(fn (ClinicalUniversityAttendanceRecord $record) =>
+                                            (int) $record->student_id === (int) $student->id
+                                            && (int) $record->session?->clinical_university_lecture_id === (int) $lecture->id)
+                                            ->map(fn (ClinicalUniversityAttendanceRecord $record) => $record->session->session_date->toDateString())->all();
+                                        return collect([...$planned, ...$recorded])->unique()->filter(fn (string $date) => $date >= $start->toDateString() && $date <= $end->toDateString())
+                                            ->map(function (string $date) use ($lecture, $student, $rotation, $universityRecords, $universityMemberships, $assignments) {
+                                                if (! $this->isUniqueRotationForDate($assignments, $student->id, $rotation->id, $date)) return null;
+                                                $key = implode('|', [$student->id, $lecture->id, $date]);
+                                                $record = $universityRecords->get($key);
+                                                $member = ($universityMemberships->get($student->id) ?? collect())->contains(fn (StudentGroupAssignment $assignment) =>
+                                                    (!$assignment->valid_from || $assignment->valid_from->toDateString() <= $date)
+                                                    && (!$assignment->valid_until || $assignment->valid_until->toDateString() >= $date));
+                                                if (!$member && !$record) return null;
+                                                return [
+                                                    'date' => $date, 'rotation_block_id' => null, 'lecture_id' => $lecture->id,
+                                                    'lecture_title' => $lecture->title, 'starts_at' => $lecture->starts_at,
+                                                    'scheduled' => $member && in_array($date, $lecture->scheduledDates(), true),
+                                                    'status' => $record?->status, 'check_in_at' => null, 'check_out_at' => null,
+                                                    'recording_source' => $record ? ($record->session?->qr_state ? 'university_qr' : 'university_manual') : null,
+                                                    'is_incomplete' => false, 'note' => $record?->excuse_note,
+                                                    'recorded_by' => $record?->recorder?->name,
+                                                    'qr_session' => null,
+                                                    'supervisor' => $lecture->supervisor ? [
+                                                        'id' => $lecture->supervisor->id,
+                                                        'full_name_ar' => $lecture->supervisor->full_name_ar,
+                                                        'full_name_en' => $lecture->supervisor->full_name_en,
+                                                    ] : null,
+                                                    'training_site' => ['name_ar' => 'الجامعة', 'name_en' => 'University'],
+                                                ];
+                                            })->filter();
+                                    });
+                                    $days = $hospitalDays->concat($universityDays)
+                                        ->unique(fn ($day) => isset($day['lecture_id']) ? 'university|'.$day['lecture_id'].'|'.$day['date']
+                                            : implode('|', [$day['date'], $day['rotation_block_id'], $day['training_site']?->id ?: 0, $day['supervisor']['id'] ?? 0]))
+                                        ->sortBy(fn ($day) => $day['date'].'|'.($day['starts_at'] ?? ''))->values();
                                     $scheduleIssue = null;
                                     if ($studentAssignments->isNotEmpty() && $days->isEmpty()) {
                                         $scheduleIssue = $studentAssignments->every(fn ($assignment) => ! $assignment->supervisor_id)
@@ -678,6 +730,23 @@ class AttendanceRecordController extends Controller
         }
 
         return $query;
+    }
+
+    private function isUniqueRotationForDate($assignments, int $studentId, int $rotationId, string $date): bool
+    {
+        $rotationIds = $assignments->where('student_id', $studentId)
+            ->filter(function (StudentClinicalAssignment $assignment) use ($date): bool {
+                $block = $assignment->rotationBlock;
+                $startDate = $block?->rotation?->start_date;
+                if (! $startDate || ! $block->from_week || ! $block->to_week) return false;
+                $start = Carbon::parse($startDate)->addWeeks((int) $block->from_week - 1)->toDateString();
+                $end = Carbon::parse($startDate)->addWeeks((int) $block->to_week)->subDay()->toDateString();
+                return $date >= $start && $date <= $end;
+            })
+            ->map(fn (StudentClinicalAssignment $assignment) => (int) $assignment->rotationBlock->rotation_id)
+            ->unique()->values();
+
+        return $rotationIds->count() === 1 && $rotationIds->first() === $rotationId;
     }
 
     private function sameAttendanceGroupAssignments(StudentClinicalAssignment $reference)

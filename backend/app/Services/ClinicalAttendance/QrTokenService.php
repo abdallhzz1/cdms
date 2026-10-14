@@ -3,6 +3,7 @@
 namespace App\Services\ClinicalAttendance;
 
 use App\Models\ClinicalQrAttendanceSession;
+use App\Models\ClinicalUniversitySession;
 use Illuminate\Support\Str;
 
 class QrTokenService
@@ -16,6 +17,18 @@ class QrTokenService
         $signature = hash_hmac('sha256', $encoded, $this->key());
 
         return ['token' => $encoded.'.'.$signature, 'phase' => $claims['p'], 'expires_at' => now()->addSeconds($seconds)->toIso8601String()];
+    }
+
+    public function issueUniversity(ClinicalUniversitySession $session): array
+    {
+        $seconds = max(5, (int) config('clinical_attendance.rotation_seconds', 15));
+        $issued = now()->timestamp;
+        $claims = ['s' => $session->qr_public_id, 'u' => $session->id, 'p' => 'check_in', 'iat' => $issued,
+            'exp' => $issued + $seconds, 'n' => Str::random(32)];
+        $encoded = rtrim(strtr(base64_encode(json_encode($claims, JSON_THROW_ON_ERROR)), '+/', '-_'), '=');
+        $signature = hash_hmac('sha256', $encoded, $this->key());
+        return ['token' => $encoded.'.'.$signature, 'phase' => 'check_in',
+            'expires_at' => now()->addSeconds($seconds)->toIso8601String()];
     }
 
     public function validate(string $token, bool $allowExpired = false): array

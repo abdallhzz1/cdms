@@ -32,7 +32,7 @@ export function organizeAttendanceGroups(groups: AttendanceGroup[]): AttendanceM
   }
   return [...main.values()].map(group => ({ key: group.key, id: group.id, name: group.name, academicYear: group.academicYear, academicLevel: group.academicLevel, subgroups: [...group.subgroupMap.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })) })).sort((a, b) => `${a.academicYear?.code ?? ''}:${a.name}`.localeCompare(`${b.academicYear?.code ?? ''}:${b.name}`, undefined, { numeric: true }));
 }
-type Day = { date: string; scheduled: boolean; status: 'present' | 'absent' | 'late' | 'excused' | null; check_in_at?: string | null; check_out_at?: string | null; recording_source?: string | null; is_incomplete?: boolean; note?: string | null; recorded_by?: string | null; qr_session?: { state: string; check_in_opened_at?: string | null; check_in_closed_at?: string | null; check_out_opened_at?: string | null; finalized_at?: string | null } | null; supervisor?: { full_name_ar?: string; full_name_en?: string | null } | null; training_site?: Named | null };
+type Day = { date: string; scheduled: boolean; status: 'present' | 'absent' | 'late' | 'excused' | null; lecture_id?: number; lecture_title?: string; check_in_at?: string | null; check_out_at?: string | null; recording_source?: string | null; is_incomplete?: boolean; note?: string | null; recorded_by?: string | null; qr_session?: { state: string; check_in_opened_at?: string | null; check_in_closed_at?: string | null; check_out_opened_at?: string | null; finalized_at?: string | null } | null; supervisor?: { full_name_ar?: string; full_name_en?: string | null } | null; training_site?: Named | null };
 type StudentWeek = { student_id: number; assigned: boolean; schedule_issue?: 'supervisor_missing' | 'site_missing' | 'no_matching_availability' | null; days: Day[] };
 type Week = { number: number; start_date: string; end_date: string; students: StudentWeek[] };
 type Rotation = { id: number; course?: Named | null; clinical_period?: Named | null; weeks: Week[] };
@@ -44,6 +44,7 @@ const shortDate = (date: string, ar: boolean) => new Intl.DateTimeFormat(ar ? 'a
 const shortTime = (date: string | null | undefined, ar: boolean) => date ? new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', { hour: '2-digit', minute: '2-digit' }).format(new Date(date)) : '—';
 const nameOf = (value: Named | null | undefined, ar: boolean) => ar ? value?.name_ar || value?.name : value?.name_en || value?.name_ar || value?.name;
 const statusOf = (status: Day['status'], tr: (a: string, e: string) => string) => status === 'present' ? tr('حاضر', 'Present') : status === 'absent' ? tr('غائب', 'Absent') : status === 'late' ? tr('متأخر', 'Late') : status === 'excused' ? tr('بعذر', 'Excused') : tr('لم يُرصد', 'Not recorded');
+const occurrenceKey = (day:Day) => day.lecture_id ? `university:${day.lecture_id}:${day.date}` : `clinical:${day.date}`;
 
 export function AttendanceMasterPage() {
   const { can, user } = useAuth();
@@ -124,7 +125,7 @@ function RotationMatrix({
           <th className="sticky end-0 z-10 min-w-[74px] border-b border-slate-200 bg-teal-50 p-2 text-center">{tr('مجموع الغياب', 'Total absent')}</th>
         </tr></thead>
         <tbody>{students.map(student => {
-          const absenceTotal = new Set(rotation.weeks.flatMap(week => week.students.find(row => row.student_id === student.id)?.days.filter(day => day.status === 'absent').map(day => day.date) ?? [])).size;
+          const absenceTotal = new Set(rotation.weeks.flatMap(week => week.students.find(row => row.student_id === student.id)?.days.filter(day => day.status === 'absent').map(occurrenceKey) ?? [])).size;
           return <tr key={student.id} className="border-b border-slate-100 last:border-0">
             <th className="sticky start-0 z-10 border-e border-slate-200 bg-white p-2 text-start font-normal">
               <div className="flex items-center gap-2"><SupervisorStudentPhoto student={student} ar={ar} />
@@ -149,7 +150,7 @@ function WeekCell({ row, week, student, course, ar, tr, onSelect }: {
   row: StudentWeek; week: Week; student: Student; course?: Named | null; ar: boolean;
   tr: (a: string, e: string) => string; onSelect: (selection: Selection) => void;
 }) {
-  const count = (status: Day['status']) => new Set(row.days.filter(day => day.status === status).map(day => day.date)).size;
+  const count = (status: Day['status']) => new Set(row.days.filter(day => day.status === status).map(occurrenceKey)).size;
   const hasRecorded = row.days.some(day => day.status);
   const upcoming = row.days.length > 0 && row.days.every(day => !day.status && day.date > new Date().toISOString().slice(0, 10));
   const label = !row.days.length
@@ -195,7 +196,7 @@ function WeekDetails({ selection, ar, tr }: {
           <b className="text-slate-900">{new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', { weekday: 'long' }).format(new Date(`${day.date}T12:00:00`))} · {shortDate(day.date, ar)}</b>
           <span className={`rounded-full px-2 py-1 font-bold ${day.status === 'absent' ? 'bg-rose-50 text-rose-700' : day.status === 'late' ? 'bg-amber-50 text-amber-700' : day.status ? 'bg-teal-50 text-teal-800' : 'bg-slate-100 text-slate-600'}`}>{status}</span>
         </div>
-        <p className="mt-2 text-slate-600">{nameOf(day.training_site, ar) || tr('موقع غير محدد', 'Site not specified')} · {ar ? day.supervisor?.full_name_ar : day.supervisor?.full_name_en || day.supervisor?.full_name_ar || tr('مشرف غير محدد', 'Supervisor not specified')}</p>
+        <p className="mt-2 text-slate-600">{day.lecture_title ? `${tr('محاضرة الجامعة', 'University lecture')}: ${day.lecture_title} · ` : ''}{nameOf(day.training_site, ar) || tr('موقع غير محدد', 'Site not specified')} · {ar ? day.supervisor?.full_name_ar : day.supervisor?.full_name_en || day.supervisor?.full_name_ar || tr('مشرف غير محدد', 'Supervisor not specified')}</p>
         {(day.check_in_at || day.check_out_at) && <p className="mt-1 text-slate-500">{tr('الدخول', 'Check-in')}: {shortTime(day.check_in_at, ar)} · {tr('الخروج', 'Check-out')}: {shortTime(day.check_out_at, ar)}{day.is_incomplete ? ` · ${tr('الخروج غير مسجل', 'Missing check-out')}` : ''}</p>}
         {qrState && <p className="mt-1 text-slate-500">QR · {qrState}</p>}
         {day.note && <p className="mt-2 whitespace-pre-wrap rounded-lg bg-amber-50 p-2 text-amber-900">{tr('ملاحظة المشرف', 'Supervisor note')}: {day.note}</p>}

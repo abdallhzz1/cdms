@@ -916,10 +916,14 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('plans', [ClinicalUniversityAttendanceController::class, 'index'])->middleware('permission:attendance.review');
             Route::post('plans', [ClinicalUniversityAttendanceController::class, 'store'])->middleware('permission:attendance.review');
             Route::put('plans/{lecture}', [ClinicalUniversityAttendanceController::class, 'update'])->middleware('permission:attendance.review');
+            Route::delete('plans/{lecture}', [ClinicalUniversityAttendanceController::class, 'destroy'])->middleware('permission:attendance.review');
             Route::post('plans/{lecture}/archive', [ClinicalUniversityAttendanceController::class, 'archive'])->middleware('permission:attendance.review');
             Route::get('mine', [ClinicalUniversityAttendanceController::class, 'mine'])->middleware('permission:attendance.record');
             Route::get('plans/{lecture}/day', [ClinicalUniversityAttendanceController::class, 'day'])->middleware('permission.any:attendance.record,attendance.review');
             Route::post('plans/{lecture}/day', [ClinicalUniversityAttendanceController::class, 'record'])->middleware('permission:attendance.record');
+            Route::post('plans/{lecture}/qr/open', [ClinicalUniversityAttendanceController::class, 'openQr'])->middleware('permission:attendance.record');
+            Route::get('plans/{lecture}/qr', [ClinicalUniversityAttendanceController::class, 'qr'])->middleware('permission:attendance.record');
+            Route::post('plans/{lecture}/qr/close', [ClinicalUniversityAttendanceController::class, 'closeQr'])->middleware('permission:attendance.record');
         });
         Route::prefix('operational/clinical-qr-attendance')->middleware(['permission:attendance.record'])->group(function () {
             Route::get('sessions', [ClinicalQrAttendanceController::class, 'index']);

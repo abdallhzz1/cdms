@@ -3,6 +3,9 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { SupervisorUniversityAttendance } from './SupervisorUniversityAttendance';
+import { today } from './supervisorWorkspace';
+
+vi.mock('qrcode',()=>({default:{toDataURL:vi.fn(async()=> 'data:image/png;base64,cXJjb2Rl')}}));
 
 const envelope=(data:unknown)=>new Response(JSON.stringify({success:true,data,message:null,meta:{}}),{status:200,headers:{'Content-Type':'application/json'}});
 const date='2026-10-08';
@@ -39,5 +42,30 @@ describe('university lecture attendance',()=>{
     await userEvent.click(screen.getByRole('button',{name:'Save lecture attendance'}));
     await waitFor(()=>expect(sent).toHaveLength(2));
     expect(sent[1].url).toContain('/plans/12/day');
+  });
+  it('opens and closes QR inside the existing supervisor attendance screen',async()=>{
+    window.localStorage.setItem('cdms.locale','en');document.cookie='XSRF-TOKEN=test; path=/';
+    const sessionDate=today();let state:'open'|'closed'|null=null;
+    const calls:string[]=[];
+    vi.spyOn(window,'confirm').mockReturnValue(true);
+    vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{
+      const url=String(input);calls.push(`${init?.method??'GET'} ${url}`);
+      const item={...lecture(21,'Campus lecture','09:00:00'),scheduled_dates:[sessionDate]};
+      if(url.includes('/auth/me'))return envelope({id:1,roles:['CLINICAL_SUPERVISOR'],permissions:[]});
+      if(url.includes('/university-attendance/mine'))return envelope([item]);
+      if(url.includes('/qr/open')){state='open';return envelope({session_id:30,qr_state:state});}
+      if(url.includes('/qr/close')){state='closed';return envelope({session_id:30,qr_state:state});}
+      if(url.includes('/qr?'))return envelope({token:'signed-lecture-token',expires_at:new Date().toISOString()});
+      if(url.includes('/university-attendance/plans/'))return envelope({session_id:state?30:null,qr_state:state,lecture:item,rows});
+      throw new Error(`Unmocked ${url}`);
+    });
+    renderWithProviders(<SupervisorUniversityAttendance/>,{route:`/supervisor/attendance?date=${sessionDate}`});
+    await screen.findByText('Subgroup A1 · 1');
+    await userEvent.click(screen.getByRole('button',{name:'QR'}));
+    await userEvent.click(screen.getByRole('button',{name:'Open lecture QR'}));
+    expect(await screen.findByAltText('Lecture attendance QR code')).toBeVisible();
+    expect(screen.getByRole('button',{name:'Manual'})).toBeDisabled();
+    await userEvent.click(screen.getByRole('button',{name:'Close QR and record absences'}));
+    await waitFor(()=>expect(calls.some(call=>call.includes('/qr/close'))).toBe(true));
   });
 });

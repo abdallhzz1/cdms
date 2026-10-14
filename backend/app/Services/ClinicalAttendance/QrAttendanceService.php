@@ -81,6 +81,7 @@ class QrAttendanceService
     {
         abort_unless(config('clinical_attendance.enabled'), 403, 'تسجيل الحضور عبر الكاميرا متوقف حالياً.');
         $claims = $this->tokens->validate($token, $allowExpired);
+        if (isset($claims['u'])) return app(UniversityQrAttendanceService::class)->scan($request, $student, $claims);
         $result = DB::transaction(function () use ($request, $student, $claims) {
             $session = ClinicalQrAttendanceSession::where('public_id', $claims['s'])->lockForUpdate()->first();
             if (!$session) abort(422, 'رمز الحضور غير صالح.');

@@ -8,7 +8,7 @@ const envelope=(data:unknown)=>new Response(JSON.stringify({success:true,data,me
 afterEach(()=>{vi.restoreAllMocks();document.cookie='XSRF-TOKEN=; Max-Age=0; path=/';});
 
 describe('university lecture planning',()=>{
-  it('allows an RTA to assign a main group and supervisor, with a separate weekday and time',async()=>{
+  it('allows an RTA to add a dated lecture with only date, instructor, time and topic',async()=>{
     window.localStorage.setItem('cdms.locale','en');document.cookie='XSRF-TOKEN=test; path=/';
     let posted:Record<string,unknown>|null=null;
     vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{
@@ -20,10 +20,10 @@ describe('university lecture planning',()=>{
     });
     renderWithProviders(<UniversityAttendanceAdminPage/>,{route:'/attendance/university'});
     await screen.findByText('Main-group university lectures');
-    await userEvent.type(await screen.findByLabelText('Lecture title'),'Clinical lecture');
+    await userEvent.type(await screen.findByLabelText('Topic'),'Clinical lecture');
+    await userEvent.type(screen.getByLabelText('Date'),'2026-10-15');
     await userEvent.selectOptions(screen.getByLabelText('Clinical supervisor'),'9');
-    await userEvent.selectOptions(screen.getByLabelText('Weekday'),'thursday');
     await userEvent.click(screen.getByRole('button',{name:'Add lecture'}));
-    await waitFor(()=>expect(posted).toMatchObject({student_group_id:4,supervisor_person_id:9,title:'Clinical lecture',weekday:'thursday'}));
+    await waitFor(()=>expect(posted).toMatchObject({student_group_id:4,supervisor_person_id:9,title:'Clinical lecture',weekday:'thursday',starts_on:'2026-10-15',ends_on:'2026-10-15'}));
   });
 });
