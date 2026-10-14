@@ -8,6 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\User;
 use App\Services\BasicAttendanceService;
+use App\Services\BasicAttendanceDeletionService;
+use App\Services\AuthorizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -16,7 +18,7 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class BasicAttendanceController extends Controller
 {
-    public function __construct(private BasicAttendanceService $service) {}
+    public function __construct(private BasicAttendanceService $service, private BasicAttendanceDeletionService $deletion) {}
 
     public function sections(Request $r)
     {
@@ -152,40 +154,38 @@ class BasicAttendanceController extends Controller
     public function removeEnrollment(Request $r, int $section, int $student)
     {
         $this->service->section($r->user(), $section);
-        $changed = DB::table('basic_enrollments')->where('section_id', $section)->where('student_id', $student)->where('is_active', true)->update(['is_active' => false, 'updated_at' => now()]);
-        abort_unless($changed, 404);
-        $this->service->audit(null, $r->user()->id, 'enrollment.withdrawn', ['section_id' => $section, 'student_id' => $student]);
-        return ApiResponse::success(null, __('basic_attendance.message13'));
+        $data = $r->validate(['confirm' => ['required', 'string'], 'reason' => ['required', 'string', 'min:5', 'max:500']]);
+        $number = DB::table('basic_students')->where('id', $student)->value('university_number');
+        abort_unless($number, 404);
+        if ($data['confirm'] !== $number) throw ValidationException::withMessages(['confirm' => [__('basic_attendance.archive_confirm_mismatch')]]);
+        $this->deletion->removeStudentFromSection($section, $student, $r->user()->id, $data['reason']);
+        return ApiResponse::success(null, __('basic_attendance.permanent_delete_done'));
+    }
+
+    public function archived(Request $r)
+    {
+        $courses = DB::table('basic_courses')->whereNotNull('archived_at')
+            ->orderByDesc('archived_at')->get(['id', 'code', 'name', 'archived_at']);
+        $sections = DB::table('basic_sections as section')
+            ->join('basic_courses as course', 'course.id', '=', 'section.course_id')
+            ->whereNotNull('section.archived_at')->whereNull('course.archived_at')
+            ->orderByDesc('section.archived_at')
+            ->get(['section.id', 'section.number', 'section.academic_year', 'course.name as course_name']);
+        return ApiResponse::success(['courses' => $courses, 'sections' => $sections]);
     }
 
     public function archiveCourse(Request $r, int $course)
     {
         $data = $r->validate(['confirm' => ['required', 'string'], 'reason' => ['required', 'string', 'min:5', 'max:500']]);
-        DB::transaction(function () use ($r, $course, $data) {
-            $item = DB::table('basic_courses')->where('id', $course)->whereNull('archived_at')->lockForUpdate()->first();
-            abort_unless($item, 404);
-            if ($data['confirm'] !== $item->code) throw ValidationException::withMessages(['confirm' => [__('basic_attendance.archive_confirm_mismatch')]]);
-            $active = DB::table('basic_lecture_sessions as lecture')->join('basic_sections as section', 'section.id', '=', 'lecture.section_id')->where('section.course_id', $course)->where('lecture.active_guard', 1)->whereNull('lecture.archived_at')->exists();
-            if ($active) throw ValidationException::withMessages(['course' => [__('basic_attendance.archive_active_session')]]);
-            DB::table('basic_courses')->where('id', $course)->update(['archived_at' => now(), 'updated_at' => now()]);
-            $this->service->audit(null, $r->user()->id, 'course.archived', ['course_id' => $course, 'code' => $item->code, 'reason' => $data['reason']]);
-        });
-        return ApiResponse::success(null, __('basic_attendance.archive_done'));
+        $this->deletion->purgeCourse($course, $r->user()->id, $data['confirm'], $data['reason']);
+        return ApiResponse::success(null, __('basic_attendance.permanent_delete_done'));
     }
 
     public function archiveSection(Request $r, int $section)
     {
-        $this->service->section($r->user(), $section);
         $data = $r->validate(['confirm' => ['required', 'string'], 'reason' => ['required', 'string', 'min:5', 'max:500']]);
-        DB::transaction(function () use ($r, $section, $data) {
-            $item = DB::table('basic_sections')->where('id', $section)->whereNull('archived_at')->lockForUpdate()->first();
-            abort_unless($item, 404);
-            if ($data['confirm'] !== $item->number) throw ValidationException::withMessages(['confirm' => [__('basic_attendance.archive_confirm_mismatch')]]);
-            if (DB::table('basic_lecture_sessions')->where('section_id', $section)->where('active_guard', 1)->whereNull('archived_at')->exists()) throw ValidationException::withMessages(['section' => [__('basic_attendance.archive_active_session')]]);
-            DB::table('basic_sections')->where('id', $section)->update(['archived_at' => now(), 'updated_at' => now()]);
-            $this->service->audit(null, $r->user()->id, 'section.archived', ['section_id' => $section, 'number' => $item->number, 'reason' => $data['reason']]);
-        });
-        return ApiResponse::success(null, __('basic_attendance.archive_done'));
+        $this->deletion->purgeSection($section, $r->user()->id, $data['confirm'], $data['reason']);
+        return ApiResponse::success(null, __('basic_attendance.permanent_delete_done'));
     }
 
     public function archiveSession(Request $r, int $session)
@@ -225,7 +225,48 @@ class BasicAttendanceController extends Controller
         $pending = $this->service->pendingScanStudents($session);
         $pendingUntil = $pending->max('pending_until');
         $checkedIn = $rows->filter(fn ($row) => $row->source === 'manual' ? $row->status === 'present' : $row->check_in_at !== null)->count();
-        return ApiResponse::success(['session' => $s, 'section' => $this->service->section($r->user(), $s->section_id), 'accepting' => $this->service->accepting($s), 'pending_scans' => $pending->count(), 'pending_students' => $pending->map(fn ($student) => ['name' => $student->name, 'university_number' => $student->university_number])->values(), 'pending_until' => $pendingUntil ? \Carbon\Carbon::parse($pendingUntil)->toIso8601String() : null, 'rows' => $rows, 'counts' => ['total' => $rows->count(), 'check_in' => $checkedIn, 'check_out' => $rows->whereNotNull('check_out_at')->count(), 'present' => $rows->where('status', 'present')->count(), 'pending' => $rows->filter(fn ($row) => $row->status === 'pending' && ! $row->check_in_at)->count(), 'absent' => $rows->where('status', 'absent')->count(), 'excused' => $rows->where('status', 'excused')->count(), 'incomplete' => $rows->where('status', 'incomplete')->count(), 'late' => $rows->where('is_late', true)->count()]]);
+        $candidates = collect();
+        if ($s->state === 'finalized' && app(AuthorizationService::class)->can($r->user(), 'basic_attendance.amend_finalized')) {
+            $candidates = DB::table('basic_enrollments as enrollment')
+                ->join('basic_students as student', 'student.id', '=', 'enrollment.student_id')
+                ->leftJoin('basic_lecture_records as record', function ($join) use ($session) {
+                    $join->on('record.student_id', '=', 'student.id')->where('record.session_id', '=', $session);
+                })
+                ->where('enrollment.section_id', $s->section_id)->where('enrollment.is_active', true)
+                ->where('student.is_active', true)->whereNull('record.id')
+                ->orderBy('student.name')->get(['student.id', 'student.name', 'student.university_number']);
+        }
+        return ApiResponse::success(['session' => $s, 'section' => $this->service->section($r->user(), $s->section_id), 'accepting' => $this->service->accepting($s), 'pending_scans' => $pending->count(), 'pending_students' => $pending->map(fn ($student) => ['name' => $student->name, 'university_number' => $student->university_number])->values(), 'pending_until' => $pendingUntil ? \Carbon\Carbon::parse($pendingUntil)->toIso8601String() : null, 'rows' => $rows, 'roster_candidates' => $candidates, 'counts' => ['total' => $rows->count(), 'check_in' => $checkedIn, 'check_out' => $rows->whereNotNull('check_out_at')->count(), 'present' => $rows->where('status', 'present')->count(), 'pending' => $rows->filter(fn ($row) => $row->status === 'pending' && ! $row->check_in_at)->count(), 'absent' => $rows->where('status', 'absent')->count(), 'excused' => $rows->where('status', 'excused')->count(), 'incomplete' => $rows->where('status', 'incomplete')->count(), 'late' => $rows->where('is_late', true)->count()]]);
+    }
+
+    public function addStudentToFinalizedSession(Request $r, int $session)
+    {
+        $this->service->session($r->user(), $session);
+        $data = $r->validate([
+            'student_id' => ['required', 'integer', 'exists:basic_students,id'],
+            'status' => ['required', 'in:present,absent'],
+            'reason' => ['required', 'string', 'min:10', 'max:1000'],
+        ]);
+        DB::transaction(function () use ($r, $session, $data) {
+            $lecture = DB::table('basic_lecture_sessions')->where('id', $session)->lockForUpdate()->first();
+            abort_unless($lecture && $lecture->state === 'finalized' && ! $lecture->archived_at, 409);
+            $enrolled = DB::table('basic_enrollments as enrollment')
+                ->join('basic_students as student', 'student.id', '=', 'enrollment.student_id')
+                ->where('enrollment.section_id', $lecture->section_id)
+                ->where('enrollment.student_id', $data['student_id'])
+                ->where('enrollment.is_active', true)->where('student.is_active', true)->exists();
+            if (! $enrolled) throw ValidationException::withMessages(['student_id' => [__('basic_attendance.finalized_student_not_enrolled')]]);
+            if (DB::table('basic_lecture_records')->where('session_id', $session)->where('student_id', $data['student_id'])->exists()) {
+                throw ValidationException::withMessages(['student_id' => [__('basic_attendance.finalized_student_already_listed')]]);
+            }
+            DB::table('basic_lecture_records')->insert([
+                'session_id' => $session, 'student_id' => $data['student_id'],
+                'status' => $data['status'], 'source' => 'manual', 'is_late' => false,
+                'reason' => $data['reason'], 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $this->service->audit($session, $r->user()->id, 'record.added_after_finalization', $data);
+        });
+        return $this->show($r, $session);
     }
 
     public function qr(Request $r, int $session)

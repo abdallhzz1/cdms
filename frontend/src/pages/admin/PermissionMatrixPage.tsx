@@ -98,6 +98,7 @@ const MODULES: Record<string, { label: LocalizedLabel; icon: Icon }> = {
 };
 
 const PERMISSION_LABELS: Record<string, string> = {
+  'basic_attendance.amend_finalized': 'إلحاق طالب بكشف محاضرة معتمد وتحديد حضوره أو غيابه',
   'students.view': 'عرض دليل الطلبة',
   'students.create': 'إضافة الطلبة واستيراد كشوفاتهم',
   'students.update': 'تعديل بيانات الطلبة',

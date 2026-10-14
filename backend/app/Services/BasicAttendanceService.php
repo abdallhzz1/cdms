@@ -30,7 +30,9 @@ class BasicAttendanceService
     public function sections(User $user)
     {
         $query = DB::table('basic_sections as s')->join('basic_courses as c', 'c.id', '=', 's.course_id')->whereNull('s.archived_at')->whereNull('c.archived_at');
-        if (! $this->manager($user)) $query->whereExists(fn ($q) => $q->selectRaw('1')->from('basic_section_lecturers as l')->whereColumn('l.section_id', 's.id')->where('l.user_id', $user->id));
+        if (! $this->manager($user) && ! app(AuthorizationService::class)->can($user, 'basic_attendance.amend_finalized')) {
+            $query->whereExists(fn ($q) => $q->selectRaw('1')->from('basic_section_lecturers as l')->whereColumn('l.section_id', 's.id')->where('l.user_id', $user->id));
+        }
         return $query;
     }
 

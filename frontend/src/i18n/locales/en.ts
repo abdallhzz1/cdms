@@ -12,7 +12,7 @@
  * plain `string` here is both simpler and correct.
  */
 const en = {
-  basicAttendance: { permissions: { view: 'View lecture attendance for assigned sections', record: 'Manage lecture check-in and corrections', manage: 'Manage basic courses, sections, rosters and lecturer assignments', export: 'Export lecture attendance for assigned sections', delete: 'Remove basic courses, sections, lectures and enrollments from the workspace' } },
+  basicAttendance: { permissions: { view: 'View lecture attendance for assigned sections', record: 'Manage lecture check-in and corrections', manage: 'Manage basic courses, sections, rosters and lecturer assignments', export: 'Export lecture attendance for assigned sections', delete: 'Permanently delete basic courses, sections, their registers and section enrolments', amendFinalized: 'Add an enrolled student to a finalized lecture with a documented attendance decision' } },
   courseDepartments: {
     title: 'Responsible departments',
     hint: 'Department heads can only access these courses and their clinical records. Leave shared College courses unassigned.',

@@ -179,12 +179,14 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::post('sections/{section}/absence-warnings/bulk', [$controller, 'sendBulkAbsenceWarnings'])->whereNumber('section')->middleware(['permission.any:basic_attendance.manage,basic_attendance.record', 'throttle:basic-attendance-bulk-notification']);
             Route::get('sections/{section}/export', [$controller, 'export'])->whereNumber('section')->middleware(['permission:basic_attendance.export', 'throttle:export']);
             Route::get('sessions/{session}', [$controller, 'show'])->whereNumber('session');
+            Route::post('sessions/{session}/students', [$controller, 'addStudentToFinalizedSession'])->whereNumber('session')->middleware('permission:basic_attendance.amend_finalized');
             Route::get('sessions/{session}/qr', [$controller, 'qr'])->whereNumber('session')->middleware(['permission:basic_attendance.record', 'throttle:operational-read']);
             Route::get('sessions/{session}/audit', [$controller, 'audit'])->whereNumber('session');
             Route::post('sections/{section}/sessions', [$controller, 'start'])->whereNumber('section')->middleware('permission:basic_attendance.record');
             Route::post('sessions/{session}/transition', [$controller, 'transition'])->whereNumber('session')->middleware('permission:basic_attendance.record');
             Route::put('sessions/{session}/records/{student}', [$controller, 'correct'])->whereNumber(['session', 'student'])->middleware('permission:basic_attendance.record');
             Route::get('options', [$controller, 'options'])->middleware('permission:basic_attendance.manage');
+            Route::get('archived', [$controller, 'archived'])->middleware('permission:basic_attendance.delete');
             Route::get('monthly-overview', [$controller, 'monthlyOverview'])->middleware('permission:basic_attendance.manage');
             Route::post('courses', [$controller, 'storeCourse'])->middleware('permission:basic_attendance.manage');
             Route::delete('courses/{course}', [$controller, 'archiveCourse'])->whereNumber('course')->middleware('permission:basic_attendance.delete');

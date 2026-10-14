@@ -128,12 +128,18 @@ class BasicLectureAttendanceTest extends TestCase
             ->assertOk()->assertJsonPath('data.added_to_open_lecture', 1);
         $this->postJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster', ['rows' => [$row, $row]])->assertUnprocessable();
         $this->postJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster', ['rows' => [array_replace($row, ['university_number' => '2600005', 'email' => 'basic1@example.edu'])]])->assertUnprocessable();
-        $this->deleteJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster/'.$this->students[0])->assertOk();
+        $this->deleteJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster/'.$this->students[0], [
+            'confirm' => '2600001', 'reason' => 'إزالة الطالب من كشف هذه الشعبة',
+        ])->assertUnprocessable();
         $this->assertSame(4, DB::table('basic_lecture_records')->where('session_id', $id)->count());
         $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => DB::table('basic_students')->where('university_number', '2600004')->value('id'), 'status' => 'pending']);
         $this->assertDatabaseCount('students', 0);
         $this->assertDatabaseCount('attendance_records', 0);
         $this->transition($id, 'finalize');
+        $this->actingAs($this->manager);
+        $this->deleteJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster/'.$this->students[0], [
+            'confirm' => '2600001', 'reason' => 'إزالة الطالب من كشف هذه الشعبة',
+        ])->assertOk();
         $this->assertSame(3, DB::table('basic_lecture_records')->where('session_id', $this->start())->count());
     }
 
@@ -685,9 +691,109 @@ class BasicLectureAttendanceTest extends TestCase
         $this->transition($id, 'finalize');
         $this->actingAs($this->manager)->deleteJson('/api/v1/basic-attendance/sections/'.$this->section, ['confirm' => '1', 'reason' => 'بيانات فحص تجريبي'])->assertOk();
         $this->getJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster')->assertNotFound();
-        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0]]);
+        $this->assertDatabaseMissing('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0]]);
+        $this->assertDatabaseMissing('basic_sections', ['id' => $this->section]);
         $course = DB::table('basic_courses')->where('code', 'BASIC101')->value('id');
         $this->deleteJson('/api/v1/basic-attendance/courses/'.$course, ['confirm' => 'BASIC101', 'reason' => 'بيانات فحص تجريبي'])->assertOk();
+        $this->assertDatabaseMissing('basic_courses', ['id' => $course]);
         $this->getJson('/api/v1/basic-attendance/options')->assertJsonMissing(['code' => 'BASIC101']);
+    }
+
+    public function test_explicit_permission_adds_one_enrolled_student_to_a_finalized_register(): void
+    {
+        $id = $this->start('single');
+        $this->transition($id, 'finalize');
+        $this->actingAs($this->manager)->postJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster/student', [
+            'university_number' => '2600004', 'name' => 'طالبة جديدة', 'email' => 'new-final@example.edu',
+        ])->assertCreated();
+        $studentId = DB::table('basic_students')->where('university_number', '2600004')->value('id');
+        $path = '/api/v1/basic-attendance/sessions/'.$id.'/students';
+        $payload = ['student_id' => $studentId, 'status' => 'present', 'reason' => 'حضر الطالب ولم يكن مدرجًا عند اعتماد الكشف'];
+        $this->postJson($path, $payload)->assertForbidden();
+        $this->getJson('/api/v1/basic-attendance/sessions/'.$id)->assertJsonPath('data.roster_candidates', []);
+
+        $systemAdmin = $this->user('SYS_ADMIN');
+        $this->actingAs($systemAdmin)->getJson('/api/v1/basic-attendance/sessions/'.$id)
+            ->assertOk()->assertJsonPath('data.roster_candidates.0.id', $studentId);
+        $this->postJson($path, $payload)->assertOk()
+            ->assertJsonPath('data.counts.present', 1)
+            ->assertJsonPath('data.roster_candidates', []);
+        $this->assertDatabaseHas('basic_lecture_records', [
+            'session_id' => $id, 'student_id' => $studentId, 'status' => 'present', 'source' => 'manual', 'check_in_at' => null,
+        ]);
+        $this->assertDatabaseHas('basic_attendance_audits', ['session_id' => $id, 'event' => 'record.added_after_finalization']);
+        $this->postJson($path, $payload)->assertUnprocessable()->assertJsonValidationErrors('student_id');
+        $this->getJson('/api/v1/basic-attendance/sections/'.$this->section.'/monthly-summary?month=2026-09')
+            ->assertOk()->assertJsonPath('data.students.3.present', 1);
+    }
+
+    public function test_permanent_section_and_course_deletion_free_identifiers_and_remove_dependents(): void
+    {
+        $id = $this->start('single');
+        $sectionPath = '/api/v1/basic-attendance/sections/'.$this->section;
+        $reason = 'إزالة بيانات تجريبية وإتاحة الرقم من جديد';
+        $this->actingAs($this->manager)->deleteJson($sectionPath, ['confirm' => '1', 'reason' => $reason])
+            ->assertUnprocessable();
+        $this->transition($id, 'finalize');
+        DB::table('basic_sections')->where('id', $this->section)->update(['archived_at' => now()]);
+        $claim = DB::table('basic_scan_claims')->insertGetId([
+            'session_id' => $id, 'student_id' => $this->students[0],
+            'token_hash' => hash('sha256', 'deletion-claim'), 'phase' => 'check_in', 'version' => 1,
+            'scanned_at' => now(), 'expires_at' => now()->addMinutes(10),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('basic_otp_challenges')->insert([
+            'student_id' => $this->students[0], 'scan_claim_id' => $claim, 'pending_session_id' => $id,
+            'token_hash' => hash('sha256', 'deletion-otp'), 'otp_hash' => bcrypt('123456'),
+            'attempts' => 0, 'expires_at' => now()->addMinutes(5),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->actingAs($this->manager)->getJson('/api/v1/basic-attendance/archived')->assertOk()
+            ->assertJsonPath('data.sections.0.id', $this->section);
+        $this->deleteJson($sectionPath, ['confirm' => '1', 'reason' => $reason])->assertOk();
+        $this->assertDatabaseMissing('basic_sections', ['id' => $this->section]);
+        $this->assertDatabaseMissing('basic_lecture_sessions', ['id' => $id]);
+        $this->assertDatabaseMissing('basic_lecture_records', ['session_id' => $id]);
+        $this->assertDatabaseMissing('basic_scan_claims', ['id' => $claim]);
+        $this->assertDatabaseMissing('basic_otp_challenges', ['scan_claim_id' => $claim]);
+        $this->assertDatabaseMissing('basic_students', ['id' => $this->students[0]]);
+        $this->assertDatabaseHas('basic_attendance_audits', ['event' => 'section.purged']);
+
+        $courseId = DB::table('basic_courses')->where('code', 'BASIC101')->value('id');
+        $this->deleteJson('/api/v1/basic-attendance/courses/'.$courseId, [
+            'confirm' => 'BASIC101', 'reason' => $reason,
+        ])->assertOk();
+        $this->assertDatabaseMissing('basic_courses', ['id' => $courseId]);
+        $this->postJson('/api/v1/basic-attendance/courses', [
+            'code' => 'BASIC101', 'name' => 'مساق جديد', 'academic_level' => 'first',
+        ])->assertCreated();
+    }
+
+    public function test_student_deletion_affects_one_section_only_and_frees_orphan_number(): void
+    {
+        $id = $this->start('single');
+        $this->transition($id, 'finalize');
+        $path = '/api/v1/basic-attendance/sections/'.$this->section.'/roster/'.$this->students[0];
+        $payload = ['confirm' => '2600001', 'reason' => 'إزالة تسجيل الطالب وكشفه من هذه الشعبة'];
+        $this->actingAs($this->manager)->deleteJson($path, ['confirm' => 'wrong', 'reason' => $payload['reason']])
+            ->assertUnprocessable();
+        $this->deleteJson($path, $payload)->assertOk();
+        $this->assertDatabaseMissing('basic_students', ['id' => $this->students[0]]);
+        $this->assertDatabaseMissing('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0]]);
+        $this->postJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster/student', [
+            'university_number' => '2600001', 'name' => 'طالب جديد', 'email' => 'reused@example.edu',
+        ])->assertCreated();
+
+        $otherStudent = $this->students[1];
+        DB::table('basic_enrollments')->insert([
+            'section_id' => $this->otherSection, 'student_id' => $otherStudent,
+            'is_active' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->deleteJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster/'.$otherStudent, [
+            'confirm' => '2600002', 'reason' => $payload['reason'],
+        ])->assertOk();
+        $this->assertDatabaseHas('basic_students', ['id' => $otherStudent, 'university_number' => '2600002']);
+        $this->assertDatabaseHas('basic_enrollments', ['section_id' => $this->otherSection, 'student_id' => $otherStudent]);
+        $this->assertDatabaseMissing('basic_lecture_records', ['session_id' => $id, 'student_id' => $otherStudent]);
     }
 }

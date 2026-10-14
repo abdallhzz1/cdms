@@ -111,6 +111,31 @@ describe('Isolated basic lecture attendance', () => {
   expect(reason).toBeRequired();
  });
 
+ it('adds a newly enrolled student to a finalized register only with the special permission', async () => {
+  const privileged = { ...account, permissions: [...account.permissions, { code: 'basic_attendance.amend_finalized', scope: 'global' }] };
+  let added = false;
+  const fetch = vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
+   const path = new URL(String(input), window.location.origin).pathname.replace('/api/v1', '');
+   if (path === '/auth/me') return envelope(privileged);
+   if (path === '/basic-attendance/sessions/1/students' && init?.method === 'POST') { added = true; return envelope(null); }
+   if (path === '/basic-attendance/sessions/1') return envelope({
+    section, session: { id: 1, title: 'Final lecture', state: 'finalized', mode: 'single', opened_at: '2026-09-29T09:00:00+03:00' },
+    accepting: false, pending_scans: 0, rows: added ? [{ id: 2, student_id: 2, name: 'New Student', university_number: '2600002', status: 'absent', source: 'manual', is_late: false, check_in_at: null }] : [],
+    roster_candidates: added ? [] : [{ id: 2, name: 'New Student', university_number: '2600002' }],
+    counts: { total: added ? 1 : 0, check_in: 0, check_out: 0, present: 0, pending: 0, absent: added ? 1 : 0, excused: 0, late: 0, incomplete: 0 },
+   });
+   throw Error(path);
+  });
+  renderWithProviders(<Routes><Route path="/basic-attendance/sessions/:sessionId" element={<BasicLectureSessionPage />} /></Routes>, { route: '/basic-attendance/sessions/1' });
+  await userEvent.click(await screen.findByRole('button', { name: 'Add student to finalized register' }));
+  await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Student' }), '2');
+  await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Status' }), 'absent');
+  await userEvent.type(screen.getByRole('textbox', { name: 'Correction reason — required' }), 'Student enrolled after finalization');
+  await userEvent.click(screen.getByRole('button', { name: 'Record student and attendance' }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/v1/basic-attendance/sessions/1/students', expect.objectContaining({ method: 'POST', body: JSON.stringify({ student_id: 2, status: 'absent', reason: 'Student enrolled after finalization' }) })));
+  expect(await screen.findByText('New Student')).toBeInTheDocument();
+ });
+
  it('shows real pending students and requires confirmation before finalizing over them', async () => {
   const fetchSpy=mock(path => {
    if (path === '/basic-attendance/sessions/1') return envelope({ section, session: { id: 1, title: 'Test Lecture', state: 'paused', mode: 'single', opened_at: '2026-09-29T09:00:00+03:00' }, accepting: false, pending_scans: 1, pending_students: [{name: student.name, university_number: student.university_number}], pending_until: '2026-09-29T09:10:00+03:00', counts: { total: 1, check_in: 0, check_out: 0, late: 0, absent: 0, incomplete: 0 }, rows: [{ id: 1, student_id: 1, name: student.name, university_number: student.university_number, status: 'pending', source: 'qr', check_in_at: null, check_out_at: null, is_late: false }] });

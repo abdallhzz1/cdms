@@ -24,6 +24,7 @@ beforeEach(() => {
     if (path === '/auth/me') return envelope(currentAccount);
     if (path === '/basic-attendance/sections' && init?.method === 'POST') { sectionList = [...sectionList, { ...section, ...(JSON.parse(String(init.body)) as Omit<typeof section, 'id'>), id: 4, lecturers: [{ id: 8, name: 'Lecturer' }] }]; return envelope(sectionList[1]); }
     if (path === '/basic-attendance/sections') return envelope(sectionList);
+    if (path === '/basic-attendance/archived') return envelope({ courses: [], sections: [] });
     if (path === '/basic-attendance/options') return envelope({ courses, lecturers: [{ id: 8, name: 'Lecturer' }] });
     if (path === '/basic-attendance/courses' && init?.method === 'POST') { courses = [...courses, { ...(JSON.parse(String(init.body)) as Omit<typeof courses[number], 'id'>), id: 2 }]; return envelope(courses[1]); }
     if (path === '/basic-attendance/sections/3/roster') return envelope([{ id: 1, name: 'Student One', university_number: '2600001', email: 'one@example.edu' }]);
@@ -111,6 +112,30 @@ it('opens the add course form directly in the catalog and keeps the code beneath
   await userEvent.click(screen.getByRole('dialog').querySelector('button[type="submit"]')!);
   expect(await screen.findByRole('link', { name: /Chemistry B102/ })).toBeInTheDocument();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+
+it('requires the exact course code and reason before permanent deletion', async () => {
+  currentAccount = manager;
+  const originalFetch = vi.mocked(window.fetch).getMockImplementation()!;
+  vi.mocked(window.fetch).mockImplementation((input, init) => {
+    const path = new URL(String(input), window.location.origin).pathname.replace('/api/v1', '');
+    if (path === '/basic-attendance/courses/1' && init?.method === 'DELETE') {
+      courses = [];
+      sectionList = [];
+      return Promise.resolve(envelope(null));
+    }
+    return originalFetch(input, init);
+  });
+  renderWithProviders(<Routes><Route path="/basic-attendance" element={<BasicAttendanceCatalogPage />} /></Routes>, { route: '/basic-attendance' });
+  await userEvent.click(await screen.findByRole('button', { name: 'Remove' }));
+  expect(screen.getByRole('dialog', { name: 'Permanently delete data' })).toBeInTheDocument();
+  const confirm = screen.getByRole('button', { name: 'Permanently delete' });
+  expect(confirm).toBeDisabled();
+  await userEvent.type(screen.getByRole('textbox', { name: 'To confirm, type exactly: B101' }), 'B101');
+  await userEvent.type(screen.getByRole('textbox', { name: 'Reason for removal (required)' }), 'Duplicate course and attendance registers');
+  expect(confirm).toBeEnabled();
+  await userEvent.click(confirm);
+  await waitFor(() => expect(window.fetch).toHaveBeenCalledWith('/api/v1/basic-attendance/courses/1', expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ confirm: 'B101', reason: 'Duplicate course and attendance registers' }) })));
 });
 
 it('opens the add section form from the selected course without a setup page', async () => {
