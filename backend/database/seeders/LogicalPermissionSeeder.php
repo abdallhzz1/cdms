@@ -17,6 +17,7 @@ class LogicalPermissionSeeder extends Seeder
                 'advising.view', 'advising.export_pdf',
                 'assessment.view', 'assessment.review',
                 'attendance.view', 'attendance.review', 'attendance.excuse', 'attendance.qr.reopen_finalized',
+                'university_lectures.manage',
                 'correspondence.view', 'correspondence.create', 'correspondence.submit', 'correspondence.forward', 'correspondence.approve', 'correspondence.close',
                 'course_report.manage', 'course_report.approve',
                 'courses.view', 'courses.manage',
@@ -136,6 +137,7 @@ class LogicalPermissionSeeder extends Seeder
             'RTA' => [
                 'students.view', 'grades.view', 'grades.create', 'grades.update',
                 'attendance.view', 'attendance.review', 'attendance.record', 'courses.view',
+                'university_lectures.manage',
                 'assessment.review',
                 'clinical_schedule.view', 'tasks.view',
                 'correspondence.view', 'correspondence.create', 'correspondence.update', 'correspondence.submit', 'correspondence.forward',

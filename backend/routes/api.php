@@ -913,13 +913,15 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->middleware('permission:attendance.record')
             ->name('operational.my-supervisor-attendance');
         Route::prefix('operational/university-attendance')->group(function () {
-            Route::get('plans', [ClinicalUniversityAttendanceController::class, 'index'])->middleware('permission:attendance.review');
-            Route::post('plans', [ClinicalUniversityAttendanceController::class, 'store'])->middleware('permission:attendance.review');
-            Route::put('plans/{lecture}', [ClinicalUniversityAttendanceController::class, 'update'])->middleware('permission:attendance.review');
-            Route::delete('plans/{lecture}', [ClinicalUniversityAttendanceController::class, 'destroy'])->middleware('permission:attendance.review');
-            Route::post('plans/{lecture}/archive', [ClinicalUniversityAttendanceController::class, 'archive'])->middleware('permission:attendance.review');
+            Route::get('plans', [ClinicalUniversityAttendanceController::class, 'index'])->middleware('permission:university_lectures.manage');
+            Route::post('plans', [ClinicalUniversityAttendanceController::class, 'store'])->middleware('permission:university_lectures.manage');
+            Route::put('plans/{lecture}', [ClinicalUniversityAttendanceController::class, 'update'])->middleware('permission:university_lectures.manage');
+            Route::delete('plans/{lecture}', [ClinicalUniversityAttendanceController::class, 'destroy'])->middleware('permission:university_lectures.manage');
+            Route::delete('plans/{lecture}/with-attendance', [ClinicalUniversityAttendanceController::class, 'destroyWithAttendance'])
+                ->middleware(['permission:university_lectures.manage', 'permission:university_lectures.delete_with_attendance']);
+            Route::post('plans/{lecture}/archive', [ClinicalUniversityAttendanceController::class, 'archive'])->middleware('permission:university_lectures.manage');
             Route::get('mine', [ClinicalUniversityAttendanceController::class, 'mine'])->middleware('permission:attendance.record');
-            Route::get('plans/{lecture}/day', [ClinicalUniversityAttendanceController::class, 'day'])->middleware('permission.any:attendance.record,attendance.review');
+            Route::get('plans/{lecture}/day', [ClinicalUniversityAttendanceController::class, 'day'])->middleware('permission.any:attendance.record,university_lectures.manage');
             Route::post('plans/{lecture}/day', [ClinicalUniversityAttendanceController::class, 'record'])->middleware('permission:attendance.record');
             Route::post('plans/{lecture}/qr/open', [ClinicalUniversityAttendanceController::class, 'openQr'])->middleware('permission:attendance.record');
             Route::get('plans/{lecture}/qr', [ClinicalUniversityAttendanceController::class, 'qr'])->middleware('permission:attendance.record');

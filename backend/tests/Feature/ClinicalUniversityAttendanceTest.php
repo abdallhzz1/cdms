@@ -205,5 +205,84 @@ class ClinicalUniversityAttendanceTest extends TestCase
         $this->actingAs($doctor)->getJson('/api/v1/operational/university-attendance/mine')
             ->assertOk()->assertJsonCount(1, 'data');
         $this->assertDatabaseHas('audit_logs', ['action' => 'clinical_university.attendance_recorded', 'student_id' => $students[0]->id]);
+
+        $assistant = User::factory()->create();
+        $assistantRole = Role::where('code', 'ADMIN_ASSISTANT')->firstOrFail();
+        $assistant->roles()->attach($assistantRole);
+        $managePermission = Permission::where('code', 'university_lectures.manage')->firstOrFail();
+        $deletePermission = Permission::where('code', 'university_lectures.delete_with_attendance')->firstOrFail();
+        $admin = User::factory()->create();
+        $admin->roles()->attach(Role::where('code', 'SYS_ADMIN')->firstOrFail());
+        $deleteUrl = "/api/v1/operational/university-attendance/plans/$first/with-attendance";
+        $deletion = ['confirmation' => 'محاضرة أولى', 'reason' => 'تم إنشاء المحاضرة والكشف بطريق الخطأ'];
+
+        $this->actingAs($assistant)->getJson('/api/v1/operational/university-attendance/plans')->assertForbidden();
+        $this->actingAs($admin)->postJson('/api/v1/admin/permissions/toggle', [
+            'role_id' => $assistantRole->id, 'permission_id' => $managePermission->id, 'granted' => true,
+        ])->assertOk();
+        $this->actingAs($assistant)->getJson('/api/v1/operational/university-attendance/plans')->assertOk();
+        $this->actingAs($assistant)->deleteJson($deleteUrl, $deletion)->assertForbidden();
+
+        $this->actingAs($admin)->postJson('/api/v1/admin/permissions/toggle', [
+            'role_id' => Role::where('code', 'RTA')->firstOrFail()->id,
+            'permission_id' => $deletePermission->id, 'granted' => true,
+        ])->assertUnprocessable();
+        $this->actingAs($admin)->postJson('/api/v1/admin/permissions/toggle', [
+            'role_id' => $assistantRole->id, 'permission_id' => $deletePermission->id, 'granted' => true,
+        ])->assertOk();
+        Role::where('code', 'SYS_ADMIN')->firstOrFail()->permissions()->syncWithoutDetaching([
+            $deletePermission->id => ['scope_type' => 'global'],
+        ]);
+        $this->actingAs($admin)->deleteJson($deleteUrl, $deletion)->assertForbidden();
+        $this->actingAs($rta)->deleteJson($deleteUrl, $deletion)->assertForbidden();
+        $this->actingAs($assistant)->deleteJson($deleteUrl, [
+            'confirmation' => 'اسم غير مطابق', 'reason' => $deletion['reason'],
+        ])->assertUnprocessable();
+        $this->assertDatabaseHas('clinical_university_sessions', ['clinical_university_lecture_id' => $first]);
+        $this->actingAs($assistant)->deleteJson($deleteUrl, $deletion)
+            ->assertOk()->assertJsonPath('data.result', 'deleted_with_attendance')
+            ->assertJsonPath('data.sessions_deleted', 2)->assertJsonPath('data.records_deleted', 4);
+        $this->assertDatabaseMissing('clinical_university_lectures', ['id' => $first]);
+        $this->assertDatabaseMissing('clinical_university_sessions', ['clinical_university_lecture_id' => $first]);
+        $this->assertDatabaseCount('clinical_university_attendance_records', 2); // Second lecture retained.
+        $this->assertDatabaseHas('audit_logs', ['action' => 'clinical_university.lecture_deleted_with_attendance', 'entity_id' => $first]);
+    }
+
+    public function test_administrative_deletion_refuses_an_open_qr_register(): void
+    {
+        config()->set('clinical_attendance.enabled', true);
+        $year = AcademicYear::factory()->create(['code' => '2026/2027', 'start_date' => '2026-09-01',
+            'end_date' => '2027-08-31', 'is_current' => true]);
+        $group = StudentGroup::factory()->create(['academic_year_id' => $year->id, 'name' => 'B']);
+        $subgroup = StudentSubgroup::factory()->create(['student_group_id' => $group->id, 'name' => 'B1']);
+        $student = Student::factory()->create(['academic_year_id' => $year->id]);
+        StudentGroupAssignment::factory()->create(['student_id' => $student->id, 'academic_year_id' => $year->id,
+            'student_group_id' => $group->id, 'student_subgroup_id' => $subgroup->id]);
+
+        $doctor = User::factory()->create();
+        $doctor->roles()->attach(Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail());
+        $person = Person::factory()->create(['user_id' => $doctor->id]);
+        $rta = User::factory()->create();
+        $rta->roles()->attach(Role::where('code', 'RTA')->firstOrFail());
+        $lectureId = $this->actingAs($rta)->postJson('/api/v1/operational/university-attendance/plans', [
+            'student_group_id' => $group->id, 'supervisor_person_id' => $person->id, 'title' => 'محاضرة مفتوحة',
+            'weekday' => 'thursday', 'starts_at' => '09:00', 'ends_at' => '11:30',
+            'starts_on' => '2026-10-15', 'ends_on' => '2026-10-15',
+        ])->assertCreated()->json('data.id');
+        $this->actingAs($doctor)->postJson("/api/v1/operational/university-attendance/plans/$lectureId/qr/open", [
+            'session_date' => '2026-10-15',
+        ])->assertOk();
+
+        $assistant = User::factory()->create();
+        $role = Role::where('code', 'ADMIN_ASSISTANT')->firstOrFail();
+        $assistant->roles()->attach($role);
+        foreach (Permission::whereIn('code', ['university_lectures.manage', 'university_lectures.delete_with_attendance'])->get() as $permission) {
+            $role->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
+        }
+        $this->actingAs($assistant)->deleteJson("/api/v1/operational/university-attendance/plans/$lectureId/with-attendance", [
+            'confirmation' => 'محاضرة مفتوحة', 'reason' => 'إدخال المحاضرة تكرر بالخطأ',
+        ])->assertUnprocessable()->assertJsonPath('errors.lecture.0', 'أغلق QR المفتوح قبل حذف المحاضرة وكشفها.');
+        $this->assertDatabaseHas('clinical_university_lectures', ['id' => $lectureId]);
+        $this->assertDatabaseHas('clinical_university_attendance_records', ['student_id' => $student->id]);
     }
 }

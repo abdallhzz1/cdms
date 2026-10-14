@@ -70,6 +70,7 @@ const MODULES: Record<string, { label: LocalizedLabel; icon: Icon }> = {
   Courses: { label: { ar: 'المساقات والخطط الدراسية', en: 'Courses and Study Plans' }, icon: BookOpen },
   'Course Reports': { label: { ar: 'تقارير المساقات السريرية', en: 'Clinical Course Reports' }, icon: BookOpen },
   Attendance: { label: { ar: 'الحضور والغياب', en: 'Attendance' }, icon: ClipboardCheck },
+  'University Lectures': { label: { ar: 'محاضرات الجامعة', en: 'University Lectures' }, icon: CalendarDays },
   Assessment: { label: { ar: 'التقييم والإشراف السريري', en: 'Clinical Assessment and Supervision' }, icon: ShieldCheck },
   'Clinical Supervisor Evaluations': { label: { ar: 'تقييم المشرفين السريريين', en: 'Clinical Supervisor Evaluations' }, icon: ClipboardCheck },
   'Department Head Evaluations': { label: { ar: 'تقييم رؤساء الأقسام', en: 'Department Head Evaluations' }, icon: ClipboardCheck },
@@ -132,6 +133,8 @@ const PERMISSION_LABELS: Record<string, string> = {
   'attendance.qr.reopen_finalized': 'إعادة فتح جلسة QR معتمدة',
   'attendance.excuse': 'توثيق أعذار الغياب',
   'attendance.notify': 'إرسال إنذارات الغياب',
+  'university_lectures.manage': 'إعداد ومراجعة محاضرات الجامعة',
+  'university_lectures.delete_with_attendance': 'حذف محاضرة الجامعة وكشوف حضورها نهائيًا (للمساعد الإداري فقط)',
   'assessment.view': 'عرض بوابة التقييم السريري',
   'assessment.review': 'عرض شاشة مراجعة التقييمات السريرية',
   'assessment.create': 'إدخال تقييم سريري',
@@ -346,6 +349,7 @@ export function PermissionMatrixPage() {
       window.setTimeout(() => setNotice(null), 3000);
       return;
     }
+    if (permission.code === 'university_lectures.delete_with_attendance' && selectedRole.code !== 'ADMIN_ASSISTANT') return;
     setPending((current) => new Set(current).add(key));
     setMatrix((current) => current.map((role) => role.role_id !== selectedRole.id ? role : {
       ...role,
@@ -481,9 +485,10 @@ export function PermissionMatrixPage() {
                       const key = `${selectedRole?.id}:${permission.id}`;
                       const saving = pending.has(key);
                       const locked = selectedRole?.code === 'SYS_ADMIN' && permission.code === 'roles.manage';
+                      const assistantOnly = permission.code === 'university_lectures.delete_with_attendance' && selectedRole?.code !== 'ADMIN_ASSISTANT';
                       return (
-                        <button key={permission.id} type="button" disabled={saving} onClick={() => togglePermission(permission)} className="flex w-full items-center gap-3 px-4 py-3 text-start transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70 sm:px-5">
-                          <span className="min-w-0 flex-1 text-xs font-bold text-slate-700">{localizedPermissionLabel(permission)}{locked && <span className="ms-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500">{tr('أساسية', 'Core')}</span>}</span>
+                        <button key={permission.id} type="button" disabled={saving||assistantOnly} onClick={() => togglePermission(permission)} className="flex w-full items-center gap-3 px-4 py-3 text-start transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70 sm:px-5">
+                          <span className="min-w-0 flex-1 text-xs font-bold text-slate-700">{localizedPermissionLabel(permission)}{locked && <span className="ms-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500">{tr('أساسية', 'Core')}</span>}{assistantOnly && <span className="ms-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500">{tr('للمساعد الإداري فقط', 'Admin assistant only')}</span>}</span>
                           {saving && <Loader2 className="h-4 w-4 animate-spin text-teal-600" />}
                           <span role="switch" aria-checked={granted} className={`relative h-6 w-11 shrink-0 rounded-full transition ${granted ? 'bg-teal-600' : 'bg-slate-200'}`}>
                             <span className={`absolute top-1 grid h-4 w-4 place-items-center rounded-full bg-white shadow-sm transition-all ${granted ? 'start-6' : 'start-1'}`}>{granted && <Check className="h-2.5 w-2.5 text-teal-700" />}</span>

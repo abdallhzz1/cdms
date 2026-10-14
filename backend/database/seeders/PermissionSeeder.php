@@ -6,9 +6,9 @@ use App\Models\Permission;
 use Illuminate\Database\Seeder;
 
 /**
- * The 53 permissions, verbatim from
+ * Base permissions from
  * Clinical_Department_Permission_Matrix_Workflows_v1.xlsx (`Permissions`
- * sheet) — code/module/action columns copied exactly; description_key
+ * sheet), extended by later feature-specific permissions. Description_key
  * points at frontend/src/i18n/locales/{en,ar}.ts (Prompt 02 §7: no
  * hardcoded label text in the database). Not invented: Prompt 02 §9
  * explicitly requires using the approved document's exact list rather than
@@ -51,6 +51,8 @@ class PermissionSeeder extends Seeder
             ['code' => 'attendance.qr.reopen_finalized', 'module' => 'Attendance', 'action' => 'REOPEN_FINALIZED_QR', 'description_key' => 'permissions.attendance_qr_reopen_finalized.description'],
             ['code' => 'attendance.excuse', 'module' => 'Attendance', 'action' => 'EXCUSE', 'description_key' => 'permissions.attendance_excuse.description'],
             ['code' => 'attendance.notify', 'module' => 'Attendance', 'action' => 'NOTIFY', 'description_key' => 'permissions.attendance_notify.description'],
+            ['code' => 'university_lectures.manage', 'module' => 'University Lectures', 'action' => 'MANAGE', 'description_key' => 'permissions.university_lectures_manage.description'],
+            ['code' => 'university_lectures.delete_with_attendance', 'module' => 'University Lectures', 'action' => 'DELETE_WITH_ATTENDANCE', 'description_key' => 'permissions.university_lectures_delete_with_attendance.description'],
             ['code' => 'assessment.view', 'module' => 'Assessment', 'action' => 'VIEW', 'description_key' => 'permissions.assessment_view.description'],
             ['code' => 'assessment.review', 'module' => 'Assessment', 'action' => 'REVIEW', 'description_key' => 'permissions.assessment_review.description'],
             ['code' => 'assessment.create', 'module' => 'Assessment', 'action' => 'CREATE', 'description_key' => 'permissions.assessment_create.description'],

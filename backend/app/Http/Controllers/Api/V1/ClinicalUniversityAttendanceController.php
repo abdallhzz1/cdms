@@ -26,7 +26,6 @@ use Illuminate\Validation\ValidationException;
 class ClinicalUniversityAttendanceController extends Controller
 {
     private const DAYS = ['saturday', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
-    private const MANAGERS = ['SYS_ADMIN', 'RTA', 'CLINICAL_DIRECTOR'];
 
     public function index(Request $request): JsonResponse
     {
@@ -120,6 +119,50 @@ class ClinicalUniversityAttendanceController extends Controller
         return ApiResponse::success(['result' => $result], $result === 'deleted'
             ? 'حُذفت المحاضرة التي لا تملك كشف حضور.'
             : 'أُوقفت المحاضرة مع إبقاء كشف الحضور محفوظًا للتدقيق.');
+    }
+
+    public function destroyWithAttendance(Request $request, ClinicalUniversityLecture $lecture): JsonResponse
+    {
+        // This exceptional operation is reserved for administrative assistants,
+        // even if another role is accidentally granted the matrix permission.
+        abort_unless($request->user()?->hasRole('ADMIN_ASSISTANT')
+            && $request->user()->can('permission', ['university_lectures.delete_with_attendance']), 403);
+        $this->authorizeManager($request);
+        $data = $request->validate([
+            'confirmation' => ['required', 'string', Rule::in([$lecture->title])],
+            'reason' => ['required', 'string', 'min:10', 'max:1000'],
+        ]);
+        $data['reason'] = trim($data['reason']);
+        if (mb_strlen($data['reason']) < 10) {
+            throw ValidationException::withMessages(['reason' => ['اكتب سببًا واضحًا للحذف لا يقل عن 10 أحرف.']]);
+        }
+
+        $result = DB::transaction(function () use ($request, $lecture, $data): array {
+            $locked = ClinicalUniversityLecture::query()->whereKey($lecture->id)->lockForUpdate()->firstOrFail();
+            abort_unless($data['confirmation'] === $locked->title, 409);
+            $sessions = $locked->sessions()->lockForUpdate()->get();
+            if ($sessions->contains(fn (ClinicalUniversitySession $session) => $session->qr_state === 'open')) {
+                throw ValidationException::withMessages(['lecture' => ['أغلق QR المفتوح قبل حذف المحاضرة وكشفها.']]);
+            }
+
+            $sessionIds = $sessions->pluck('id')->all();
+            $recordsDeleted = $sessionIds ? ClinicalUniversityAttendanceRecord::query()
+                ->whereIn('clinical_university_session_id', $sessionIds)->delete() : 0;
+            if ($sessionIds) ClinicalUniversitySession::query()->whereIn('id', $sessionIds)->delete();
+
+            $this->audit($request, 'clinical_university.lecture_deleted_with_attendance', $locked->id, [
+                'plan' => $locked->toArray(),
+                'reason' => $data['reason'],
+                'sessions_deleted' => count($sessionIds),
+                'records_deleted' => $recordsDeleted,
+            ]);
+            $locked->delete();
+
+            return ['result' => 'deleted_with_attendance', 'sessions_deleted' => count($sessionIds),
+                'records_deleted' => $recordsDeleted];
+        });
+
+        return ApiResponse::success($result, 'حُذفت المحاضرة وكشوف حضورها نهائيًا من سجلات الحضور.');
     }
 
     public function mine(Request $request): JsonResponse
@@ -309,7 +352,7 @@ class ClinicalUniversityAttendanceController extends Controller
 
     private function authorizeManager(Request $request): void
     {
-        abort_unless(collect(self::MANAGERS)->contains(fn ($role) => $request->user()?->hasRole($role)), 403);
+        abort_unless($request->user()?->can('permission', ['university_lectures.manage']), 403);
     }
 
     private function supervisor(Request $request): Person
@@ -325,7 +368,7 @@ class ClinicalUniversityAttendanceController extends Controller
 
     private function authorizeLecture(Request $request, ClinicalUniversityLecture $lecture): void
     {
-        if (collect(self::MANAGERS)->contains(fn ($role) => $request->user()?->hasRole($role)) && $request->user()->can('permission', ['attendance.review'])) return;
+        if ($request->user()?->can('permission', ['university_lectures.manage'])) return;
         abort_unless((int) $lecture->supervisor_person_id === (int) $this->supervisor($request)->id, 403);
     }
 

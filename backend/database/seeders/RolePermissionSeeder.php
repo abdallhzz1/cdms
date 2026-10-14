@@ -78,6 +78,7 @@ class RolePermissionSeeder extends Seeder
             'clinical_supervisor_evaluations.export',
             'student_policies.view',
             'student_policies.manage',
+            'university_lectures.manage',
         ];
 
         foreach ($bootstrapGrants as $code) {
@@ -98,11 +99,11 @@ class RolePermissionSeeder extends Seeder
 
         $defaultGrants = [
             'SYS_ADMIN' => ['approval_workflows.view', 'approval_workflows.manage', 'approvals.view'],
-            'CLINICAL_DIRECTOR' => ['approval_workflows.view', 'approvals.view', 'approvals.decide', 'attendance.review'],
+            'CLINICAL_DIRECTOR' => ['approval_workflows.view', 'approvals.view', 'approvals.decide', 'attendance.review', 'university_lectures.manage'],
             'DEAN' => ['approval_workflows.view', 'approvals.view', 'approvals.decide'],
             'VICE_DEAN' => ['approvals.view', 'approvals.decide'],
             'DEPARTMENT_HEAD' => ['approvals.view', 'approvals.decide'],
-            'RTA' => ['assessment.review', 'attendance.review'],
+            'RTA' => ['assessment.review', 'attendance.review', 'university_lectures.manage'],
         ];
         foreach ($defaultGrants as $roleCode => $codes) {
             $role = Role::where('code', $roleCode)->first();
