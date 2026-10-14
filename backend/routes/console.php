@@ -57,6 +57,13 @@ Artisan::command('cdms:readiness', function () {
     return \Symfony\Component\Console\Command\Command::SUCCESS;
 })->purpose('Validate production-critical CDMS configuration');
 
+Artisan::command('basic-attendance:finalize-expired', function () {
+    $count = app(\App\Services\BasicAttendanceService::class)->finalizeExpired(200);
+    $this->info("Finalized {$count} expired basic-sciences lectures.");
+})->purpose('Finalize new basic-sciences lecture registers after their safety window');
+
+Schedule::command('basic-attendance:finalize-expired')->everyFiveMinutes()->withoutOverlapping();
+
 if (config('operations.backup.enabled') && class_exists(\Spatie\Backup\Commands\BackupCommand::class)) {
     Schedule::command('backup:run --only-db')
         ->dailyAt('02:00')

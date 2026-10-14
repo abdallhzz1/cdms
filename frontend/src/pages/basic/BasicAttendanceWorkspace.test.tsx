@@ -35,6 +35,16 @@ beforeEach(() => { localStorage.setItem('cdms.locale', 'en'); document.cookie = 
 afterEach(() => { vi.restoreAllMocks(); localStorage.removeItem('cdms.locale'); sessionStorage.clear(); });
 
 describe('Basic attendance course → section workflow', () => {
+  it('starts with a compact lecture form and no automatic lateness field', async () => {
+    mock(lecturer);
+    renderWithProviders(<Routes><Route path="/basic-attendance/sections/:sectionId/lectures" element={<BasicAttendanceHome />} /></Routes>, { route: '/basic-attendance/sections/3/lectures' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Start lecture' }));
+    expect(screen.getByRole('dialog', { name: 'New lecture' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Late after (minutes)')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText('Additional lecture settings'));
+    expect(screen.getByRole('option', { name: 'One attendance check' })).toBeInTheDocument();
+  });
+
   it('shows courses before their sections and does not link to other functions', async () => {
     mock(admin);
     renderWithProviders(<Routes><Route path="/basic-attendance" element={<BasicAttendanceHome />} /></Routes>, { route: '/basic-attendance' });

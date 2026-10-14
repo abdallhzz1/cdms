@@ -20,6 +20,7 @@ class BasicAttendanceController extends Controller
 
     public function sections(Request $r)
     {
+        $this->service->finalizeExpired();
         $rows = $this->service->sections($r->user())->select('s.*', 'c.code as course_code', 'c.name as course_name', 'c.academic_level')->orderByDesc('s.id')->get();
         $ids = $rows->pluck('id');
         $counts = DB::table('basic_enrollments as e')->join('basic_students as st', 'st.id', '=', 'e.student_id')->whereIn('e.section_id', $ids)->where('e.is_active', true)->where('st.is_active', true)->selectRaw('e.section_id, COUNT(*) as total')->groupBy('e.section_id')->pluck('total', 'section_id');
@@ -85,8 +86,9 @@ class BasicAttendanceController extends Controller
     {
         $this->service->section($r->user(), $section);
         $data = $r->validate(['rows' => ['required', 'array', 'min:1', 'max:2000'], 'rows.*.university_number' => ['required', 'string', 'regex:/^[0-9]{6,20}$/', 'distinct'], 'rows.*.name' => ['required', 'string', 'max:255'], 'rows.*.email' => ['required', 'email', 'max:255', 'distinct:ignore_case'], 'rows.*.photo_url' => ['nullable', 'url:https', 'max:1000']]);
-        DB::transaction(function () use ($data, $section, $r) {
+        $addedToOpenLecture = DB::transaction(function () use ($data, $section, $r) {
             DB::table('basic_sections')->where('id', $section)->lockForUpdate()->first();
+            $studentIds = [];
             foreach ($data['rows'] as $row) {
                 $row['email'] = strtolower(trim($row['email']));
                 if (DB::table('basic_students')->where('email', $row['email'])->where('university_number', '!=', $row['university_number'])->exists()) throw ValidationException::withMessages(['rows' => [__('basic_attendance.message10').$row['email'].__('basic_attendance.message11')]]);
@@ -101,10 +103,13 @@ class BasicAttendanceController extends Controller
                 $enrollment = DB::table('basic_enrollments')->where('section_id', $section)->where('student_id', $id)->first();
                 if ($enrollment) DB::table('basic_enrollments')->where('id', $enrollment->id)->update(['is_active' => true, 'updated_at' => now()]);
                 else DB::table('basic_enrollments')->insert(['section_id' => $section, 'student_id' => $id, 'is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
+                $studentIds[] = $id;
             }
+            $added = $this->service->syncActiveRoster($section, $studentIds, $r->user()->id);
             $this->service->audit(null, $r->user()->id, 'roster.imported', ['section_id' => $section, 'count' => count($data['rows'])]);
+            return $added;
         });
-        return ApiResponse::success(['count' => count($data['rows'])], __('basic_attendance.message12'));
+        return ApiResponse::success(['count' => count($data['rows']), 'added_to_open_lecture' => $addedToOpenLecture], __('basic_attendance.message12'));
     }
 
     public function addRosterStudent(Request $r, int $section)
@@ -136,8 +141,9 @@ class BasicAttendanceController extends Controller
             if ($enrollment) DB::table('basic_enrollments')->where('id', $enrollment->id)->update(['is_active' => true, 'updated_at' => now()]);
             else DB::table('basic_enrollments')->insert(['section_id' => $section, 'student_id' => $studentId, 'is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
 
+            $addedToOpenLecture = $this->service->syncActiveRoster($section, [$studentId], $r->user()->id) > 0;
             $this->service->audit(null, $r->user()->id, 'enrollment.manual_added', ['section_id' => $section, 'student_id' => $studentId, 'existing_student' => (bool) $student]);
-            return ['id' => $studentId, 'existing_student' => (bool) $student];
+            return ['id' => $studentId, 'existing_student' => (bool) $student, 'added_to_open_lecture' => $addedToOpenLecture];
         });
 
         return ApiResponse::success($result, __('basic_attendance.message42'), [], 201);
@@ -200,23 +206,26 @@ class BasicAttendanceController extends Controller
     public function sessions(Request $r, int $section)
     {
         $this->service->section($r->user(), $section);
+        $this->service->finalizeExpiredForSection($section);
         return ApiResponse::success(DB::table('basic_lecture_sessions')->where('section_id', $section)->whereNull('archived_at')->orderByDesc('id')->limit(100)->get()->map(fn ($s) => $this->service->dates($s)));
     }
 
     public function start(Request $r, int $section)
     {
-        $data = $r->validate(['title' => ['required', 'string', 'max:150'], 'mode' => ['required', 'in:single,double'], 'window_minutes' => ['required', 'integer', 'min:1', 'max:30'], 'late_after_minutes' => ['required', 'integer', 'min:0', 'max:30'], 'lecturer_id' => ['nullable', 'integer', 'exists:users,id']]);
+        $data = $r->validate(['title' => ['required', 'string', 'max:150'], 'mode' => ['required', 'in:single,double'], 'window_minutes' => ['required', 'integer', 'min:1', 'max:30'], 'lecturer_id' => ['nullable', 'integer', 'exists:users,id']]);
         return ApiResponse::success(['id' => $this->service->start($r->user(), $section, $data)], null, [], 201);
     }
 
     public function show(Request $r, int $session)
     {
         $s = $this->service->session($r->user(), $session);
+        if ($this->service->autoFinalizeSession($session)) $s = $this->service->session($r->user(), $session);
         $rows = DB::table('basic_lecture_records as r')->join('basic_students as st', 'st.id', '=', 'r.student_id')->where('r.session_id', $session)->select('r.*', 'st.name', 'st.university_number', 'st.photo_url')->orderBy('st.name')->get();
         $this->service->dates($s); $rows->each(fn ($row) => $this->service->dates($row));
         $pending = $this->service->pendingScanStudents($session);
         $pendingUntil = $pending->max('pending_until');
-        return ApiResponse::success(['session' => $s, 'section' => $this->service->section($r->user(), $s->section_id), 'accepting' => $this->service->accepting($s), 'pending_scans' => $pending->count(), 'pending_students' => $pending->map(fn ($student) => ['name' => $student->name, 'university_number' => $student->university_number])->values(), 'pending_until' => $pendingUntil ? \Carbon\Carbon::parse($pendingUntil)->toIso8601String() : null, 'rows' => $rows, 'counts' => ['total' => $rows->count(), 'check_in' => $rows->whereNotNull('check_in_at')->count(), 'check_out' => $rows->whereNotNull('check_out_at')->count(), 'absent' => $rows->where('status', 'absent')->count(), 'incomplete' => $rows->where('status', 'incomplete')->count(), 'late' => $rows->where('is_late', true)->count()]]);
+        $checkedIn = $rows->filter(fn ($row) => $row->source === 'manual' ? $row->status === 'present' : $row->check_in_at !== null)->count();
+        return ApiResponse::success(['session' => $s, 'section' => $this->service->section($r->user(), $s->section_id), 'accepting' => $this->service->accepting($s), 'pending_scans' => $pending->count(), 'pending_students' => $pending->map(fn ($student) => ['name' => $student->name, 'university_number' => $student->university_number])->values(), 'pending_until' => $pendingUntil ? \Carbon\Carbon::parse($pendingUntil)->toIso8601String() : null, 'rows' => $rows, 'counts' => ['total' => $rows->count(), 'check_in' => $checkedIn, 'check_out' => $rows->whereNotNull('check_out_at')->count(), 'present' => $rows->where('status', 'present')->count(), 'pending' => $rows->filter(fn ($row) => $row->status === 'pending' && ! $row->check_in_at)->count(), 'absent' => $rows->where('status', 'absent')->count(), 'excused' => $rows->where('status', 'excused')->count(), 'incomplete' => $rows->where('status', 'incomplete')->count(), 'late' => $rows->where('is_late', true)->count()]]);
     }
 
     public function qr(Request $r, int $session)
@@ -237,6 +246,7 @@ class BasicAttendanceController extends Controller
     {
         $this->service->session($r->user(), $session);
         $data = $r->validate(['status' => ['required', 'in:present,absent,incomplete,excused'], 'is_late' => ['required', 'boolean'], 'reason' => ['required', 'string', 'min:5', 'max:1000']]);
+        if ($data['is_late'] && $data['status'] !== 'present') throw ValidationException::withMessages(['is_late' => ['يمكن وضع متأخر للطالب الحاضر فقط.']]);
         DB::transaction(function () use ($r, $session, $student, $data) {
             DB::table('basic_lecture_sessions')->where('id', $session)->lockForUpdate()->first();
             $row = DB::table('basic_lecture_records')->where('session_id', $session)->where('student_id', $student)->lockForUpdate()->first(); abort_unless($row, 404);
@@ -250,6 +260,7 @@ class BasicAttendanceController extends Controller
     public function report(Request $r, int $section)
     {
         $this->service->section($r->user(), $section);
+        $this->service->finalizeExpiredForSection($section);
         $r->validate(['offset' => ['sometimes', 'integer', 'min:0', 'max:100000']]);
         $all = DB::table('basic_lecture_sessions')->where('section_id', $section)->whereNull('archived_at');
         $total = (clone $all)->count(); $offset = $r->integer('offset');
@@ -262,6 +273,7 @@ class BasicAttendanceController extends Controller
     public function monthlySummary(Request $r, int $section)
     {
         $this->service->section($r->user(), $section);
+        $this->service->finalizeExpiredForSection($section);
         $data = $r->validate(['month' => ['nullable', 'date_format:Y-m']]);
         $month = $data['month'] ?? now()->format('Y-m');
         return ApiResponse::success($this->monthlySummaryData($section, $month));
@@ -269,6 +281,7 @@ class BasicAttendanceController extends Controller
 
     public function monthlyOverview(Request $r)
     {
+        $this->service->finalizeExpired();
         $data = $r->validate(['month' => ['nullable', 'date_format:Y-m']]);
         $month = $data['month'] ?? now()->format('Y-m');
         $start = \Carbon\Carbon::createFromFormat('!Y-m', $month)->startOfMonth();
@@ -368,11 +381,11 @@ class BasicAttendanceController extends Controller
         return DB::transaction(function () use ($section, $sectionData, $student, $threshold, $r): string {
             $person = DB::table('basic_students')->where('id', $student)->lockForUpdate()->first();
             if (! $person || ! $person->is_active || ! DB::table('basic_enrollments')->where('section_id', $section)->where('student_id', $student)->where('is_active', true)->exists()) return 'not_found';
-            if (! $person->email || ! filter_var($person->email, FILTER_VALIDATE_EMAIL)) return 'missing_email';
             $count = DB::table('basic_lecture_records as record')->join('basic_lecture_sessions as session', 'session.id', '=', 'record.session_id')
                 ->where('session.section_id', $section)->whereNull('session.archived_at')->where('session.state', 'finalized')->where('record.student_id', $student)->where('record.status', 'absent')->count();
             // At three or more absences send the stronger meeting request, not a late two-absence notice.
             if (($threshold === 2 && $count !== 2) || ($threshold === 3 && $count < 3)) return 'not_eligible';
+            if (! $person->email || ! filter_var($person->email, FILTER_VALIDATE_EMAIL)) return 'missing_email';
             $priorThresholds = $threshold === 2 ? [2, 4] : [3, 6];
             if (DB::table('basic_absence_notifications')->where('section_id', $section)->where('student_id', $student)->whereIn('threshold', $priorThresholds)->exists())
                 return 'already_sent';

@@ -124,29 +124,35 @@ class BasicLectureAttendanceTest extends TestCase
         $id = $this->start();
         $this->postJson('/api/v1/basic-attendance/sections/'.$this->section.'/sessions', ['title' => 'نسخة', 'mode' => 'single', 'window_minutes' => 5, 'late_after_minutes' => 2])->assertUnprocessable();
         $row = ['university_number' => '2600004', 'name' => 'طالب جديد', 'email' => 'new@example.edu'];
-        $this->actingAs($this->manager)->postJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster', ['rows' => [$row]])->assertOk();
+        $this->actingAs($this->manager)->postJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster', ['rows' => [$row]])
+            ->assertOk()->assertJsonPath('data.added_to_open_lecture', 1);
         $this->postJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster', ['rows' => [$row, $row]])->assertUnprocessable();
         $this->postJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster', ['rows' => [array_replace($row, ['university_number' => '2600005', 'email' => 'basic1@example.edu'])]])->assertUnprocessable();
         $this->deleteJson('/api/v1/basic-attendance/sections/'.$this->section.'/roster/'.$this->students[0])->assertOk();
-        $this->assertSame(3, DB::table('basic_lecture_records')->where('session_id', $id)->count());
+        $this->assertSame(4, DB::table('basic_lecture_records')->where('session_id', $id)->count());
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => DB::table('basic_students')->where('university_number', '2600004')->value('id'), 'status' => 'pending']);
         $this->assertDatabaseCount('students', 0);
         $this->assertDatabaseCount('attendance_records', 0);
         $this->transition($id, 'finalize');
         $this->assertSame(3, DB::table('basic_lecture_records')->where('session_id', $this->start())->count());
     }
 
-    public function test_manual_student_addition_preserves_existing_data_and_lecture_rosters(): void
+    public function test_manual_student_addition_updates_open_lecture_without_changing_saved_rosters(): void
     {
         $session = $this->start();
         $url = '/api/v1/basic-attendance/sections/'.$this->section.'/roster/student';
         $row = ['university_number' => '2600004', 'name' => 'طالب يدوي', 'email' => 'manual@example.edu'];
 
         $this->actingAs($this->lecturer)->postJson($url, $row)->assertForbidden();
-        $this->actingAs($this->manager)->postJson($url, $row)->assertCreated()->assertJsonPath('data.existing_student', false);
+        $this->actingAs($this->manager)->postJson($url, $row)->assertCreated()
+            ->assertJsonPath('data.existing_student', false)->assertJsonPath('data.added_to_open_lecture', true);
         $this->assertDatabaseHas('basic_students', $row);
         $studentId = DB::table('basic_students')->where('university_number', $row['university_number'])->value('id');
         $this->assertDatabaseHas('basic_enrollments', ['section_id' => $this->section, 'student_id' => $studentId, 'is_active' => true]);
-        $this->assertSame(3, DB::table('basic_lecture_records')->where('session_id', $session)->count());
+        $this->assertSame(4, DB::table('basic_lecture_records')->where('session_id', $session)->count());
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $session, 'student_id' => $studentId, 'status' => 'pending']);
+        $this->scan($this->device($studentId), $this->token($session))->assertOk();
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $session, 'student_id' => $studentId, 'source' => 'qr']);
 
         $this->postJson($url, $row)->assertUnprocessable();
         $this->postJson($url, array_replace($row, ['university_number' => '2600005']))->assertUnprocessable();
@@ -154,7 +160,8 @@ class BasicLectureAttendanceTest extends TestCase
 
         $otherUrl = '/api/v1/basic-attendance/sections/'.$this->otherSection.'/roster/student';
         $this->postJson($otherUrl, ['university_number' => '2600001', 'name' => 'اسم مختلف', 'email' => 'basic1@example.edu'])
-            ->assertCreated()->assertJsonPath('data.existing_student', true);
+            ->assertCreated()->assertJsonPath('data.existing_student', true)
+            ->assertJsonPath('data.added_to_open_lecture', false);
         $this->postJson($otherUrl, ['university_number' => '2600002'])
             ->assertCreated()->assertJsonPath('data.existing_student', true);
         $this->assertDatabaseHas('basic_students', ['university_number' => '2600001', 'name' => 'طالب اختبار 1', 'email' => 'basic1@example.edu']);
@@ -178,10 +185,108 @@ class BasicLectureAttendanceTest extends TestCase
         $this->scan($a, $this->token($id))->assertOk()->assertJsonPath('data.already_recorded', true);
         $this->transition($id, 'finalize');
         $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'status' => 'present', 'is_late' => false]);
-        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[1], 'status' => 'incomplete', 'is_late' => true]);
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[1], 'status' => 'incomplete', 'is_late' => false]);
         $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[2], 'status' => 'absent']);
         $this->scan($a, $old)->assertUnprocessable();
         $this->assertFalse($service->accepting(DB::table('basic_lecture_sessions')->find($id)));
+    }
+
+    public function test_auto_finalization_only_affects_new_due_lectures_and_preserves_manual_corrections(): void
+    {
+        config()->set('basic_attendance.auto_finalize_hours', 24);
+        $id = $this->start('single');
+        $deadline = DB::table('basic_lecture_sessions')->where('id', $id)->value('auto_finalize_at');
+        $this->assertSame('2026-09-30 09:00:00', $deadline);
+        $token = $this->token($id);
+        $device = $this->device($this->students[0]);
+        $this->scan($device, $token)->assertOk();
+        $this->actingAs($this->lecturer)->putJson('/api/v1/basic-attendance/sessions/'.$id.'/records/'.$this->students[1], [
+            'status' => 'excused', 'is_late' => false, 'reason' => 'عذر طبي موثق',
+        ])->assertOk();
+
+        $this->travel(23)->hours();
+        $this->assertSame(0, app(BasicAttendanceService::class)->finalizeExpired());
+        $this->assertDatabaseHas('basic_lecture_sessions', ['id' => $id, 'state' => 'check_in']);
+        $this->travel(2)->hours();
+        $this->artisan('basic-attendance:finalize-expired')->assertExitCode(0);
+        $this->assertDatabaseHas('basic_lecture_sessions', ['id' => $id, 'state' => 'finalized', 'active_guard' => null]);
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'status' => 'present']);
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[1], 'status' => 'excused', 'source' => 'manual']);
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[2], 'status' => 'absent']);
+        $this->assertDatabaseHas('basic_attendance_audits', ['session_id' => $id, 'event' => 'session.auto_finalized']);
+        $this->assertSame(0, app(BasicAttendanceService::class)->finalizeExpired());
+        $this->scan($device, $token)->assertUnprocessable();
+    }
+
+    public function test_manual_presence_updates_live_and_final_counts_without_fabricating_a_scan_time(): void
+    {
+        $id = $this->start('single');
+        $this->actingAs($this->lecturer)->putJson('/api/v1/basic-attendance/sessions/'.$id.'/records/'.$this->students[0], [
+            'status' => 'present', 'is_late' => true, 'reason' => 'حضر الطالب وتم التصحيح يدويًا',
+        ])->assertOk();
+        $this->getJson('/api/v1/basic-attendance/sessions/'.$id)->assertOk()
+            ->assertJsonPath('data.counts.check_in', 1)->assertJsonPath('data.counts.pending', 2)
+            ->assertJsonPath('data.counts.late', 1);
+        $this->assertNull(DB::table('basic_lecture_records')->where('session_id', $id)
+            ->where('student_id', $this->students[0])->value('check_in_at'));
+        $this->transition($id, 'finalize');
+        $this->getJson('/api/v1/basic-attendance/sessions/'.$id)->assertOk()
+            ->assertJsonPath('data.counts.present', 1)->assertJsonPath('data.counts.absent', 2)
+            ->assertJsonPath('data.counts.late', 1);
+        $this->getJson('/api/v1/basic-attendance/sections/'.$this->section.'/monthly-summary?month=2026-09')
+            ->assertOk()->assertJsonPath('data.students.0.present', 1);
+        $this->putJson('/api/v1/basic-attendance/sessions/'.$id.'/records/'.$this->students[0], [
+            'status' => 'absent', 'is_late' => true, 'reason' => 'تصحيح غير صالح',
+        ])->assertUnprocessable()->assertJsonValidationErrors('is_late');
+    }
+
+    public function test_auto_finalization_does_not_penalize_a_second_check_that_was_never_opened(): void
+    {
+        $id = $this->start('double');
+        $this->scan($this->device($this->students[0]), $this->token($id))->assertOk();
+        $this->travel(25)->hours();
+        $this->assertSame(1, app(BasicAttendanceService::class)->finalizeExpired());
+        $this->assertDatabaseHas('basic_lecture_records', [
+            'session_id' => $id, 'student_id' => $this->students[0], 'status' => 'present',
+        ]);
+        $this->assertDatabaseHas('basic_lecture_records', [
+            'session_id' => $id, 'student_id' => $this->students[1], 'status' => 'absent',
+        ]);
+    }
+
+    public function test_auto_finalization_waits_for_a_real_pending_email_verification(): void
+    {
+        $this->mail();
+        $id = $this->start('single');
+        $this->travel(23)->hours();
+        $this->travel(59)->minutes();
+        DB::table('basic_lecture_sessions')->where('id', $id)->update(['phase_expires_at' => now()->addMinutes(5)]);
+        $ticket = $this->postJson('/api/v1/public/basic-attendance/prepare', ['qr' => $this->token($id)])
+            ->assertOk()->json('data.scan_ticket');
+        $this->withUnencryptedCookie(BasicAttendanceService::SCAN_CLAIM_COOKIE, $ticket)
+            ->postJson('/api/v1/public/basic-attendance/request-otp', [
+                'university_number' => '2600001', 'scan_ticket' => $ticket,
+            ])->assertOk();
+
+        $this->travel(2)->minutes();
+        $this->assertSame(0, app(BasicAttendanceService::class)->finalizeExpired());
+        $this->assertDatabaseHas('basic_lecture_sessions', ['id' => $id, 'state' => 'check_in']);
+        $this->travel(6)->minutes();
+        $this->assertSame(1, app(BasicAttendanceService::class)->finalizeExpired());
+        $this->assertDatabaseHas('basic_lecture_sessions', ['id' => $id, 'state' => 'finalized']);
+    }
+
+    public function test_lateness_policy_removes_old_qr_flags_but_preserves_manual_decisions_and_saved_marks(): void
+    {
+        $id = $this->start('single');
+        DB::table('basic_lecture_records')->where('session_id', $id)->where('student_id', $this->students[0])
+            ->update(['status' => 'present', 'check_in_at' => now(), 'is_late' => true]);
+        DB::table('basic_lecture_records')->where('session_id', $id)->where('student_id', $this->students[1])
+            ->update(['status' => 'present', 'source' => 'manual', 'is_late' => true, 'reason' => 'قرار المحاضر']);
+        (require database_path('migrations/2026_10_14_130000_auto_finalize_basic_lectures_and_clear_qr_lateness.php'))->up();
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[0], 'status' => 'present', 'is_late' => false]);
+        $this->assertDatabaseHas('basic_lecture_records', ['session_id' => $id, 'student_id' => $this->students[1], 'status' => 'present', 'is_late' => true]);
+        $this->assertDatabaseHas('basic_attendance_audits', ['event' => 'policy.qr_lateness_cleared']);
     }
 
     public function test_expired_tampered_cross_phase_and_outsider_scans_are_rejected(): void

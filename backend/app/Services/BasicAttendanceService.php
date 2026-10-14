@@ -16,7 +16,7 @@ class BasicAttendanceService
 
     public function dates(object $row): object
     {
-        foreach (['opened_at', 'phase_expires_at', 'finalized_at', 'check_in_at', 'check_out_at', 'created_at', 'updated_at'] as $field) {
+        foreach (['opened_at', 'phase_expires_at', 'auto_finalize_at', 'finalized_at', 'check_in_at', 'check_out_at', 'created_at', 'updated_at'] as $field) {
             if (isset($row->$field)) $row->$field = Carbon::parse($row->$field)->toIso8601String();
         }
         return $row;
@@ -56,6 +56,7 @@ class BasicAttendanceService
     public function start(User $user, int $sectionId, array $data): int
     {
         $this->section($user, $sectionId);
+        $this->finalizeExpiredForSection($sectionId);
         return DB::transaction(function () use ($user, $sectionId, $data) {
             $section = DB::table('basic_sections')->where('id', $sectionId)->lockForUpdate()->first();
             $course = $section ? DB::table('basic_courses')->where('id', $section->course_id)->lockForUpdate()->first() : null;
@@ -68,7 +69,7 @@ class BasicAttendanceService
             }
             $studentIds = DB::table('basic_enrollments as e')->join('basic_students as st', 'st.id', '=', 'e.student_id')->where('e.section_id', $sectionId)->where('e.is_active', true)->where('st.is_active', true)->pluck('st.id');
             if ($studentIds->isEmpty()) throw ValidationException::withMessages(['roster' => [__('basic_attendance.message02')]]);
-            $id = DB::table('basic_lecture_sessions')->insertGetId(['public_id' => (string) Str::uuid(), 'section_id' => $sectionId, 'created_by' => $user->id, 'lecturer_id' => $lecturerId, 'title' => $data['title'], 'mode' => $data['mode'], 'window_minutes' => $data['window_minutes'], 'late_after_minutes' => $data['late_after_minutes'], 'state' => 'check_in', 'active_guard' => 1, 'version' => 1, 'opened_at' => now(), 'phase_expires_at' => now()->addMinutes($data['window_minutes']), 'created_at' => now(), 'updated_at' => now()]);
+            $id = DB::table('basic_lecture_sessions')->insertGetId(['public_id' => (string) Str::uuid(), 'section_id' => $sectionId, 'created_by' => $user->id, 'lecturer_id' => $lecturerId, 'title' => $data['title'], 'mode' => $data['mode'], 'window_minutes' => $data['window_minutes'], 'late_after_minutes' => 0, 'state' => 'check_in', 'active_guard' => 1, 'version' => 1, 'opened_at' => now(), 'phase_expires_at' => now()->addMinutes($data['window_minutes']), 'auto_finalize_at' => now()->addHours(config('basic_attendance.auto_finalize_hours', 24)), 'created_at' => now(), 'updated_at' => now()]);
             foreach ($studentIds->chunk(500) as $chunk) DB::table('basic_lecture_records')->insert($chunk->map(fn ($student) => ['session_id' => $id, 'student_id' => $student, 'status' => 'pending', 'source' => 'qr', 'created_at' => now(), 'updated_at' => now()])->all());
             $this->audit($id, $user->id, 'session.opened', ['roster_count' => $studentIds->count(), 'lecturer_id' => $lecturerId]);
             return $id;
@@ -103,11 +104,94 @@ class BasicAttendanceService
             ->get();
     }
 
+    /** Enrol new students in the current register without touching saved lectures. */
+    public function syncActiveRoster(int $sectionId, array $studentIds, ?int $actorId): int
+    {
+        $session = DB::table('basic_lecture_sessions')->where('section_id', $sectionId)
+            ->where('active_guard', 1)->whereNull('archived_at')->lockForUpdate()->first();
+        if (! $session || $studentIds === [] || ($session->auto_finalize_at
+            && ! Carbon::parse($session->auto_finalize_at)->isFuture())) return 0;
+        $eligible = DB::table('basic_students')->whereIn('id', array_unique($studentIds))->where('is_active', true)->pluck('id');
+        $existing = DB::table('basic_lecture_records')->where('session_id', $session->id)
+            ->whereIn('student_id', $eligible)->pluck('student_id');
+        $missing = $eligible->diff($existing)->values();
+        foreach ($missing->chunk(500) as $chunk) {
+            DB::table('basic_lecture_records')->insert($chunk->map(fn ($id) => [
+                'session_id' => $session->id, 'student_id' => $id, 'status' => 'pending',
+                'source' => 'qr', 'created_at' => now(), 'updated_at' => now(),
+            ])->all());
+        }
+        if ($missing->isNotEmpty()) $this->audit($session->id, $actorId, 'roster.added_to_open_lecture', [
+            'student_ids' => $missing->all(), 'count' => $missing->count(),
+        ]);
+        return $missing->count();
+    }
+
+    public function finalizeExpired(int $limit = 100): int
+    {
+        $ids = DB::table('basic_lecture_sessions')->where('active_guard', 1)
+            ->whereNull('archived_at')->whereNotNull('auto_finalize_at')
+            ->where('auto_finalize_at', '<=', now())->orderBy('auto_finalize_at')
+            ->limit($limit)->pluck('id');
+        $done = 0;
+        foreach ($ids as $id) if ($this->autoFinalizeSession((int) $id)) $done++;
+        return $done;
+    }
+
+    public function finalizeExpiredForSection(int $sectionId): int
+    {
+        $ids = DB::table('basic_lecture_sessions')->where('section_id', $sectionId)
+            ->where('active_guard', 1)->whereNull('archived_at')
+            ->whereNotNull('auto_finalize_at')->where('auto_finalize_at', '<=', now())->pluck('id');
+        $done = 0;
+        foreach ($ids as $id) if ($this->autoFinalizeSession((int) $id)) $done++;
+        return $done;
+    }
+
+    public function autoFinalizeSession(int $id): bool
+    {
+        if (! DB::table('basic_lecture_sessions')->where('id', $id)->where('active_guard', 1)
+            ->whereNotNull('auto_finalize_at')->where('auto_finalize_at', '<=', now())->exists()) return false;
+        return DB::transaction(function () use ($id): bool {
+            $session = DB::table('basic_lecture_sessions')->where('id', $id)->lockForUpdate()->first();
+            if (! $session || ! $session->active_guard || $session->archived_at || ! $session->auto_finalize_at
+                || Carbon::parse($session->auto_finalize_at)->isFuture()) return false;
+            // A student who already scanned must have time to finish email verification.
+            if ($this->pendingScanStudents($id)->isNotEmpty()) return false;
+            $this->finalizeRecords($session, true);
+            DB::table('basic_lecture_sessions')->where('id', $id)->update([
+                'state' => 'finalized', 'active_guard' => null, 'phase_expires_at' => null,
+                'finalized_at' => now(), 'version' => $session->version + 1, 'updated_at' => now(),
+            ]);
+            $this->audit($id, null, 'session.auto_finalized', [
+                'previous_state' => $session->state, 'deadline' => $session->auto_finalize_at,
+            ]);
+            return true;
+        });
+    }
+
+    private function finalizeRecords(object $session, bool $automatic = false): void
+    {
+        // A forgotten second-check phase must not turn students who checked in
+        // into incomplete attendances merely because the lecturer left.
+        $secondCheckOpened = ! $automatic || DB::table('basic_attendance_audits')
+            ->where('session_id', $session->id)->where('event', 'session.open_exit')->exists();
+        DB::table('basic_lecture_records')->where('session_id', $session->id)->where('source', 'qr')
+            ->update(['status' => DB::raw($session->mode === 'double' && $secondCheckOpened
+                ? "CASE WHEN check_in_at IS NULL THEN 'absent' WHEN check_out_at IS NULL THEN 'incomplete' ELSE 'present' END"
+                : "CASE WHEN check_in_at IS NULL THEN 'absent' ELSE 'present' END"), 'updated_at' => now()]);
+        DB::table('basic_scan_claims')->where('session_id', $session->id)->whereNull('consumed_at')
+            ->update(['consumed_at' => now(), 'updated_at' => now()]);
+    }
+
     public function transition(User $user, int $id, string $action, bool $overridePending = false, ?int $expectedPendingCount = null): void
     {
         $this->session($user, $id);
         DB::transaction(function () use ($user, $id, $action, $overridePending, $expectedPendingCount) {
             $s = DB::table('basic_lecture_sessions')->where('id', $id)->lockForUpdate()->first();
+            if ($action !== 'finalize' && $s->auto_finalize_at && Carbon::parse($s->auto_finalize_at)->isPast()) {
+                throw ValidationException::withMessages(['session' => ['انتهت مهلة المحاضرة. سيتم اعتماد كشفها تلقائيًا؛ حدّث الصفحة.']]);
+            }
             $allowed = match ($action) {
                 'close' => in_array($s->state, ['check_in', 'check_out']),
                 'open_exit' => $s->state === 'paused' && $s->mode === 'double',
@@ -126,8 +210,7 @@ class BasicAttendanceService
             $values = ['state' => $state, 'version' => $s->version + 1, 'phase_expires_at' => in_array($state, ['check_in', 'check_out']) ? now()->addMinutes($s->window_minutes) : null, 'updated_at' => now()];
             if ($action === 'finalize') {
                 $values += ['active_guard' => null, 'finalized_at' => now()];
-                DB::table('basic_lecture_records')->where('session_id', $id)->where('source', 'qr')->update(['status' => DB::raw($s->mode === 'double' ? "CASE WHEN check_in_at IS NULL THEN 'absent' WHEN check_out_at IS NULL THEN 'incomplete' ELSE 'present' END" : "CASE WHEN check_in_at IS NULL THEN 'absent' ELSE 'present' END"), 'updated_at' => now()]);
-                DB::table('basic_scan_claims')->where('session_id', $id)->whereNull('consumed_at')->update(['consumed_at' => now(), 'updated_at' => now()]);
+                $this->finalizeRecords($s);
             }
             DB::table('basic_lecture_sessions')->where('id', $id)->update($values);
             $this->audit($id, $user->id, 'session.'.$action, ['previous_state' => $s->state, 'state' => $state, 'pending_students' => $pending->count(), 'override_pending' => $action === 'finalize' && $pending->isNotEmpty() && $overridePending]);
@@ -185,7 +268,6 @@ class BasicAttendanceService
         $scannedAt = Carbon::parse($claim->scanned_at);
         if (! $already) {
             $values = [$field => $scannedAt, 'updated_at' => now()];
-            if ($field === 'check_in_at') $values['is_late'] = $scannedAt->greaterThan(Carbon::parse($s->opened_at)->addMinutes($s->late_after_minutes));
             DB::table('basic_lecture_records')->where('id', $row->id)->update($values);
             $this->audit($s->id, null, 'student.'.$claim->phase, ['student_id' => $student, 'claim_id' => $claim->id, 'scanned_at' => $claim->scanned_at, 'verified_at' => now()->toDateTimeString()]);
         }
@@ -209,7 +291,9 @@ class BasicAttendanceService
 
     public function accepting(object $s): bool
     {
-        return in_array($s->state, ['check_in', 'check_out']) && $s->phase_expires_at && Carbon::parse($s->phase_expires_at)->isFuture();
+        return in_array($s->state, ['check_in', 'check_out']) && $s->phase_expires_at
+            && Carbon::parse($s->phase_expires_at)->isFuture()
+            && (! $s->auto_finalize_at || Carbon::parse($s->auto_finalize_at)->isFuture());
     }
 
     private function invalidQr(): never
@@ -240,7 +324,6 @@ class BasicAttendanceService
             $already = $row->$field !== null;
             if (! $already) {
                 $values = [$field => now(), 'updated_at' => now()];
-                if ($field === 'check_in_at') $values['is_late'] = now()->greaterThan(Carbon::parse($s->opened_at)->addMinutes($s->late_after_minutes));
                 DB::table('basic_lecture_records')->where('id', $row->id)->update($values);
                 $this->audit($s->id, null, 'student.'.$s->state, ['student_id' => $student]);
             }
