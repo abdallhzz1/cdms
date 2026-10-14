@@ -166,9 +166,20 @@ class ClinicalUniversityAttendanceTest extends TestCase
             app(QrAttendanceService::class)->scan(Request::create('/api/v1/public/clinical-attendance/scan', 'POST'),
                 Student::factory()->create(['academic_year_id' => $year->id]), $token);
             $this->fail('A student outside the main-group roster scanned the lecture QR.');
-        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $exception) {
-            $this->assertSame(403, $exception->getStatusCode());
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            $this->assertStringContainsString('غير موجود في كشف المجموعة الرئيسية', $exception->errors()['qr_token'][0]);
         }
+        config()->set('group_registration.otp_enabled', false);
+        $outside = Student::factory()->create(['academic_year_id' => $year->id]);
+        $accessToken = $this->postJson('/api/v1/public/clinical-attendance/request-otp', [
+            'university_number' => $outside->university_number, 'qr_token' => $token,
+        ])->assertOk()->json('data.access_token');
+        $this->postJson('/api/v1/public/clinical-attendance/scan', [
+            'qr_token' => $token, 'access_token' => $accessToken,
+        ])->assertUnprocessable()->assertJsonPath('message',
+            'لم يُسجّل حضورك: رقمك الجامعي غير موجود في كشف المجموعة الرئيسية لهذه المحاضرة. راجع المشرف إذا كنت تتبع هذه المجموعة.')
+            ->assertJsonPath('errors.qr_token.0',
+            'لم يُسجّل حضورك: رقمك الجامعي غير موجود في كشف المجموعة الرئيسية لهذه المحاضرة. راجع المشرف إذا كنت تتبع هذه المجموعة.');
         $this->actingAs($doctor)->postJson("/api/v1/operational/university-attendance/plans/$first/qr/close", [
             'session_date' => '2026-10-15',
         ])->assertOk()->assertJsonPath('data.qr_state', 'closed');

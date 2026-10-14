@@ -13,6 +13,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class UniversityQrAttendanceService
 {
@@ -87,7 +88,11 @@ class UniversityQrAttendanceService
             abort_unless($session && $session->qr_public_id === $claims['s'] && $session->qr_state === 'open'
                 && $session->session_date->toDateString() === today()->toDateString(), 422, 'انتهت جلسة الحضور أو أُغلقت.');
             $record = $session->records()->where('student_id', $student->id)->lockForUpdate()->first();
-            abort_unless($record, 403, 'لست مسجلًا في المجموعة الرئيسية لهذه المحاضرة.');
+            if (! $record) {
+                throw ValidationException::withMessages([
+                    'qr_token' => ['لم يُسجّل حضورك: رقمك الجامعي غير موجود في كشف المجموعة الرئيسية لهذه المحاضرة. راجع المشرف إذا كنت تتبع هذه المجموعة.'],
+                ]);
+            }
             if ($record->status !== null) return ['operation' => 'check_in', 'recorded_at' => $record->updated_at?->toIso8601String(),
                 'group' => $session->lecture?->group?->name, 'training_site' => 'الجامعة', 'idempotent' => true];
             $late = $session->qr_opened_at && now()->gt($session->qr_opened_at->copy()->addMinutes(max(0, (int) config('clinical_attendance.late_after_minutes', 15))));

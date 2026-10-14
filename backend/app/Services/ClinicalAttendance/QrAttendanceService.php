@@ -15,6 +15,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class QrAttendanceService
 {
@@ -88,7 +89,7 @@ class QrAttendanceService
             $expectedState = $claims['p'] === 'check_in' ? 'check_in_open' : 'check_out_open';
             if ($session->state !== $expectedState) { $this->event($session, $student, $claims['p'], 'phase_closed', $claims['n'], $request); return ['rejection' => [422, 'هذه المرحلة مغلقة حالياً.']]; }
             $roster = ClinicalQrAttendanceRoster::where('clinical_qr_attendance_session_id', $session->id)->where('student_id', $student->id)->lockForUpdate()->first();
-            if (!$roster) { $this->event($session, $student, $claims['p'], 'not_in_roster', $claims['n'], $request); return ['rejection' => [403, 'لا يمكنك التسجيل في جلسة الحضور الحالية.']]; }
+            if (!$roster) { $this->event($session, $student, $claims['p'], 'not_in_roster', $claims['n'], $request); return ['rejection' => [422, 'لم يُسجّل حضورك: رقمك الجامعي غير موجود في كشف المجموعة لهذه الجلسة. راجع المشرف إذا كنت تتبع هذه المجموعة.'], 'roster_rejection' => true]; }
             $column = $claims['p'] === 'check_in' ? 'checked_in_at' : 'checked_out_at';
             if ($roster->{$column}) return $this->scanResponse($session, $roster, $claims['p'], true);
             if ($claims['p'] === 'check_out' && !$roster->checked_in_at) { $this->event($session, $student, 'check_out', 'missing_check_in', $claims['n'], $request); return ['rejection' => [422, 'لا يمكن تسجيل الخروج قبل تسجيل الدخول.']]; }
@@ -99,6 +100,7 @@ class QrAttendanceService
             $this->event($session, $student, $claims['p'], 'accepted', $claims['n'], $request);
             return $this->scanResponse($session, $roster->fresh(), $claims['p'], false);
         });
+        if (isset($result['roster_rejection'])) throw ValidationException::withMessages(['qr_token' => [$result['rejection'][1]]]);
         if (isset($result['rejection'])) abort($result['rejection'][0], $result['rejection'][1]);
         return $result;
     }

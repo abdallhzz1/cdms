@@ -15,15 +15,18 @@ describe('university lecture planning',()=>{
       const url=String(input);
       if(url.includes('/auth/me'))return envelope({id:1,roles:['RTA'],permissions:[{code:'attendance.review',scope:'global'}]});
       if(url.includes('/university-attendance/plans')&&init?.method==='POST'){posted=JSON.parse(String(init.body));return envelope({id:10});}
-      if(url.includes('/university-attendance/plans'))return envelope({groups:[{id:4,name:'A',academic_level:'fourth',academic_year:{code:'2026/2027',start_date:'2026-09-01',end_date:'2027-08-31',is_current:true}}],supervisors:[{id:9,full_name_ar:'د. خالد',full_name_en:'Dr Khaled'}],lectures:[],sessions:[]});
+      if(url.includes('/university-attendance/plans'))return envelope({groups:[{id:4,name:'A',academic_level:'fourth',academic_year:{code:'2026/2027',start_date:'2026-09-01',end_date:'2027-08-31',is_current:true}}],supervisors:[{id:9,full_name_ar:'د. خالد',full_name_en:'Dr Khaled'},{id:10,full_name_ar:'د. أحمد',full_name_en:'Dr Ahmad'}],lectures:[],sessions:[]});
       throw new Error(`Unmocked ${url}`);
     });
     renderWithProviders(<UniversityAttendanceAdminPage/>,{route:'/attendance/university'});
     await screen.findByText('Main-group university lectures');
     await userEvent.type(await screen.findByLabelText('Topic'),'Clinical lecture');
     await userEvent.type(screen.getByLabelText('Date'),'2026-10-15');
-    await userEvent.selectOptions(screen.getByLabelText('Clinical supervisor'),'9');
+    await userEvent.type(screen.getByRole('combobox',{name:'Clinical supervisor'}),'Khaled');
+    expect(screen.queryByRole('option',{name:'Dr Ahmad'})).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('option',{name:'Dr Khaled'}));
     await userEvent.click(screen.getByRole('button',{name:'Add lecture'}));
     await waitFor(()=>expect(posted).toMatchObject({student_group_id:4,supervisor_person_id:9,title:'Clinical lecture',weekday:'thursday',starts_on:'2026-10-15',ends_on:'2026-10-15'}));
+    await waitFor(()=>expect(screen.getByRole('combobox',{name:'Clinical supervisor'})).toHaveValue(''));
   });
 });

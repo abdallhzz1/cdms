@@ -48,4 +48,17 @@ describe('PublicClinicalAttendancePage', () => {
     expect(screen.queryByLabelText('الرقم الجامعي')).not.toBeInTheDocument();
     expect(mocks.scan).toHaveBeenCalledWith('checkout-code', undefined);
   });
+
+  it('shows the group-roster rejection clearly without leaving a loading message', async () => {
+    mocks.begin.mockResolvedValue({ attendance_intent: 'intent' });
+    mocks.identity.mockResolvedValue({ student: { name: 'طالب تجريبي', university_number: '22210466' } });
+    mocks.scan.mockRejectedValue(new Error('لم يُسجّل حضورك: رقمك الجامعي غير موجود في كشف المجموعة الرئيسية لهذه المحاضرة.'));
+
+    render(<MemoryRouter initialEntries={['/clinical-attendance?qr=lecture-code']}>
+      <Routes><Route path="/clinical-attendance" element={<PublicClinicalAttendancePage />} /></Routes>
+    </MemoryRouter>);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('رقمك الجامعي غير موجود في كشف المجموعة الرئيسية');
+    expect(screen.queryByText('جارٍ تسجيل الحضور...')).not.toBeInTheDocument();
+  });
 });

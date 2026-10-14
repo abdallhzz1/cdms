@@ -1213,6 +1213,12 @@ class Phase5CTest extends TestCase
         $sessionId = \App\Models\ClinicalQrAttendanceSession::query()->value('id');
         $checkInToken = $this->actingAs($this->admin)->getJson('/api/v1/operational/clinical-qr-attendance/sessions/'.$sessionId.'/qr')
             ->assertOk()->json('data.token');
+        try {
+            app(QrAttendanceService::class)->scan(Request::create('/clinical-attendance', 'POST'), $this->student2, $checkInToken);
+            $this->fail('A student outside the QR roster was accepted.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            $this->assertStringContainsString('غير موجود في كشف المجموعة', $exception->errors()['qr_token'][0]);
+        }
         app(QrAttendanceService::class)->scan(Request::create('/clinical-attendance', 'POST'), $this->student1, $checkInToken);
         $this->actingAs($this->admin)->postJson('/api/v1/operational/clinical-qr-attendance/sessions/'.$sessionId.'/transition', ['action' => 'close_check_in'])->assertOk();
         $this->actingAs($this->admin)->postJson('/api/v1/operational/clinical-qr-attendance/sessions/'.$sessionId.'/transition', ['action' => 'open_check_out'])->assertOk();
