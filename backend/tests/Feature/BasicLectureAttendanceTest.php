@@ -193,10 +193,10 @@ class BasicLectureAttendanceTest extends TestCase
 
     public function test_auto_finalization_only_affects_new_due_lectures_and_preserves_manual_corrections(): void
     {
-        config()->set('basic_attendance.auto_finalize_hours', 24);
+        config()->set('basic_attendance.auto_finalize_hours', 12);
         $id = $this->start('single');
         $deadline = DB::table('basic_lecture_sessions')->where('id', $id)->value('auto_finalize_at');
-        $this->assertSame('2026-09-30 09:00:00', $deadline);
+        $this->assertSame('2026-09-29 21:00:00', $deadline);
         $token = $this->token($id);
         $device = $this->device($this->students[0]);
         $this->scan($device, $token)->assertOk();
@@ -204,7 +204,7 @@ class BasicLectureAttendanceTest extends TestCase
             'status' => 'excused', 'is_late' => false, 'reason' => 'عذر طبي موثق',
         ])->assertOk();
 
-        $this->travel(23)->hours();
+        $this->travel(11)->hours();
         $this->assertSame(0, app(BasicAttendanceService::class)->finalizeExpired());
         $this->assertDatabaseHas('basic_lecture_sessions', ['id' => $id, 'state' => 'check_in']);
         $this->travel(2)->hours();
@@ -244,7 +244,7 @@ class BasicLectureAttendanceTest extends TestCase
     {
         $id = $this->start('double');
         $this->scan($this->device($this->students[0]), $this->token($id))->assertOk();
-        $this->travel(25)->hours();
+        $this->travel(13)->hours();
         $this->assertSame(1, app(BasicAttendanceService::class)->finalizeExpired());
         $this->assertDatabaseHas('basic_lecture_records', [
             'session_id' => $id, 'student_id' => $this->students[0], 'status' => 'present',
@@ -258,7 +258,7 @@ class BasicLectureAttendanceTest extends TestCase
     {
         $this->mail();
         $id = $this->start('single');
-        $this->travel(23)->hours();
+        $this->travel(11)->hours();
         $this->travel(59)->minutes();
         DB::table('basic_lecture_sessions')->where('id', $id)->update(['phase_expires_at' => now()->addMinutes(5)]);
         $ticket = $this->postJson('/api/v1/public/basic-attendance/prepare', ['qr' => $this->token($id)])
