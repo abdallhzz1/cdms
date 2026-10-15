@@ -14,7 +14,7 @@ class ClinicalAssessmentPeriods
             ->groupBy(function (StudentClinicalAssignment $item) use ($respectStaff) {
                 $parts = [$item->distribution_version_id, $item->rotationBlock->rotation_id, $item->student_subgroup_id];
                 if ($respectStaff) {
-                    array_push($parts, $item->supervisor_id, $item->training_site_id, $item->student?->batch_year);
+                    array_push($parts, $item->supervisor_id, $item->training_site_id);
                 }
                 return implode(':', $parts);
             })->flatMap(function (Collection $scope) {

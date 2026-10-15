@@ -25,7 +25,19 @@ export const groupName = (group:SupervisorGroup,ar:boolean) => `${ar?group.cours
 export const formatDate = (value:string,_ar:boolean) => { const [year,month,day]=String(value).slice(0,10).split('-'); return year&&month&&day?`${day}/${month}/${year}`:String(value); };
 export const formatWeekday = (value:string,ar:boolean) => new Intl.DateTimeFormat(ar?'ar-PS':'en-GB',{weekday:'long'}).format(new Date(`${value}T12:00:00`));
 export const preferredDate = (dates:string[]) => dates.find(date=>date>=today()) ?? dates.at(-1) ?? '';
-export const templateForGroup = (templates:AssessmentTemplate[],group:SupervisorGroup) => { const batch=group.batchYear??null; return templates.find(item=>item.course_id===group.courseId&&(item.batch_year??null)===batch) ?? templates.find(item=>item.course_id===group.courseId&&!item.batch_year) ?? templates.find(item=>!item.course_id&&(item.batch_year??null)===batch) ?? templates.find(item=>!item.course_id&&!item.batch_year); };
+export const templateForGroup = (templates:AssessmentTemplate[],group:SupervisorGroup) => {
+  const batch=group.batchYear??null;
+  const scopes:[[number|null,number|null],[number|null,null],[null,number|null],[null,null]]=[
+    [group.courseId,batch],[group.courseId,null],[null,batch],[null,null],
+  ];
+  for(const [courseId,batchYear] of scopes){
+    const match=templates.filter(item=>item.is_active!==false&&(item.course_id??null)===courseId&&(item.batch_year??null)===batchYear)
+      .sort((a,b)=>b.version-a.version)[0];
+    if(match)return match;
+  }
+  return undefined;
+};
+export const templateForStudent = (templates:AssessmentTemplate[], group:SupervisorGroup, student:Student) => templateForGroup(templates, { ...group, batchYear:student.batch_year??null });
 
 export function assessmentForGroup(assessments:Assessment[],group:SupervisorGroup,studentId:number,week:number):Assessment|undefined{
   return assessments.filter(item=>{
@@ -61,12 +73,13 @@ export function groupSupervisorAssignments(assignments:Assignment[], mergeAssess
     const clinicalComponent = rotation?.course?.assessment_components?.find(component=>component.code==='clinical');
     const periodMode = mergeAssessmentPeriods && clinicalComponent?.assessment_frequency === 'period';
     const anchorBlock = periodMode ? item.assessment_period_block_id ?? item.rotation_block_id : item.rotation_block_id;
-    const key=[item.distribution_version_id,anchorBlock??'x',item.training_site_id??'x',item.student_subgroup_id??'x',item.student.batch_year??'x'].join('-');
+    // A subgroup's official register is not split by the students' cohort years.
+    const key=[item.distribution_version_id,anchorBlock??'x',item.training_site_id??'x',item.student_subgroup_id??'x'].join('-');
     const fallbackWeeks:EvaluationWeek[]=[];
     if(!(item.evaluation_weeks??[]).length&&rotation?.start_date&&block?.from_week&&block?.to_week){for(let week=Number(block.from_week);week<=Number(block.to_week);week++){const start=new Date(`${String(rotation.start_date).slice(0,10)}T12:00:00`);start.setDate(start.getDate()+(week-1)*7);const end=new Date(start);end.setDate(end.getDate()+6);fallbackWeeks.push({number:week,start_date:dateValue(start),end_date:dateValue(end)});}}
-    if(!map.has(key))map.set(key,{key,assignmentId:item.id,studentAssignmentIds:{},studentAllAssignmentIds:{},distributionVersionId:item.distribution_version_id,rotationId:rotation?.id??null,rotationBlockId:anchorBlock,rotationBlockIds:[],siteId:item.training_site_id,courseId:rotation?.course?.id??null,clinicalEntryMaxScore:clinicalEntryMax == null?null:Number(clinicalEntryMax),assessmentFrequency:clinicalComponent?.assessment_frequency==='period'?'period':'weekly',miniOsceMaxScore:Number(clinicalComponent?.mini_osce_max_score??0),courseAr:rotation?.course?.name_ar??rotation?.name??'المساق السريري',courseEn:rotation?.course?.name_en??rotation?.name??'Clinical course',courseCode:rotation?.course?.code??'',subgroup:item.student_subgroup?.name??'—',group:item.student_subgroup?.group?.name??item.student_subgroup?.name??'—',clinicalPeriodAr:rotation?.clinical_period?.name_ar??'جدول سنوي',clinicalPeriodEn:rotation?.clinical_period?.name_en??rotation?.clinical_period?.name_ar??'Annual schedule',periodAr:block?.from_week&&block?.to_week?`الأسبوع ${block.from_week}–${block.to_week}`:block?.block_code??'الفترة الحالية',periodEn:block?.from_week&&block?.to_week?`Week ${block.from_week}–${block.to_week}`:block?.block_code??'Current period',siteAr:item.training_site?.name_ar??'غير محدد',siteEn:item.training_site?.name_en??item.training_site?.name_ar??'Not specified',departmentAr:item.department?.name_ar??'غير محدد',departmentEn:item.department?.name_en??item.department?.name_ar??'Not specified',academicYear:rotation?.academic_year?.code??'—',startDate:item.session_start_date??'',endDate:item.session_end_date??'',scheduledDates:item.scheduled_dates??[],evaluationWeeks:(item.evaluation_weeks??[]).length?item.evaluation_weeks!:fallbackWeeks,students:[]});
+    if(!map.has(key))map.set(key,{key,assignmentId:item.id,studentAssignmentIds:{},studentAllAssignmentIds:{},distributionVersionId:item.distribution_version_id,rotationId:rotation?.id??null,rotationBlockId:anchorBlock,rotationBlockIds:[],siteId:item.training_site_id,courseId:rotation?.course?.id??null,clinicalEntryMaxScore:clinicalEntryMax == null?null:Number(clinicalEntryMax),assessmentFrequency:clinicalComponent?.assessment_frequency==='period'?'period':'weekly',miniOsceMaxScore:Number(clinicalComponent?.mini_osce_max_score??0),batchYear:item.student.batch_year??null,courseAr:rotation?.course?.name_ar??rotation?.name??'المساق السريري',courseEn:rotation?.course?.name_en??rotation?.name??'Clinical course',courseCode:rotation?.course?.code??'',subgroup:item.student_subgroup?.name??'—',group:item.student_subgroup?.group?.name??item.student_subgroup?.name??'—',clinicalPeriodAr:rotation?.clinical_period?.name_ar??'جدول سنوي',clinicalPeriodEn:rotation?.clinical_period?.name_en??rotation?.clinical_period?.name_ar??'Annual schedule',periodAr:block?.from_week&&block?.to_week?`الأسبوع ${block.from_week}–${block.to_week}`:block?.block_code??'الفترة الحالية',periodEn:block?.from_week&&block?.to_week?`Week ${block.from_week}–${block.to_week}`:block?.block_code??'Current period',siteAr:item.training_site?.name_ar??'غير محدد',siteEn:item.training_site?.name_en??item.training_site?.name_ar??'Not specified',departmentAr:item.department?.name_ar??'غير محدد',departmentEn:item.department?.name_en??item.department?.name_ar??'Not specified',academicYear:rotation?.academic_year?.code??'—',startDate:item.session_start_date??'',endDate:item.session_end_date??'',scheduledDates:item.scheduled_dates??[],evaluationWeeks:(item.evaluation_weeks??[]).length?item.evaluation_weeks!:fallbackWeeks,students:[]});
     const group=map.get(key)!;
-    group.batchYear ??= item.student.batch_year ?? null;
+    if(group.students.length && group.batchYear !== (item.student.batch_year ?? null))group.batchYear=null;
     if(item.rotation_block_id===anchorBlock){group.assignmentId=item.id;group.studentAssignmentIds[item.student.id]=item.id;}
     else group.studentAssignmentIds[item.student.id] ??= item.id;
     (group.studentAllAssignmentIds[item.student.id] ??= []).push(item.id);

@@ -14,21 +14,9 @@ const phaseLabels: Record<string, string> = { check_in_open: 'الدخول مف�
 type RowStatus = 'present' | 'late' | 'absent' | 'incomplete' | 'unscanned' | 'excused';
 type RosterFilter = 'all' | 'checked_in' | 'not_checked_in' | 'late' | 'incomplete' | 'excused';
 
-/** QR sessions are keyed by assignment/block/site/subgroup, not by student cohort. */
+/** Groups already use the same assignment/block/site/subgroup identity as QR sessions. */
 export function groupQrAssignments(groups: SupervisorGroup[]): SupervisorGroup[] {
-  const combined = new Map<string, SupervisorGroup>();
-  for (const group of groups) {
-    const key = group.key.split('-').slice(0, -1).join('-');
-    const existing = combined.get(key);
-    if (!existing) {
-      combined.set(key, { ...group, key, students: [...group.students], studentAssignmentIds: { ...group.studentAssignmentIds }, scheduledDates: [...group.scheduledDates] });
-      continue;
-    }
-    existing.studentAssignmentIds = { ...existing.studentAssignmentIds, ...group.studentAssignmentIds };
-    existing.students = [...existing.students, ...group.students.filter(student => !existing.students.some(row => row.id === student.id))];
-    existing.scheduledDates = [...new Set([...existing.scheduledDates, ...group.scheduledDates])].sort();
-  }
-  return [...combined.values()];
+  return groups;
 }
 
 function rowStatus(row: QrRoster, finalized: boolean, checkOutOpen: boolean): RowStatus {

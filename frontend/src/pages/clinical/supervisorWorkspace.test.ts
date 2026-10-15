@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assessmentForGroup, groupSupervisorAssignments, miniOsceForGroup, type Assessment, type Assignment } from './supervisorWorkspace';
+import { assessmentForGroup, groupSupervisorAssignments, miniOsceForGroup, templateForStudent, type Assessment, type AssessmentTemplate, type Assignment } from './supervisorWorkspace';
 
 const currentAssignment: Assignment = {
   id: 31,
@@ -27,6 +27,22 @@ const oldAssessment: Assessment = {
 };
 
 describe('current clinical assessment selection in the supervisor workspace', () => {
+  it('keeps one complete subgroup when students have different cohort years', () => {
+    const older = { ...currentAssignment, student: { ...currentAssignment.student, batch_year: 2023 } };
+    const newer = { ...currentAssignment, id: 32, student: { id: 8, university_number: '124', full_name_ar: 'طالبة', batch_year: 2024 } };
+    const [group] = groupSupervisorAssignments([older, newer], true);
+    expect(groupSupervisorAssignments([older, newer])).toHaveLength(1);
+    expect(group.students.map(student => student.id)).toEqual([7, 8]);
+    expect(group.studentAssignmentIds).toEqual({ 7: 31, 8: 32 });
+    expect(group.batchYear).toBeNull();
+    const templates: AssessmentTemplate[] = [
+      { id: 1, name_ar: 'قديم', course_id: 4, batch_year: 2023, version: 1, total_score: 10, criteria: [] },
+      { id: 3, name_ar: 'حالي', course_id: 4, batch_year: 2023, version: 2, total_score: 10, criteria: [] },
+      { id: 2, name_ar: 'دفعة ثانية', course_id: 4, batch_year: 2024, version: 1, total_score: 10, criteria: [] },
+    ];
+    expect(templateForStudent(templates, group, older.student)?.id).toBe(3);
+    expect(templateForStudent(templates, group, newer.student)?.id).toBe(2);
+  });
   it('keeps an old-version mark hidden until the assigned supervisor records a current one', () => {
     const [group] = groupSupervisorAssignments([currentAssignment], true);
     expect(group.distributionVersionId).toBe(28);

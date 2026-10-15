@@ -210,6 +210,28 @@ describe('clinical supervisor workspace',()=>{
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input,init])=>String(input).includes('/my-supervisor-assessment-batches')&&String(init?.body).includes('"student_id":7')&&String(init?.body).includes('"score":9'))).toBe(true));
   });
 
+  it('submits every student in one subgroup even when their cohort templates differ', async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    const second={...workspace.assignments[0],id:22,student:{id:8,university_number:'22010002',full_name_ar:'طالبة سريرية',full_name_en:'Second Student',batch_year:2025}};
+    const secondTemplate={...workspace.assessment_templates[0],id:32,batch_year:2025,version:2};
+    const mixed={...workspace,assignments:[workspace.assignments[0],second],assessment_templates:[...workspace.assessment_templates,secondTemplate]};
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(mixed);if(url.includes('/my-supervisor-assessment-batches'))return envelope({batch_uuid:'mixed',assessments:[{id:1,status:'submitted'},{id:2,status:'submitted'}]});throw new Error(`Unmocked ${url} ${init?.method}`)});
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments'});
+    const scores=await screen.findAllByRole('spinbutton');
+    expect(within(screen.getAllByRole('combobox')[1]).getAllByRole('option')).toHaveLength(1);
+    await userEvent.type(scores[0],'8');
+    await userEvent.type(scores[1],'9');
+    await userEvent.click(screen.getByRole('button',{name:'Submit group assessment'}));
+    await waitFor(()=>{
+      const call=fetchSpy.mock.calls.find(([input,init])=>String(input).includes('/my-supervisor-assessment-batches')&&init?.method==='POST');
+      const body=JSON.parse(String(call?.[1]?.body??'{}'));
+      expect(body.assessments).toEqual([
+        expect.objectContaining({student_id:7,template_id:31,score:8}),
+        expect.objectContaining({student_id:8,template_id:32,score:9}),
+      ]);
+    });
+  });
+
   it('shows a submission receipt only after reading back the same saved mark',async()=>{
     document.cookie='XSRF-TOKEN=test; path=/';
     const mark={id:44,student_id:7,student_clinical_assignment_id:21,evaluation_week:1,assessment_kind:'weekly',score:'9.00',max_score:'10.00',status:'submitted',created_at:'2026-10-12'};
@@ -297,7 +319,7 @@ describe('clinical supervisor workspace',()=>{
     const old={id:70,student_id:7,student_clinical_assignment_id:42,assessment_kind:'period',evaluation_week:null,score:8,max_score:10,status:'submitted',created_at:'2026-09-06'};
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments,assessments:[old]}));
     renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=0'});
-    await screen.findByRole('option',{name:'General Surgery — L (L1)'});
+    await screen.findByRole('option',{name:'General Surgery — L (L1) · Al Ahli Hospital'});
     const groups=screen.getAllByRole('combobox')[1];
     expect(within(groups).getAllByRole('option')).toHaveLength(1);
     await waitFor(()=>expect(screen.getByRole('spinbutton',{name:'Score out of 10'})).toHaveValue(8));

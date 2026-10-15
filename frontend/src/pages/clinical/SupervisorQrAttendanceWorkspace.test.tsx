@@ -34,6 +34,15 @@ describe('SupervisorQrAttendanceWorkspace', () => {
     expect(groups[0].students).toHaveLength(3);
   });
 
+  it('does not combine two different subgroups at the same site', () => {
+    const groups = groupQrAssignments(groupSupervisorAssignments([
+      ...assignments,
+      { ...assignments[0], id: 10, student_subgroup_id: 5, student: { id: 13, full_name_ar: 'طالب ثالث', batch_year: 2027 }, student_subgroup: { name: 'ب', group: { name: 'المجموعة 5' } } },
+    ]));
+    expect(groups).toHaveLength(2);
+    expect(groups.map(group => group.students.length)).toEqual([2, 1]);
+  });
+
   it('encodes checkout as a camera link with the checkout phase', async () => {
     vi.mocked(getQrSessions).mockResolvedValueOnce([{ id: 51, public_id: 'session', student_clinical_assignment_id: 8, session_date: '2026-09-24', state: 'check_out_open', roster: [] }]);
     vi.mocked(getQrPayload).mockResolvedValueOnce({ token: 'checkout-token', phase: 'check_out', expires_at: '2026-09-24T12:00:00Z' });

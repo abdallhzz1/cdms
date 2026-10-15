@@ -12,7 +12,7 @@ class ClinicalAssessmentPeriodsTest extends TestCase
 {
     public function test_consecutive_weekly_blocks_form_one_period_but_explicit_and_disjoint_blocks_remain_separate(): void
     {
-        $make = function (int $id, int $week, int $endWeek, int $subgroup = 7): StudentClinicalAssignment {
+        $make = function (int $id, int $week, int $endWeek, int $subgroup = 7, int $batchYear = 2022): StudentClinicalAssignment {
             $block = new RotationBlock([
                 'id' => $id, 'rotation_id' => 4, 'from_week' => $week, 'to_week' => $endWeek,
             ]);
@@ -23,12 +23,12 @@ class ClinicalAssessmentPeriodsTest extends TestCase
             ]);
             $assignment->id = $id;
             $assignment->setRelation('rotationBlock', $block);
-            $assignment->setRelation('student', new Student(['batch_year' => 2022]));
+            $assignment->setRelation('student', new Student(['batch_year' => $batchYear]));
             return $assignment;
         };
 
         $periods = (new ClinicalAssessmentPeriods)->groups(collect([
-            $make(11, 1, 1), $make(12, 2, 2), $make(13, 3, 3),
+            $make(11, 1, 1), $make(12, 2, 2, 7, 2023), $make(13, 3, 3, 7, 2024),
             $make(14, 5, 5), $make(15, 6, 7), $make(16, 8, 8), $make(17, 4, 4, 8),
         ]));
 

@@ -183,7 +183,7 @@ class AttendanceRecordController extends Controller
                     ],
                     'group_name' => $first->studentSubgroup?->group?->name,
                     'subgroup_name' => $first->studentSubgroup?->name,
-                    'batch_year' => $first->student?->batch_year,
+                    'batch_year' => $items->pluck('student.batch_year')->unique()->count() === 1 ? $first->student?->batch_year : null,
                     'training_site' => $first->trainingSite,
                     'supervisor' => $first->supervisor,
                     'student_count' => $items->pluck('student_id')->unique()->count(),
@@ -751,12 +751,9 @@ class AttendanceRecordController extends Controller
 
     private function sameAttendanceGroupAssignments(StudentClinicalAssignment $reference)
     {
-        $reference->loadMissing('student:id,batch_year');
-
         return $this->scopedCurrentAssignments()
             ->where('distribution_version_id', $reference->distribution_version_id)
-            ->where('student_subgroup_id', $reference->student_subgroup_id)
-            ->whereHas('student', fn ($student) => $student->where('batch_year', $reference->student?->batch_year));
+            ->where('student_subgroup_id', $reference->student_subgroup_id);
     }
 
     private function assignmentGroupKey(StudentClinicalAssignment $assignment): string
@@ -764,7 +761,6 @@ class AttendanceRecordController extends Controller
         return implode('|', [
             $assignment->distribution_version_id,
             $assignment->student_subgroup_id ?: 0,
-            $assignment->student?->batch_year ?: 0,
         ]);
     }
 

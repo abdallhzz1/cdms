@@ -1273,7 +1273,8 @@ class Phase5CTest extends TestCase
     public function test_manual_supervisor_attendance_saves_the_whole_group_and_shares_official_notes_with_reviewers(): void
     {
         $this->supervisor1->update(['user_id' => $this->admin->id]);
-        $this->student2->update(['batch_year' => $this->student1->batch_year]);
+        $this->student1->update(['batch_year' => 2023]);
+        $this->student2->update(['batch_year' => 2024]);
         $this->assignment2->update(['supervisor_id' => $this->supervisor1->id]);
         $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
         $supervisorRole->permissions()->syncWithoutDetaching(
@@ -1311,7 +1312,10 @@ class Phase5CTest extends TestCase
         ]))->assertOk()->assertJsonCount(2, 'data.records')->assertJsonPath('data.qr_session', null);
 
         $this->actingAs($this->admin)->getJson('/api/v1/attendance-records/groups')
-            ->assertOk()->assertJsonPath('data.0.student_group_id', $this->subgroup->student_group_id)
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.student_count', 2)
+            ->assertJsonPath('data.0.batch_year', null)
+            ->assertJsonPath('data.0.student_group_id', $this->subgroup->student_group_id)
             ->assertJsonPath('data.0.student_subgroup_id', $this->subgroup->id)
             ->assertJsonPath('data.0.rotation_id', $this->rotation->id);
         $review = $this->actingAs($this->admin)->getJson('/api/v1/attendance-records/group-summary?assignment_id='.$this->assignment1->id.'&week=2')->assertOk();
@@ -1397,6 +1401,46 @@ class Phase5CTest extends TestCase
 
         $this->assertDatabaseCount('clinical_sessions', 0);
         $this->assertDatabaseCount('attendance_records', 0);
+    }
+
+    public function test_supervisor_can_submit_one_group_with_different_cohorts_and_their_own_templates(): void
+    {
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $this->assignment2->update(['supervisor_id' => $this->supervisor1->id]);
+        $this->student1->update(['batch_year' => 2023]);
+        $this->student2->update(['batch_year' => 2024]);
+        $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(
+            Permission::where('code', 'assessment.create')->pluck('id')
+                ->mapWithKeys(fn ($id) => [$id => ['scope_type' => 'global']])->all()
+        );
+        $this->admin->roles()->attach($supervisorRole);
+
+        $firstTemplate = ClinicalAssessmentTemplate::create([
+            'name_ar' => 'دفعة 2023', 'course_id' => $this->course->id,
+            'batch_year' => 2023, 'version' => 1, 'total_score' => 10, 'is_active' => true,
+        ]);
+        $secondTemplate = ClinicalAssessmentTemplate::create([
+            'name_ar' => 'دفعة 2024', 'course_id' => $this->course->id,
+            'batch_year' => 2024, 'version' => 1, 'total_score' => 10, 'is_active' => true,
+        ]);
+
+        $this->actingAs($this->admin)->postJson(route('api.v1.operational.my-supervisor-assessment-batches'), [
+            'assignment_id' => $this->assignment1->id,
+            'evaluation_week' => 1,
+            'template_id' => $firstTemplate->id,
+            'assessments' => [
+                ['student_id' => $this->student1->id, 'template_id' => $firstTemplate->id, 'score' => 8],
+                ['student_id' => $this->student2->id, 'template_id' => $secondTemplate->id, 'score' => 9],
+            ],
+        ])->assertOk()->assertJsonCount(2, 'data.assessments');
+
+        $this->assertDatabaseHas('clinical_assessments', [
+            'student_id' => $this->student1->id, 'assessment_template_id' => $firstTemplate->id,
+        ]);
+        $this->assertDatabaseHas('clinical_assessments', [
+            'student_id' => $this->student2->id, 'assessment_template_id' => $secondTemplate->id,
+        ]);
     }
 
     public function test_supervisor_batch_is_immediately_available_without_separate_approval(): void

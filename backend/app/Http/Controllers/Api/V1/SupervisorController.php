@@ -467,6 +467,7 @@ class SupervisorController extends Controller
             'template_id' => ['required', 'integer', 'exists:clinical_assessment_templates,id'],
             'assessments' => ['required', 'array', 'min:1'],
             'assessments.*.student_id' => ['required', 'integer', 'distinct', 'exists:students,id'],
+            'assessments.*.template_id' => ['sometimes', 'integer', 'exists:clinical_assessment_templates,id'],
             'assessments.*.score' => ['required', 'numeric', 'min:0'],
             'assessments.*.notes' => ['nullable', 'string', 'max:3000'],
         ]);
@@ -511,7 +512,7 @@ class SupervisorController extends Controller
             $this->lockCurrentAssessmentVersion($assignment->distribution_version_id);
             return collect($data['assessments'])->map(function (array $row) use ($assignment, $groupAssignments, $data, $person, $workflow, $batchUuid, $weekStart, $weekEnd, $kind, $week) {
                 $studentAssignment = $groupAssignments->get($row['student_id']);
-                [$template, $snapshot, $score, $entryMax] = $this->validatedTotalScore($studentAssignment, (int) $data['template_id'], $row['score'], $week, $person->id, $kind, $weekStart, $weekEnd);
+                [$template, $snapshot, $score, $entryMax] = $this->validatedTotalScore($studentAssignment, (int) ($row['template_id'] ?? $data['template_id']), $row['score'], $week, $person->id, $kind, $weekStart, $weekEnd);
                 return $this->persistWeeklyAssessment(
                     $studentAssignment, $person, $template, $week,
                     $weekStart, $weekEnd, $snapshot, $score, $entryMax, $row['notes'] ?? null, $batchUuid, $workflow, $kind,
@@ -1021,25 +1022,22 @@ class SupervisorController extends Controller
 
     private function assignmentGroupQuery(StudentClinicalAssignment $assignment)
     {
-        $assignment->loadMissing('student:id,batch_year');
         return StudentClinicalAssignment::query()
             ->where('distribution_version_id', $assignment->distribution_version_id)
             ->where('supervisor_id', $assignment->supervisor_id)
             ->where('rotation_block_id', $assignment->rotation_block_id)
             ->where('training_site_id', $assignment->training_site_id)
-            ->where('student_subgroup_id', $assignment->student_subgroup_id)
-            ->whereHas('student', fn ($query) => $query->where('batch_year', $assignment->student?->batch_year));
+            ->where('student_subgroup_id', $assignment->student_subgroup_id);
     }
 
     private function periodAssignments(StudentClinicalAssignment $assignment): \Illuminate\Support\Collection
     {
-        $assignment->loadMissing(['rotationBlock.rotation', 'student:id,batch_year']);
+        $assignment->loadMissing('rotationBlock.rotation');
         $candidates = StudentClinicalAssignment::query()
             ->where('distribution_version_id', $assignment->distribution_version_id)
             ->where('supervisor_id', $assignment->supervisor_id)
             ->where('training_site_id', $assignment->training_site_id)
             ->where('student_subgroup_id', $assignment->student_subgroup_id)
-            ->whereHas('student', fn ($query) => $query->where('batch_year', $assignment->student?->batch_year))
             ->whereHas('rotationBlock', fn ($query) => $query->where('rotation_id', $assignment->rotationBlock?->rotation_id))
             ->with(['rotationBlock', 'student:id,batch_year'])->get();
         $period = app(ClinicalAssessmentPeriods::class)->groups($candidates)
