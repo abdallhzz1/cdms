@@ -102,6 +102,23 @@ it('sends the two-absence warning to all eligible students in safe batches', asy
   expect((JSON.parse(String(calls[1][1]?.body)) as { student_ids: number[] }).student_ids).toHaveLength(3);
 });
 
+it('asks students with three absences to meet only the Basic Sciences director', async () => {
+  currentAccount = manager;
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  const originalFetch = vi.mocked(window.fetch).getMockImplementation()!;
+  vi.mocked(window.fetch).mockImplementation((input, init) => {
+    const path = new URL(String(input), window.location.origin).pathname.replace('/api/v1', '');
+    if (path === '/basic-attendance/sections/3/monthly-summary') return Promise.resolve(envelope({ month: '2026-10', finalized_sessions: 3, students: [{ id: 1, name: 'Student One', university_number: '2600001', email: 'one@example.edu', present: 0, absent: 3, excused: 0, incomplete: 0, late: 0, total_absent: 3, is_enrolled: true, notifications: {} }] }));
+    if (path === '/basic-attendance/sections/3/absence-warnings/bulk' && init?.method === 'POST') return Promise.resolve(envelope({ sent: [1], already_sent: [], not_eligible: [], missing_email: [], failed: [] }));
+    return originalFetch(input, init);
+  });
+  renderWithProviders(<Routes><Route path="/basic-attendance/sections/:sectionId/report" element={<BasicAttendanceCatalogPage />} /></Routes>, { route: '/basic-attendance/sections/3/report' });
+  await userEvent.click(await screen.findByRole('button', { name: 'Request a meeting for 1 students at 3 absences' }));
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Basic Sciences Director Rashed Manasra'));
+  expect(confirm.mock.calls[0][0]).not.toContain('lecturer');
+  await waitFor(() => expect(window.fetch).toHaveBeenCalledWith('/api/v1/basic-attendance/sections/3/absence-warnings/bulk', expect.objectContaining({ method: 'POST', body: JSON.stringify({ threshold: 3, student_ids: [1] }) })));
+});
+
 it('opens the add course form directly in the catalog and keeps the code beneath the name', async () => {
   currentAccount = manager;
   renderWithProviders(<Routes><Route path="/basic-attendance" element={<BasicAttendanceCatalogPage />} /></Routes>, { route: '/basic-attendance' });

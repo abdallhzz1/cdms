@@ -594,6 +594,31 @@ class BasicLectureAttendanceTest extends TestCase
         $book->disconnectWorksheets();
     }
 
+    public function test_three_absence_email_names_only_the_basic_sciences_director(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $session = $this->start('single');
+            $this->transition($session, 'finalize');
+        }
+
+        $sent = [];
+        Mail::shouldReceive('raw')->once()->andReturnUsing(function ($body, $configure) use (&$sent) {
+            $email = new Email;
+            $configure(new Message($email));
+            $sent[] = $body.' '.$email->getSubject();
+        });
+        $this->actingAs($this->manager)->postJson('/api/v1/basic-attendance/sections/'.$this->section.'/students/'.$this->students[0].'/absence-warning', [
+            'threshold' => 3,
+        ])->assertOk();
+
+        $this->assertCount(1, $sent);
+        $this->assertStringNotContainsString('مدرس المساق', $sent[0]);
+        $this->assertStringNotContainsString('course lecturer', $sent[0]);
+        $this->assertTrue(str_contains($sent[0], 'راشد مناصرة') || str_contains($sent[0], 'Rashed Manasra'));
+        $this->assertStringNotContainsString('مدرس المساق', trans('basic_attendance.warning_subject_3', [], 'ar'));
+        $this->assertStringNotContainsString('course lecturer', trans('basic_attendance.warning_subject_3', [], 'en'));
+    }
+
     public function test_bulk_warnings_send_once_only_to_students_at_the_requested_tier(): void
     {
         $path = '/api/v1/basic-attendance/sections/'.$this->section;
