@@ -37,5 +37,8 @@ it('separates two-absence and three-absence actions and excludes sent or invalid
   expect(onBulk).toHaveBeenCalledWith(3, [students[1], students[2]]);
   const rows = view.container.querySelectorAll('.md\\:hidden details');
   await userEvent.click(within(rows[1] as HTMLElement).getByText('Student 2'));
-  expect(within(rows[1] as HTMLElement).getByRole('button', { name: 'Email meeting request' })).toBeInTheDocument();
+  expect(within(rows[1] as HTMLElement).getByRole('button', { name: 'Email director review request' })).toBeInTheDocument();
+  localStorage.setItem('cdms.locale', 'ar');
+  view.rerender(<BasicMonthlyReportPanel summary={{ month: '2026-10', finalized_sessions: 4, students }} busy={false} canNotify onWarn={vi.fn()} onBulk={onBulk} />);
+  expect(within(rows[1] as HTMLElement).getByRole('button', { name: 'إرسال طلب مراجعة مدير الدائرة' })).toBeInTheDocument();
 });

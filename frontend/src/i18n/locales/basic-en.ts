@@ -216,7 +216,7 @@ export const basicAttendanceUi = {
   "workFollowUp": "Follow-up",
   "workFormerStudent": "No longer enrolled",
   "workSendFirstWarning": "Email absence warning",
-  "workSendMeetingWarning": "Email meeting request",
+  "workSendMeetingWarning": "Email director review request",
   "workWarningAlreadySent": "Warning sent",
   "workWarningPending": "Follow-up needed",
   "workWarningSent": "Email sent and warning recorded.",

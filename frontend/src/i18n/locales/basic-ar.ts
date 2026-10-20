@@ -216,7 +216,7 @@ export const basicAttendanceUi = {
   "workFollowUp": "المتابعة",
   "workFormerStudent": "لم يعد مسجلًا بالشعبة",
   "workSendFirstWarning": "إرسال تنبيه الغياب",
-  "workSendMeetingWarning": "إرسال طلب مراجعة المدرس",
+  "workSendMeetingWarning": "إرسال طلب مراجعة مدير الدائرة",
   "workWarningAlreadySent": "أُرسل التنبيه",
   "workWarningPending": "يحتاج متابعة",
   "workWarningSent": "تم إرسال البريد وتسجيل التنبيه.",
