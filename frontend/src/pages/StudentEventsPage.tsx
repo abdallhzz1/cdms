@@ -51,7 +51,15 @@ export function StudentEventsPage() {
   const list = useQuery({ queryKey: ['student-events', scope, search, page], queryFn: () => apiFetch<Page<StudentEvent>>(
     `/student-events?scope=${scope}&search=${encodeURIComponent(search)}&page=${page}`) });
   const roster = useQuery({ queryKey: ['student-event-attendance', selected?.id, rosterPage], queryFn: () => apiFetch<Page<Attendance>>(
-    `/student-events/${selected!.id}/attendance?page=${rosterPage}`), enabled: Boolean(selected) });
+    `/student-events/${selected!.id}/attendance?page=${rosterPage}`), enabled: Boolean(selected),
+    refetchInterval: selected?.status === 'published' && selected.check_in_enabled ? 3_000 : false,
+    refetchIntervalInBackground: false });
+  useEffect(() => {
+    const total = roster.data?.total;
+    if (!selected || total === undefined || total === selected.attendance_count) return;
+    setSelected(current => current?.id === selected.id ? { ...current, attendance_count: total } : current);
+    void client.invalidateQueries({ queryKey: ['student-events'] });
+  }, [client, roster.data?.total, selected?.id, selected?.attendance_count]);
   const refresh = () => { void client.invalidateQueries({ queryKey: ['student-events'] });
     void client.invalidateQueries({ queryKey: ['student-event-attendance'] }); };
   const run = async (operation: () => Promise<unknown>, success: string) => {
@@ -152,7 +160,7 @@ export function StudentEventsPage() {
     <header className="flex flex-wrap items-start justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
       <div className="flex items-start gap-3"><span className="rounded-2xl bg-teal-50 p-3 text-teal-700"><CalendarDays className="h-6 w-6"/></span><div>
         <p className="text-xs font-bold text-teal-700">{tr('الحياة الأكاديمية', 'Academic life')}</p>
-        <h1 className="mt-1 text-2xl font-black tracking-tight">{tr('فعاليات الطلبة', 'Student events')}</h1>
+        <h1 className="mt-1 text-2xl font-black tracking-tight">{tr('فعاليات الكلية', 'College events')}</h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">{tr('مؤتمرات وندوات ومحاضرات الكلية، مع كشف حضور مستقل لكل فعالية.', 'Faculty conferences, seminars and lectures, each with its own attendance register.')}</p>
       </div></div>
       {can('student_events.manage') && <button onClick={() => edit()} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-teal-700 px-4 text-sm font-bold text-white hover:bg-teal-800"><Plus className="h-4 w-4"/>{tr('فعالية جديدة', 'New event')}</button>}
@@ -212,6 +220,7 @@ export function StudentEventsPage() {
           {can('student_events.attendance.manage') && <button type="button" disabled={busy} onClick={() => void toggleCheckIn(selected)} className={`mt-4 min-h-11 rounded-xl px-5 py-2.5 font-bold text-white disabled:opacity-50 ${selected.check_in_enabled ? 'bg-rose-700 hover:bg-rose-800' : 'bg-teal-700 hover:bg-teal-800'}`}>{selected.check_in_enabled ? tr('إغلاق الحضور وإيقاف الباركود','Close check-in and disable QR') : tr('فتح الحضور وإظهار الباركود','Open check-in and show QR')}</button>}
           {selected.check_in_enabled ? <><p className="mt-5 font-bold text-teal-900">{tr('امسح الرمز لتسجيل حضور هذه الفعالية','Scan to check in to this event')}</p>
             {qrImage ? <img src={qrImage} alt={tr('رمز الحضور المتجدد','Rotating check-in QR code')} className="mx-auto my-4 w-56 rounded-2xl bg-white p-3 shadow-sm sm:w-72"/> : <p className="my-8 text-rose-700">{qrError || tr('جارٍ تجهيز الرمز…','Preparing QR code…')}</p>}
+            <p aria-live="polite" className="mb-3 text-sm font-bold text-teal-900">{tr('المسجلون الآن', 'Checked in')}: {roster.data?.total ?? selected.attendance_count}</p>
             <p className="text-xs text-teal-800">{tr('يتجدد الرمز تلقائيًا. لا تشارك صورته أو رابطه.','The code refreshes automatically. Do not share its image or link.')}</p><small className="mt-2 block text-teal-700">{qrExpiry ? tr('تنتهي صلاحية الرمز', 'Code expires') + ': ' + new Date(qrExpiry).toLocaleTimeString(ar ? 'ar-PS' : 'en-GB') : ''}</small></> :
             <p className="mt-4 text-xs text-slate-600">{tr('النشر لا يفتح الحضور تلقائيًا. اضغط فتح الحضور عند جاهزيتك؛ لا يقيّده وقت الفعالية.', 'Publishing does not open check-in. Open it when you are ready; the event schedule does not restrict it.')}</p>}</div> : <>
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-3 font-bold"><span>{tr('الحضور المسجل','Recorded attendance')} · {roster.data?.total ?? selected.attendance_count}</span><button disabled={busy} onClick={() => void exportRoster(selected)} className={pill}>{tr('تصدير الكشف CSV','Export CSV')}</button></div>

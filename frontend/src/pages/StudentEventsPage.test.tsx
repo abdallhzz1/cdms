@@ -23,7 +23,7 @@ it('creates a bilingual event without requiring a timed check-in window', async 
     throw new Error(`Unmocked ${url}`);
   });
   renderWithProviders(<StudentEventsPage />, { route: '/events' });
-  await screen.findByRole('heading', { name: 'Student events' });
+  await screen.findByRole('heading', { name: 'College events' });
   await userEvent.click(screen.getByRole('button', { name: 'New event' }));
   const dialog = screen.getByRole('dialog');
   await userEvent.type(screen.getByLabelText('Arabic title'), 'ندوة طب');
@@ -83,4 +83,35 @@ it('opens and closes check-in manually and exposes permanent deletion for publis
   await userEvent.type(screen.getByLabelText('Administrative reason (at least 10 characters)'), 'Administrative correction');
   await userEvent.click(screen.getByRole('button', { name: 'Delete event and register permanently' }));
   await waitFor(() => expect(requests.some(row => row.method === 'DELETE' && row.body?.confirmation === 'Medical Seminar')).toBe(true));
+});
+
+it('updates the open event register when a student checks in without reloading the page', async () => {
+  window.localStorage.setItem('cdms.locale', 'en');
+  const event = { id: 9, public_id: 'event-9', type: 'seminar', title_ar: 'ندوة', title_en: 'College Seminar',
+    description_ar: null, description_en: null, location_ar: 'القاعة', location_en: 'Hall',
+    starts_at: '2026-10-21T08:00:00Z', ends_at: '2026-10-21T10:00:00Z',
+    eligible_levels: ['fourth'], status: 'published', check_in_enabled: true, attendance_count: 0 };
+  let rosterRequests = 0;
+  vi.spyOn(window, 'fetch').mockImplementation(async input => {
+    const url = String(input);
+    if (url.includes('/auth/me')) return envelope({ id: 1, roles: ['RTA'], permissions: [
+      { code: 'student_events.view', scope: 'global' }] });
+    if (url.includes('/student-events/9/attendance')) {
+      rosterRequests++;
+      if (rosterRequests === 1) return envelope({ data: [], current_page: 1, last_page: 1, total: 0 });
+      event.attendance_count = 1;
+      return envelope({ data: [{ id: 3, checked_in_at: '2026-10-21T08:05:00Z', source: 'qr', student: {
+        university_number: '22000001', full_name_ar: 'طالب', full_name_en: 'New Student', academic_level: 'fourth',
+      } }], current_page: 1, last_page: 1, total: 1 });
+    }
+    if (url.includes('/student-events?')) return envelope({ data: [event], current_page: 1, last_page: 1, total: 1 });
+    throw new Error(`Unmocked ${url}`);
+  });
+  renderWithProviders(<StudentEventsPage />, { route: '/events' });
+  await screen.findByRole('heading', { name: 'College Seminar' });
+  await userEvent.click(screen.getByRole('button', { name: 'Register · 0' }));
+  expect(await screen.findByText('No check-ins yet.')).toBeVisible();
+  expect(await screen.findByText('New Student', {}, { timeout: 5_000 })).toBeVisible();
+  expect(screen.getByText('Recorded attendance · 1')).toBeVisible();
+  expect(rosterRequests).toBeGreaterThanOrEqual(2);
 });

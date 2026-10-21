@@ -1,4 +1,4 @@
-# Student events / فعاليات الطلبة
+# College events / فعاليات الكلية
 
 The `/events` workspace schedules faculty conferences, seminars and lectures for fourth-, fifth- and sixth-year students. It is separate from clinical university lectures and does not alter clinical or basic-science attendance totals.
 
@@ -7,7 +7,7 @@ The `/events` workspace schedules faculty conferences, seminars and lectures for
 1. Staff with `student_events.manage` create a bilingual draft (both titles and locations are required), select the eligible years and event time. New drafts appear in the Drafts tab.
 2. Publishing leaves check-in **closed**. Staff with `student_events.attendance.manage` explicitly open it from the QR tab and may close/reopen it at any time, including outside the scheduled event hours. The rotating QR appears only while open. It changes every 15 seconds and expires after 20 seconds, with a five-second clock grace period. Closing immediately rejects fresh scans and pending scan intents; already recorded attendance remains.
 3. A student scans the displayed QR with their phone camera. The server validates the signed code and issues a random, 15-minute scan intent bound to an HTTP-only browser cookie. On their first verified visit the student enters their university number and a six-digit code mailed to their university address; a separate trusted, HTTP-only browser cookie lasts 30 days. Subsequent event scans on that browser check in directly. The server rechecks active academic registration and event year eligibility. A unique database key prevents duplicate attendance per student/event.
-4. The event register lists check-ins and their source, allows paginated review and CSV export. Authorized staff may add or void an attendance record only with a documented reason; both actions are audited. Voided records stay in the database and can be corrected again.
+4. The event register lists check-ins and their source, allows paginated review and CSV export. While check-in is open, its list and count refresh every three seconds without a page reload. Authorized staff may add or void an attendance record only with a documented reason; both actions are audited. Voided records stay in the database and can be corrected again.
 5. Archiving closes check-in and preserves the register. Staff with the separate `student_events.delete` permission may permanently delete a draft, published or archived event, including its attendance register, after entering its exact title and a reason. The audit log retains an event and attendance snapshot. Make a database backup before bulk cleanup.
 
 ## Permissions and safeguards

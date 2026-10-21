@@ -96,4 +96,39 @@ describe('Sidebar active navigation', () => {
     expect(screen.queryByRole('link', { name: 'Section Students' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Attendance Reports' })).not.toBeInTheDocument();
   });
+
+  it('shows college events once and gives dual-role supervisors a separate workspace', async () => {
+    window.localStorage.setItem('cdms.locale', 'en');
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/auth/me')) return jsonResponse({ success: true, data: {
+        id: 5, name: 'Dual-role supervisor', roles: ['RTA', 'CLINICAL_SUPERVISOR'],
+        permissions: ['student_events.view', 'supervisor.workspace.view', 'attendance.record', 'assessment.create',
+          'basic_attendance.view'].map(code => ({ code, scope: 'global' })),
+      }, message: null, meta: {} });
+      throw new Error(`Unmocked fetch call to ${String(input)}`);
+    }));
+    renderWithProviders(<Sidebar />, { route: '/supervisor/portal' });
+    const eventLink = (await screen.findAllByRole('link', { name: 'College Events' }));
+    expect(eventLink).toHaveLength(1);
+    expect(eventLink[0].closest('.mb-3')).toHaveTextContent('Students & Clinical');
+    expect(eventLink[0].closest('.mb-3')).not.toHaveTextContent('Basic Sciences');
+    const supervisorLink = screen.getByRole('link', { name: 'Supervisor Dashboard' });
+    expect(supervisorLink).toHaveAttribute('aria-current', 'page');
+    expect(supervisorLink.closest('.mb-3')).toHaveTextContent('Clinical Supervisor Workspace');
+    expect(supervisorLink.closest('.mb-3')).not.toHaveTextContent('Students & Clinical');
+  });
+
+  it('keeps the college events link for a basic-sciences-only account', async () => {
+    window.localStorage.setItem('cdms.locale', 'en');
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/auth/me')) return jsonResponse({ success: true, data: {
+        id: 6, name: 'Basic lecturer', roles: ['BASIC_LECTURER'],
+        permissions: [{ code: 'student_events.view', scope: 'global' }],
+      }, message: null, meta: {} });
+      throw new Error(`Unmocked fetch call to ${String(input)}`);
+    }));
+    renderWithProviders(<Sidebar />, { route: '/events' });
+    expect(await screen.findByRole('link', { name: 'College Events' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getAllByRole('link', { name: 'College Events' })).toHaveLength(1);
+  });
 });
