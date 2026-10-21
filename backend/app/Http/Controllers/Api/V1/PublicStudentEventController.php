@@ -113,12 +113,12 @@ class PublicStudentEventController extends Controller
         abort_unless($student?->academic_registration_status === 'registered', 401, __('student_events.identity_required'));
         if (!in_array($student->academic_level, $event->eligible_levels, true))
             throw ValidationException::withMessages(['student' => [__('student_events.ineligible')]]);
-        // A scan made near closing remains usable through email verification, but never beyond the intent TTL.
-        if (now()->greaterThan($event->check_in_closes_at->copy()->addMinutes(15)))
-            throw ValidationException::withMessages(['event' => [__('student_events.window_closed')]]);
-
         try {
             $result = DB::transaction(function () use ($event, $student) {
+                // Use the same row lock as the organizer's close action: no check-in can commit after close.
+                $locked = StudentEvent::whereKey($event->id)->lockForUpdate()->firstOrFail();
+                if ($locked->status !== 'published' || !$locked->check_in_enabled)
+                    throw ValidationException::withMessages(['event' => [__('student_events.window_closed')]]);
                 $attendance = StudentEventAttendance::where('student_event_id', $event->id)
                     ->where('student_id', $student->id)->lockForUpdate()->first();
                 if ($attendance && !$attendance->voided_at) return [$attendance, true];
@@ -154,6 +154,8 @@ class PublicStudentEventController extends Controller
         $event = StudentEvent::find($saved['event_id'] ?? 0);
         if (!$event || $event->status !== 'published')
             throw ValidationException::withMessages(['intent' => [__('student_events.invalid_intent')]]);
+        if (!$event->check_in_enabled)
+            throw ValidationException::withMessages(['event' => [__('student_events.window_closed')]]);
         return $event;
     }
 

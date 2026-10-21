@@ -82,6 +82,7 @@ class RolePermissionSeeder extends Seeder
             'student_events.view',
             'student_events.manage',
             'student_events.attendance.manage',
+            'student_events.delete',
         ];
 
         foreach ($bootstrapGrants as $code) {

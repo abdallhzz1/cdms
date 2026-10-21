@@ -139,6 +139,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   'student_events.view': 'عرض فعاليات الطلبة وكشوفها',
   'student_events.manage': 'إضافة وتعديل ونشر وأرشفة فعاليات الطلبة',
   'student_events.attendance.manage': 'عرض الباركود وتصحيح حضور الفعاليات',
+  'student_events.delete': 'حذف أي فعالية وكشف حضورها نهائيًا',
   'university_lectures.delete_with_attendance': 'حذف محاضرة الجامعة وكشوف حضورها نهائيًا (للمساعد الإداري فقط)',
   'assessment.view': 'عرض بوابة التقييم السريري',
   'assessment.review': 'عرض شاشة مراجعة التقييمات السريرية',

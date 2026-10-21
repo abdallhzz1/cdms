@@ -33,7 +33,7 @@ class StudentEventQrService
         $event = StudentEvent::where('public_id', $claims['event'])->first();
         if (!$event || $event->status !== 'published')
             throw ValidationException::withMessages(['qr_token' => [__('student_events.unavailable')]]);
-        if (!now()->betweenIncluded($event->check_in_opens_at, $event->check_in_closes_at))
+        if (!$event->check_in_enabled)
             throw ValidationException::withMessages(['qr_token' => [__('student_events.window_closed')]]);
         return $event;
     }

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import QRCode from 'qrcode';
-import { CalendarDays, CheckCircle2, ClipboardList, MapPin, Pencil, Plus, QrCode, Search, X } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ClipboardList, MapPin, Pencil, Plus, QrCode, Search, Trash2, X } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
@@ -12,16 +12,16 @@ type EventType = 'conference' | 'seminar' | 'lecture';
 type EventStatus = 'draft' | 'published' | 'archived';
 type StudentEvent = { id: number; public_id: string; type: EventType; title_ar: string; title_en: string;
   description_ar: string | null; description_en: string | null; location_ar: string; location_en: string;
-  starts_at: string; ends_at: string; check_in_opens_at: string; check_in_closes_at: string;
+  starts_at: string; ends_at: string; check_in_enabled: boolean;
   eligible_levels: Level[]; status: EventStatus; attendance_count: number };
 type Page<T> = { data: T[]; current_page: number; last_page: number; total: number };
 type Attendance = { id: number; checked_in_at: string; source: 'qr' | 'manual';
   student: { university_number: string; full_name_ar: string; full_name_en: string | null; academic_level: Level } };
 type EventForm = Pick<StudentEvent, 'type' | 'title_ar' | 'title_en' | 'description_ar' | 'description_en' | 'location_ar' | 'location_en' | 'eligible_levels'> &
-  { starts_at: string; ends_at: string; check_in_opens_at: string; check_in_closes_at: string };
+  { starts_at: string; ends_at: string };
 
 const blank: EventForm = { type: 'lecture', title_ar: '', title_en: '', description_ar: '', description_en: '',
-  location_ar: '', location_en: '', starts_at: '', ends_at: '', check_in_opens_at: '', check_in_closes_at: '',
+  location_ar: '', location_en: '', starts_at: '', ends_at: '',
   eligible_levels: ['fourth', 'fifth', 'sixth'] };
 const toInput = (value: string) => new Date(value).toLocaleString('sv-SE', { timeZone: 'Asia/Hebron', hour12: false }).replace(' ', 'T').slice(0, 16);
 const toServer = (value: string) => value.replace('T', ' ') + ':00';
@@ -34,6 +34,9 @@ export function StudentEventsPage() {
   const [editing, setEditing] = useState<StudentEvent | null | 'new'>(null);
   const [form, setForm] = useState<EventForm>(blank);
   const [selected, setSelected] = useState<StudentEvent | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<StudentEvent | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
   const [rosterPage, setRosterPage] = useState(1);
   const [showQr, setShowQr] = useState(false); const [qrImage, setQrImage] = useState('');
   const [qrError, setQrError] = useState(''); const [qrExpiry, setQrExpiry] = useState('');
@@ -61,14 +64,12 @@ export function StudentEventsPage() {
     setForm(event ? { type: event.type, title_ar: event.title_ar, title_en: event.title_en,
       description_ar: event.description_ar || '', description_en: event.description_en || '',
       location_ar: event.location_ar, location_en: event.location_en, starts_at: toInput(event.starts_at),
-      ends_at: toInput(event.ends_at), check_in_opens_at: toInput(event.check_in_opens_at),
-      check_in_closes_at: toInput(event.check_in_closes_at), eligible_levels: event.eligible_levels } : { ...blank, eligible_levels: [...blank.eligible_levels] });
+      ends_at: toInput(event.ends_at), eligible_levels: event.eligible_levels } : { ...blank, eligible_levels: [...blank.eligible_levels] });
     setEditing(event ?? 'new'); setError('');
   };
   const save = async (e: FormEvent) => {
     e.preventDefault();
-    const payload = { ...form, starts_at: toServer(form.starts_at), ends_at: toServer(form.ends_at),
-      check_in_opens_at: toServer(form.check_in_opens_at), check_in_closes_at: toServer(form.check_in_closes_at) };
+    const payload = { ...form, starts_at: toServer(form.starts_at), ends_at: toServer(form.ends_at) };
     const ok = await run(() => apiFetch(`/student-events${editing && editing !== 'new' ? `/${editing.id}` : ''}`,
       { method: editing === 'new' ? 'POST' : 'PUT', body: payload }), tr('تم حفظ الفعالية.', 'Event saved.'));
     if (ok) { if (editing === 'new') setScope('draft'); setEditing(null); }
@@ -80,10 +81,23 @@ export function StudentEventsPage() {
       status === 'published' ? tr('تم نشر الفعالية.', 'Event published.') : tr('تم تحديث حالة الفعالية.', 'Event status updated.'));
     if (ok) { setSelected(null); setShowQr(false); }
   };
-  const deleteDraft = async (event: StudentEvent) => {
-    if (!window.confirm(tr('حذف المسودة غير المنشورة نهائيًا؟', 'Permanently delete this unpublished draft?'))) return;
-    const ok = await run(() => apiFetch(`/student-events/${event.id}`, { method: 'DELETE' }), tr('حُذفت المسودة.', 'Draft deleted.'));
-    if (ok) setSelected(null);
+  const toggleCheckIn = async (event: StudentEvent) => {
+    const enabled = !event.check_in_enabled;
+    await run(async () => {
+      const updated = await apiFetch<StudentEvent>(`/student-events/${event.id}/check-in`,
+        { method: 'POST', body: { enabled } });
+      setSelected({ ...event, ...updated });
+      setQrImage(''); setQrExpiry(''); setQrError('');
+    }, enabled ? tr('فُتح تسجيل الحضور وظهر الباركود.', 'Check-in is open and the QR is visible.')
+      : tr('أُغلق تسجيل الحضور وتوقف الباركود.', 'Check-in is closed and the QR is disabled.'));
+  };
+  const confirmDelete = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!deleteTarget || deleteConfirmation !== title(deleteTarget) || deleteReason.trim().length < 10) return;
+    const ok = await run(() => apiFetch(`/student-events/${deleteTarget.id}`, { method: 'DELETE',
+      body: { confirmation: deleteConfirmation, reason: deleteReason.trim() } }),
+      tr('حُذفت الفعالية وكشف حضورها نهائيًا.', 'The event and its register were permanently deleted.'));
+    if (ok) { setDeleteTarget(null); setDeleteConfirmation(''); setDeleteReason(''); }
   };
   const exportRoster = async (event: StudentEvent) => {
     setBusy(true); setError('');
@@ -110,7 +124,7 @@ export function StudentEventsPage() {
     finally { setBusy(false); }
   };
   useEffect(() => {
-    if (!showQr || !selected) return;
+    if (!showQr || !selected?.check_in_enabled) return;
     let stopped = false;
     const refreshQr = async () => {
       try {
@@ -118,11 +132,19 @@ export function StudentEventsPage() {
         const link = `${window.location.origin}/event-check-in?qr=${encodeURIComponent(result.token)}`;
         const image = await QRCode.toDataURL(link, { width: 440, margin: 2, color: { dark: '#164e53', light: '#ffffff' } });
         if (!stopped) { setQrImage(image); setQrExpiry(result.expires_at); setQrError(''); }
-      } catch (exception) { if (!stopped) { setQrImage(''); setQrError(exception instanceof Error ? exception.message : tr('تعذر عرض الرمز.', 'Could not display the code.')); } }
+      } catch (exception) {
+        if (stopped) return;
+        setQrImage('');
+        setQrError(exception instanceof Error ? exception.message : tr('تعذر عرض الرمز.', 'Could not display the code.'));
+        try {
+          const latest = await apiFetch<StudentEvent>(`/student-events/${selected.id}`);
+          if (!stopped && !latest.check_in_enabled) setSelected(current => current?.id === latest.id ? { ...current, ...latest } : current);
+        } catch { /* Keep the error visible if the event or connection is unavailable. */ }
+      }
     };
     void refreshQr(); const timer = window.setInterval(refreshQr, 15_000);
     return () => { stopped = true; window.clearInterval(timer); };
-  }, [showQr, selected?.id]);
+  }, [showQr, selected?.id, selected?.check_in_enabled]);
 
   const field = 'mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100';
   const pill = 'rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:bg-teal-50';
@@ -150,7 +172,8 @@ export function StudentEventsPage() {
       <div className="grid gap-3 lg:grid-cols-2">{list.data.data.map(event => <article key={event.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-teal-200 sm:p-5">
         <div className="flex items-start justify-between gap-3"><div className="min-w-0"><span className="text-xs font-bold text-teal-700">{typeLabel(event.type)} · {event.eligible_levels.map(levelLabel).join(ar ? '، ' : ', ')}</span><h2 className="mt-2 text-lg font-black leading-7">{title(event)}</h2></div>
           <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${event.status === 'published' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>{event.status === 'published' ? tr('منشورة','Published') : event.status === 'archived' ? tr('مؤرشفة','Archived') : tr('مسودة','Draft')}</span></div>
-        <div className="mt-4 space-y-2 text-xs text-slate-600"><p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-slate-400"/>{date(event.starts_at)}</p><p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-slate-400"/>{location(event)}</p></div>
+        <div className="mt-4 space-y-2 text-xs text-slate-600"><p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-slate-400"/>{date(event.starts_at)}</p><p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-slate-400"/>{location(event)}</p>
+          {event.status === 'published' && <p className={`font-bold ${event.check_in_enabled ? 'text-emerald-700' : 'text-amber-700'}`}>{event.check_in_enabled ? tr('الحضور مفتوح الآن','Check-in open now') : tr('الحضور مغلق','Check-in closed')}</p>}</div>
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4"><button onClick={() => { setSelected(event); setShowQr(false); setRosterPage(1); setError(''); }} className={pill}><ClipboardList className="me-1 inline h-4 w-4"/>{tr('الكشف','Register')} · {event.attendance_count}</button>
           {can('student_events.attendance.manage') && event.status === 'published' && <button onClick={() => { setSelected(event); setShowQr(true); setRosterPage(1); setError(''); }} className={pill}><QrCode className="me-1 inline h-4 w-4"/>{tr('رمز الحضور','Check-in QR')}</button>}
           {can('student_events.manage') && event.status !== 'archived' && <button onClick={() => edit(event)} className={pill}><Pencil className="me-1 inline h-4 w-4"/>{tr('تعديل','Edit')}</button>}
@@ -165,16 +188,11 @@ export function StudentEventsPage() {
         <div className="grid gap-3 sm:grid-cols-2"><label>{tr('المكان بالعربية','Arabic location')}<input required value={form.location_ar} onChange={e => setForm({ ...form, location_ar: e.target.value })} className={field}/></label><label>{tr('المكان بالإنجليزية','English location')}<input required dir="ltr" value={form.location_en} onChange={e => setForm({ ...form, location_en: e.target.value })} className={field}/></label></div>
         <div className="grid gap-3 sm:grid-cols-2"><label>{tr('البداية','Starts')}<input required type="datetime-local" value={form.starts_at} onChange={e => {
           const start = e.target.value; const end = start ? new Date(new Date(start).getTime()+60*60*1000).toLocaleString('sv-SE').replace(' ','T').slice(0,16) : '';
-          const nextEnd = form.ends_at || end;
-          setForm({ ...form, starts_at: start, ends_at: nextEnd,
-            check_in_opens_at: !form.check_in_opens_at || form.check_in_opens_at === form.starts_at ? start : form.check_in_opens_at,
-            check_in_closes_at: !form.check_in_closes_at || form.check_in_closes_at === form.ends_at ? nextEnd : form.check_in_closes_at }); }} className={field}/></label>
-          <label>{tr('النهاية','Ends')}<input required type="datetime-local" value={form.ends_at} onChange={e => setForm({ ...form, ends_at: e.target.value,
-            check_in_closes_at: form.check_in_closes_at === form.ends_at ? e.target.value : form.check_in_closes_at })} className={field}/></label></div>
+          setForm({ ...form, starts_at: start, ends_at: form.ends_at || end }); }} className={field}/></label>
+          <label>{tr('النهاية','Ends')}<input required type="datetime-local" value={form.ends_at} onChange={e => setForm({ ...form, ends_at: e.target.value })} className={field}/></label></div>
         <fieldset><legend className="mb-2 font-semibold">{tr('السنوات المشاركة','Eligible years')}</legend><div className="flex flex-wrap gap-2">{(['fourth','fifth','sixth'] as Level[]).map(level => <label key={level} className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 px-3 py-2"><input type="checkbox" checked={form.eligible_levels.includes(level)} onChange={e => setForm({ ...form, eligible_levels: e.target.checked ? [...form.eligible_levels, level] : form.eligible_levels.filter(item => item !== level) })}/>{levelLabel(level)}</label>)}</div></fieldset>
-        <details className="rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer font-semibold text-slate-700">{tr('تفاصيل إضافية ونافذة الحضور','Additional details and check-in window')}</summary><div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <label>{tr('يفتح الحضور','Check-in opens')}<input required type="datetime-local" value={form.check_in_opens_at} onChange={e => setForm({ ...form, check_in_opens_at: e.target.value })} className={field}/></label>
-          <label>{tr('يغلق الحضور','Check-in closes')}<input required type="datetime-local" value={form.check_in_closes_at} onChange={e => setForm({ ...form, check_in_closes_at: e.target.value })} className={field}/></label>
+        <p className="rounded-xl bg-teal-50 p-3 text-xs text-teal-900">{tr('بعد النشر يبقى الحضور مغلقًا حتى تفتحه يدويًا من رمز الحضور، ويمكنك إغلاقه في أي وقت.', 'Publishing keeps check-in closed. Open it manually from the QR tab and close it whenever needed.')}</p>
+        <details className="rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer font-semibold text-slate-700">{tr('وصف اختياري','Optional description')}</summary><div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label>{tr('وصف عربي اختياري','Optional Arabic description')}<textarea value={form.description_ar || ''} onChange={e => setForm({ ...form, description_ar: e.target.value })} className={field}/></label>
           <label>{tr('وصف إنجليزي اختياري','Optional English description')}<textarea dir="ltr" value={form.description_en || ''} onChange={e => setForm({ ...form, description_en: e.target.value })} className={field}/></label></div></details>
         {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
@@ -187,11 +205,15 @@ export function StudentEventsPage() {
         <div className="flex flex-wrap gap-2"><button onClick={() => setShowQr(false)} className={`${pill} ${!showQr ? 'border-teal-500 bg-teal-50 text-teal-800' : ''}`}>{tr('كشف الحضور','Attendance register')}</button>
           {can('student_events.attendance.manage') && selected.status === 'published' && <button onClick={() => setShowQr(true)} className={`${pill} ${showQr ? 'border-teal-500 bg-teal-50 text-teal-800' : ''}`}>{tr('رمز الحضور','Check-in QR')}</button>}
           {can('student_events.manage') && selected.status === 'draft' && <button disabled={busy} onClick={() => void changeStatus(selected, 'published')} className={pill}>{tr('نشر الفعالية','Publish event')}</button>}
-          {can('student_events.manage') && selected.status === 'draft' && <button disabled={busy} onClick={() => void deleteDraft(selected)} className={`${pill} text-rose-700`}>{tr('حذف المسودة','Delete draft')}</button>}
-          {can('student_events.manage') && selected.status === 'published' && <button disabled={busy} onClick={() => void changeStatus(selected, 'archived')} className={pill}>{tr('أرشفة','Archive')}</button>}</div>
-        {showQr ? <div className="rounded-2xl bg-teal-50 p-5 text-center"><p className="font-bold text-teal-900">{tr('امسح الرمز لتسجيل حضور هذه الفعالية','Scan to check in to this event')}</p>
-          {qrImage ? <img src={qrImage} alt={tr('رمز الحضور المتجدد','Rotating check-in QR code')} className="mx-auto my-4 w-56 rounded-2xl bg-white p-3 shadow-sm sm:w-72"/> : <p className="my-8 text-rose-700">{qrError || tr('جارٍ تجهيز الرمز…','Preparing QR code…')}</p>}
-          <p className="text-xs text-teal-800">{tr('يتجدد الرمز تلقائيًا. لا تشارك صورته أو رابطه.','The code refreshes automatically. Do not share its image or link.')}</p><small className="mt-2 block text-teal-700">{qrExpiry ? tr('آخر تحديث للرمز', 'Code expires') + ': ' + new Date(qrExpiry).toLocaleTimeString(ar ? 'ar-PS' : 'en-GB') : ''}</small></div> : <>
+          {can('student_events.manage') && selected.status === 'published' && <button disabled={busy} onClick={() => void changeStatus(selected, 'archived')} className={pill}>{tr('أرشفة','Archive')}</button>}
+          {can('student_events.delete') && <button disabled={busy} onClick={() => { setDeleteTarget(selected); setSelected(null); setShowQr(false); setDeleteConfirmation(''); setDeleteReason(''); }} className={`${pill} inline-flex items-center gap-1 text-rose-700`}><Trash2 className="h-4 w-4"/>{tr('حذف نهائي','Delete permanently')}</button>}</div>
+        {showQr ? <div className="rounded-2xl bg-teal-50 p-5 text-center">
+          <p className={`font-bold ${selected.check_in_enabled ? 'text-emerald-800' : 'text-slate-700'}`}>{selected.check_in_enabled ? tr('الحضور مفتوح الآن','Check-in is open now') : tr('الحضور مغلق الآن','Check-in is closed')}</p>
+          {can('student_events.attendance.manage') && <button type="button" disabled={busy} onClick={() => void toggleCheckIn(selected)} className={`mt-4 min-h-11 rounded-xl px-5 py-2.5 font-bold text-white disabled:opacity-50 ${selected.check_in_enabled ? 'bg-rose-700 hover:bg-rose-800' : 'bg-teal-700 hover:bg-teal-800'}`}>{selected.check_in_enabled ? tr('إغلاق الحضور وإيقاف الباركود','Close check-in and disable QR') : tr('فتح الحضور وإظهار الباركود','Open check-in and show QR')}</button>}
+          {selected.check_in_enabled ? <><p className="mt-5 font-bold text-teal-900">{tr('امسح الرمز لتسجيل حضور هذه الفعالية','Scan to check in to this event')}</p>
+            {qrImage ? <img src={qrImage} alt={tr('رمز الحضور المتجدد','Rotating check-in QR code')} className="mx-auto my-4 w-56 rounded-2xl bg-white p-3 shadow-sm sm:w-72"/> : <p className="my-8 text-rose-700">{qrError || tr('جارٍ تجهيز الرمز…','Preparing QR code…')}</p>}
+            <p className="text-xs text-teal-800">{tr('يتجدد الرمز تلقائيًا. لا تشارك صورته أو رابطه.','The code refreshes automatically. Do not share its image or link.')}</p><small className="mt-2 block text-teal-700">{qrExpiry ? tr('تنتهي صلاحية الرمز', 'Code expires') + ': ' + new Date(qrExpiry).toLocaleTimeString(ar ? 'ar-PS' : 'en-GB') : ''}</small></> :
+            <p className="mt-4 text-xs text-slate-600">{tr('النشر لا يفتح الحضور تلقائيًا. اضغط فتح الحضور عند جاهزيتك؛ لا يقيّده وقت الفعالية.', 'Publishing does not open check-in. Open it when you are ready; the event schedule does not restrict it.')}</p>}</div> : <>
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-3 font-bold"><span>{tr('الحضور المسجل','Recorded attendance')} · {roster.data?.total ?? selected.attendance_count}</span><button disabled={busy} onClick={() => void exportRoster(selected)} className={pill}>{tr('تصدير الكشف CSV','Export CSV')}</button></div>
           {can('student_events.attendance.manage') && <form onSubmit={async e => { e.preventDefault(); const ok = await run(() => apiFetch(`/student-events/${selected.id}/attendance`, { method: 'POST', body: { university_number: manualNumber, reason } }), tr('تم إضافة الحضور.', 'Attendance added.')); if (ok) { setManualNumber(''); setReason(''); } }} className="grid gap-2 rounded-xl border border-slate-200 p-3 sm:grid-cols-[1fr_2fr_auto]">
             <input required value={manualNumber} onChange={e => setManualNumber(e.target.value.replace(/\D/g,''))} placeholder={tr('الرقم الجامعي','University number')} aria-label={tr('الرقم الجامعي','University number')} className={field}/>
@@ -204,6 +226,22 @@ export function StudentEventsPage() {
         </>}
         {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-rose-700">{error}</p>}{notice && <p role="status" className="flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-emerald-800"><CheckCircle2 className="h-4 w-4"/>{notice}</p>}
       </div>}
+    </Modal>
+    <Modal isOpen={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} title={tr('حذف الفعالية نهائيًا','Permanently delete event')} maxWidth="lg">
+      {deleteTarget && <form onSubmit={confirmDelete} className="space-y-4 text-sm">
+        <p className="rounded-xl border border-rose-200 bg-rose-50 p-4 leading-6 text-rose-900">{tr(
+          'سيُحذف سجل الفعالية وكشف حضورها بالكامل، سواء كانت مسودة أو منشورة أو مؤرشفة. لا يمكن التراجع عن هذا الإجراء.',
+          'The event and its entire attendance register will be deleted, whether draft, published or archived. This cannot be undone.')}</p>
+        <p className="font-bold">{title(deleteTarget)} · {tr('الحضور المسجل','Recorded attendance')}: {deleteTarget.attendance_count}</p>
+        <label className="block font-semibold">{tr('اكتب عنوان الفعالية للتأكيد','Type the event title to confirm')}
+          <input required value={deleteConfirmation} onChange={e => setDeleteConfirmation(e.target.value)} className={field}/></label>
+        <label className="block font-semibold">{tr('سبب الحذف الإداري (10 أحرف على الأقل)','Administrative reason (at least 10 characters)')}
+          <textarea required minLength={10} maxLength={1000} value={deleteReason} onChange={e => setDeleteReason(e.target.value)} className={field}/></label>
+        {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-rose-700">{error}</p>}
+        <div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setDeleteTarget(null)} className={pill}>{tr('إلغاء','Cancel')}</button>
+          <button disabled={busy || deleteConfirmation !== title(deleteTarget) || deleteReason.trim().length < 10}
+            className="rounded-xl bg-rose-700 px-5 py-2.5 font-bold text-white disabled:opacity-40">{tr('حذف الفعالية وكشفها نهائيًا','Delete event and register permanently')}</button></div>
+      </form>}
     </Modal>
   </main>;
 }

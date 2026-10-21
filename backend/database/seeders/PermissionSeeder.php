@@ -105,6 +105,7 @@ class PermissionSeeder extends Seeder
             ['code' => 'student_events.view', 'module' => 'StudentEvents', 'action' => 'view', 'description_key' => 'permissions.student_events_view.description'],
             ['code' => 'student_events.manage', 'module' => 'StudentEvents', 'action' => 'manage', 'description_key' => 'permissions.student_events_manage.description'],
             ['code' => 'student_events.attendance.manage', 'module' => 'StudentEvents', 'action' => 'attendance_manage', 'description_key' => 'permissions.student_events_attendance_manage.description'],
+            ['code' => 'student_events.delete', 'module' => 'StudentEvents', 'action' => 'delete', 'description_key' => 'permissions.student_events_delete.description'],
         ];
 
         foreach ($permissions as $permission) {

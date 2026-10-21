@@ -4,7 +4,7 @@ return [
     'invalid_qr' => 'Invalid attendance code. Scan the code displayed for this event.',
     'expired_qr' => 'This code expired. Scan the refreshed code on the screen.',
     'unavailable' => 'This event is unavailable for check-in.',
-    'window_closed' => 'Check-in is not open for this event right now.',
+    'window_closed' => 'The organizer has closed check-in for this event. Please ask them to reopen it.',
     'identity_required' => 'Verify your identity with your university email first.',
     'ineligible' => 'This event is not open to your academic year.',
     'student_missing' => 'We could not verify this student. Check your university number and registration status.',
@@ -17,5 +17,5 @@ return [
     'already_recorded' => 'Your attendance was already recorded for this event.',
     'invalid_intent' => 'The scan session expired. Scan the new event code.',
     'immutable_roster' => 'Date, time and eligible years cannot change after attendance is recorded. You may edit the title and location.',
-    'only_empty_draft_delete' => 'Only an empty draft can be permanently deleted. Archive a published event to retain its register.',
+    'delete_confirmation' => 'Type the event title exactly to confirm permanent deletion.',
 ];

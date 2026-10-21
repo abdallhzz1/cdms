@@ -45,7 +45,6 @@ class StudentEventsTest extends TestCase
         return ['type' => 'seminar', 'title_ar' => 'ندوة طبية', 'title_en' => 'Medical Seminar',
             'location_ar' => 'قاعة الكلية', 'location_en' => 'Faculty Hall',
             'starts_at' => '2026-10-21 11:00:00', 'ends_at' => '2026-10-21 13:00:00',
-            'check_in_opens_at' => '2026-10-21 10:30:00', 'check_in_closes_at' => '2026-10-21 13:30:00',
             'eligible_levels' => ['fourth', 'fifth']];
     }
 
@@ -54,6 +53,7 @@ class StudentEventsTest extends TestCase
         $id = $this->actingAs($this->admin())->postJson('/api/v1/student-events', $this->payload())
             ->assertCreated()->json('data.id');
         $this->postJson("/api/v1/student-events/$id/status", ['status' => 'published'])->assertOk();
+        $this->postJson("/api/v1/student-events/$id/check-in", ['enabled' => true])->assertOk();
         return StudentEvent::findOrFail($id);
     }
 
@@ -126,7 +126,7 @@ class StudentEventsTest extends TestCase
         $this->getJson("/api/v1/student-events/{$event->id}/qr")->assertUnprocessable();
     }
 
-    public function test_attended_event_cannot_change_schedule_or_eligibility_and_only_empty_drafts_can_be_deleted(): void
+    public function test_attended_event_cannot_change_schedule_and_delete_requires_reason_and_exact_title(): void
     {
         $event = $this->published();
         $student = Student::factory()->forLevel('fourth')->create();
@@ -137,10 +137,21 @@ class StudentEventsTest extends TestCase
         $changed['eligible_levels'] = ['sixth'];
         $this->putJson("/api/v1/student-events/{$event->id}", $changed)->assertUnprocessable();
         $this->deleteJson("/api/v1/student-events/{$event->id}")->assertUnprocessable();
+        $this->deleteJson("/api/v1/student-events/{$event->id}", [
+            'confirmation' => 'wrong title', 'reason' => 'Administrative correction',
+        ])->assertUnprocessable();
         $draftId = $this->postJson('/api/v1/student-events', $this->payload())->assertCreated()->json('data.id');
-        $this->deleteJson("/api/v1/student-events/$draftId")->assertOk();
+        $this->deleteJson("/api/v1/student-events/$draftId", [
+            'confirmation' => 'ندوة طبية', 'reason' => 'Duplicated draft created by mistake',
+        ])->assertOk();
         $this->assertDatabaseMissing('student_events', ['id' => $draftId]);
-        $this->assertDatabaseHas('student_event_attendances', ['student_event_id' => $event->id, 'student_id' => $student->id]);
+        $this->deleteJson("/api/v1/student-events/{$event->id}", [
+            'confirmation' => 'ندوة طبية', 'reason' => 'This published event was entered twice',
+        ])->assertOk();
+        $this->assertDatabaseMissing('student_events', ['id' => $event->id]);
+        $this->assertDatabaseMissing('student_event_attendances', ['student_event_id' => $event->id]);
+        $audit = AuditLog::where('action', 'student_event.deleted')->where('entity_id', $event->id)->firstOrFail();
+        $this->assertSame($student->id, $audit->changes['attendance_snapshot'][0]['student_id']);
     }
 
     public function test_view_permission_does_not_allow_management_or_attendance_corrections(): void
@@ -155,8 +166,76 @@ class StudentEventsTest extends TestCase
         $this->actingAs($viewer)->getJson('/api/v1/student-events')->assertOk();
         $this->postJson('/api/v1/student-events', $this->payload())->assertForbidden();
         $this->getJson("/api/v1/student-events/{$event->id}/qr")->assertForbidden();
+        $this->postJson("/api/v1/student-events/{$event->id}/check-in", ['enabled' => false])->assertForbidden();
+        $this->deleteJson("/api/v1/student-events/{$event->id}", [
+            'confirmation' => 'ندوة طبية', 'reason' => 'No delete permission assigned',
+        ])->assertForbidden();
         $this->postJson("/api/v1/student-events/{$event->id}/attendance", [
             'university_number' => '22000001', 'reason' => 'تصحيح إداري موثق',
         ])->assertForbidden();
+    }
+
+    public function test_publishing_stays_closed_and_authorized_organizer_controls_qr_outside_schedule(): void
+    {
+        $admin = $this->admin();
+        $id = $this->actingAs($admin)->postJson('/api/v1/student-events', $this->payload())
+            ->assertCreated()->json('data.id');
+        $this->postJson("/api/v1/student-events/$id/status", ['status' => 'published'])->assertOk()
+            ->assertJsonPath('data.check_in_enabled', false);
+        $this->getJson("/api/v1/student-events/$id/qr")->assertUnprocessable();
+        Carbon::setTestNow('2026-10-22 09:00:00');
+        $this->postJson("/api/v1/student-events/$id/check-in", ['enabled' => true])->assertOk()
+            ->assertJsonPath('data.check_in_enabled', true);
+        $token = $this->getJson("/api/v1/student-events/$id/qr")->assertOk()->json('data.token');
+        $begin = $this->postJson('/api/v1/public/student-events/begin', ['qr_token' => $token])->assertOk();
+        $this->postJson("/api/v1/student-events/$id/check-in", ['enabled' => false])->assertOk()
+            ->assertJsonPath('data.check_in_enabled', false);
+        $this->getJson("/api/v1/student-events/$id/qr")->assertUnprocessable();
+        $this->postJson('/api/v1/public/student-events/begin', ['qr_token' => $token])->assertUnprocessable();
+        $this->withCredentials()->withUnencryptedCookie('cdms_student_event_scan', $begin->headers->getCookies()[0]->getValue());
+        $this->postJson('/api/v1/public/student-events/request-otp', [
+            'intent' => $begin->json('data.intent'), 'university_number' => '22000001',
+        ])->assertUnprocessable();
+        $this->postJson('/api/v1/public/student-events/check-in', [
+            'intent' => $begin->json('data.intent'),
+        ])->assertUnprocessable();
+        $this->assertDatabaseHas('audit_logs', ['action' => 'student_event.check_in_closed', 'entity_id' => $id]);
+    }
+
+    public function test_archived_event_with_attendance_can_be_deleted_by_delete_permission(): void
+    {
+        $event = $this->published();
+        $student = Student::factory()->forLevel('fourth')->create();
+        $this->postJson("/api/v1/student-events/{$event->id}/attendance", [
+            'university_number' => $student->university_number, 'reason' => 'Administrative attendance correction',
+        ])->assertOk();
+        $this->postJson("/api/v1/student-events/{$event->id}/status", [
+            'status' => 'archived', 'reason' => 'This event has ended and is archived',
+        ])->assertOk()->assertJsonPath('data.check_in_enabled', false);
+        $this->deleteJson("/api/v1/student-events/{$event->id}", [
+            'confirmation' => $event->title_en, 'reason' => 'Administrative permanent deletion requested',
+        ])->assertOk();
+        $this->assertDatabaseMissing('student_events', ['id' => $event->id]);
+        $this->assertDatabaseMissing('student_event_attendances', ['student_event_id' => $event->id]);
+    }
+
+    public function test_management_permission_alone_cannot_delete_but_matrix_delete_grant_can(): void
+    {
+        $event = $this->published();
+        $role = Role::where('code', 'ADMIN_ASSISTANT')->firstOrFail();
+        foreach (['student_events.view', 'student_events.manage'] as $code) {
+            $role->permissions()->syncWithoutDetaching([
+                Permission::where('code', $code)->firstOrFail()->id => ['scope_type' => 'global'],
+            ]);
+        }
+        $assistant = User::factory()->create();
+        $assistant->roles()->attach($role);
+        $payload = ['confirmation' => $event->title_ar, 'reason' => 'Administrative record cleanup'];
+        $this->actingAs($assistant)->deleteJson("/api/v1/student-events/{$event->id}", $payload)->assertForbidden();
+        $role->permissions()->syncWithoutDetaching([
+            Permission::where('code', 'student_events.delete')->firstOrFail()->id => ['scope_type' => 'global'],
+        ]);
+        $this->deleteJson("/api/v1/student-events/{$event->id}", $payload)->assertOk();
+        $this->assertDatabaseMissing('student_events', ['id' => $event->id]);
     }
 }

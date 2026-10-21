@@ -182,9 +182,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('{event}', [StudentEventController::class, 'show'])->whereNumber('event');
             Route::get('{event}/attendance', [StudentEventController::class, 'attendance'])->whereNumber('event');
             Route::get('{event}/qr', [StudentEventController::class, 'qr'])->whereNumber('event')->middleware('permission:student_events.attendance.manage');
+            Route::post('{event}/check-in', [StudentEventController::class, 'toggleCheckIn'])->whereNumber('event')->middleware('permission:student_events.attendance.manage');
             Route::post('/', [StudentEventController::class, 'store'])->middleware('permission:student_events.manage');
             Route::put('{event}', [StudentEventController::class, 'update'])->whereNumber('event')->middleware('permission:student_events.manage');
-            Route::delete('{event}', [StudentEventController::class, 'destroy'])->whereNumber('event')->middleware('permission:student_events.manage');
+            Route::delete('{event}', [StudentEventController::class, 'destroy'])->whereNumber('event')->middleware('permission:student_events.delete');
             Route::post('{event}/status', [StudentEventController::class, 'status'])->whereNumber('event')->middleware('permission:student_events.manage');
             Route::post('{event}/attendance', [StudentEventController::class, 'recordAttendance'])->whereNumber('event')->middleware('permission:student_events.attendance.manage');
             Route::post('{event}/attendance/{attendance}/void', [StudentEventController::class, 'voidAttendance'])
