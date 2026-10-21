@@ -88,6 +88,8 @@ import { StudentPoliciesPage } from '@/pages/StudentPoliciesPage';
 import { StudentPolicyCampaignPage } from '@/pages/StudentPolicyCampaignPage';
 import { PublicStudentPolicyPage } from '@/pages/public/PublicStudentPolicyPage';
 import { PublicClinicalAttendancePage } from '@/pages/public/PublicClinicalAttendancePage';
+import { StudentEventsPage } from '@/pages/StudentEventsPage';
+import { PublicStudentEventCheckInPage } from '@/pages/public/PublicStudentEventCheckInPage';
 
 function SurveyTabRedirect({ tab }: { tab: 'responses' | 'participation' }) {
   const { id } = useParams();
@@ -110,6 +112,7 @@ export function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/lecture-attendance" element={<PublicLectureAttendancePage />} />
+      <Route path="/event-check-in" element={<PublicStudentEventCheckInPage />} />
       <Route path="/public/student-registration" element={<PublicStudentRegistrationPage />} />
       <Route path="/survey/:publicId" element={<PublicQualitySurveyPage />} />
       <Route path="/shared/meeting-repositories/:token" element={<PublicMeetingRepositoryPage />} />
@@ -149,6 +152,7 @@ export function App() {
                 
                 {/* Students & Staff */}
                 <Route path="/directory" element={<DirectoryPage kind="students" />} />
+                <Route path="/events" element={<ProtectedRoute requiredPermission="student_events.view"><StudentEventsPage /></ProtectedRoute>} />
                 <Route path="/students/:id" element={<StudentProfilePage />} />
                 <Route path="/students/groups" element={<StudentGroupsPage />} />
                 <Route path="/student-policies" element={<ProtectedRoute requiredAnyPermission={['student_policies.view','student_policies.manage']}><StudentPoliciesPage /></ProtectedRoute>} />

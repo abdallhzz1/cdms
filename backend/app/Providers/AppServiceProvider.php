@@ -102,6 +102,22 @@ class AppServiceProvider extends ServiceProvider
             return $limits;
         });
         RateLimiter::for('student-otp-verify', fn (Request $request) => Limit::perMinute(10)->by('otp-verify:'.$request->ip()));
+        // Event halls often have hundreds of students behind the same campus NAT.
+        // Rate-limit the identity/challenge, not the shared network address.
+        RateLimiter::for('student-event-otp-request', fn (Request $request) => [
+            Limit::perMinute(1000)->by('event-otp-ip:'.$request->ip()),
+            Limit::perHour(10)->by('event-otp-student:'.hash('sha256', (string) $request->input('university_number'))),
+        ]);
+        RateLimiter::for('student-event-otp-verify', fn (Request $request) => [
+            Limit::perMinute(1000)->by('event-verify-ip:'.$request->ip()),
+            Limit::perMinute(10)->by('event-verify-challenge:'.hash('sha256', (string) $request->input('challenge_token'))),
+        ]);
+        RateLimiter::for('student-event-scan', function (Request $request) {
+            $limits = [Limit::perMinute(3000)->by('event-scan-ip:'.$request->ip())];
+            $identity = (string) ($request->input('access_token') ?: $request->cookie(\App\Services\StudentPublicIdentityService::COOKIE));
+            if ($identity !== '') $limits[] = Limit::perMinute(20)->by('event-scan-device:'.hash('sha256', $identity));
+            return $limits;
+        });
         RateLimiter::for('clinical-attendance-scan', fn (Request $request) => [
             Limit::perMinute(30)->by('clinical-scan-ip:'.$request->ip()),
             Limit::perMinute(10)->by('clinical-scan-token:'.hash('sha256', (string) $request->input('access_token'))),

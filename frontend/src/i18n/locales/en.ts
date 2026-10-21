@@ -342,6 +342,9 @@ const en = {
     confidential_finance_manage: { description: 'Access and manage the confidential finance vault' },
     student_policies_view: { description: 'View student policies and acknowledgements' },
     student_policies_manage: { description: 'Manage student policies and acknowledgements' },
+    student_events_view: { description: 'View student events and attendance' },
+    student_events_manage: { description: 'Create, edit, publish and archive student events' },
+    student_events_attendance_manage: { description: 'Display check-in QR and correct event attendance' },
   },
 };
 

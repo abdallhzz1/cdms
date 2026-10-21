@@ -56,6 +56,7 @@ use App\Http\Controllers\Api\V1\PublicProfileImageController;
 use App\Http\Controllers\Api\V1\PublicStudentScheduleController;
 use App\Http\Controllers\Api\V1\PublicClinicalQrAttendanceController;
 use App\Http\Controllers\Api\V1\PublicStudentPolicyController;
+use App\Http\Controllers\Api\V1\PublicStudentEventController;
 use App\Http\Controllers\Api\V1\QualityImprovementController;
 use App\Http\Controllers\Api\V1\QualityOperationsController;
 use App\Http\Controllers\Api\V1\QualitySurveyController;
@@ -65,6 +66,7 @@ use App\Http\Controllers\Api\V1\RotationController;
 use App\Http\Controllers\Api\V1\SkillLogbookRequirementController;
 use App\Http\Controllers\Api\V1\StaffAllocationController;
 use App\Http\Controllers\Api\V1\StudentController;
+use App\Http\Controllers\Api\V1\StudentEventController;
 use App\Http\Controllers\Api\V1\StudentPolicyController;
 use App\Http\Controllers\Api\V1\StudentCourseEnrollmentController;
 use App\Http\Controllers\Api\V1\StudentGroupAssignmentController;
@@ -115,6 +117,13 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // Public Routes (No authentication required — for lobby displays & student self-lookup)
     // -------------------------------------------------------------------------
     Route::prefix('public')->name('public.')->group(function () {
+        Route::prefix('student-events')->group(function () {
+            Route::post('begin', [PublicStudentEventController::class, 'begin'])->middleware('throttle:student-event-scan');
+            Route::post('identity', [PublicStudentEventController::class, 'identity'])->middleware('throttle:operational-read');
+            Route::post('request-otp', [PublicStudentEventController::class, 'requestOtp'])->middleware('throttle:student-event-otp-request');
+            Route::post('verify-otp', [PublicStudentEventController::class, 'verifyOtp'])->middleware('throttle:student-event-otp-verify');
+            Route::post('check-in', [PublicStudentEventController::class, 'checkIn'])->middleware('throttle:student-event-scan');
+        });
         Route::get('basic-attendance/identity', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'identity'])->middleware('throttle:basic-student-read');
         Route::post('basic-attendance/prepare', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'prepare'])->middleware('throttle:basic-student-read');
         Route::post('basic-attendance/forget', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'forget'])->middleware('throttle:basic-student-read');
@@ -168,6 +177,19 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // All routes: auth:sanctum (authentication) + permission:<code> (authorization)
     // -------------------------------------------------------------------------
     Route::middleware('auth:sanctum')->group(function () {
+        Route::prefix('student-events')->middleware('permission:student_events.view')->group(function () {
+            Route::get('/', [StudentEventController::class, 'index']);
+            Route::get('{event}', [StudentEventController::class, 'show'])->whereNumber('event');
+            Route::get('{event}/attendance', [StudentEventController::class, 'attendance'])->whereNumber('event');
+            Route::get('{event}/qr', [StudentEventController::class, 'qr'])->whereNumber('event')->middleware('permission:student_events.attendance.manage');
+            Route::post('/', [StudentEventController::class, 'store'])->middleware('permission:student_events.manage');
+            Route::put('{event}', [StudentEventController::class, 'update'])->whereNumber('event')->middleware('permission:student_events.manage');
+            Route::delete('{event}', [StudentEventController::class, 'destroy'])->whereNumber('event')->middleware('permission:student_events.manage');
+            Route::post('{event}/status', [StudentEventController::class, 'status'])->whereNumber('event')->middleware('permission:student_events.manage');
+            Route::post('{event}/attendance', [StudentEventController::class, 'recordAttendance'])->whereNumber('event')->middleware('permission:student_events.attendance.manage');
+            Route::post('{event}/attendance/{attendance}/void', [StudentEventController::class, 'voidAttendance'])
+                ->whereNumber(['event', 'attendance'])->middleware('permission:student_events.attendance.manage');
+        });
         Route::prefix('basic-attendance')->middleware('permission:basic_attendance.view')->group(function () {
             $controller = \App\Http\Controllers\Api\V1\BasicAttendanceController::class;
             Route::get('sections', [$controller, 'sections']);

@@ -46,6 +46,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
       title: locale === 'ar' ? 'الدائرة الأساسية' : 'Basic Sciences',
       items: [
         { path: '/basic-attendance', label: locale === 'ar' ? 'مساقات الدائرة الأساسية' : 'Basic Sciences Courses', icon: BookOpen, permission: 'basic_attendance.view' },
+        { path: '/events', label: locale === 'ar' ? 'فعاليات الطلبة' : 'Student Events', icon: Calendar, permission: 'student_events.view' },
       ],
     };
     if (isBasicOnly) {
@@ -62,6 +63,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
             { path: '/supervisor/attendance', label: locale === 'ar' ? 'الحضور والغياب' : 'Attendance', icon: Clock, customCheck: () => can('supervisor.workspace.view') && can('attendance.record') },
             { path: '/supervisor/assessments', label: locale === 'ar' ? 'تقييمات الطلبة' : 'Student Assessments', icon: ClipboardCheck, customCheck: () => can('supervisor.workspace.view') && can('assessment.create') },
             { path: '/supervisor/osce', label: locale === 'ar' ? 'OSCE النهائي' : 'Final OSCE', icon: ClipboardCheck, customCheck: () => can('supervisor.workspace.view') && can('assessment.create') },
+            { path: '/events', label: locale === 'ar' ? 'فعاليات الطلبة' : 'Student Events', icon: Calendar, permission: 'student_events.view' },
             { path: '/advising', label: locale === 'ar' ? 'الإرشاد الأكاديمي' : 'Academic Advising', icon: GraduationCap, permission: 'advising.view' },
           ]
         },
@@ -84,6 +86,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
         items: [
           { path: '/', label: locale === 'ar' ? 'لوحة التحكم' : 'Dashboard', icon: LayoutDashboard },
           { path: '/directory', label: locale === 'ar' ? 'دليل الطلاب' : 'Students Directory', icon: Users, permission: 'students.view' },
+          { path: '/events', label: locale === 'ar' ? 'فعاليات الطلبة' : 'Student Events', icon: Calendar, permission: 'student_events.view' },
           { path: '/student-policies', label: locale === 'ar' ? 'سياسات وتعهدات الطلبة' : 'Student Policies', icon: ClipboardCheck, customCheck: () => can('student_policies.view') || can('student_policies.manage') },
           { path: '/distribution', label: locale === 'ar' ? 'التوزيع السريري' : 'Distribution', icon: Map, permission: 'distribution.view' },
           { path: '/distribution/groups', label: locale === 'ar' ? 'تسجيل مجموعات الطلبة' : 'Student Group Registration', icon: GraduationCap, permission: 'group_registration.view' },

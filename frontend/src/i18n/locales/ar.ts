@@ -331,6 +331,9 @@ const ar: typeof en = {
     confidential_finance_manage: { description: 'دخول وإدارة الخزنة المالية السرية' },
     student_policies_view: { description: 'عرض سياسات وتعهدات الطلبة' },
     student_policies_manage: { description: 'إدارة سياسات وتعهدات الطلبة' },
+    student_events_view: { description: 'عرض فعاليات الطلبة وكشوف حضورها' },
+    student_events_manage: { description: 'إضافة وتعديل ونشر وأرشفة فعاليات الطلبة' },
+    student_events_attendance_manage: { description: 'عرض رمز الحضور وتصحيح كشف الفعالية' },
   },
 };
 
