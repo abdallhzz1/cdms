@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { PublicStudentEventCheckInPage } from './PublicStudentEventCheckInPage';
@@ -17,7 +18,9 @@ it('automatically records a verified student after scanning an event code', asyn
     if (url.includes('/auth/me')) return envelope(null);
     if (url.includes('/student-events/begin')) return envelope({ intent: 'intent', event: {
       title_ar: 'ندوة طبية', title_en: 'Medical Seminar', location_ar: 'القاعة', location_en: 'Hall',
-      starts_at: '2026-10-21T08:00:00Z', ends_at: '2026-10-21T10:00:00Z', eligible_levels: ['fourth'], type: 'seminar' } });
+      starts_at: '2026-10-21T08:00:00Z', ends_at: '2026-10-21T10:00:00Z', eligible_levels: ['fourth'], type: 'seminar',
+      presenters: [{ name_ar: 'د. شذى ملحم', name_en: 'Dr. Shatha Melhem' }],
+      poster_url: '/api/v1/public/student-events/posters/event-1' } });
     if (url.includes('/student-events/identity')) return envelope({ university_number: '22000001' });
     if (url.includes('/student-events/check-in')) return envelope({ student_name: 'Test Student',
       checked_in_at: '2026-10-21T08:15:00Z', already_recorded: false });
@@ -27,6 +30,10 @@ it('automatically records a verified student after scanning an event code', asyn
     { route: '/event-check-in?qr=code' });
   expect(await screen.findByRole('heading', { name: 'Check-in complete' })).toBeVisible();
   expect(screen.getByText('Medical Seminar')).toBeVisible();
+  expect(screen.getByText('Speakers & presenters: Dr. Shatha Melhem')).toBeVisible();
+  expect(screen.getByText('View event poster')).toBeVisible();
+  await userEvent.click(screen.getByText('View event poster'));
+  expect(screen.getByRole('img', { name: 'Event poster' })).toHaveAttribute('src', '/api/v1/public/student-events/posters/event-1');
   expect(screen.queryByLabelText('University number')).not.toBeInTheDocument();
 });
 

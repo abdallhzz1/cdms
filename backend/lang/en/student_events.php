@@ -18,4 +18,6 @@ return [
     'invalid_intent' => 'The scan session expired. Scan the new event code.',
     'immutable_roster' => 'Date, time and eligible years cannot change after attendance is recorded. You may edit the title and location.',
     'delete_confirmation' => 'Type the event title exactly to confirm permanent deletion.',
+    'invalid_poster' => 'The poster must be a valid JPG, PNG or WebP image.',
+    'poster_store_failed' => 'Could not save the poster. Please try again.',
 ];

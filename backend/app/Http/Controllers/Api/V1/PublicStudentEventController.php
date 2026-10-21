@@ -19,12 +19,24 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class PublicStudentEventController extends Controller
 {
     private const SCAN_COOKIE = 'cdms_student_event_scan';
+
+    public function poster(string $publicId)
+    {
+        $event = StudentEvent::where('public_id', $publicId)->where('status', 'published')->firstOrFail();
+        abort_unless($event->poster_storage_path && Storage::disk('local')->exists($event->poster_storage_path), 404);
+        return Storage::disk('local')->response($event->poster_storage_path, null, [
+            'Content-Type' => $event->poster_mime_type,
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'no-store',
+        ]);
+    }
 
     public function begin(Request $request, StudentEventQrService $qr): JsonResponse
     {
@@ -167,6 +179,6 @@ class PublicStudentEventController extends Controller
     private function publicEvent(StudentEvent $event): array
     {
         return $event->only(['public_id', 'type', 'title_ar', 'title_en', 'location_ar', 'location_en',
-            'starts_at', 'ends_at', 'eligible_levels']);
+            'starts_at', 'ends_at', 'eligible_levels', 'presenters', 'poster_url']);
     }
 }

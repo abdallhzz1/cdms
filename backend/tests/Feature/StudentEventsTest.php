@@ -11,8 +11,10 @@ use App\Models\StudentScheduleOtpChallenge;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class StudentEventsTest extends TestCase
@@ -166,6 +168,10 @@ class StudentEventsTest extends TestCase
         $this->actingAs($viewer)->getJson('/api/v1/student-events')->assertOk();
         $this->postJson('/api/v1/student-events', $this->payload())->assertForbidden();
         $this->getJson("/api/v1/student-events/{$event->id}/qr")->assertForbidden();
+        $this->post("/api/v1/student-events/{$event->id}/poster", [
+            'poster' => UploadedFile::fake()->image('not-allowed.png'),
+        ], ['Accept' => 'application/json'])->assertForbidden();
+        $this->deleteJson("/api/v1/student-events/{$event->id}/poster")->assertForbidden();
         $this->postJson("/api/v1/student-events/{$event->id}/check-in", ['enabled' => false])->assertForbidden();
         $this->deleteJson("/api/v1/student-events/{$event->id}", [
             'confirmation' => 'ندوة طبية', 'reason' => 'No delete permission assigned',
@@ -237,5 +243,66 @@ class StudentEventsTest extends TestCase
         ]);
         $this->deleteJson("/api/v1/student-events/{$event->id}", $payload)->assertOk();
         $this->assertDatabaseMissing('student_events', ['id' => $event->id]);
+    }
+
+    public function test_presenters_and_poster_can_be_shown_replaced_removed_and_are_public_only_when_published(): void
+    {
+        Storage::fake('local');
+        $payload = $this->payload();
+        $payload['presenters'] = [
+            ['name_ar' => 'د. شذى ملحم', 'name_en' => 'Dr. Shatha Melhem',
+                'role_ar' => 'أخصائية نسائية وتوليد', 'role_en' => 'OB/GYN Specialist'],
+            ['name_ar' => 'د. أحمد', 'name_en' => 'Dr. Ahmad'],
+        ];
+        $id = $this->actingAs($this->admin())->postJson('/api/v1/student-events', $payload)
+            ->assertCreated()->assertJsonPath('data.presenters.0.name_en', 'Dr. Shatha Melhem')
+            ->json('data.id');
+        $event = StudentEvent::findOrFail($id);
+        $this->get("/api/v1/public/student-events/posters/{$event->public_id}")->assertNotFound();
+        $this->post("/api/v1/student-events/$id/poster", [
+            'poster' => UploadedFile::fake()->image('announcement.png', 800, 800),
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.poster_url', "/api/v1/student-events/$id/poster");
+        $this->get("/api/v1/student-events/$id/poster")->assertOk();
+        $this->assertCount(1, Storage::disk('local')->allFiles("student-events/$id"));
+        $this->postJson("/api/v1/student-events/$id/status", ['status' => 'published'])->assertOk();
+        $this->get("/api/v1/public/student-events/posters/{$event->public_id}")->assertOk();
+        $this->postJson("/api/v1/student-events/$id/check-in", ['enabled' => true])->assertOk();
+        $token = $this->getJson("/api/v1/student-events/$id/qr")->json('data.token');
+        $this->postJson('/api/v1/public/student-events/begin', ['qr_token' => $token])->assertOk()
+            ->assertJsonPath('data.event.presenters.1.name_en', 'Dr. Ahmad')
+            ->assertJsonPath('data.event.poster_url', "/api/v1/public/student-events/posters/{$event->public_id}");
+        $oldPath = Storage::disk('local')->allFiles("student-events/$id")[0];
+        $this->post("/api/v1/student-events/$id/poster", [
+            'poster' => UploadedFile::fake()->image('replacement.jpg', 800, 800),
+        ], ['Accept' => 'application/json'])->assertOk();
+        $this->assertFalse(Storage::disk('local')->exists($oldPath));
+        $this->assertCount(1, Storage::disk('local')->allFiles("student-events/$id"));
+        $this->deleteJson("/api/v1/student-events/$id/poster")->assertOk()->assertJsonPath('data.poster_url', null);
+        $this->assertSame([], Storage::disk('local')->allFiles("student-events/$id"));
+        $this->get("/api/v1/public/student-events/posters/{$event->public_id}")->assertNotFound();
+        $this->assertDatabaseHas('audit_logs', ['action' => 'student_event.poster_uploaded', 'entity_id' => $id]);
+    }
+
+    public function test_bad_poster_is_rejected_and_deleting_event_removes_its_file(): void
+    {
+        Storage::fake('local');
+        $event = $this->published();
+        $this->post("/api/v1/student-events/{$event->id}/poster", [
+            'poster' => UploadedFile::fake()->create('document.pdf', 10, 'application/pdf'),
+        ], ['Accept' => 'application/json'])->assertUnprocessable();
+        $this->post("/api/v1/student-events/{$event->id}/poster", [
+            'poster' => UploadedFile::fake()->image('poster.webp', 800, 800),
+        ], ['Accept' => 'application/json'])->assertOk();
+        $this->postJson("/api/v1/student-events/{$event->id}/status", [
+            'status' => 'archived', 'reason' => 'Event already ended and archived',
+        ])->assertOk();
+        $this->get("/api/v1/public/student-events/posters/{$event->public_id}")->assertNotFound();
+        $this->get("/api/v1/student-events/{$event->id}/poster")->assertOk();
+        $path = Storage::disk('local')->allFiles("student-events/{$event->id}")[0];
+        $this->deleteJson("/api/v1/student-events/{$event->id}", [
+            'confirmation' => $event->title_ar, 'reason' => 'Delete duplicated public event and poster',
+        ])->assertOk();
+        $this->assertFalse(Storage::disk('local')->exists($path));
     }
 }

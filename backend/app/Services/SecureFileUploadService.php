@@ -76,6 +76,24 @@ class SecureFileUploadService
         ];
     }
 
+    public function storeEventPoster(UploadedFile $source, string $directory): array
+    {
+        [$bytes, $mime, $extension] = $this->readAndValidate(
+            $source,
+            self::AVATAR_MIMES,
+            8 * 1024 * 1024,
+            'poster'
+        );
+        if (getimagesizefromstring($bytes) === false) {
+            throw ValidationException::withMessages(['poster' => [__('student_events.invalid_poster')]]);
+        }
+        $path = trim($directory, '/').'/'.Str::uuid().'.'.$extension;
+        if (!Storage::disk('local')->put($path, $bytes)) {
+            throw ValidationException::withMessages(['poster' => [__('student_events.poster_store_failed')]]);
+        }
+        return ['storage_path' => $path, 'mime_type' => $mime];
+    }
+
     private function readAndValidate(
         UploadedFile|string $source,
         array $allowedMimes,

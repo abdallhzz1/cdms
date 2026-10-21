@@ -118,6 +118,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // -------------------------------------------------------------------------
     Route::prefix('public')->name('public.')->group(function () {
         Route::prefix('student-events')->group(function () {
+            Route::get('posters/{publicId}', [PublicStudentEventController::class, 'poster'])
+                ->whereUuid('publicId')->middleware('throttle:operational-read');
             Route::post('begin', [PublicStudentEventController::class, 'begin'])->middleware('throttle:student-event-scan');
             Route::post('identity', [PublicStudentEventController::class, 'identity'])->middleware('throttle:operational-read');
             Route::post('request-otp', [PublicStudentEventController::class, 'requestOtp'])->middleware('throttle:student-event-otp-request');
@@ -181,7 +183,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('/', [StudentEventController::class, 'index']);
             Route::get('{event}', [StudentEventController::class, 'show'])->whereNumber('event');
             Route::get('{event}/attendance', [StudentEventController::class, 'attendance'])->whereNumber('event');
+            Route::get('{event}/poster', [StudentEventController::class, 'poster'])->whereNumber('event');
             Route::get('{event}/qr', [StudentEventController::class, 'qr'])->whereNumber('event')->middleware('permission:student_events.attendance.manage');
+            Route::post('{event}/poster', [StudentEventController::class, 'uploadPoster'])->whereNumber('event')->middleware('permission:student_events.manage');
+            Route::delete('{event}/poster', [StudentEventController::class, 'removePoster'])->whereNumber('event')->middleware('permission:student_events.manage');
             Route::post('{event}/check-in', [StudentEventController::class, 'toggleCheckIn'])->whereNumber('event')->middleware('permission:student_events.attendance.manage');
             Route::post('/', [StudentEventController::class, 'store'])->middleware('permission:student_events.manage');
             Route::put('{event}', [StudentEventController::class, 'update'])->whereNumber('event')->middleware('permission:student_events.manage');

@@ -8,11 +8,13 @@ use App\Models\AuditLog;
 use App\Models\Student;
 use App\Models\StudentEvent;
 use App\Models\StudentEventAttendance;
+use App\Services\SecureFileUploadService;
 use App\Services\StudentEventQrService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -43,6 +45,7 @@ class StudentEventController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $this->validated($request);
+        $data['presenters'] ??= [];
         $event = DB::transaction(function () use ($request, $data) {
             $event = StudentEvent::create([...$data, 'public_id' => (string) Str::uuid(), 'status' => 'draft',
                 'check_in_enabled' => false,
@@ -119,18 +122,74 @@ class StudentEventController extends Controller
     {
         $data = $request->validate(['confirmation' => ['required', 'string', 'max:255'],
             'reason' => ['required', 'string', 'min:10', 'max:1000']]);
-        DB::transaction(function () use ($request, $event, $data) {
+        $posterPath = DB::transaction(function () use ($request, $event, $data) {
             $locked = StudentEvent::whereKey($event->id)->lockForUpdate()->firstOrFail();
             if (!in_array($data['confirmation'], [$locked->title_ar, $locked->title_en], true))
                 throw ValidationException::withMessages(['confirmation' => [__('student_events.delete_confirmation')]]);
             $attendance = $locked->attendances()->get()->toArray();
             $this->audit($request, 'student_event.deleted', $locked,
                 ['before' => $locked->toArray(), 'attendance_count' => count($attendance),
-                    'attendance_snapshot' => $attendance, 'reason' => $data['reason']]);
+                    'attendance_snapshot' => $attendance, 'poster_was_attached' => (bool) $locked->poster_storage_path,
+                    'reason' => $data['reason']]);
             $locked->attendances()->delete();
             $locked->delete();
+            return $locked->poster_storage_path;
         });
+        if ($posterPath) Storage::disk('local')->delete($posterPath);
         return ApiResponse::success(['deleted' => true]);
+    }
+
+    public function poster(StudentEvent $event)
+    {
+        abort_unless($event->poster_storage_path && Storage::disk('local')->exists($event->poster_storage_path), 404);
+        return Storage::disk('local')->response($event->poster_storage_path, null, [
+            'Content-Type' => $event->poster_mime_type,
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store',
+        ]);
+    }
+
+    public function uploadPoster(Request $request, StudentEvent $event, SecureFileUploadService $uploads): JsonResponse
+    {
+        $request->validate(['poster' => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:8192']]);
+        if ($event->status === 'archived')
+            throw ValidationException::withMessages(['event' => [__('student_events.unavailable')]]);
+        $stored = $uploads->storeEventPoster($request->file('poster'), "student-events/{$event->id}");
+        try {
+            $oldPath = DB::transaction(function () use ($request, $event, $stored) {
+                $locked = StudentEvent::whereKey($event->id)->lockForUpdate()->firstOrFail();
+                if ($locked->status === 'archived')
+                    throw ValidationException::withMessages(['event' => [__('student_events.unavailable')]]);
+                $oldPath = $locked->poster_storage_path;
+                $locked->update(['poster_storage_path' => $stored['storage_path'],
+                    'poster_mime_type' => $stored['mime_type'], 'updated_by' => $request->user()->id]);
+                $this->audit($request, 'student_event.poster_uploaded', $locked,
+                    ['replaced_existing' => (bool) $oldPath, 'mime_type' => $stored['mime_type']]);
+                return $oldPath;
+            });
+        } catch (\Throwable $e) {
+            Storage::disk('local')->delete($stored['storage_path']);
+            throw $e;
+        }
+        if ($oldPath) Storage::disk('local')->delete($oldPath);
+        return ApiResponse::success($event->fresh());
+    }
+
+    public function removePoster(Request $request, StudentEvent $event): JsonResponse
+    {
+        $oldPath = DB::transaction(function () use ($request, $event) {
+            $locked = StudentEvent::whereKey($event->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status === 'archived')
+                throw ValidationException::withMessages(['event' => [__('student_events.unavailable')]]);
+            $oldPath = $locked->poster_storage_path;
+            if (!$oldPath) return null;
+            $locked->update(['poster_storage_path' => null, 'poster_mime_type' => null,
+                'updated_by' => $request->user()->id]);
+            $this->audit($request, 'student_event.poster_removed', $locked, ['had_poster' => true]);
+            return $oldPath;
+        });
+        if ($oldPath) Storage::disk('local')->delete($oldPath);
+        return ApiResponse::success($event->fresh());
     }
 
     public function qr(StudentEvent $event, StudentEventQrService $qr): JsonResponse
@@ -202,8 +261,20 @@ class StudentEventController extends Controller
             'starts_at' => ['required', 'date'], 'ends_at' => ['required', 'date', 'after:starts_at'],
             'eligible_levels' => ['required', 'array', 'min:1', 'max:3'],
             'eligible_levels.*' => ['required', Rule::in(['fourth', 'fifth', 'sixth'])],
+            'presenters' => ['sometimes', 'array', 'max:10'],
+            'presenters.*.name_ar' => ['required', 'string', 'max:150'],
+            'presenters.*.name_en' => ['required', 'string', 'max:150'],
+            'presenters.*.role_ar' => ['nullable', 'string', 'max:150'],
+            'presenters.*.role_en' => ['nullable', 'string', 'max:150'],
         ]);
         $data['eligible_levels'] = array_values(array_unique($data['eligible_levels']));
+        if (array_key_exists('presenters', $data)) {
+            $data['presenters'] = array_map(fn (array $person): array => [
+                'name_ar' => trim($person['name_ar']), 'name_en' => trim($person['name_en']),
+                'role_ar' => trim((string) ($person['role_ar'] ?? '')),
+                'role_en' => trim((string) ($person['role_en'] ?? '')),
+            ], $data['presenters']);
+        }
         // Legacy columns remain for existing installations, but never control QR availability.
         $data['check_in_opens_at'] = $data['starts_at'];
         $data['check_in_closes_at'] = $data['ends_at'];

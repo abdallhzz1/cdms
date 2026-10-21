@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { StudentEventsPage } from './StudentEventsPage';
@@ -12,10 +12,14 @@ it('creates a bilingual event without requiring a timed check-in window', async 
   window.localStorage.setItem('cdms.locale', 'en');
   document.cookie = 'XSRF-TOKEN=test; path=/';
   let posted: Record<string, unknown> | null = null;
+  let uploaded: FormData | null = null;
   vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input);
     if (url.includes('/auth/me')) return envelope({ id: 1, roles: ['RTA'], permissions: [
       { code: 'student_events.view', scope: 'global' }, { code: 'student_events.manage', scope: 'global' }] });
+    if (url.includes('/student-events/5/poster') && init?.method === 'POST') {
+      uploaded = init.body as FormData; return envelope({ id: 5, poster_url: '/api/v1/student-events/5/poster' });
+    }
     if (url.includes('/student-events') && init?.method === 'POST') {
       posted = JSON.parse(String(init.body)); return envelope({ id: 5 });
     }
@@ -30,6 +34,11 @@ it('creates a bilingual event without requiring a timed check-in window', async 
   await userEvent.type(screen.getByLabelText('English title'), 'Medicine Seminar');
   await userEvent.type(screen.getByLabelText('Arabic location'), 'القاعة الكبرى');
   await userEvent.type(screen.getByLabelText('English location'), 'Main Hall');
+  await userEvent.click(screen.getByRole('button', { name: 'Add presenter' }));
+  await userEvent.type(screen.getByLabelText('Arabic name'), 'د. شذى ملحم');
+  await userEvent.type(screen.getByLabelText('English name'), 'Dr. Shatha Melhem');
+  const poster = new File(['poster'], 'lecture.png', { type: 'image/png' });
+  fireEvent.change(screen.getByLabelText('Choose event poster'), { target: { files: [poster] } });
   expect(dialog).toBeVisible();
   expect(screen.getByLabelText('Year 4')).toBeChecked();
   await userEvent.click(screen.getByLabelText('Year 6'));
@@ -41,7 +50,9 @@ it('creates a bilingual event without requiring a timed check-in window', async 
   expect(screen.queryByLabelText('Check-in closes')).not.toBeInTheDocument();
   fireEvent.submit(document.querySelector('#student-event-form')!);
   await waitFor(() => expect(posted).toMatchObject({ title_ar: 'ندوة طب', title_en: 'Medicine Seminar',
-    starts_at: '2026-10-21 11:00:00', ends_at: '2026-10-21 12:00:00', eligible_levels: ['fourth','fifth'] }));
+    starts_at: '2026-10-21 11:00:00', ends_at: '2026-10-21 12:00:00', eligible_levels: ['fourth','fifth'],
+    presenters: [{ name_ar: 'د. شذى ملحم', name_en: 'Dr. Shatha Melhem', role_ar: '', role_en: '' }] }));
+  await waitFor(() => expect(uploaded?.get('poster')).toBe(poster));
   expect(posted).not.toHaveProperty('check_in_opens_at');
 });
 
@@ -51,7 +62,9 @@ it('opens and closes check-in manually and exposes permanent deletion for publis
   const event = { id: 7, public_id: 'event-7', type: 'seminar', title_ar: 'ندوة', title_en: 'Medical Seminar',
     description_ar: null, description_en: null, location_ar: 'القاعة', location_en: 'Hall',
     starts_at: '2026-10-21T08:00:00Z', ends_at: '2026-10-21T10:00:00Z',
-    eligible_levels: ['fourth'], status: 'published', check_in_enabled: false, attendance_count: 2 };
+    eligible_levels: ['fourth'], status: 'published', check_in_enabled: false, attendance_count: 2,
+    presenters: [{ name_ar: 'د. شذى ملحم', name_en: 'Dr. Shatha Melhem', role_ar: '', role_en: 'OB/GYN Specialist' }],
+    poster_url: '/api/v1/public/student-events/posters/event-7' };
   const requests: Array<{ url: string; method?: string; body?: Record<string, unknown> }> = [];
   vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input); const body = init?.body ? JSON.parse(String(init.body)) : undefined;
@@ -70,7 +83,11 @@ it('opens and closes check-in manually and exposes permanent deletion for publis
   });
   renderWithProviders(<StudentEventsPage />, { route: '/events' });
   await screen.findByRole('heading', { name: 'Medical Seminar' });
-  await userEvent.click(screen.getByRole('button', { name: 'Check-in QR' }));
+  expect(screen.getByText('Speakers & presenters: Dr. Shatha Melhem')).toBeVisible();
+  await userEvent.click(screen.getByRole('button', { name: 'View event poster' }));
+  expect(screen.getByRole('img', { name: 'Event poster' })).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Open full-size poster' })).toHaveAttribute('href', event.poster_url);
+  await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Check-in QR' }));
   expect(screen.getByText('Check-in is closed')).toBeVisible();
   await userEvent.click(screen.getByRole('button', { name: 'Open check-in and show QR' }));
   expect(await screen.findByRole('button', { name: 'Close check-in and disable QR' })).toBeVisible();
