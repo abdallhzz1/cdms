@@ -4,14 +4,19 @@ namespace Tests\Feature\Phase3A;
 
 use App\Models\AcademicYear;
 use App\Models\AdvisingRecord;
+use App\Models\DistributionVersion;
 use App\Models\GroupRegistrationCycle;
 use App\Models\Permission;
 use App\Models\Person;
 use App\Models\Role;
+use App\Models\Rotation;
+use App\Models\RotationBlock;
 use App\Models\Student;
+use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroup;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentGroupRoster;
+use App\Models\TrainingSite;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\Phase3PermissionSeeder;
@@ -19,6 +24,7 @@ use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -395,6 +401,99 @@ class StudentTest extends TestCase
             'entity_type' => 'student',
             'entity_id' => $student->id,
             'is_override' => true,
+        ]);
+    }
+
+    public function test_event_attendance_prevents_accidental_student_deletion_and_confirmed_delete_cleans_it(): void
+    {
+        $student = Student::factory()->create();
+        $eventId = DB::table('student_events')->insertGetId([
+            'public_id' => (string) Str::uuid(), 'type' => 'lecture', 'title_ar' => 'فعالية تجريبية',
+            'title_en' => 'Test event', 'location_ar' => 'قاعة', 'location_en' => 'Hall',
+            'starts_at' => now(), 'ends_at' => now()->addHour(),
+            'check_in_opens_at' => now(), 'check_in_closes_at' => now()->addHour(),
+            'eligible_levels' => json_encode(['fourth']), 'status' => 'published',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('student_event_attendances')->insert([
+            'student_event_id' => $eventId, 'student_id' => $student->id,
+            'university_number' => $student->university_number, 'academic_level' => $student->academic_level,
+            'checked_in_at' => now(), 'source' => 'qr', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->actingAs($this->admin)->deleteJson("/api/v1/students/{$student->id}")
+            ->assertUnprocessable()->assertJsonValidationErrors('student')
+            ->assertJsonPath('errors.force_delete.0', 'available');
+        $this->assertDatabaseHas('students', ['id' => $student->id]);
+        $this->assertDatabaseHas('student_event_attendances', ['student_id' => $student->id]);
+
+        $this->actingAs($this->admin)->deleteJson("/api/v1/students/{$student->id}", [
+            'force' => true, 'confirmation' => $student->university_number,
+            'reason' => 'حذف طالب تجريبي مع حضوره في الفعالية',
+        ])->assertOk()->assertJsonPath('data.deleted_records.student_event_attendances', 1);
+        $this->assertDatabaseMissing('students', ['id' => $student->id]);
+        $this->assertDatabaseMissing('student_event_attendances', ['student_id' => $student->id]);
+        $this->assertDatabaseHas('student_events', ['id' => $eventId]);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'student.force_deleted', 'entity_id' => $student->id,
+        ]);
+    }
+
+    public function test_force_delete_preserves_a_group_qr_session_or_refuses_without_a_replacement_assignment(): void
+    {
+        $student = Student::factory()->create();
+        $otherStudent = Student::factory()->create();
+        $rotation = Rotation::factory()->create();
+        $block = RotationBlock::factory()->create(['rotation_id' => $rotation->id]);
+        $site = TrainingSite::factory()->create();
+        $version = DistributionVersion::create(['rotation_id' => $rotation->id, 'status' => 'published']);
+        $assignment = StudentClinicalAssignment::create([
+            'distribution_version_id' => $version->id,
+            'student_id' => $student->id,
+            'rotation_block_id' => $block->id,
+            'training_site_id' => $site->id,
+        ]);
+        $sessionId = DB::table('clinical_qr_attendance_sessions')->insertGetId([
+            'public_id' => (string) Str::uuid(),
+            'assignment_key' => "test|{$block->id}|{$site->id}",
+            'student_clinical_assignment_id' => $assignment->id,
+            'rotation_block_id' => $block->id,
+            'training_site_id' => $site->id,
+            'session_date' => now()->toDateString(),
+            'state' => 'finalized',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('clinical_qr_attendance_roster')->insert([
+            'clinical_qr_attendance_session_id' => $sessionId,
+            'student_id' => $otherStudent->id,
+            'outcome' => 'present',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $forceDelete = [
+            'force' => true,
+            'confirmation' => $student->university_number,
+            'reason' => 'حذف طالب تجريبي مع حفظ حضور زملائه',
+        ];
+
+        $this->actingAs($this->admin)->deleteJson("/api/v1/students/{$student->id}", $forceDelete)
+            ->assertUnprocessable()->assertJsonValidationErrors('student');
+        $this->assertDatabaseHas('students', ['id' => $student->id]);
+        $this->assertDatabaseHas('clinical_qr_attendance_sessions', ['id' => $sessionId]);
+
+        $replacement = StudentClinicalAssignment::create([
+            'distribution_version_id' => $version->id,
+            'student_id' => $otherStudent->id,
+            'rotation_block_id' => $block->id,
+            'training_site_id' => $site->id,
+        ]);
+        $this->actingAs($this->admin)->deleteJson("/api/v1/students/{$student->id}", $forceDelete)
+            ->assertOk()->assertJsonPath('data.deleted_records.clinical_qr_sessions_reanchored', 1);
+        $this->assertDatabaseMissing('students', ['id' => $student->id]);
+        $this->assertDatabaseHas('clinical_qr_attendance_sessions', [
+            'id' => $sessionId, 'student_clinical_assignment_id' => $replacement->id,
+        ]);
+        $this->assertDatabaseHas('clinical_qr_attendance_roster', [
+            'clinical_qr_attendance_session_id' => $sessionId, 'student_id' => $otherStudent->id,
         ]);
     }
 

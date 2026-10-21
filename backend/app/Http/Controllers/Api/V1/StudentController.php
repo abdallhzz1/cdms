@@ -523,6 +523,13 @@ class StudentController extends Controller
                 'تسجيلات مساقات أو علامات' => StudentCourseEnrollment::where('student_id', $lockedStudent->id)->exists(),
                 'سجلات حضور وغياب' => AttendanceRecord::where('student_id', $lockedStudent->id)->exists(),
                 'تقييمات سريرية' => ClinicalAssessment::where('student_id', $lockedStudent->id)->exists(),
+                'علامات ميني أوسكي' => DB::table('clinical_mini_osce_scores')->where('student_id', $lockedStudent->id)->exists(),
+                'كشوف حضور سريري بالباركود' => DB::table('clinical_qr_attendance_roster')->where('student_id', $lockedStudent->id)->exists(),
+                'كشوف المحاضرات الجامعية السريرية' => DB::table('clinical_university_attendance_records')->where('student_id', $lockedStudent->id)->exists(),
+                'حضور فعاليات الكلية' => DB::table('student_event_attendances')->where('student_id', $lockedStudent->id)->exists(),
+                'تنبيهات غياب' => DB::table('attendance_warning_notifications')->where('student_id', $lockedStudent->id)->exists(),
+                'إقرارات السياسات' => DB::table('student_policy_assignments')->where('student_id', $lockedStudent->id)->exists(),
+                'ملاحظات المشرفين' => DB::table('supervisor_student_notes')->where('student_id', $lockedStudent->id)->exists(),
                 'سجلات إرشاد أكاديمي' => AdvisingRecord::where('student_id', $lockedStudent->id)->exists(),
             ])->filter()->keys()->values();
 
@@ -553,11 +560,19 @@ class StudentController extends Controller
 
                 $enrollmentIds = StudentCourseEnrollment::where('student_id', $lockedStudent->id)->pluck('id');
                 $advisingRecordIds = AdvisingRecord::where('student_id', $lockedStudent->id)->pluck('id');
+                $reanchoredSessions = $this->reanchorClinicalQrSessions($lockedStudent);
                 $deleted = [
                     'grade_entries' => DB::table('grade_entries')->whereIn('student_course_enrollment_id', $enrollmentIds)->delete(),
                     'student_course_enrollments' => StudentCourseEnrollment::where('student_id', $lockedStudent->id)->delete(),
                     'attendance_records' => AttendanceRecord::where('student_id', $lockedStudent->id)->delete(),
+                    'clinical_qr_attendance_roster' => DB::table('clinical_qr_attendance_roster')->where('student_id', $lockedStudent->id)->delete(),
+                    'clinical_university_attendance_records' => DB::table('clinical_university_attendance_records')->where('student_id', $lockedStudent->id)->delete(),
                     'clinical_assessments' => ClinicalAssessment::where('student_id', $lockedStudent->id)->delete(),
+                    'clinical_mini_osce_scores' => DB::table('clinical_mini_osce_scores')->where('student_id', $lockedStudent->id)->delete(),
+                    'student_event_attendances' => DB::table('student_event_attendances')->where('student_id', $lockedStudent->id)->delete(),
+                    'attendance_warning_notifications' => DB::table('attendance_warning_notifications')->where('student_id', $lockedStudent->id)->delete(),
+                    'student_policy_assignments' => DB::table('student_policy_assignments')->where('student_id', $lockedStudent->id)->delete(),
+                    'supervisor_student_notes' => DB::table('supervisor_student_notes')->where('student_id', $lockedStudent->id)->delete(),
                     'advising_participants' => DB::table('advising_participants')->where(function ($query) use ($lockedStudent, $advisingRecordIds) {
                         $query->where('student_id', $lockedStudent->id)
                             ->orWhereIn('advising_record_id', $advisingRecordIds);
@@ -570,6 +585,7 @@ class StudentController extends Controller
                     'student_group_assignments' => StudentGroupAssignment::where('student_id', $lockedStudent->id)->delete(),
                     'group_registration_otp_challenges' => DB::table('group_registration_otp_challenges')->where('student_id', $lockedStudent->id)->delete(),
                     'student_schedule_otp_challenges' => DB::table('student_schedule_otp_challenges')->where('student_id', $lockedStudent->id)->delete(),
+                    'clinical_qr_sessions_reanchored' => $reanchoredSessions,
                 ];
 
                 $studentId = $lockedStudent->id;
@@ -605,6 +621,44 @@ class StudentController extends Controller
                 ? 'تم حذف الطالب نهائياً مع جميع بياناته المرتبطة.'
                 : 'تم حذف الطالب وتنظيف روابط تسجيل المجموعات التابعة له بنجاح.'
         );
+    }
+
+    /** A QR session belongs to the whole group even though its FK points at one student assignment. */
+    private function reanchorClinicalQrSessions(Student $student): int
+    {
+        $count = 0;
+        $assignments = StudentClinicalAssignment::where('student_id', $student->id)->lockForUpdate()->get();
+        foreach ($assignments as $assignment) {
+            $sessions = DB::table('clinical_qr_attendance_sessions')
+                ->where('student_clinical_assignment_id', $assignment->id)->lockForUpdate()->pluck('id');
+            if ($sessions->isEmpty()) {
+                continue;
+            }
+
+            $replacement = StudentClinicalAssignment::where('student_id', '!=', $student->id)
+                ->where('distribution_version_id', $assignment->distribution_version_id)
+                ->where('rotation_block_id', $assignment->rotation_block_id)
+                ->where('training_site_id', $assignment->training_site_id)
+                ->where('supervisor_id', $assignment->supervisor_id)
+                ->where('student_subgroup_id', $assignment->student_subgroup_id)
+                ->orderBy('id')->lockForUpdate()->first();
+            if (! $replacement) {
+                $hasOtherStudents = DB::table('clinical_qr_attendance_roster')
+                    ->whereIn('clinical_qr_attendance_session_id', $sessions)
+                    ->where('student_id', '!=', $student->id)->exists();
+                if ($hasOtherStudents) {
+                    throw ValidationException::withMessages(['student' => [
+                        'لا يمكن حذف الطالب الآن: هناك كشف باركود جماعي مربوط بتكليفه ولا يوجد تكليف بديل صالح. '
+                        .'يجب تصحيح ربط الكشف أولاً حتى لا تُحذف بيانات حضور طلبة آخرين.',
+                    ]]);
+                }
+                continue;
+            }
+            $count += DB::table('clinical_qr_attendance_sessions')->whereIn('id', $sessions)
+                ->update(['student_clinical_assignment_id' => $replacement->id, 'updated_at' => now()]);
+        }
+
+        return $count;
     }
 
     /**
