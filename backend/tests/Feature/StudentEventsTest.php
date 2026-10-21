@@ -14,6 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -57,6 +58,142 @@ class StudentEventsTest extends TestCase
         $this->postJson("/api/v1/student-events/$id/status", ['status' => 'published'])->assertOk();
         $this->postJson("/api/v1/student-events/$id/check-in", ['enabled' => true])->assertOk();
         return StudentEvent::findOrFail($id);
+    }
+
+    private function basicStudent(string $number, string $level, string $year = '2026/2027'): int
+    {
+        DB::table('academic_years')->updateOrInsert(['code' => '2026/2027'], [
+            'start_date' => '2026-09-01', 'end_date' => '2027-08-31', 'is_current' => true,
+            'status' => 'active', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $course = DB::table('basic_courses')->insertGetId(['code' => 'BASIC-'.$level.'-'.$number,
+            'name' => 'Basic course', 'academic_level' => $level, 'is_active' => true,
+            'created_at' => now(), 'updated_at' => now()]);
+        $section = DB::table('basic_sections')->insertGetId(['course_id' => $course, 'number' => '1',
+            'academic_year' => $year, 'semester' => 'first', 'is_active' => true,
+            'created_at' => now(), 'updated_at' => now()]);
+        $student = DB::table('basic_students')->insertGetId(['university_number' => $number,
+            'name' => 'طالب الأساسية '.$number, 'email' => $number.'@students.hebron.edu',
+            'is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('basic_enrollments')->insert(['section_id' => $section, 'student_id' => $student,
+            'is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
+        return $student;
+    }
+
+    public function test_basic_students_in_all_three_years_can_use_event_qr_and_share_one_register_with_clinical_students(): void
+    {
+        Mail::fake();
+        $payload = $this->payload();
+        $payload['eligible_levels'] = ['first', 'second', 'third', 'fourth'];
+        $id = $this->actingAs($this->admin())->postJson('/api/v1/student-events', $payload)->assertCreated()->json('data.id');
+        $this->postJson("/api/v1/student-events/$id/status", ['status' => 'published'])->assertOk();
+        $this->postJson("/api/v1/student-events/$id/check-in", ['enabled' => true])->assertOk();
+        $clinical = Student::factory()->forLevel('fourth')->create();
+        $this->postJson("/api/v1/student-events/$id/attendance", [
+            'university_number' => $clinical->university_number, 'reason' => 'Clinical student attended the event',
+        ])->assertOk();
+
+        foreach (['first', 'second', 'third'] as $index => $level) {
+            $number = '2610000'.($index + 1);
+            $basicId = $this->basicStudent($number, $level);
+            $token = $this->getJson("/api/v1/student-events/$id/qr")->assertOk()->json('data.token');
+            $begin = $this->postJson('/api/v1/public/student-events/begin', ['qr_token' => $token])->assertOk();
+            $intent = $begin->json('data.intent');
+            $this->withCredentials()->withUnencryptedCookie('cdms_student_event_scan', $begin->headers->getCookies()[0]->getValue());
+            $challenge = $this->postJson('/api/v1/public/student-events/request-otp', [
+                'intent' => $intent, 'university_number' => $number,
+            ])->assertOk()->json('data.challenge_token');
+            $this->assertDatabaseHas('basic_otp_challenges', ['student_id' => $basicId, 'student_event_id' => $id]);
+            DB::table('basic_otp_challenges')->where('token_hash', hash('sha256', $challenge))
+                ->update(['otp_hash' => Hash::make('123456')]);
+            $this->postJson('/api/v1/public/student-events/verify-otp', [
+                'challenge_token' => $challenge, 'otp' => '000000',
+            ])->assertUnprocessable();
+            $access = $this->postJson('/api/v1/public/student-events/verify-otp', [
+                'challenge_token' => $challenge, 'otp' => '123456',
+            ])->assertOk()->json('data.access_token');
+            $this->withUnencryptedCookie('basic_attendance_device', $access);
+            $this->postJson('/api/v1/public/student-events/check-in', [
+                'intent' => $intent, 'access_token' => $access,
+            ])->assertOk()->assertJsonPath('data.already_recorded', false);
+            $this->assertDatabaseHas('student_event_attendances', [
+                'student_event_id' => $id, 'student_id' => null, 'basic_student_id' => $basicId,
+                'university_number' => $number, 'academic_level' => $level,
+            ]);
+            $again = $this->postJson('/api/v1/public/student-events/begin', ['qr_token' => $token])->assertOk();
+            $this->withUnencryptedCookie('cdms_student_event_scan', $again->headers->getCookies()[0]->getValue());
+            $this->postJson('/api/v1/public/student-events/identity', [
+                'intent' => $again->json('data.intent'),
+            ])->assertOk()->assertJsonPath('data.university_number', $number);
+            $this->postJson('/api/v1/public/student-events/check-in', [
+                'intent' => $again->json('data.intent'),
+            ])->assertOk()->assertJsonPath('data.already_recorded', true);
+        }
+
+        $this->getJson("/api/v1/student-events/$id/attendance")->assertOk()
+            ->assertJsonPath('data.total', 4)
+            ->assertJsonFragment(['academic_level' => 'third', 'university_number' => '26100003']);
+        $this->assertDatabaseCount('student_event_attendances', 4);
+        $this->assertDatabaseCount('basic_lecture_records', 0);
+    }
+
+    public function test_basic_student_requires_active_current_year_enrollment_and_eligible_event_year(): void
+    {
+        Mail::fake();
+        $event = $this->published();
+        $basicId = $this->basicStudent('26100100', 'first');
+        $pastId = $this->basicStudent('26100101', 'second', '2025/2026');
+        $token = $this->getJson("/api/v1/student-events/{$event->id}/qr")->json('data.token');
+        $begin = $this->postJson('/api/v1/public/student-events/begin', ['qr_token' => $token])->assertOk();
+        $this->withCredentials()->withUnencryptedCookie('cdms_student_event_scan', $begin->headers->getCookies()[0]->getValue());
+        $this->postJson('/api/v1/public/student-events/request-otp', [
+            'intent' => $begin->json('data.intent'), 'university_number' => '26100100',
+        ])->assertUnprocessable();
+        StudentEvent::findOrFail($event->id)->update(['eligible_levels' => ['first', 'second']]);
+        $this->postJson('/api/v1/public/student-events/request-otp', [
+            'intent' => $begin->json('data.intent'), 'university_number' => '26100101',
+        ])->assertUnprocessable();
+        DB::table('basic_enrollments')->where('student_id', $basicId)->update(['is_active' => false]);
+        $this->postJson('/api/v1/public/student-events/request-otp', [
+            'intent' => $begin->json('data.intent'), 'university_number' => '26100100',
+        ])->assertUnprocessable();
+        $this->assertDatabaseCount('student_event_attendances', 0);
+        $this->assertDatabaseHas('basic_students', ['id' => $pastId]);
+    }
+
+    public function test_basic_manual_correction_can_be_voided_and_readded_without_duplicate_or_course_absence(): void
+    {
+        $event = $this->published();
+        $event->update(['eligible_levels' => ['second']]);
+        $basicId = $this->basicStudent('26100200', 'second');
+        $record = $this->postJson("/api/v1/student-events/{$event->id}/attendance", [
+            'university_number' => '26100200', 'reason' => 'Verified against the signed paper list',
+        ])->assertOk()->json('data.id');
+        $this->postJson("/api/v1/student-events/{$event->id}/attendance", [
+            'university_number' => '26100200', 'reason' => 'Verified against the signed paper list',
+        ])->assertOk()->assertJsonPath('data.id', $record);
+        $this->postJson("/api/v1/student-events/{$event->id}/attendance/$record/void", [
+            'reason' => 'Correction requested by event organizer',
+        ])->assertOk();
+        $this->postJson("/api/v1/student-events/{$event->id}/attendance", [
+            'university_number' => '26100200', 'reason' => 'Verified against the signed paper list',
+        ])->assertOk()->assertJsonPath('data.id', $record);
+        $this->assertDatabaseHas('student_event_attendances', ['id' => $record,
+            'basic_student_id' => $basicId, 'voided_at' => null]);
+        $this->assertDatabaseCount('student_event_attendances', 1);
+        $this->assertDatabaseCount('basic_lecture_records', 0);
+    }
+
+    public function test_same_number_in_basic_and_clinical_directories_requires_administrator_review(): void
+    {
+        $event = $this->published();
+        $event->update(['eligible_levels' => ['first', 'fourth']]);
+        $clinical = Student::factory()->forLevel('fourth')->create();
+        $this->basicStudent($clinical->university_number, 'first');
+        $this->postJson("/api/v1/student-events/{$event->id}/attendance", [
+            'university_number' => $clinical->university_number, 'reason' => 'Attempt to manually add ambiguous identity',
+        ])->assertUnprocessable();
+        $this->assertDatabaseCount('student_event_attendances', 0);
     }
 
     public function test_only_authorized_staff_can_create_and_display_a_short_lived_qr(): void

@@ -7,7 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StudentEventAttendance extends Model
 {
-    protected $fillable = ['student_event_id', 'student_id', 'checked_in_at', 'source', 'recorded_by',
+    protected $fillable = ['student_event_id', 'student_id', 'basic_student_id', 'university_number',
+        'academic_level', 'checked_in_at', 'source', 'recorded_by',
         'reason', 'voided_at', 'voided_by', 'void_reason'];
 
     protected function casts(): array

@@ -41,6 +41,8 @@ it('creates a bilingual event without requiring a timed check-in window', async 
   fireEvent.change(screen.getByLabelText('Choose event poster'), { target: { files: [poster] } });
   expect(dialog).toBeVisible();
   expect(screen.getByLabelText('Year 4')).toBeChecked();
+  expect(screen.getByLabelText('Year 1')).not.toBeChecked();
+  await userEvent.click(screen.getByLabelText('Year 1'));
   await userEvent.click(screen.getByLabelText('Year 6'));
   expect(screen.getByLabelText('Year 6')).not.toBeChecked();
   // Date/time controls are native. Their local format is submitted without a timezone shift.
@@ -50,7 +52,7 @@ it('creates a bilingual event without requiring a timed check-in window', async 
   expect(screen.queryByLabelText('Check-in closes')).not.toBeInTheDocument();
   fireEvent.submit(document.querySelector('#student-event-form')!);
   await waitFor(() => expect(posted).toMatchObject({ title_ar: 'ندوة طب', title_en: 'Medicine Seminar',
-    starts_at: '2026-10-21 11:00:00', ends_at: '2026-10-21 12:00:00', eligible_levels: ['fourth','fifth'],
+    starts_at: '2026-10-21 11:00:00', ends_at: '2026-10-21 12:00:00', eligible_levels: ['fourth','fifth','first'],
     presenters: [{ name_ar: 'د. شذى ملحم', name_en: 'Dr. Shatha Melhem', role_ar: '', role_en: '' }] }));
   await waitFor(() => expect(uploaded?.get('poster')).toBe(poster));
   expect(posted).not.toHaveProperty('check_in_opens_at');

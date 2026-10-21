@@ -10,6 +10,7 @@ use App\Models\StudentEvent;
 use App\Models\StudentEventAttendance;
 use App\Services\SecureFileUploadService;
 use App\Services\StudentEventQrService;
+use App\Services\StudentEventParticipantService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -203,35 +204,47 @@ class StudentEventController extends Controller
     public function attendance(StudentEvent $event): JsonResponse
     {
         request()->validate(['page' => ['nullable', 'integer', 'min:1']]);
-        return ApiResponse::success($event->attendances()->with('student:id,university_number,full_name_ar,full_name_en,academic_level')
-            ->whereNull('voided_at')->orderByDesc('checked_in_at')->paginate(50));
+        $page = $event->attendances()->with('student:id,university_number,full_name_ar,full_name_en,academic_level')
+            ->whereNull('voided_at')->orderByDesc('checked_in_at')->paginate(50);
+        $basicNames = DB::table('basic_students')->whereIn('id', $page->getCollection()->pluck('basic_student_id')->filter())
+            ->pluck('name', 'id');
+        $page->getCollection()->each(function (StudentEventAttendance $attendance) use ($basicNames) {
+            if ($attendance->basic_student_id) $attendance->setRelation('student', (new Student)->forceFill([
+                'university_number' => $attendance->university_number,
+                'full_name_ar' => $basicNames[$attendance->basic_student_id] ?? $attendance->university_number,
+                'full_name_en' => null, 'academic_level' => $attendance->academic_level,
+            ]));
+        });
+        return ApiResponse::success($page);
     }
 
-    public function recordAttendance(Request $request, StudentEvent $event): JsonResponse
+    public function recordAttendance(Request $request, StudentEvent $event, StudentEventParticipantService $participants): JsonResponse
     {
         $data = $request->validate(['university_number' => ['required', 'string', 'max:20'],
             'reason' => ['required', 'string', 'min:10', 'max:1000']]);
-        $student = Student::where('university_number', $data['university_number'])->first();
-        if (!$student || $student->academic_registration_status !== 'registered')
-            throw ValidationException::withMessages(['university_number' => [__('student_events.student_missing')]]);
-        if (!in_array($student->academic_level, $event->eligible_levels, true))
-            throw ValidationException::withMessages(['university_number' => [__('student_events.ineligible')]]);
+        $participant = $participants->byNumber($data['university_number'], $event);
         try {
-            return DB::transaction(function () use ($request, $event, $student, $data) {
+            return DB::transaction(function () use ($request, $event, $participant, $data) {
             StudentEvent::whereKey($event->id)->lockForUpdate()->firstOrFail();
-            $existing = StudentEventAttendance::where('student_event_id', $event->id)->where('student_id', $student->id)
+            $existing = StudentEventAttendance::where('student_event_id', $event->id)
+                ->where('university_number', $participant['number'])
                 ->lockForUpdate()->first();
             if ($existing && !$existing->voided_at) return ApiResponse::success($existing, __('student_events.already_recorded'));
             if ($existing) $existing->update(['voided_at' => null, 'voided_by' => null, 'void_reason' => null,
                 'checked_in_at' => now(), 'source' => 'manual', 'recorded_by' => $request->user()->id, 'reason' => $data['reason']]);
-            else $existing = StudentEventAttendance::create(['student_event_id' => $event->id, 'student_id' => $student->id,
+            else $existing = StudentEventAttendance::create(['student_event_id' => $event->id,
+                'student_id' => $participant['source'] === 'clinical' ? $participant['id'] : null,
+                'basic_student_id' => $participant['source'] === 'basic' ? $participant['id'] : null,
+                'university_number' => $participant['number'], 'academic_level' => $participant['level'],
                 'checked_in_at' => now(), 'source' => 'manual', 'recorded_by' => $request->user()->id, 'reason' => $data['reason']]);
             $this->audit($request, 'student_event.attendance_recorded', $event,
-                ['attendance_id' => $existing->id, 'student_id' => $student->id, 'reason' => $data['reason']]);
+                ['attendance_id' => $existing->id, 'student_id' => $existing->student_id,
+                    'basic_student_id' => $existing->basic_student_id, 'reason' => $data['reason']]);
             return ApiResponse::success($existing, __('student_events.recorded'));
             });
         } catch (UniqueConstraintViolationException $e) {
-            $attendance = StudentEventAttendance::where('student_event_id', $event->id)->where('student_id', $student->id)
+            $attendance = StudentEventAttendance::where('student_event_id', $event->id)
+                ->where('university_number', $participant['number'])
                 ->whereNull('voided_at')->first();
             if (!$attendance) throw $e;
             return ApiResponse::success($attendance, __('student_events.already_recorded'));
@@ -246,7 +259,8 @@ class StudentEventController extends Controller
             StudentEvent::whereKey($event->id)->lockForUpdate()->firstOrFail();
             $attendance->update(['voided_at' => now(), 'voided_by' => $request->user()->id, 'void_reason' => $data['reason']]);
             $this->audit($request, 'student_event.attendance_voided', $event,
-                ['attendance_id' => $attendance->id, 'student_id' => $attendance->student_id, 'reason' => $data['reason']]);
+                ['attendance_id' => $attendance->id, 'student_id' => $attendance->student_id,
+                    'basic_student_id' => $attendance->basic_student_id, 'reason' => $data['reason']]);
         });
         return ApiResponse::success($attendance);
     }
@@ -259,8 +273,8 @@ class StudentEventController extends Controller
             'description_ar' => ['nullable', 'string', 'max:5000'], 'description_en' => ['nullable', 'string', 'max:5000'],
             'location_ar' => ['required', 'string', 'max:255'], 'location_en' => ['required', 'string', 'max:255'],
             'starts_at' => ['required', 'date'], 'ends_at' => ['required', 'date', 'after:starts_at'],
-            'eligible_levels' => ['required', 'array', 'min:1', 'max:3'],
-            'eligible_levels.*' => ['required', Rule::in(['fourth', 'fifth', 'sixth'])],
+            'eligible_levels' => ['required', 'array', 'min:1', 'max:6'],
+            'eligible_levels.*' => ['required', Rule::in(['first', 'second', 'third', 'fourth', 'fifth', 'sixth'])],
             'presenters' => ['sometimes', 'array', 'max:10'],
             'presenters.*.name_ar' => ['required', 'string', 'max:150'],
             'presenters.*.name_en' => ['required', 'string', 'max:150'],

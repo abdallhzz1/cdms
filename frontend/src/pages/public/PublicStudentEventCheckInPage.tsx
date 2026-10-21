@@ -29,7 +29,7 @@ export function PublicStudentEventCheckInPage() {
         setEvent(data.event); setIntent(data.intent);
         let identified = false;
         try {
-          await apiFetch('/public/student-events/identity', { method: 'POST', body: {} });
+          await apiFetch('/public/student-events/identity', { method: 'POST', body: { intent: data.intent } });
           identified = true;
           const recorded = await apiFetch<CheckInResult>('/public/student-events/check-in', { method: 'POST', body: { intent: data.intent } });
           if (active) setResult(recorded);

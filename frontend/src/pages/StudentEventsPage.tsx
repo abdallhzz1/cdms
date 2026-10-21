@@ -7,7 +7,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { Modal } from '@/components/ui/Modal';
 
-type Level = 'fourth' | 'fifth' | 'sixth';
+type Level = 'first' | 'second' | 'third' | 'fourth' | 'fifth' | 'sixth';
 type EventType = 'conference' | 'seminar' | 'lecture';
 type EventStatus = 'draft' | 'published' | 'archived';
 type Presenter = { name_ar: string; name_en: string; role_ar: string; role_en: string };
@@ -53,7 +53,9 @@ export function StudentEventsPage() {
   const title = (event: StudentEvent) => ar ? event.title_ar : event.title_en;
   const location = (event: StudentEvent) => ar ? event.location_ar : event.location_en;
   const typeLabel = (type: EventType) => ({ conference: tr('مؤتمر', 'Conference'), seminar: tr('ندوة', 'Seminar'), lecture: tr('محاضرة', 'Lecture') })[type];
-  const levelLabel = (level: Level) => ({ fourth: tr('الرابعة', 'Year 4'), fifth: tr('الخامسة', 'Year 5'), sixth: tr('السادسة', 'Year 6') })[level];
+  const levelLabel = (level: Level) => ({ first: tr('الأولى', 'Year 1'), second: tr('الثانية', 'Year 2'),
+    third: tr('الثالثة', 'Year 3'), fourth: tr('الرابعة', 'Year 4'),
+    fifth: tr('الخامسة', 'Year 5'), sixth: tr('السادسة', 'Year 6') })[level];
   const list = useQuery({ queryKey: ['student-events', scope, search, page], queryFn: () => apiFetch<Page<StudentEvent>>(
     `/student-events?scope=${scope}&search=${encodeURIComponent(search)}&page=${page}`) });
   const roster = useQuery({ queryKey: ['student-event-attendance', selected?.id, rosterPage], queryFn: () => apiFetch<Page<Attendance>>(
@@ -238,7 +240,7 @@ export function StudentEventsPage() {
           const start = e.target.value; const end = start ? new Date(new Date(start).getTime()+60*60*1000).toLocaleString('sv-SE').replace(' ','T').slice(0,16) : '';
           setForm({ ...form, starts_at: start, ends_at: form.ends_at || end }); }} className={field}/></label>
           <label>{tr('النهاية','Ends')}<input required type="datetime-local" value={form.ends_at} onChange={e => setForm({ ...form, ends_at: e.target.value })} className={field}/></label></div>
-        <fieldset><legend className="mb-2 font-semibold">{tr('السنوات المشاركة','Eligible years')}</legend><div className="flex flex-wrap gap-2">{(['fourth','fifth','sixth'] as Level[]).map(level => <label key={level} className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 px-3 py-2"><input type="checkbox" checked={form.eligible_levels.includes(level)} onChange={e => setForm({ ...form, eligible_levels: e.target.checked ? [...form.eligible_levels, level] : form.eligible_levels.filter(item => item !== level) })}/>{levelLabel(level)}</label>)}</div></fieldset>
+        <fieldset><legend className="mb-2 font-semibold">{tr('السنوات المشاركة','Eligible years')}</legend><div className="flex flex-wrap gap-2">{(['first','second','third','fourth','fifth','sixth'] as Level[]).map(level => <label key={level} className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 px-3 py-2"><input type="checkbox" checked={form.eligible_levels.includes(level)} onChange={e => setForm({ ...form, eligible_levels: e.target.checked ? [...form.eligible_levels, level] : form.eligible_levels.filter(item => item !== level) })}/>{levelLabel(level)}</label>)}</div></fieldset>
         <section className="space-y-3 rounded-2xl border border-slate-200 p-3 sm:p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-bold">{tr('المحاضرون والمقدّمون','Speakers & presenters')}</h3><p className="mt-1 text-xs text-slate-500">{tr('أضف شخصًا أو أكثر بالترتيب الذي تريد عرضه.', 'Add one or more people in display order.')}</p></div>
           <button type="button" disabled={form.presenters.length >= 10} onClick={() => setForm(current => ({ ...current, presenters: [...current.presenters, { name_ar: '', name_en: '', role_ar: '', role_en: '' }] }))} className={`${pill} disabled:opacity-50`}>{tr('إضافة مقدّم','Add presenter')}</button></div>
           {form.presenters.map((person, index) => <div key={index} className="rounded-xl bg-slate-50 p-3"><div className="flex items-center justify-between"><span className="text-xs font-bold text-slate-600">{tr('المقدّم', 'Presenter')} {index + 1}</span><button type="button" onClick={() => setForm(current => ({ ...current, presenters: current.presenters.filter((_, i) => i !== index) }))} className="text-xs font-semibold text-rose-700">{tr('إزالة','Remove')}</button></div>
