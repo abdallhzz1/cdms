@@ -1,6 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { PublicStudentEventCheckInPage } from './PublicStudentEventCheckInPage';
@@ -31,8 +30,7 @@ it('automatically records a verified student after scanning an event code', asyn
   expect(await screen.findByRole('heading', { name: 'Check-in complete' })).toBeVisible();
   expect(screen.getByText('Medical Seminar')).toBeVisible();
   expect(screen.getByText('Speakers & presenters: Dr. Shatha Melhem')).toBeVisible();
-  expect(screen.getByText('View event poster')).toBeVisible();
-  await userEvent.click(screen.getByText('View event poster'));
+  expect(screen.queryByText('View event poster')).not.toBeInTheDocument();
   expect(screen.getByRole('img', { name: 'Event poster' })).toHaveAttribute('src', '/api/v1/public/student-events/posters/event-1');
   expect(screen.queryByLabelText('University number')).not.toBeInTheDocument();
 });

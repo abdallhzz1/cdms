@@ -305,4 +305,25 @@ class StudentEventsTest extends TestCase
         ])->assertOk();
         $this->assertFalse(Storage::disk('local')->exists($path));
     }
+
+    public function test_published_poster_is_a_real_image_for_an_unauthenticated_visitor(): void
+    {
+        Storage::fake('local');
+        $event = $this->published();
+        $this->post("/api/v1/student-events/{$event->id}/poster", [
+            'poster' => UploadedFile::fake()->image('public-poster.png', 640, 800),
+        ], ['Accept' => 'application/json'])->assertOk();
+        auth()->forgetGuards();
+
+        $response = $this->get("/api/v1/public/student-events/posters/{$event->public_id}");
+        $response->assertOk()->assertHeader('Content-Type', 'image/png');
+        $this->assertStringStartsWith('image/png', (string) $response->headers->get('Content-Type'));
+        $this->get("/api/v1/student-events/{$event->id}/poster")->assertUnauthorized();
+
+        // A browser may still send an old staff cookie when opening the public image in a tab.
+        $this->actingAs($this->admin(), 'web')->withSession(['password_hash_web' => 'stale-hash'])
+            ->withHeader('Origin', 'http://localhost');
+        $this->get("/api/v1/public/student-events/posters/{$event->public_id}")
+            ->assertOk()->assertHeader('Content-Type', 'image/png');
+    }
 }

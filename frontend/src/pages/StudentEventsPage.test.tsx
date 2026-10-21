@@ -56,6 +56,38 @@ it('creates a bilingual event without requiring a timed check-in window', async 
   expect(posted).not.toHaveProperty('check_in_opens_at');
 });
 
+it('publishes a draft directly from its card after showing that check-in remains closed', async () => {
+  window.localStorage.setItem('cdms.locale', 'en');
+  document.cookie = 'XSRF-TOKEN=test; path=/';
+  const event = { id: 6, public_id: 'event-6', type: 'lecture', title_ar: 'محاضرة', title_en: 'Medical Lecture',
+    description_ar: null, description_en: null, location_ar: 'القاعة', location_en: 'Hall',
+    starts_at: '2026-10-22T08:00:00Z', ends_at: '2026-10-22T10:00:00Z', eligible_levels: ['fourth'],
+    status: 'draft', check_in_enabled: false, attendance_count: 0, presenters: [], poster_url: null };
+  let published = false;
+  vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input);
+    if (url.includes('/auth/me')) return envelope({ id: 1, roles: ['RTA'], permissions: [
+      { code: 'student_events.view', scope: 'global' }, { code: 'student_events.manage', scope: 'global' }] });
+    if (url.includes('/student-events/6/status') && init?.method === 'POST') {
+      expect(JSON.parse(String(init.body))).toMatchObject({ status: 'published' });
+      published = true; event.status = 'published'; return envelope(event);
+    }
+    if (url.includes('/student-events?')) return envelope({ data: url.includes('scope=draft') || published ? [event] : [],
+      current_page: 1, last_page: 1, total: 1 });
+    if (url.includes('/student-events/6/attendance')) return envelope({ data: [], current_page: 1, last_page: 1, total: 0 });
+    throw new Error(`Unmocked ${url}`);
+  });
+  renderWithProviders(<StudentEventsPage />, { route: '/events' });
+  await userEvent.click(screen.getByRole('button', { name: 'Drafts' }));
+  await screen.findByRole('heading', { name: 'Medical Lecture' });
+  expect(screen.getByText(/Students will not see it until published/)).toBeVisible();
+  await userEvent.click(screen.getByRole('button', { name: 'Publish event for students' }));
+  expect(screen.getByText(/Check-in will remain closed until you open it manually/)).toBeVisible();
+  await userEvent.click(screen.getByRole('button', { name: 'Confirm publication' }));
+  await waitFor(() => expect(published).toBe(true));
+  expect(await screen.findByText('Published')).toBeVisible();
+});
+
 it('opens and closes check-in manually and exposes permanent deletion for published events', async () => {
   window.localStorage.setItem('cdms.locale', 'en');
   document.cookie = 'XSRF-TOKEN=test; path=/';
@@ -86,7 +118,10 @@ it('opens and closes check-in manually and exposes permanent deletion for publis
   expect(screen.getByText('Speakers & presenters: Dr. Shatha Melhem')).toBeVisible();
   await userEvent.click(screen.getByRole('button', { name: 'View event poster' }));
   expect(screen.getByRole('img', { name: 'Event poster' })).toBeVisible();
-  expect(screen.getByRole('link', { name: 'Open full-size poster' })).toHaveAttribute('href', event.poster_url);
+  await userEvent.click(screen.getByRole('button', { name: 'Open full-size poster' }));
+  expect(screen.getByRole('dialog', { name: 'Full-size event poster' })).toBeVisible();
+  expect(within(screen.getByRole('dialog', { name: 'Full-size event poster' })).getByRole('img', { name: 'Event poster' })).toHaveAttribute('src', event.poster_url);
+  await userEvent.click(within(screen.getByRole('dialog', { name: 'Full-size event poster' })).getByRole('button', { name: 'Close' }));
   await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Check-in QR' }));
   expect(screen.getByText('Check-in is closed')).toBeVisible();
   await userEvent.click(screen.getByRole('button', { name: 'Open check-in and show QR' }));

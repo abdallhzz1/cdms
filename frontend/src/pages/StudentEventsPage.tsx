@@ -43,6 +43,8 @@ export function StudentEventsPage() {
   const [rosterPage, setRosterPage] = useState(1);
   const [showQr, setShowQr] = useState(false); const [qrImage, setQrImage] = useState('');
   const [showPoster, setShowPoster] = useState(false);
+  const [posterPreviewUrl, setPosterPreviewUrl] = useState<string | null>(null);
+  const [publishTarget, setPublishTarget] = useState<StudentEvent | null>(null);
   const [qrError, setQrError] = useState(''); const [qrExpiry, setQrExpiry] = useState('');
   const [manualNumber, setManualNumber] = useState(''); const [reason, setReason] = useState('');
   const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false);
@@ -116,8 +118,14 @@ export function StudentEventsPage() {
     if (status === 'archived' && (!reason || reason.trim().length < 10)) return;
     const ok = await run(() => apiFetch(`/student-events/${event.id}/status`, { method: 'POST', body: { status, reason } }),
       status === 'published' ? tr('تم نشر الفعالية.', 'Event published.') : tr('تم تحديث حالة الفعالية.', 'Event status updated.'));
-    if (ok) { setSelected(null); setShowQr(false); }
+    if (ok) { setSelected(null); setShowQr(false); setPublishTarget(null); if (status === 'published') { setScope('all'); setPage(1); } }
   };
+  useEffect(() => {
+    if (!posterPreviewUrl) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setPosterPreviewUrl(null); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [posterPreviewUrl]);
   const toggleCheckIn = async (event: StudentEvent) => {
     const enabled = !event.check_in_enabled;
     await run(async () => {
@@ -217,6 +225,7 @@ export function StudentEventsPage() {
           {can('student_events.attendance.manage') && event.status === 'published' && <button onClick={() => { setSelected(event); setShowQr(true); setShowPoster(false); setRosterPage(1); setError(''); }} className={pill}><QrCode className="me-1 inline h-4 w-4"/>{tr('رمز الحضور','Check-in QR')}</button>}
           {can('student_events.manage') && event.status !== 'archived' && <button onClick={() => edit(event)} className={pill}><Pencil className="me-1 inline h-4 w-4"/>{tr('تعديل','Edit')}</button>}
         </div>
+        {can('student_events.manage') && event.status === 'draft' && <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 p-3"><p className="mb-2 text-xs leading-5 text-teal-900">{tr('هذه مسودة؛ لن تظهر للطلاب قبل نشرها. يبقى تسجيل الحضور مغلقًا بعد النشر حتى تفتحه بنفسك.', 'This is a draft. Students will not see it until published. Check-in stays closed until you open it yourself.')}</p><button type="button" disabled={busy} onClick={() => { setError(''); setPublishTarget(event); }} className="min-h-11 w-full rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-teal-800 disabled:opacity-50">{tr('نشر الفعالية للطلاب','Publish event for students')}</button></div>}
       </article>)}</div>}
     {list.data && list.data.last_page > 1 && <div className="flex justify-center gap-3"><button disabled={page <= 1} onClick={() => setPage(page-1)} className={pill}>{tr('السابق','Previous')}</button><span className="self-center text-xs text-slate-500">{page} / {list.data.last_page}</span><button disabled={page >= list.data.last_page} onClick={() => setPage(page+1)} className={pill}>{tr('التالي','Next')}</button></div>}
 
@@ -255,10 +264,10 @@ export function StudentEventsPage() {
         <div className="flex flex-wrap gap-2"><button onClick={() => { setShowQr(false); setShowPoster(false); }} className={`${pill} ${!showQr && !showPoster ? 'border-teal-500 bg-teal-50 text-teal-800' : ''}`}>{tr('كشف الحضور','Attendance register')}</button>
           {selected.poster_url && <button onClick={() => { setShowQr(false); setShowPoster(true); }} className={`${pill} ${showPoster ? 'border-teal-500 bg-teal-50 text-teal-800' : ''}`}>{tr('البوستر','Poster')}</button>}
           {can('student_events.attendance.manage') && selected.status === 'published' && <button onClick={() => { setShowQr(true); setShowPoster(false); }} className={`${pill} ${showQr ? 'border-teal-500 bg-teal-50 text-teal-800' : ''}`}>{tr('رمز الحضور','Check-in QR')}</button>}
-          {can('student_events.manage') && selected.status === 'draft' && <button disabled={busy} onClick={() => void changeStatus(selected, 'published')} className={pill}>{tr('نشر الفعالية','Publish event')}</button>}
+          {can('student_events.manage') && selected.status === 'draft' && <button disabled={busy} onClick={() => { setError(''); setSelected(null); setPublishTarget(selected); }} className={pill}>{tr('نشر الفعالية','Publish event')}</button>}
           {can('student_events.manage') && selected.status === 'published' && <button disabled={busy} onClick={() => void changeStatus(selected, 'archived')} className={pill}>{tr('أرشفة','Archive')}</button>}
           {can('student_events.delete') && <button disabled={busy} onClick={() => { setDeleteTarget(selected); setSelected(null); setShowQr(false); setShowPoster(false); setDeleteConfirmation(''); setDeleteReason(''); }} className={`${pill} inline-flex items-center gap-1 text-rose-700`}><Trash2 className="h-4 w-4"/>{tr('حذف نهائي','Delete permanently')}</button>}</div>
-        {showPoster && selected.poster_url ? <div className="rounded-2xl bg-slate-50 p-3 text-center sm:p-5"><img src={selected.poster_url} alt={tr('بوستر الفعالية','Event poster')} className="mx-auto max-h-[65vh] w-auto max-w-full rounded-xl object-contain shadow-sm"/><a href={selected.poster_url} target="_blank" rel="noopener noreferrer" className="mt-4 inline-block text-sm font-bold text-teal-800 underline">{tr('فتح البوستر بالحجم الكامل','Open full-size poster')}</a></div> : showQr ? <div className="rounded-2xl bg-teal-50 p-5 text-center">
+        {showPoster && selected.poster_url ? <div className="rounded-2xl bg-slate-50 p-3 text-center sm:p-5"><img src={selected.poster_url} alt={tr('بوستر الفعالية','Event poster')} className="mx-auto max-h-[65vh] w-auto max-w-full rounded-xl object-contain shadow-sm"/><button type="button" onClick={() => setPosterPreviewUrl(selected.poster_url)} className="mt-4 inline-block text-sm font-bold text-teal-800 underline">{tr('فتح البوستر بالحجم الكامل','Open full-size poster')}</button></div> : showQr ? <div className="rounded-2xl bg-teal-50 p-5 text-center">
           <p className={`font-bold ${selected.check_in_enabled ? 'text-emerald-800' : 'text-slate-700'}`}>{selected.check_in_enabled ? tr('الحضور مفتوح الآن','Check-in is open now') : tr('الحضور مغلق الآن','Check-in is closed')}</p>
           {can('student_events.attendance.manage') && <button type="button" disabled={busy} onClick={() => void toggleCheckIn(selected)} className={`mt-4 min-h-11 rounded-xl px-5 py-2.5 font-bold text-white disabled:opacity-50 ${selected.check_in_enabled ? 'bg-rose-700 hover:bg-rose-800' : 'bg-teal-700 hover:bg-teal-800'}`}>{selected.check_in_enabled ? tr('إغلاق الحضور وإيقاف الباركود','Close check-in and disable QR') : tr('فتح الحضور وإظهار الباركود','Open check-in and show QR')}</button>}
           {selected.check_in_enabled ? <><p className="mt-5 font-bold text-teal-900">{tr('امسح الرمز لتسجيل حضور هذه الفعالية','Scan to check in to this event')}</p>
@@ -279,6 +288,17 @@ export function StudentEventsPage() {
         {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-rose-700">{error}</p>}{notice && <p role="status" className="flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-emerald-800"><CheckCircle2 className="h-4 w-4"/>{notice}</p>}
       </div>}
     </Modal>
+    <Modal isOpen={Boolean(publishTarget)} onClose={() => setPublishTarget(null)} title={tr('نشر الفعالية','Publish event')} maxWidth="lg">
+      {publishTarget && <div className="space-y-4 text-sm"><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><b className="block text-base">{title(publishTarget)}</b><p className="mt-2 text-slate-600">{date(publishTarget.starts_at)} · {location(publishTarget)}</p></div>
+        <p className="leading-6 text-slate-700">{tr('ستصبح الفعالية وبوسترها ظاهرين للطلاب. تسجيل الحضور سيبقى مغلقًا حتى تفتحه يدويًا من زر رمز الحضور.', 'The event and its poster will become visible to students. Check-in will remain closed until you open it manually from the QR control.')}</p>
+        {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-rose-700">{error}</p>}
+        <div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setPublishTarget(null)} className={pill}>{tr('إلغاء','Cancel')}</button><button type="button" disabled={busy} onClick={() => void changeStatus(publishTarget, 'published')} className="min-h-11 rounded-xl bg-teal-700 px-5 py-2.5 font-bold text-white hover:bg-teal-800 disabled:opacity-50">{tr('تأكيد النشر','Confirm publication')}</button></div>
+      </div>}
+    </Modal>
+    {posterPreviewUrl && <div role="dialog" aria-modal="true" aria-label={tr('بوستر الفعالية بالحجم الكامل','Full-size event poster')} className="fixed inset-0 z-[70] flex flex-col bg-slate-950/95 p-3 sm:p-6" onClick={() => setPosterPreviewUrl(null)}>
+      <div className="mb-3 flex justify-end"><button type="button" onClick={() => setPosterPreviewUrl(null)} className="min-h-11 rounded-xl bg-white px-4 py-2 text-sm font-bold text-slate-900">{tr('إغلاق','Close')}</button></div>
+      <img src={posterPreviewUrl} alt={tr('بوستر الفعالية','Event poster')} onClick={event => event.stopPropagation()} className="m-auto max-h-[calc(100dvh-6rem)] max-w-full rounded-lg object-contain"/>
+    </div>}
     <Modal isOpen={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} title={tr('حذف الفعالية نهائيًا','Permanently delete event')} maxWidth="lg">
       {deleteTarget && <form onSubmit={confirmDelete} className="space-y-4 text-sm">
         <p className="rounded-xl border border-rose-200 bg-rose-50 p-4 leading-6 text-rose-900">{tr(

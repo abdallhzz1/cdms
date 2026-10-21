@@ -119,7 +119,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     Route::prefix('public')->name('public.')->group(function () {
         Route::prefix('student-events')->group(function () {
             Route::get('posters/{publicId}', [PublicStudentEventController::class, 'poster'])
-                ->whereUuid('publicId')->middleware('throttle:operational-read');
+                ->whereUuid('publicId')->middleware('throttle:operational-read')
+                // A stale staff session must not turn a published public image into a 401 JSON page.
+                ->withoutMiddleware(\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class);
             Route::post('begin', [PublicStudentEventController::class, 'begin'])->middleware('throttle:student-event-scan');
             Route::post('identity', [PublicStudentEventController::class, 'identity'])->middleware('throttle:operational-read');
             Route::post('request-otp', [PublicStudentEventController::class, 'requestOtp'])->middleware('throttle:student-event-otp-request');
