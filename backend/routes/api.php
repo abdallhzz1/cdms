@@ -330,6 +330,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 ->middleware('permission:students.view')->name('index');
             Route::get('/main-groups', [StudentController::class, 'mainGroups'])
                 ->middleware('permission:students.view')->name('main-groups');
+            Route::get('/email-subgroups', [StudentController::class, 'emailSubgroups'])
+                ->middleware('permission:students.view')->name('email-subgroups');
             Route::get('/email-recipients', [StudentController::class, 'emailRecipients'])
                 ->middleware('permission:students.view')->name('email-recipients');
             Route::post('/', [StudentController::class, 'store'])

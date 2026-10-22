@@ -20,6 +20,7 @@ use App\Models\StudentCourseEnrollment;
 use App\Models\StudentGroup;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentGroupRoster;
+use App\Models\StudentSubgroup;
 use App\Models\User;
 use App\Services\SecureFileUploadService;
 use App\Services\Students\StudentDirectorySearch;
@@ -80,13 +81,65 @@ class StudentController extends Controller
         return ApiResponse::success($groups);
     }
 
-    /** Preview permission-scoped recipients for one cohort, a group, or every visible cohort. */
+    /** Return subgroups with current members in the selected visible cohort and main group. */
+    public function emailSubgroups(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'academic_level' => ['required', 'in:fourth,fifth,sixth'],
+            'main_group_code' => ['required', 'string', 'max:20'],
+        ]);
+
+        $visibleStudents = $this->applyStudentAccessScope(Student::query())
+            ->where('academic_level', $data['academic_level'])
+            ->select('students.id');
+
+        $subgroups = StudentSubgroup::query()
+            ->join('student_groups', 'student_groups.id', '=', 'student_subgroups.student_group_id')
+            ->join('student_group_assignments', 'student_group_assignments.student_subgroup_id', '=', 'student_subgroups.id')
+            ->join('student_group_rosters', function ($join) {
+                $join->on('student_group_rosters.student_id', '=', 'student_group_assignments.student_id')
+                    ->on('student_group_rosters.student_group_id', '=', 'student_subgroups.student_group_id');
+            })
+            ->whereIn('student_group_assignments.student_id', $visibleStudents)
+            ->whereNull('student_group_assignments.valid_until')
+            ->where('student_groups.academic_level', $data['academic_level'])
+            ->whereRaw('UPPER(student_groups.name) = ?', [strtoupper(trim($data['main_group_code']))])
+            ->whereRaw('student_group_rosters.group_registration_cycle_id = (
+                SELECT MAX(latest_roster.group_registration_cycle_id)
+                FROM student_group_rosters AS latest_roster
+                WHERE latest_roster.student_id = student_group_rosters.student_id
+            )')
+            ->select('student_subgroups.id', 'student_subgroups.name')
+            ->distinct()
+            ->orderBy('student_subgroups.name')
+            ->get();
+
+        return ApiResponse::success($subgroups);
+    }
+
+    /** Preview permission-scoped recipients for a cohort, main group, subgroup, or every visible cohort. */
     public function emailRecipients(Request $request): JsonResponse
     {
         $data = $request->validate([
             'academic_level' => ['required', 'in:fourth,fifth,sixth,all'],
             'main_group_code' => ['nullable', 'prohibited_if:academic_level,all', 'string', 'max:20'],
+            'student_subgroup_id' => ['nullable', 'prohibited_if:academic_level,all', 'integer', 'exists:student_subgroups,id'],
         ]);
+
+        $subgroup = null;
+        if (! empty($data['student_subgroup_id'])) {
+            if (empty($data['main_group_code'])) {
+                throw ValidationException::withMessages(['main_group_code' => ['اختر المجموعة الرئيسية أولًا.']]);
+            }
+            $subgroup = StudentSubgroup::query()->whereKey($data['student_subgroup_id'])
+                ->whereHas('group', fn ($query) => $query
+                    ->where('academic_level', $data['academic_level'])
+                    ->whereRaw('UPPER(student_groups.name) = ?', [strtoupper(trim($data['main_group_code']))]))
+                ->first();
+            if (! $subgroup) {
+                throw ValidationException::withMessages(['student_subgroup_id' => ['المجموعة الفرعية لا تتبع الدفعة والمجموعة الرئيسية المحددتين.']]);
+            }
+        }
 
         $students = $this->applyStudentAccessScope(Student::query())
             ->when(
@@ -94,16 +147,20 @@ class StudentController extends Controller
                 fn ($query) => $query->whereIn('academic_level', ['fourth', 'fifth', 'sixth']),
                 fn ($query) => $query->where('academic_level', $data['academic_level'])
             )
-            ->when(! empty($data['main_group_code']), function ($query) use ($data) {
+            ->when(! empty($data['main_group_code']), function ($query) use ($data, $subgroup) {
                 $groupCode = strtoupper(trim($data['main_group_code']));
                 $query->whereHas('groupRegistrationRosters', fn ($roster) => $roster
                     ->whereHas('group', fn ($group) => $group->whereRaw('UPPER(name) = ?', [$groupCode]))
+                    ->when($subgroup, fn ($roster) => $roster->where('student_group_id', $subgroup->student_group_id))
                     ->whereRaw('student_group_rosters.group_registration_cycle_id = (
                         SELECT MAX(latest_roster.group_registration_cycle_id)
                         FROM student_group_rosters AS latest_roster
                         WHERE latest_roster.student_id = student_group_rosters.student_id
                     )'));
             })
+            ->when($subgroup, fn ($query) => $query->whereHas('currentGroupAssignments', fn ($assignment) => $assignment
+                ->where('student_group_id', $subgroup->student_group_id)
+                ->where('student_subgroup_id', $subgroup->id)))
             ->get(['students.id', 'students.university_number', 'students.university_email']);
 
         $validEmails = $students->map(fn (Student $student) => $student->resolvedUniversityEmail())

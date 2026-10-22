@@ -61,6 +61,7 @@ describe('student directory email action', () => {
       const url = String(input);
       if (url.includes('/auth/me')) return envelope({ id: 4, roles: ['RTA'], assigned_levels: ['fifth'], permissions: [{ code: 'students.view', scope: 'global' }] });
       if (url.includes('/students/main-groups')) return envelope(['L']);
+      if (url.includes('/students/email-subgroups?')) return envelope([]);
       if (url.includes('/students/email-recipients?')) {
         const selectedGroup = new URL(url, 'http://localhost').searchParams.get('main_group_code');
         const emails = selectedGroup ? ['l@students.hebron.edu'] : ['l@students.hebron.edu', 'm@students.hebron.edu'];
@@ -81,6 +82,47 @@ describe('student directory email action', () => {
     expect(await within(dialog).findByText('1 email recipients')).toBeVisible();
     gmail = new URL(within(dialog).getByRole('link', { name: 'Open Gmail' }).getAttribute('href') || '');
     expect(gmail.searchParams.get('bcc')).toBe('l@students.hebron.edu');
+  });
+
+  it('limits a Gmail draft to a subgroup and clears it when the main group changes', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    const fetchSpy = vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return envelope({ id: 4, roles: ['RTA'], assigned_levels: ['fifth'], permissions: [{ code: 'students.view', scope: 'global' }] });
+      if (url.includes('/students/main-groups')) return envelope(['L', 'M']);
+      if (url.includes('/students/email-subgroups?')) return envelope(new URL(url, 'http://localhost').searchParams.get('main_group_code') === 'L' ? [{ id: 21, name: 'L1' }, { id: 22, name: 'L2' }] : [{ id: 23, name: 'M1' }]);
+      if (url.includes('/students/email-recipients?')) {
+        const params = new URL(url, 'http://localhost').searchParams;
+        const emails = params.get('student_subgroup_id') === '21'
+          ? ['l1@students.hebron.edu']
+          : params.get('main_group_code') === 'L'
+            ? ['l1@students.hebron.edu', 'l2@students.hebron.edu']
+            : ['m1@students.hebron.edu'];
+        return envelope({ total_students: emails.length, recipient_count: emails.length, missing_email_count: 0, duplicate_email_count: 0, emails });
+      }
+      if (url.includes('/students?')) return envelope([]);
+      throw new Error(`Unmocked request: ${url}`);
+    });
+
+    renderWithProviders(<DirectoryPage kind="students" />, { route: '/directory' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Email students' }));
+    const dialog = screen.getByRole('dialog', { name: 'Email students' });
+    const subgroup = within(dialog).getByLabelText('Recipient subgroup');
+    expect(subgroup).toBeDisabled();
+    await userEvent.selectOptions(within(dialog).getByLabelText('Recipient group'), 'L');
+    await waitFor(() => expect(subgroup).toBeEnabled());
+    await userEvent.selectOptions(subgroup, '21');
+    expect(await within(dialog).findByText('1 email recipients')).toBeVisible();
+    let gmail = new URL(within(dialog).getByRole('link', { name: 'Open Gmail' }).getAttribute('href') || '');
+    expect(gmail.searchParams.get('bcc')).toBe('l1@students.hebron.edu');
+    expect(fetchSpy.mock.calls.some(([input]) => String(input).includes('student_subgroup_id=21'))).toBe(true);
+
+    await userEvent.selectOptions(within(dialog).getByLabelText('Recipient group'), 'M');
+    expect(subgroup).toHaveValue('');
+    await waitFor(() => expect(within(dialog).getByText('1 email recipients')).toBeVisible());
+    gmail = new URL(within(dialog).getByRole('link', { name: 'Open Gmail' }).getAttribute('href') || '');
+    expect(gmail.searchParams.get('bcc')).toBe('m1@students.hebron.edu');
+    expect(fetchSpy.mock.calls.some(([input]) => String(input).includes('main_group_code=M') && !String(input).includes('student_subgroup_id='))).toBe(true);
   });
 
   it('prepares every accessible cohort in one Gmail draft', async () => {

@@ -16,6 +16,7 @@ use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroup;
 use App\Models\StudentGroupAssignment;
 use App\Models\StudentGroupRoster;
+use App\Models\StudentSubgroup;
 use App\Models\TrainingSite;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
@@ -218,6 +219,75 @@ class StudentTest extends TestCase
             ->assertJsonPath('data.total_students', 1)
             ->assertJsonPath('data.recipient_count', 1)
             ->assertJsonPath('data.emails.0', $visible->resolvedUniversityEmail());
+    }
+
+    public function test_subgroup_email_recipients_use_current_membership_in_the_latest_roster(): void
+    {
+        $year = AcademicYear::factory()->create();
+        $cycle = GroupRegistrationCycle::create([
+            'academic_year_id' => $year->id, 'academic_level' => 'fourth',
+            'public_id' => (string) Str::uuid(), 'status' => 'open', 'default_capacity' => 6,
+        ]);
+        $groupL = StudentGroup::create(['academic_year_id' => $year->id, 'academic_level' => 'fourth', 'name' => 'L', 'group_type' => 'self_registration']);
+        $groupM = StudentGroup::create(['academic_year_id' => $year->id, 'academic_level' => 'fourth', 'name' => 'M', 'group_type' => 'self_registration']);
+        $subgroupL1 = StudentSubgroup::factory()->for($groupL, 'group')->create(['name' => 'L1']);
+        $subgroupL2 = StudentSubgroup::factory()->for($groupL, 'group')->create(['name' => 'L2']);
+        $subgroupM1 = StudentSubgroup::factory()->for($groupM, 'group')->create(['name' => 'M1']);
+        $studentL1 = Student::factory()->create(['academic_year_id' => $year->id, 'academic_level' => 'fourth']);
+        $studentL2 = Student::factory()->create(['academic_year_id' => $year->id, 'academic_level' => 'fourth']);
+        $studentM1 = Student::factory()->create(['academic_year_id' => $year->id, 'academic_level' => 'fourth']);
+
+        foreach ([[$studentL1, $groupL], [$studentL2, $groupL], [$studentM1, $groupM]] as [$student, $group]) {
+            StudentGroupRoster::create(['group_registration_cycle_id' => $cycle->id, 'student_id' => $student->id, 'student_group_id' => $group->id]);
+        }
+        StudentGroupAssignment::factory()->create([
+            'student_id' => $studentL1->id, 'academic_year_id' => $year->id,
+            'student_group_id' => $groupL->id, 'student_subgroup_id' => $subgroupL1->id,
+        ]);
+        StudentGroupAssignment::factory()->create([
+            'student_id' => $studentL2->id, 'academic_year_id' => $year->id,
+            'student_group_id' => $groupL->id, 'student_subgroup_id' => $subgroupL1->id,
+            'valid_until' => now()->subDay(),
+        ]);
+        StudentGroupAssignment::factory()->create([
+            'student_id' => $studentL2->id, 'academic_year_id' => $year->id,
+            'student_group_id' => $groupL->id, 'student_subgroup_id' => $subgroupL2->id,
+        ]);
+        StudentGroupAssignment::factory()->create([
+            'student_id' => $studentM1->id, 'academic_year_id' => $year->id,
+            'student_group_id' => $groupM->id, 'student_subgroup_id' => $subgroupM1->id,
+        ]);
+
+        $this->actingAs($this->admin)->getJson('/api/v1/students/email-subgroups?academic_level=fourth&main_group_code=L')
+            ->assertOk()->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.id', $subgroupL1->id)
+            ->assertJsonPath('data.1.id', $subgroupL2->id);
+        $this->getJson("/api/v1/students/email-recipients?academic_level=fourth&main_group_code=L&student_subgroup_id={$subgroupL1->id}")
+            ->assertOk()->assertJsonPath('data.total_students', 1)
+            ->assertJsonPath('data.emails.0', $studentL1->resolvedUniversityEmail());
+        $this->getJson("/api/v1/students/email-recipients?academic_level=fourth&main_group_code=L&student_subgroup_id={$subgroupL2->id}")
+            ->assertOk()->assertJsonPath('data.emails.0', $studentL2->resolvedUniversityEmail());
+        $this->getJson("/api/v1/students/email-recipients?academic_level=fourth&main_group_code=L&student_subgroup_id={$subgroupM1->id}")
+            ->assertUnprocessable();
+        $this->getJson("/api/v1/students/email-recipients?academic_level=fourth&student_subgroup_id={$subgroupL1->id}")
+            ->assertUnprocessable();
+        $this->getJson("/api/v1/students/email-recipients?academic_level=all&main_group_code=L&student_subgroup_id={$subgroupL1->id}")
+            ->assertUnprocessable();
+
+        $newYear = AcademicYear::factory()->create();
+        $newCycle = GroupRegistrationCycle::create([
+            'academic_year_id' => $newYear->id, 'academic_level' => 'fourth',
+            'public_id' => (string) Str::uuid(), 'status' => 'open', 'default_capacity' => 6,
+        ]);
+        $newGroup = StudentGroup::create(['academic_year_id' => $newYear->id, 'academic_level' => 'fourth', 'name' => 'M', 'group_type' => 'self_registration']);
+        StudentGroupRoster::create([
+            'group_registration_cycle_id' => $newCycle->id, 'student_id' => $studentL1->id,
+            'student_group_id' => $newGroup->id,
+        ]);
+        $this->getJson('/api/v1/students/email-subgroups?academic_level=fourth&main_group_code=L')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $subgroupL2->id);
+        $this->getJson("/api/v1/students/email-recipients?academic_level=fourth&main_group_code=L&student_subgroup_id={$subgroupL1->id}")
+            ->assertOk()->assertJsonPath('data.total_students', 0)->assertJsonPath('data.emails', []);
     }
 
     public function test_can_create_student()

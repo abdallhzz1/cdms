@@ -6,6 +6,7 @@ import { useI18n } from '@/i18n/I18nContext';
 import { gmailBccNeedsPaste, gmailComposeUrl } from './studentEmail';
 
 type Cohort = { value: string; label_ar: string; label_en: string };
+type EmailSubgroup = { id: number; name: string };
 type Recipients = {
   total_students: number;
   recipient_count: number;
@@ -37,6 +38,7 @@ export function StudentBulkEmailDialog({ cohorts, initialLevel, onClose }: { coh
   const [mode, setMode] = useState<'cohort' | 'students'>('cohort');
   const [level, setLevel] = useState(cohorts.some(cohort => cohort.value === initialLevel) ? initialLevel : '');
   const [group, setGroup] = useState('');
+  const [subgroupId, setSubgroupId] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [searchLevel, setSearchLevel] = useState('');
@@ -54,11 +56,17 @@ export function StudentBulkEmailDialog({ cohorts, initialLevel, onClose }: { coh
     queryFn: () => apiFetch<string[]>('/students/main-groups?academic_level=' + encodeURIComponent(level)),
     enabled: mode === 'cohort' && Boolean(level) && level !== 'all',
   });
+  const subgroupsQuery = useQuery({
+    queryKey: ['student-email-subgroups', level, group],
+    queryFn: () => apiFetch<EmailSubgroup[]>('/students/email-subgroups?' + new URLSearchParams({ academic_level: level, main_group_code: group })),
+    enabled: mode === 'cohort' && Boolean(level) && level !== 'all' && Boolean(group),
+  });
   const recipientsQuery = useQuery({
-    queryKey: ['student-email-recipients', level, group],
+    queryKey: ['student-email-recipients', level, group, subgroupId],
     queryFn: () => {
       const params = new URLSearchParams({ academic_level: level });
       if (group && level !== 'all') params.set('main_group_code', group);
+      if (subgroupId && group && level !== 'all') params.set('student_subgroup_id', subgroupId);
       return apiFetch<Recipients>('/students/email-recipients?' + params);
     },
     enabled: mode === 'cohort' && Boolean(level),
@@ -116,22 +124,29 @@ export function StudentBulkEmailDialog({ cohorts, initialLevel, onClose }: { coh
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
         {mode === 'cohort' ? <>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             <label className="text-xs font-bold text-slate-700">{tr('المستلمون', 'Recipients')}
-              <select value={level} onChange={event => { setLevel(event.target.value); setGroup(''); }} aria-label={tr('دفعة المستلمين', 'Recipient cohort')} className={'mt-1.5 ' + selectClass}>
+              <select value={level} onChange={event => { setLevel(event.target.value); setGroup(''); setSubgroupId(''); }} aria-label={tr('دفعة المستلمين', 'Recipient cohort')} className={'mt-1.5 ' + selectClass}>
                 <option value="">{tr('اختر الدفعة', 'Choose cohort')}</option>
                 {cohorts.length > 1 && <option value="all">{tr('جميع الدفعات المتاحة', 'All available cohorts')}</option>}
                 {cohorts.map(cohort => <option key={cohort.value} value={cohort.value}>{ar ? cohort.label_ar : cohort.label_en}</option>)}
               </select>
             </label>
             <label className="text-xs font-bold text-slate-700">{tr('المجموعة الرئيسية (اختياري)', 'Main group (optional)')}
-              <select value={group} disabled={!level || level === 'all' || groupsQuery.isLoading} onChange={event => setGroup(event.target.value)} aria-label={tr('مجموعة المستلمين', 'Recipient group')} className={'mt-1.5 ' + selectClass}>
+              <select value={group} disabled={!level || level === 'all' || groupsQuery.isLoading} onChange={event => { setGroup(event.target.value); setSubgroupId(''); }} aria-label={tr('مجموعة المستلمين', 'Recipient group')} className={'mt-1.5 ' + selectClass}>
                 <option value="">{level === 'all' ? tr('كل المجموعات في كل الدفعات', 'All groups in all cohorts') : tr('كل طلاب الدفعة', 'Entire cohort')}</option>
                 {groupsQuery.data?.map(name => <option key={name} value={name}>{name}</option>)}
               </select>
             </label>
+            <label className="text-xs font-bold text-slate-700">{tr('المجموعة الفرعية (اختياري)', 'Subgroup (optional)')}
+              <select value={subgroupId} disabled={!group || subgroupsQuery.isLoading || subgroupsQuery.isError} onChange={event => setSubgroupId(event.target.value)} aria-label={tr('المجموعة الفرعية للمستلمين', 'Recipient subgroup')} className={'mt-1.5 ' + selectClass}>
+                <option value="">{tr('كل طلاب المجموعة الرئيسية', 'Entire main group')}</option>
+                {subgroupsQuery.data?.map(subgroup => <option key={subgroup.id} value={subgroup.id}>{subgroup.name}</option>)}
+              </select>
+            </label>
           </div>
           {groupsQuery.isError && <p role="alert" className="text-xs text-rose-700">{tr('تعذر تحميل المجموعات.', 'Unable to load groups.')} <button type="button" className="underline" onClick={() => groupsQuery.refetch()}>{tr('إعادة المحاولة', 'Retry')}</button></p>}
+          {subgroupsQuery.isError && <p role="alert" className="text-xs text-rose-700">{tr('تعذر تحميل المجموعات الفرعية.', 'Unable to load subgroups.')} <button type="button" className="underline" onClick={() => subgroupsQuery.refetch()}>{tr('إعادة المحاولة', 'Retry')}</button></p>}
           {!level && <p className="rounded-xl bg-slate-50 p-4 text-xs leading-6 text-slate-600">{tr('اختر دفعة واحدة أو جميع الدفعات المتاحة لحسابك. لن تُفتح رسالة حتى تُراجع عدد المستلمين.', 'Choose one cohort or all cohorts available to your account. Review the recipient count before opening Gmail.')}</p>}
           {level && <div className="rounded-2xl border border-teal-100 bg-teal-50 p-4 text-sm text-teal-950">{recipientsQuery.isLoading ? tr('جارٍ حساب المستلمين...', 'Counting recipients...') : recipientsQuery.isError ? <span role="alert">{tr('تعذر تحميل المستلمين.', 'Unable to load recipients.')} <button type="button" className="underline" onClick={() => recipientsQuery.refetch()}>{tr('إعادة المحاولة', 'Retry')}</button></span> : <><strong>{recipientsQuery.data?.recipient_count ?? 0} {tr('عنوانًا جاهزًا للمراسلة', 'email recipients')}</strong><p className="mt-1 text-xs leading-5 text-teal-800">{tr('من أصل ', 'From ')}{recipientsQuery.data?.total_students ?? 0} {tr('طالب', 'students')}{Boolean(recipientsQuery.data?.missing_email_count) && ' · ' + recipientsQuery.data?.missing_email_count + ' ' + tr('بدون بريد صالح', 'without valid email')}{Boolean(recipientsQuery.data?.duplicate_email_count) && ' · ' + recipientsQuery.data?.duplicate_email_count + ' ' + tr('عنوان مكرر', 'duplicate addresses')}</p></>}</div>}
         </> : <>
