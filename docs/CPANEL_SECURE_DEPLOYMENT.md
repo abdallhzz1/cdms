@@ -94,14 +94,14 @@ Before publishing the real campaign:
 1. Obtain the externally approved bilingual PDF printed on the official College
    of Medicine letterhead. Do not upload a draft or auto-translated version.
 2. Create a short test campaign for a controlled academic-year/level dataset.
-3. Verify OTP delivery from the production mail account, PDF opening, versioned
-   acknowledgement, paper-receipt recording, private scan download, and Excel
-   export.
+3. Verify the public link and QR code open without student identity or OTP,
+   both language PDFs download, and the student can print and sign the chosen copy.
+   Then verify staff paper-receipt recording and private scan download.
 4. Confirm the signed scan appears in the student's Documents tab and that its
    storage path is never returned by the API.
 5. Close the test campaign, upload the final immutable version, and publish the
    real campaign. Corrections require a new version and campaign.
 
-The electronic acknowledgement proves that the student opened and acknowledged
-the exact stored document hash. It does not replace the required handwritten
-signature or the physical copy retained in the student file.
+The official completion record is the staff-recorded receipt of the signed
+paper copy and its private scan. Historic electronic acknowledgements remain
+in the database, but new student visits no longer create them.

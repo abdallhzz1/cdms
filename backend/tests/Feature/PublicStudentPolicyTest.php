@@ -2,15 +2,12 @@
 
 namespace Tests\Feature;
 
-use App\Mail\StudentPolicyOtpMail;
 use App\Models\AcademicYear;
 use App\Models\Student;
 use App\Models\StudentPolicyAssignment;
 use App\Models\StudentPolicyCampaign;
 use App\Models\StudentPolicyDocument;
-use App\Models\StudentPolicyOtpChallenge;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -18,50 +15,35 @@ class PublicStudentPolicyTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_student_must_verify_otp_and_open_exact_version_before_acknowledging(): void
+    public function test_published_documents_can_be_downloaded_without_student_identity(): void
     {
-        Mail::fake(); Storage::fake('local');
-        [$campaign, $student] = $this->publishedCampaign();
+        Storage::fake('local');
+        [$campaign] = $this->publishedCampaign();
 
-        $challengeToken = $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/request-otp", [
-            'university_number' => $student->university_number,
-        ])->assertOk()->json('data.challenge_token');
-
-        $otp = null;
-        Mail::assertSent(StudentPolicyOtpMail::class, function (StudentPolicyOtpMail $mail) use (&$otp) {
-            $otp = $mail->otp; return true;
-        });
-        $this->assertNotNull($otp);
-        $this->assertNotSame((string) $otp, (string) StudentPolicyOtpChallenge::latest()->value('otp_hash'));
-
-        $accessToken = $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/verify-otp", [
-            'challenge_token' => $challengeToken, 'otp' => $otp,
-        ])->assertOk()->json('data.access_token');
-        $this->assertNotSame($accessToken, StudentPolicyOtpChallenge::latest()->value('access_token_hash'));
-
-        $payload = ['access_token' => $accessToken, 'typed_name' => $student->full_name_ar, 'paper_signature_understood' => true];
-        $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/acknowledge", $payload)->assertUnprocessable();
-        $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/document-opened", ['access_token' => $accessToken, 'language' => 'ar'])->assertOk();
-        $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/acknowledge", $payload)->assertUnprocessable();
-        $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/document-opened", ['access_token' => $accessToken, 'language' => 'en'])->assertOk();
-        $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/acknowledge", $payload)->assertOk();
-
-        $assignment = StudentPolicyAssignment::firstOrFail();
-        $this->assertSame('2026.1', $assignment->acknowledged_version);
-        $this->assertSame(str_repeat('a', 64), $assignment->acknowledged_document_sha256);
-        $this->assertSame(str_repeat('b', 64), $assignment->acknowledged_document_sha256_en);
+        $this->getJson("/api/v1/public/student-policies/{$campaign->public_id}")
+            ->assertOk()->assertJsonPath('data.has_english_document', true);
+        $this->get("/api/v1/public/student-policies/{$campaign->public_id}/document?language=ar")
+            ->assertOk()->assertDownload('student-policy-ar.pdf');
+        $this->get("/api/v1/public/student-policies/{$campaign->public_id}/document?language=en")
+            ->assertOk()->assertDownload('student-policy-en.pdf');
+        $this->assertNull(StudentPolicyAssignment::firstOrFail()->opened_at);
     }
 
-    public function test_unknown_or_unassigned_number_receives_a_clear_message(): void
+    public function test_old_identity_and_acknowledgement_routes_are_unavailable(): void
     {
-        Mail::fake(); Storage::fake('local'); [$campaign] = $this->publishedCampaign();
-        $response = $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/request-otp", ['university_number' => '99999999']);
-        $response->assertNotFound()->assertJsonPath('message', 'الرقم الجامعي غير موجود في النظام.');
+        Storage::fake('local'); [$campaign] = $this->publishedCampaign();
+        foreach (['request-otp', 'verify-otp', 'document-opened', 'acknowledge'] as $path) {
+            $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/{$path}")->assertNotFound();
+        }
+    }
 
-        $other = Student::factory()->create();
-        $this->postJson("/api/v1/public/student-policies/{$campaign->public_id}/request-otp", ['university_number' => $other->university_number])
-            ->assertUnprocessable()
-            ->assertJsonPath('message', 'الطالب موجود لكنه غير مشمول بهذه الحملة.');
+    public function test_draft_and_closed_documents_are_not_public(): void
+    {
+        Storage::fake('local'); [$campaign] = $this->publishedCampaign();
+        foreach (['draft', 'closed'] as $status) {
+            $campaign->update(['status' => $status]);
+            $this->get("/api/v1/public/student-policies/{$campaign->public_id}/document?language=ar")->assertNotFound();
+        }
     }
 
     private function publishedCampaign(): array

@@ -51,7 +51,7 @@ export function StudentPoliciesPage() {
   }, onSuccess: () => { setOpen(false); setError(''); setFileAr(null); setFileEn(null); setForm(current => ({ ...current, version_label: '', effective_date: today(), deadline: '' })); queryClient.invalidateQueries({ queryKey: ['student-policies'] }); }, onError: (e: Error) => setError(e.message) });
 
   return <div className="space-y-5" dir="rtl">
-    <PageHeader title="سياسات وتعهدات الطلبة" description="نشر النسخة الرسمية، توثيق القراءة، ومتابعة النسخ الورقية الموقعة.">
+    <PageHeader title="سياسات وتعهدات الطلبة" description="انشر الرابط أو الباركود للطلبة، ثم سجّل استلام النسخ الورقية وارفع النسخ الموقعة.">
       {can('student_policies.manage') && <button onClick={() => { setAdvanced(false); setError(''); setOpen(true); }} className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-teal-800"><Plus className="h-4 w-4" />إنشاء حملة</button>}
     </PageHeader>
     <div className="grid gap-3 sm:grid-cols-3">

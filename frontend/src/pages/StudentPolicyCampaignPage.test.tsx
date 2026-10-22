@@ -1,25 +1,24 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Route, Routes } from 'react-router-dom';
-import * as XLSX from 'xlsx';
+import QRCode from 'qrcode';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { StudentPolicyCampaignPage } from './StudentPolicyCampaignPage';
 
-vi.mock('xlsx', () => ({
-  utils: { book_new: vi.fn(() => ({})), book_append_sheet: vi.fn(), json_to_sheet: vi.fn(data => data) },
-  writeFile: vi.fn(),
-}));
+vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,cXI=') } }));
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data, message: null, meta: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });
 
-it('shows real paper and acknowledgement milestones in one table', async () => {
+it('shows only paper receipt and signed scan tracking', async () => {
   vi.spyOn(window, 'fetch').mockImplementation(async (input) => {
     if (String(input).includes('/auth/me')) return ok({ id: 1, name: 'Manager', roles: [], department_ids: [], permissions: [{ code: 'student_policies.manage' }] });
     return ok({ campaign: { id: 7, public_id: 'public', status: 'published', deadline: '2026-10-01', target_levels: ['fourth'], document: { title_ar: 'مدونة سلوك طلبة الطب', title_en: 'Medical Students Code of Conduct', version_label: '2026.1' }, academic_year: { id: 1, code: '2026/2027' }, counts: { total: 1, not_opened: 1, acknowledged: 0, paper_received: 0, scan_attached: 0 } }, assignments: { data: [{ id: 2, student: { id: 3, university_number: '22310001', full_name_ar: 'طالب تجريبي', academic_level: 'fourth' }, opened_at: null, acknowledged_at: null, paper_received_at: null, scan_attached: false }], current_page: 1, last_page: 1, total: 1 } });
   });
   renderWithProviders(<Routes><Route path="/student-policies/:id" element={<StudentPolicyCampaignPage />} /></Routes>, { route: '/student-policies/7' });
   expect(await screen.findByText('طالب تجريبي')).toBeVisible();
-  expect(screen.getAllByText(/لم يفتح/).length).toBeGreaterThan(0);
+  expect(screen.getByRole('columnheader', { name: 'الاستلام الورقي' })).toBeVisible();
+  expect(screen.getByRole('columnheader', { name: 'النسخة الموقعة' })).toBeVisible();
+  expect(screen.queryByText('الإقرار الإلكتروني')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /حذف الحملة نهائيًا/ })).toBeVisible();
 });
 
@@ -70,28 +69,14 @@ it('paginates the roster and clears selection when the page changes', async () =
   expect(screen.getByText(/صفحة 2 من 2/)).toBeVisible();
 });
 
-it('exports every filtered result page rather than only the visible table page', async () => {
-  const fetchSpy = vi.spyOn(window, 'fetch').mockImplementation(async (input) => {
-    const url = String(input);
-    if (url.includes('/auth/me')) return ok({ id: 1, name: 'Manager', roles: [], department_ids: [], permissions: [{ code: 'student_policies.view' }] });
-    if (url.includes('/record-export')) return ok(null);
-    const params = new URL(url, 'http://localhost').searchParams;
-    const exportPage = params.get('per_page') === '2000';
-    const secondPage = params.get('page') === '2';
-    const assignment = (name: string, number: string) => ({ id: secondPage ? 3 : 2, student: { id: secondPage ? 4 : 3, university_number: number, full_name_ar: name, academic_level: 'fourth' }, scan_attached: false });
-    return ok({ campaign: { id: 7, public_id: 'public', status: 'published', deadline: '2026-10-01', target_levels: ['fourth'], document: { title_ar: 'تعهد الطلبة', title_en: 'Policy', version_label: '2026.1' }, academic_year: { id: 1, code: '2026/2027' }, counts: { total: 2 } }, assignments: { data: [secondPage ? assignment('طالب ثان', '22310002') : assignment('طالب أول', '22310001')], current_page: secondPage ? 2 : 1, last_page: exportPage ? 2 : 1, total: 2 } });
+it('generates a QR code for the direct student document page', async () => {
+  vi.spyOn(window, 'fetch').mockImplementation(async (input) => {
+    if (String(input).includes('/auth/me')) return ok({ id: 1, name: 'Manager', roles: [], department_ids: [], permissions: [{ code: 'student_policies.view' }] });
+    return ok({ campaign: { id: 7, public_id: 'public', status: 'published', deadline: '2026-10-01', target_levels: ['fourth'], document: { title_ar: 'تعهد الطلبة', title_en: 'Policy', version_label: '2026.1' }, academic_year: { id: 1, code: '2026/2027' }, counts: { total: 1 } }, assignments: { data: [], current_page: 1, last_page: 1, total: 0 } });
   });
   renderWithProviders(<Routes><Route path="/student-policies/:id" element={<StudentPolicyCampaignPage />} /></Routes>, { route: '/student-policies/7' });
-  expect(await screen.findByText('طالب أول')).toBeVisible();
-  fireEvent.change(screen.getByRole('textbox', { name: 'بحث باسم الطالب أو رقمه' }), { target: { value: 'طالب' } });
-  fireEvent.click(screen.getByRole('button', { name: 'تصدير Excel' }));
-  await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledOnce());
-  expect(fetchSpy.mock.calls.some(([input]) => {
-    const params = new URL(String(input), 'http://localhost').searchParams;
-    return params.get('per_page') === '2000' && params.get('page') === '2' && params.get('search') === 'طالب';
-  })).toBe(true);
-  expect(XLSX.utils.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([
-    expect.objectContaining({ 'الرقم الجامعي': '22310001' }),
-    expect.objectContaining({ 'الرقم الجامعي': '22310002' }),
-  ]));
+  fireEvent.click(await screen.findByRole('button', { name: 'رابط وباركود الطالب' }));
+  await waitFor(() => expect(QRCode.toDataURL).toHaveBeenCalledWith(`${window.location.origin}/portal/student-policies/public`, expect.any(Object)));
+  expect(await screen.findByAltText('باركود رابط سياسات الطلبة')).toBeVisible();
+  expect(screen.getByRole('textbox', { name: 'رابط الطالب' })).toHaveValue(`${window.location.origin}/portal/student-policies/public`);
 });

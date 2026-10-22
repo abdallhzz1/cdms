@@ -86,6 +86,7 @@ class StudentPolicyController extends Controller
         })->when($request->filled('level'), fn ($q) => $q->whereHas('student', fn ($s) => $s->where('academic_level', $request->input('level'))));
         if ($request->filled('milestone')) {
             match ($request->input('milestone')) {
+                'not_received' => $query->whereNull('paper_received_at'), 'scan_missing' => $query->whereNull('scan_storage_path'),
                 'not_opened' => $query->whereNull('opened_at'), 'opened' => $query->whereNotNull('opened_at')->whereNull('acknowledged_at'),
                 'acknowledged' => $query->whereNotNull('acknowledged_at'), 'paper_received' => $query->whereNotNull('paper_received_at'),
                 'scan_attached' => $query->whereNotNull('scan_storage_path'), default => null,

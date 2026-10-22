@@ -153,11 +153,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('clinical-attendance/remember', [PublicClinicalQrAttendanceController::class, 'remember'])->middleware('throttle:student-otp-verify');
         Route::post('clinical-attendance/scan', [PublicClinicalQrAttendanceController::class, 'scan'])->middleware('throttle:clinical-attendance-scan');
         Route::get('student-policies/{campaign:public_id}', [PublicStudentPolicyController::class, 'show'])->middleware('throttle:operational-read');
-        Route::post('student-policies/{campaign:public_id}/request-otp', [PublicStudentPolicyController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
-        Route::post('student-policies/{campaign:public_id}/verify-otp', [PublicStudentPolicyController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
-        Route::post('student-policies/{campaign:public_id}/document-opened', [PublicStudentPolicyController::class, 'opened'])->middleware('throttle:operational-read');
         Route::get('student-policies/{campaign:public_id}/document', [PublicStudentPolicyController::class, 'document'])->middleware('throttle:operational-read');
-        Route::post('student-policies/{campaign:public_id}/acknowledge', [PublicStudentPolicyController::class, 'acknowledge'])->middleware('throttle:operational-read');
         Route::get('group-registration/{cycle:public_id}', [PublicGroupRegistrationController::class, 'cycle']);
         Route::post('group-registration/{cycle:public_id}/request-otp', [PublicGroupRegistrationController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
         Route::post('group-registration/{cycle:public_id}/verify-otp', [PublicGroupRegistrationController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
