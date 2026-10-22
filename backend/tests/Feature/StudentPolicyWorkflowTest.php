@@ -6,6 +6,7 @@ use App\Models\Student;
 use App\Models\StudentPolicyAssignment;
 use App\Models\StudentPolicyCampaign;
 use App\Models\StudentPolicyDocument;
+use App\Models\StudentPolicyOtpChallenge;
 use App\Models\AcademicYear;
 use App\Models\Permission;
 use App\Models\User;
@@ -85,7 +86,7 @@ class StudentPolicyWorkflowTest extends TestCase
             ->assertJsonPath('data.academic_years.0.is_current', true);
     }
 
-    public function test_manager_can_delete_an_inactive_campaign_but_not_one_with_student_activity(): void
+    public function test_manager_can_delete_test_electronic_activity_but_not_paper_or_scan_evidence(): void
     {
         Storage::fake('local');
         $this->seed(PermissionSeeder::class);
@@ -97,15 +98,34 @@ class StudentPolicyWorkflowTest extends TestCase
         $document = StudentPolicyDocument::factory()->create(['storage_path' => 'student-policies/ar.pdf', 'storage_path_en' => 'student-policies/en.pdf']);
         $campaign = StudentPolicyCampaign::factory()->for($document, 'document')->create(['academic_year_id' => $year->id]);
 
-        $this->actingAs($manager)->deleteJson("/api/v1/student-policies/campaigns/{$campaign->id}", ['confirmation' => 'حذف الحملة'])->assertOk();
+        $this->actingAs($manager)->deleteJson("/api/v1/student-policies/campaigns/{$campaign->id}", ['confirmation' => "حذف الحملة {$campaign->id}"])->assertOk();
         $this->assertDatabaseMissing('student_policy_campaigns', ['id' => $campaign->id]);
         Storage::disk('local')->assertMissing('student-policies/ar.pdf');
         Storage::disk('local')->assertMissing('student-policies/en.pdf');
 
         $activeDocument = StudentPolicyDocument::factory()->create();
         $activeCampaign = StudentPolicyCampaign::factory()->for($activeDocument, 'document')->create(['academic_year_id' => $year->id, 'status' => 'published']);
-        StudentPolicyAssignment::factory()->for($activeCampaign, 'campaign')->create(['opened_at' => now(), 'opened_ar_at' => now()]);
-        $this->deleteJson("/api/v1/student-policies/campaigns/{$activeCampaign->id}", ['confirmation' => 'حذف الحملة'])->assertStatus(409);
-        $this->assertDatabaseHas('student_policy_campaigns', ['id' => $activeCampaign->id]);
+        $assignment = StudentPolicyAssignment::factory()->for($activeCampaign, 'campaign')->create([
+            'opened_at' => now(), 'opened_ar_at' => now(), 'acknowledged_at' => now(),
+        ]);
+        StudentPolicyOtpChallenge::create([
+            'challenge_token_hash' => hash('sha256', 'test-challenge'), 'campaign_id' => $activeCampaign->id,
+            'assignment_id' => $assignment->id, 'otp_hash' => hash('sha256', '123456'), 'expires_at' => now()->addMinutes(10),
+        ]);
+        $this->deleteJson("/api/v1/student-policies/campaigns/{$activeCampaign->id}", ['confirmation' => 'حذف الحملة'])->assertUnprocessable();
+        $this->deleteJson("/api/v1/student-policies/campaigns/{$activeCampaign->id}", ['confirmation' => "حذف الحملة {$activeCampaign->id}"])->assertOk();
+        $this->assertDatabaseMissing('student_policy_campaigns', ['id' => $activeCampaign->id]);
+        $this->assertDatabaseMissing('student_policy_assignments', ['id' => $assignment->id]);
+        $this->assertDatabaseMissing('student_policy_otp_challenges', ['campaign_id' => $activeCampaign->id]);
+
+        foreach ([['paper_received_at' => now()], ['scan_storage_path' => 'student-policy-scans/signed.pdf']] as $evidence) {
+            $protectedDocument = StudentPolicyDocument::factory()->create();
+            $protectedCampaign = StudentPolicyCampaign::factory()->for($protectedDocument, 'document')->create(['academic_year_id' => $year->id, 'status' => 'published']);
+            StudentPolicyAssignment::factory()->for($protectedCampaign, 'campaign')->create($evidence);
+            $this->deleteJson("/api/v1/student-policies/campaigns/{$protectedCampaign->id}", [
+                'confirmation' => "حذف الحملة {$protectedCampaign->id}",
+            ])->assertStatus(409);
+            $this->assertDatabaseHas('student_policy_campaigns', ['id' => $protectedCampaign->id]);
+        }
     }
 }

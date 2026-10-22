@@ -124,15 +124,19 @@ class StudentPolicyController extends Controller
 
     public function destroy(Request $request, StudentPolicyCampaign $campaign): JsonResponse
     {
-        $request->validate(['confirmation' => ['required', Rule::in(['حذف الحملة'])]]);
+        $request->validate(['confirmation' => ['required', Rule::in(["حذف الحملة {$campaign->id}"])]]);
 
         $result = DB::transaction(function () use ($campaign, $request): array {
             $locked = StudentPolicyCampaign::query()->with('document')->lockForUpdate()->findOrFail($campaign->id);
-            $hasActivity = $locked->assignments()->where(function ($query) {
-                $query->whereNotNull('opened_at')->orWhereNotNull('opened_ar_at')->orWhereNotNull('opened_en_at')
-                    ->orWhereNotNull('acknowledged_at')->orWhereNotNull('paper_received_at')->orWhereNotNull('scan_storage_path');
-            })->exists();
-            if ($hasActivity) return ['blocked' => true, 'paths' => []];
+            $assignments = $locked->assignments()->lockForUpdate()->get([
+                'id', 'opened_at', 'opened_ar_at', 'opened_en_at', 'acknowledged_at', 'paper_received_at', 'scan_storage_path',
+            ]);
+            if ($assignments->contains(fn ($assignment) => $assignment->paper_received_at || $assignment->scan_storage_path)) {
+                return ['blocked' => true, 'paths' => []];
+            }
+            $electronicActivityCount = $assignments->filter(fn ($assignment) =>
+                $assignment->opened_at || $assignment->opened_ar_at || $assignment->opened_en_at || $assignment->acknowledged_at
+            )->count();
 
             $document = $locked->document;
             $locked->assignments()->delete();
@@ -140,11 +144,14 @@ class StudentPolicyController extends Controller
             $deleteDocument = $document && ! $document->campaigns()->exists();
             $paths = $deleteDocument ? array_values(array_filter([$document->storage_path, $document->storage_path_en])) : [];
             if ($deleteDocument) $document->delete();
-            $this->audit($request, 'student_policy.deleted', $campaign->id, ['status' => $campaign->status]);
+            $this->audit($request, 'student_policy.deleted', $campaign->id, [
+                'status' => $campaign->status, 'assignments_deleted' => $assignments->count(),
+                'assignments_with_electronic_activity' => $electronicActivityCount,
+            ]);
             return ['blocked' => false, 'paths' => $paths];
         });
 
-        if ($result['blocked']) return ApiResponse::error('لا يمكن حذف حملة بدأ الطلبة بالتفاعل معها. أغلق الحملة للاحتفاظ بسجلها الرسمي.', [], [], 409);
+        if ($result['blocked']) return ApiResponse::error('لا يمكن حذف حملة سُجّل فيها استلام ورقي أو رُفعت لها نسخة موقعة.', [], [], 409);
         foreach ($result['paths'] as $path) Storage::disk('local')->delete($path);
         return ApiResponse::success(null, 'تم حذف الحملة وملفاتها نهائيًا.');
     }

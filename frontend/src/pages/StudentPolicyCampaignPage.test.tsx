@@ -14,7 +14,7 @@ it('shows only paper receipt and signed scan tracking', async () => {
     if (String(input).includes('/auth/me')) return ok({ id: 1, name: 'Manager', roles: [], department_ids: [], permissions: [{ code: 'student_policies.manage' }] });
     return ok({ campaign: { id: 7, public_id: 'public', status: 'published', deadline: '2026-10-01', target_levels: ['fourth'], document: { title_ar: 'مدونة سلوك طلبة الطب', title_en: 'Medical Students Code of Conduct', version_label: '2026.1' }, academic_year: { id: 1, code: '2026/2027' }, counts: { total: 1, not_opened: 1, acknowledged: 0, paper_received: 0, scan_attached: 0 } }, assignments: { data: [{ id: 2, student: { id: 3, university_number: '22310001', full_name_ar: 'طالب تجريبي', academic_level: 'fourth' }, opened_at: null, acknowledged_at: null, paper_received_at: null, scan_attached: false }], current_page: 1, last_page: 1, total: 1 } });
   });
-  renderWithProviders(<Routes><Route path="/student-policies/:id" element={<StudentPolicyCampaignPage />} /></Routes>, { route: '/student-policies/7' });
+  renderWithProviders(<Routes><Route path="/student-policies" element={<div>الحملات</div>} /><Route path="/student-policies/:id" element={<StudentPolicyCampaignPage />} /></Routes>, { route: '/student-policies/7' });
   expect(await screen.findByText('طالب تجريبي')).toBeVisible();
   expect(screen.getByRole('columnheader', { name: 'الاستلام الورقي' })).toBeVisible();
   expect(screen.getByRole('columnheader', { name: 'النسخة الموقعة' })).toBeVisible();
@@ -79,4 +79,22 @@ it('generates a QR code for the direct student document page', async () => {
   await waitFor(() => expect(QRCode.toDataURL).toHaveBeenCalledWith(`${window.location.origin}/portal/student-policies/public`, expect.any(Object)));
   expect(await screen.findByAltText('باركود رابط سياسات الطلبة')).toBeVisible();
   expect(screen.getByRole('textbox', { name: 'رابط الطالب' })).toHaveValue(`${window.location.origin}/portal/student-policies/public`);
+});
+
+it('requires the campaign number before deleting a test campaign', async () => {
+  const fetchSpy = vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
+    if (String(input).includes('/auth/me')) return ok({ id: 1, name: 'Manager', roles: [], department_ids: [], permissions: [{ code: 'student_policies.manage' }] });
+    if (init?.method === 'DELETE') return ok(null);
+    return ok({ campaign: { id: 7, public_id: 'public', status: 'published', deadline: '2026-10-01', target_levels: ['fourth'], document: { title_ar: 'تعهد الطلبة', title_en: 'Policy', version_label: '2026.1' }, academic_year: { id: 1, code: '2026/2027' }, counts: { total: 1 } }, assignments: { data: [], current_page: 1, last_page: 1, total: 0 } });
+  });
+  renderWithProviders(<Routes><Route path="/student-policies" element={<div>الحملات</div>} /><Route path="/student-policies/:id" element={<StudentPolicyCampaignPage />} /></Routes>, { route: '/student-policies/7' });
+  fireEvent.click(await screen.findByRole('button', { name: 'حذف الحملة نهائيًا' }));
+  const confirmation = screen.getByRole('textbox', { name: 'اكتب «حذف الحملة 7» للتأكيد' });
+  const deleteButton = screen.getByRole('button', { name: 'تأكيد الحذف النهائي' });
+  expect(deleteButton).toBeDisabled();
+  fireEvent.change(confirmation, { target: { value: 'حذف الحملة' } });
+  expect(deleteButton).toBeDisabled();
+  fireEvent.change(confirmation, { target: { value: 'حذف الحملة 7' } });
+  fireEvent.click(deleteButton);
+  await waitFor(() => expect(fetchSpy.mock.calls.some(([, init]) => init?.method === 'DELETE' && init.body === JSON.stringify({ confirmation: 'حذف الحملة 7' }))).toBe(true));
 });
