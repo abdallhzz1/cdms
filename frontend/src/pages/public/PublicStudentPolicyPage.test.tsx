@@ -19,7 +19,8 @@ it('shows direct Arabic and English downloads without identity or OTP', async ()
   expect(screen.getByRole('link', { name: 'Download English PDF' })).toHaveAttribute('href', expect.stringContaining('/public/student-policies/x/document?language=en'));
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /رمز|إقرار/ })).not.toBeInTheDocument();
-  expect(screen.getByText(/اطبعها ووقّعها بخط اليد/)).toBeVisible();
+  expect(screen.getByText('نزّل النسخة المناسبة، اطبعها ووقّعها، ثم سلّمها للكلية.')).toBeVisible();
+  expect(screen.queryByText(/الإصدار|آخر موعد للتسليم|رمز تحقق|سيُسجّل الموظف/)).not.toBeInTheDocument();
 });
 
 it('does not offer downloads when the campaign is closed', async () => {
