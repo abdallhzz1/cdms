@@ -14,6 +14,8 @@ use App\Models\QualityImprovementPlan;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroupRoster;
+use App\Services\DepartmentHeadCourseScope;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
 class ReportCenterService
@@ -24,6 +26,7 @@ class ReportCenterService
             ['key' => 'student_directory', 'category' => 'academic', 'title' => 'دليل الطلبة الأكاديمي', 'description' => 'قائمة الطلبة حسب السنة والحالة الأكاديمية والمجموعة الرئيسية.'],
             ['key' => 'group_rosters', 'category' => 'clinical', 'title' => 'قوائم مجموعات الطلبة', 'description' => 'كشف الطلبة المسجلين في المجموعات الرئيسية لكل عام وسنة سريرية.'],
             ['key' => 'clinical_schedule', 'category' => 'clinical', 'title' => 'الجدول السريري المنشور', 'description' => 'أماكن دوام الطلبة والمجموعات والمستشفيات والأطباء في الجداول المنشورة.'],
+            ['key' => 'clinical_training_sites_sep_nov_2026', 'category' => 'clinical', 'title' => 'إحصائية طلبة التدريب السريري في المراكز التدريبية', 'description' => 'أعداد الطلبة الفريدين في كل مستشفى أو مركز صحي خلال سبتمبر وأكتوبر ونوفمبر 2026.'],
             ['key' => 'supervisors_hospitals', 'category' => 'clinical', 'title' => 'المستشفيات والمشرفون', 'description' => 'دليل المشرفين السريريين والمستشفيات المرتبطين بها وحالة الحساب.'],
             ['key' => 'grades', 'category' => 'academic', 'title' => 'علامات المساقات السريرية', 'description' => 'العلامة السريرية والأوسكي والامتحان الكتابي وحالة الاعتماد.'],
             ['key' => 'attendance', 'category' => 'clinical', 'title' => 'الحضور والغياب', 'description' => 'سجل حضور الطلبة للجلسات السريرية مع الملاحظات والأعذار.'],
@@ -32,8 +35,9 @@ class ReportCenterService
             ['key' => 'quality_plans', 'category' => 'quality', 'title' => 'خطط التحسين والجودة', 'description' => 'متابعة ملاحظات الجودة وإجراءات التحسين والمسؤوليات والمواعيد.'],
             ['key' => 'data_gaps', 'category' => 'monitoring', 'title' => 'نواقص البيانات والتشغيل', 'description' => 'تقرير رقابي يجمع الطلبة دون مجموعات أو توزيع، والمشرفين دون مستشفيات، والتكليفات دون طبيب.'],
         ];
+
         // College-wide quality plans have no department owner to scope safely.
-        return app(\App\Services\DepartmentHeadCourseScope::class)->departmentIds() === null
+        return app(DepartmentHeadCourseScope::class)->departmentIds() === null
             ? $catalog : array_values(array_filter($catalog, fn ($report) => $report['key'] !== 'quality_plans'));
     }
 
@@ -65,7 +69,7 @@ class ReportCenterService
         $vacantRows = CourseScheduleRow::query()
             ->where('row_type', 'vacancy')
             ->whereHas('version', fn ($query) => $query->where('status', 'published')->where('is_current', true));
-        app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation($vacantRows, 'version.rotation');
+        app(DepartmentHeadCourseScope::class)->throughRotation($vacantRows, 'version.rotation');
         $vacantRows->when($filters['academic_year_id'] ?? null, fn ($query, $year) => $query->whereHas('version.rotation', fn ($rotation) => $rotation->where('academic_year_id', $year)));
         $vacantRows->when($filters['academic_level'] ?? null, fn ($query, $level) => $query->whereHas('version.rotation', fn ($rotation) => $rotation->where('academic_level', $level)));
         $vacantRows->when($filters['clinical_period_id'] ?? null, fn ($query, $period) => $query->whereHas('version.rotation', fn ($rotation) => $rotation->where('clinical_period_id', $period)));
@@ -89,6 +93,7 @@ class ReportCenterService
             'student_directory' => $this->studentDirectory($filters),
             'group_rosters' => $this->groupRosters($filters),
             'clinical_schedule' => $this->clinicalSchedule($filters),
+            'clinical_training_sites_sep_nov_2026' => $this->clinicalTrainingSitesSepNov2026($filters),
             'supervisors_hospitals' => $this->supervisorsHospitals($filters),
             'grades' => $this->grades($filters),
             'attendance' => $this->attendance($filters),
@@ -107,18 +112,18 @@ class ReportCenterService
     public function filterLabel(array $filters): string
     {
         $parts = [];
-        if (!empty($filters['academic_year_id'])) {
-            $parts[] = 'العام: ' . (AcademicYear::find($filters['academic_year_id'])?->code ?? $filters['academic_year_id']);
+        if (! empty($filters['academic_year_id'])) {
+            $parts[] = 'العام: '.(AcademicYear::find($filters['academic_year_id'])?->code ?? $filters['academic_year_id']);
         }
-        if (!empty($filters['academic_level'])) {
-            $parts[] = 'السنة: ' . $this->level($filters['academic_level']);
+        if (! empty($filters['academic_level'])) {
+            $parts[] = 'السنة: '.$this->level($filters['academic_level']);
         }
-        if (!empty($filters['clinical_period_id'])) {
+        if (! empty($filters['clinical_period_id'])) {
             $period = ClinicalPeriod::find($filters['clinical_period_id']);
-            $parts[] = 'الفترة: ' . ($period?->name_ar ?? $filters['clinical_period_id']);
+            $parts[] = 'الفترة: '.($period?->name_ar ?? $filters['clinical_period_id']);
         }
-        if (!empty($filters['search'])) {
-            $parts[] = 'بحث: ' . $filters['search'];
+        if (! empty($filters['search'])) {
+            $parts[] = 'بحث: '.$filters['search'];
         }
 
         return $parts ? implode(' | ', $parts) : 'جميع البيانات المتاحة';
@@ -130,6 +135,7 @@ class ReportCenterService
         $this->filterStudents($query, $filters);
         $rows = $query->orderBy('academic_level')->orderBy('full_name_ar')->get()->map(function (Student $student) {
             $roster = $student->groupRegistrationRosters->first();
+
             return [
                 $student->university_number,
                 $student->full_name_ar,
@@ -149,7 +155,7 @@ class ReportCenterService
     {
         $query = StudentGroupRoster::query()->with(['cycle.academicYear', 'student', 'group']);
         $this->filterRosters($query, $filters);
-        $rows = $query->get()->sortBy(fn ($item) => ($item->cycle?->academicYear?->code ?? '') . ($item->group?->name ?? '') . ($item->student?->full_name_ar ?? ''))->map(fn ($item) => [
+        $rows = $query->get()->sortBy(fn ($item) => ($item->cycle?->academicYear?->code ?? '').($item->group?->name ?? '').($item->student?->full_name_ar ?? ''))->map(fn ($item) => [
             $item->cycle?->academicYear?->code,
             $this->level($item->cycle?->academic_level),
             $item->group?->name,
@@ -170,6 +176,7 @@ class ReportCenterService
         $rows = $query->get()->map(function ($assignment) {
             $rotation = $assignment->distributionVersion?->rotation;
             $doctor = $assignment->supervisor ?? $assignment->courseScheduleRow?->person;
+
             return [
                 $rotation?->academicYear?->code,
                 $this->level($rotation?->academic_level),
@@ -202,14 +209,74 @@ class ReportCenterService
         return ['columns' => ['اسم المشرف', 'الاسم بالإنجليزية', 'البريد الإلكتروني', 'التخصص', 'المستشفيات', 'حالة الملف', 'حالة الحساب'], 'rows' => $rows->all()];
     }
 
+    private function clinicalTrainingSitesSepNov2026(array $filters): array
+    {
+        $months = [
+            'september' => [CarbonImmutable::parse('2026-09-01')->startOfDay(), CarbonImmutable::parse('2026-09-30')->endOfDay()],
+            'october' => [CarbonImmutable::parse('2026-10-01')->startOfDay(), CarbonImmutable::parse('2026-10-31')->endOfDay()],
+            'november' => [CarbonImmutable::parse('2026-11-01')->startOfDay(), CarbonImmutable::parse('2026-11-30')->endOfDay()],
+        ];
+
+        $query = StudentClinicalAssignment::query()
+            ->whereHas('distributionVersion', fn ($version) => $version->where('status', 'published')->where('is_current', true))
+            ->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation
+                ->whereDate('start_date', '<=', '2026-11-30')
+                ->where(fn ($period) => $period->whereNull('end_date')->orWhereDate('end_date', '>=', '2026-09-01')))
+            ->with(['rotationBlock.rotation:id,start_date', 'trainingSite:id,name_ar']);
+        $this->filterAssignments($query, $filters);
+
+        $sites = [];
+        foreach ($query->get() as $assignment) {
+            $rotation = $assignment->rotationBlock?->rotation;
+            $site = $assignment->trainingSite;
+            if (! $rotation?->start_date || ! $site || ! $assignment->student_id) {
+                continue;
+            }
+
+            $blockStart = CarbonImmutable::parse($rotation->start_date)
+                ->addWeeks(max(0, (int) $assignment->rotationBlock->from_week - 1))
+                ->startOfDay();
+            $blockEnd = CarbonImmutable::parse($rotation->start_date)
+                ->addWeeks((int) $assignment->rotationBlock->to_week)
+                ->subDay()
+                ->endOfDay();
+
+            foreach ($months as $month => [$monthStart, $monthEnd]) {
+                if ($blockStart->lessThanOrEqualTo($monthEnd) && $blockEnd->greaterThanOrEqualTo($monthStart)) {
+                    $sites[$site->id] ??= [
+                        'name' => $site->name_ar,
+                        'september' => [],
+                        'october' => [],
+                        'november' => [],
+                    ];
+                    $sites[$site->id][$month][$assignment->student_id] = true;
+                }
+            }
+        }
+
+        $rows = collect($sites)->map(function (array $site): array {
+            $september = count($site['september']);
+            $october = count($site['october']);
+            $november = count($site['november']);
+
+            return [$site['name'], $september, $october, $november, $september + $october + $november];
+        })->sortBy(fn (array $row) => $row[0])->values()->all();
+
+        return [
+            'columns' => ['اسم المستشفى أو المركز الصحي', 'سبتمبر 2026', 'أكتوبر 2026', 'نوفمبر 2026', 'الإجمالي'],
+            'rows' => $rows,
+        ];
+    }
+
     private function grades(array $filters): array
     {
         $query = GradeEntry::query()->with(['enrollment.student', 'enrollment.course.assessmentComponents', 'enrollment.academicYear']);
-        app(\App\Services\DepartmentHeadCourseScope::class)->grades($query);
+        app(DepartmentHeadCourseScope::class)->grades($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->whereHas('enrollment', fn ($e) => $e->where('academic_year_id', $year)));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('enrollment.student', fn ($s) => $s->where('academic_level', $level)));
         $rows = $query->get()->map(function (GradeEntry $grade) {
             $components = $grade->enrollment?->course?->assessmentComponents?->keyBy('code');
+
             return [
                 $grade->enrollment?->student?->university_number,
                 $grade->enrollment?->student?->full_name_ar,
@@ -233,7 +300,7 @@ class ReportCenterService
     private function attendance(array $filters): array
     {
         $query = AttendanceRecord::query()->with(['student', 'session.trainingSite', 'session.rotationBlock.rotation.clinicalPeriod']);
-        app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation($query, 'session.rotationBlock.rotation');
+        app(DepartmentHeadCourseScope::class)->throughRotation($query, 'session.rotationBlock.rotation');
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->whereHas('student', fn ($s) => $s->where('academic_year_id', $year)));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('student', fn ($s) => $s->where('academic_level', $level)));
         $query->when($filters['clinical_period_id'] ?? null, fn ($q, $period) => $q->whereHas('session.rotationBlock.rotation', fn ($r) => $r->where('clinical_period_id', $period)));
@@ -254,7 +321,7 @@ class ReportCenterService
     private function clinicalAssessments(array $filters): array
     {
         $query = ClinicalAssessment::query()->with(['student', 'evaluator', 'session.rotationBlock.rotation.clinicalPeriod']);
-        app(\App\Services\DepartmentHeadCourseScope::class)->assessments($query);
+        app(DepartmentHeadCourseScope::class)->assessments($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->whereHas('student', fn ($s) => $s->where('academic_year_id', $year)));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('student', fn ($s) => $s->where('academic_level', $level)));
         $query->when($filters['clinical_period_id'] ?? null, fn ($q, $period) => $q->whereHas('session.rotationBlock.rotation', fn ($r) => $r->where('clinical_period_id', $period)));
@@ -267,7 +334,7 @@ class ReportCenterService
             $assessment->session?->rotationBlock?->rotation?->clinicalPeriod?->name_ar ?? 'جدول سنوي',
             $assessment->score,
             $assessment->max_score,
-            $assessment->max_score > 0 ? round(($assessment->score / $assessment->max_score) * 100, 1) . '%' : null,
+            $assessment->max_score > 0 ? round(($assessment->score / $assessment->max_score) * 100, 1).'%' : null,
             $this->workflowStatus($assessment->status),
         ]);
 
@@ -295,7 +362,7 @@ class ReportCenterService
 
     private function qualityPlans(array $filters): array
     {
-        $yearCode = !empty($filters['academic_year_id']) ? AcademicYear::find($filters['academic_year_id'])?->code : null;
+        $yearCode = ! empty($filters['academic_year_id']) ? AcademicYear::find($filters['academic_year_id'])?->code : null;
         $query = QualityImprovementPlan::query()->when($yearCode, fn ($q) => $q->where('academic_year', $yearCode));
         $rows = $query->orderByDesc('id')->get()->map(fn (QualityImprovementPlan $plan) => [
             $plan->academic_year,
@@ -348,27 +415,28 @@ class ReportCenterService
     private function supervisorsQuery()
     {
         $query = Person::query()->whereHas('user.roles', fn ($query) => $query->where('code', 'CLINICAL_SUPERVISOR'));
-        $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+        $scope = app(DepartmentHeadCourseScope::class);
+
         return $scope->departmentIds() === null ? $query : $query->whereIn('id', $scope->publishedAssignments()->select('supervisor_id'));
     }
 
     private function filterStudents($query, array $filters): void
     {
-        app(\App\Services\DepartmentHeadCourseScope::class)->students($query);
+        app(DepartmentHeadCourseScope::class)->students($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->where('academic_year_id', $year));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->where('academic_level', $level));
     }
 
     private function filterRosters($query, array $filters): void
     {
-        app(\App\Services\DepartmentHeadCourseScope::class)->rosters($query);
+        app(DepartmentHeadCourseScope::class)->rosters($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->whereHas('cycle', fn ($c) => $c->where('academic_year_id', $year)));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('cycle', fn ($c) => $c->where('academic_level', $level)));
     }
 
     private function filterAssignments($query, array $filters): void
     {
-        app(\App\Services\DepartmentHeadCourseScope::class)->assignments($query);
+        app(DepartmentHeadCourseScope::class)->assignments($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->whereHas('distributionVersion.rotation', fn ($r) => $r->where('academic_year_id', $year)));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('distributionVersion.rotation', fn ($r) => $r->where('academic_level', $level)));
         $query->when($filters['clinical_period_id'] ?? null, fn ($q, $period) => $q->whereHas('distributionVersion.rotation', fn ($r) => $r->where('clinical_period_id', $period)));
@@ -376,33 +444,40 @@ class ReportCenterService
 
     private function filterCourseReports($query, array $filters): void
     {
-        app(\App\Services\DepartmentHeadCourseScope::class)->courseRecords($query);
+        app(DepartmentHeadCourseScope::class)->courseRecords($query);
         $query->when($filters['academic_year_id'] ?? null, fn ($q, $year) => $q->where('academic_year_id', $year));
         $query->when($filters['academic_level'] ?? null, fn ($q, $level) => $q->whereHas('course', fn ($c) => $c->where('academic_level', $level)));
     }
 
     private function search(Collection $rows, ?string $search): Collection
     {
-        if (!$search) {
+        if (! $search) {
             return $rows;
         }
         $needle = mb_strtolower(trim($search));
+
         return $rows->filter(fn (array $row) => collect($row)->contains(fn ($value) => str_contains(mb_strtolower((string) $value), $needle)));
     }
 
     private function level(?string $level): string
     {
-        return match ($level) {'fourth' => 'السنة الرابعة', 'fifth' => 'السنة الخامسة', 'sixth' => 'السنة السادسة', default => (string) $level};
+        return match ($level) {
+            'fourth' => 'السنة الرابعة', 'fifth' => 'السنة الخامسة', 'sixth' => 'السنة السادسة', default => (string) $level
+        };
     }
 
     private function academicStatus(?string $status): string
     {
-        return match ($status) {'registered' => 'مسجل', 'unregistered' => 'غير مسجل', default => (string) $status};
+        return match ($status) {
+            'registered' => 'مسجل', 'unregistered' => 'غير مسجل', default => (string) $status
+        };
     }
 
     private function attendanceStatus(?string $status): string
     {
-        return match ($status) {'present' => 'حاضر', 'absent' => 'غائب', 'late' => 'متأخر', 'excused' => 'غياب بعذر', default => (string) $status};
+        return match ($status) {
+            'present' => 'حاضر', 'absent' => 'غائب', 'late' => 'متأخر', 'excused' => 'غياب بعذر', default => (string) $status
+        };
     }
 
     private function workflowStatus(?string $status): string

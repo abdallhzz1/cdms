@@ -24,6 +24,7 @@ const reportCopy: Record<string, { ar: string; en: string; descriptionAr: string
   student_directory: { ar: 'دليل الطلبة الأكاديمي', en: 'Academic student directory', descriptionAr: 'قائمة الطلبة حسب السنة والحالة الأكاديمية والمجموعة الرئيسية.', descriptionEn: 'Students by year, academic status, and main group.' },
   group_rosters: { ar: 'قوائم مجموعات الطلبة', en: 'Student group rosters', descriptionAr: 'كشف الطلبة المسجلين في المجموعات الرئيسية لكل عام وسنة سريرية.', descriptionEn: 'Students registered in main groups for each academic and clinical year.' },
   clinical_schedule: { ar: 'الجدول السريري المنشور', en: 'Published clinical schedule', descriptionAr: 'أماكن دوام الطلبة والمجموعات والمستشفيات والأطباء في الجداول المنشورة.', descriptionEn: 'Student, group, hospital, and physician placements in published schedules.' },
+  clinical_training_sites_sep_nov_2026: { ar: 'إحصائية طلبة التدريب السريري في المراكز التدريبية', en: 'Clinical trainees by training site', descriptionAr: 'أعداد الطلبة الفريدين في كل مستشفى أو مركز صحي خلال سبتمبر وأكتوبر ونوفمبر 2026.', descriptionEn: 'Unique students at each hospital or health center in September, October, and November 2026.' },
   supervisors_hospitals: { ar: 'المستشفيات والمشرفون', en: 'Hospitals and supervisors', descriptionAr: 'دليل المشرفين السريريين والمستشفيات المرتبطين بها وحالة الحساب.', descriptionEn: 'Clinical supervisors, their linked hospitals, and account status.' },
   grades: { ar: 'علامات المساقات السريرية', en: 'Clinical course grades', descriptionAr: 'العلامة السريرية والأوسكي والامتحان الكتابي وحالة الاعتماد.', descriptionEn: 'Clinical, OSCE, and written scores with approval status.' },
   attendance: { ar: 'الحضور والغياب', en: 'Attendance', descriptionAr: 'سجل حضور الطلبة للجلسات السريرية مع الملاحظات والأعذار.', descriptionEn: 'Student attendance in clinical sessions with notes and excuses.' },
@@ -38,6 +39,7 @@ const categories:Array<{id:Category;ar:string;en:string}> = [
 ];
 const reportIcons:Record<string,typeof Users> = {
   student_directory:Users, group_rosters:GraduationCap, clinical_schedule:Stethoscope,
+  clinical_training_sites_sep_nov_2026:Building2,
   supervisors_hospitals:Building2, grades:BookOpenCheck, attendance:CheckCircle2,
   clinical_assessments:ClipboardCheck, course_reports:FileSpreadsheet, quality_plans:BarChart3,
   data_gaps:AlertTriangle,
