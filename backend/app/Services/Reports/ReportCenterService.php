@@ -211,37 +211,16 @@ class ReportCenterService
 
     private function clinicalTrainingSitesSepNov2026(array $filters): array
     {
-        $months = [
-            'september' => [CarbonImmutable::parse('2026-09-01')->startOfDay(), CarbonImmutable::parse('2026-09-30')->endOfDay()],
-            'october' => [CarbonImmutable::parse('2026-10-01')->startOfDay(), CarbonImmutable::parse('2026-10-31')->endOfDay()],
-            'november' => [CarbonImmutable::parse('2026-11-01')->startOfDay(), CarbonImmutable::parse('2026-11-30')->endOfDay()],
-        ];
-
-        $query = StudentClinicalAssignment::query()
-            ->whereHas('distributionVersion', fn ($version) => $version->where('status', 'published')->where('is_current', true))
-            ->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation
-                ->whereDate('start_date', '<=', '2026-11-30')
-                ->where(fn ($period) => $period->whereNull('end_date')->orWhereDate('end_date', '>=', '2026-09-01')))
-            ->with(['rotationBlock.rotation:id,start_date', 'trainingSite:id,name_ar']);
-        $this->filterAssignments($query, $filters);
-
         $sites = [];
-        foreach ($query->get() as $assignment) {
-            $rotation = $assignment->rotationBlock?->rotation;
+        foreach ($this->clinicalTrainingSiteAssignments($filters)->get() as $assignment) {
             $site = $assignment->trainingSite;
-            if (! $rotation?->start_date || ! $site || ! $assignment->student_id) {
+            $period = $this->assignmentPeriod($assignment);
+            if (! $site || ! $assignment->student_id || ! $period) {
                 continue;
             }
+            [$blockStart, $blockEnd] = $period;
 
-            $blockStart = CarbonImmutable::parse($rotation->start_date)
-                ->addWeeks(max(0, (int) $assignment->rotationBlock->from_week - 1))
-                ->startOfDay();
-            $blockEnd = CarbonImmutable::parse($rotation->start_date)
-                ->addWeeks((int) $assignment->rotationBlock->to_week)
-                ->subDay()
-                ->endOfDay();
-
-            foreach ($months as $month => [$monthStart, $monthEnd]) {
+            foreach ($this->reportMonths() as $month => [$monthStart, $monthEnd]) {
                 if ($blockStart->lessThanOrEqualTo($monthEnd) && $blockEnd->greaterThanOrEqualTo($monthStart)) {
                     $sites[$site->id] ??= [
                         'name' => $site->name_ar,
@@ -265,6 +244,89 @@ class ReportCenterService
         return [
             'columns' => ['اسم المستشفى أو المركز الصحي', 'سبتمبر 2026', 'أكتوبر 2026', 'نوفمبر 2026', 'الإجمالي'],
             'rows' => $rows,
+            'audit_sites' => collect($sites)->mapWithKeys(fn (array $site, int $id) => [$site['name'] => $id])->all(),
+        ];
+    }
+
+    public function clinicalTrainingSiteMonthlyDetails(int $siteId, string $month, array $filters): array
+    {
+        [$monthStart, $monthEnd] = $this->reportMonths()[$month];
+        $siteAssignments = $this->clinicalTrainingSiteAssignments($filters)
+            ->where('training_site_id', $siteId)
+            ->with([
+                'student:id,university_number,full_name_ar',
+                'studentSubgroup:id,name',
+                'rotationBlock.rotation:id,start_date,course_id',
+                'rotationBlock.rotation.course:id,name_ar',
+            ])
+            ->get();
+
+        abort_if($siteAssignments->isEmpty(), 404);
+
+        $assignments = $siteAssignments->filter(function ($assignment) use ($monthStart, $monthEnd): bool {
+                $period = $this->assignmentPeriod($assignment);
+
+                return $period
+                    && $period[0]->lessThanOrEqualTo($monthEnd)
+                    && $period[1]->greaterThanOrEqualTo($monthStart);
+            });
+
+        $rows = $assignments->groupBy('student_id')->map(function (Collection $studentAssignments): array {
+            $student = $studentAssignments->first()->student;
+            $periods = $studentAssignments->map(fn ($assignment) => $this->assignmentPeriod($assignment))->filter();
+
+            return [
+                'student_id' => (int) $student->id,
+                'university_number' => $student->university_number,
+                'student_name' => $student->full_name_ar,
+                'courses' => $studentAssignments->pluck('rotationBlock.rotation.course.name_ar')->filter()->unique()->values()->implode('، '),
+                'subgroups' => $studentAssignments->pluck('studentSubgroup.name')->filter()->unique()->values()->implode('، '),
+                'training_start' => $periods->min(fn (array $period) => $period[0]->format('Y-m-d')),
+                'training_end' => $periods->max(fn (array $period) => $period[1]->format('Y-m-d')),
+            ];
+        })->sortBy('student_name')->values()->all();
+
+        return [
+            'site' => $siteAssignments->first()->trainingSite->only(['id', 'name_ar']),
+            'month' => $month,
+            'month_label' => ['september' => 'سبتمبر 2026', 'october' => 'أكتوبر 2026', 'november' => 'نوفمبر 2026'][$month],
+            'total' => count($rows),
+            'students' => $rows,
+        ];
+    }
+
+    private function clinicalTrainingSiteAssignments(array $filters)
+    {
+        $query = StudentClinicalAssignment::query()
+            ->whereHas('distributionVersion', fn ($version) => $version->where('status', 'published')->where('is_current', true))
+            ->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation
+                ->whereDate('start_date', '<=', '2026-11-30')
+                ->where(fn ($period) => $period->whereNull('end_date')->orWhereDate('end_date', '>=', '2026-09-01')))
+            ->with(['rotationBlock.rotation:id,start_date', 'trainingSite:id,name_ar']);
+        $this->filterAssignments($query, $filters);
+
+        return $query;
+    }
+
+    private function assignmentPeriod($assignment): ?array
+    {
+        $rotation = $assignment->rotationBlock?->rotation;
+        if (! $rotation?->start_date) {
+            return null;
+        }
+
+        return [
+            CarbonImmutable::parse($rotation->start_date)->addWeeks(max(0, (int) $assignment->rotationBlock->from_week - 1))->startOfDay(),
+            CarbonImmutable::parse($rotation->start_date)->addWeeks((int) $assignment->rotationBlock->to_week)->subDay()->endOfDay(),
+        ];
+    }
+
+    private function reportMonths(): array
+    {
+        return [
+            'september' => [CarbonImmutable::parse('2026-09-01')->startOfDay(), CarbonImmutable::parse('2026-09-30')->endOfDay()],
+            'october' => [CarbonImmutable::parse('2026-10-01')->startOfDay(), CarbonImmutable::parse('2026-10-31')->endOfDay()],
+            'november' => [CarbonImmutable::parse('2026-11-01')->startOfDay(), CarbonImmutable::parse('2026-11-30')->endOfDay()],
         ];
     }
 

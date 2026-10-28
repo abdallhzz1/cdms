@@ -137,6 +137,22 @@ class ReportCenterWorkflowTest extends TestCase
             ->get('/api/v1/report-center/clinical_training_sites_sep_nov_2026/export?format=xlsx');
         $export->assertOk();
         $this->assertStringContainsString('spreadsheetml', (string) $export->headers->get('content-type'));
+
+        $details = $this->actingAs($this->reporter)->getJson(
+            "/api/v1/report-center/clinical-training-sites-2026/details?training_site_id={$siteA->id}&month=september"
+        );
+        $details->assertOk()
+            ->assertJsonPath('data.total', 2)
+            ->assertJsonPath('data.site.name_ar', 'مستشفى أ')
+            ->assertJsonCount(2, 'data.students');
+        $this->assertCount(2, collect($details->json('data.students'))->pluck('student_id')->unique());
+
+        $this->actingAs($this->reporter)->getJson(
+            "/api/v1/report-center/clinical-training-sites-2026/details?training_site_id={$siteB->id}&month=october"
+        )->assertOk()
+            ->assertJsonPath('data.total', 0)
+            ->assertJsonPath('data.site.name_ar', 'مركز ب')
+            ->assertJsonCount(0, 'data.students');
     }
 
     public function test_export_requires_export_permission(): void

@@ -43,6 +43,20 @@ class ReportCenterController extends Controller
         return ApiResponse::success($payload, null, ['generated_at' => now()->toIso8601String()]);
     }
 
+    public function clinicalTrainingSiteDetails(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'training_site_id' => ['required', 'integer', 'exists:training_sites,id'],
+            'month' => ['required', 'in:september,october,november'],
+        ]);
+
+        return ApiResponse::success($this->reports->clinicalTrainingSiteMonthlyDetails(
+            (int) $validated['training_site_id'],
+            $validated['month'],
+            $this->filters($request),
+        ));
+    }
+
     public function export(Request $request, string $report)
     {
         $filters = $this->filters($request, true);

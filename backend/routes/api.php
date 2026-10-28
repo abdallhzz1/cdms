@@ -631,6 +631,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         // Unified branded report center
         Route::get('report-center/summary', [ReportCenterController::class, 'summary'])->middleware('permission:reports.view');
+        Route::get('report-center/clinical-training-sites-2026/details', [ReportCenterController::class, 'clinicalTrainingSiteDetails'])->middleware('permission:reports.view');
         Route::get('report-center/{report}/preview', [ReportCenterController::class, 'preview'])->middleware('permission:reports.view');
         Route::get('report-center/{report}/export', [ReportCenterController::class, 'export'])->middleware(['permission:reports.export', 'throttle:export']);
 
