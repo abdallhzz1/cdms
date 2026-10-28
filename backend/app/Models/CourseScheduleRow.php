@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CourseScheduleRow extends Model
 {
@@ -40,5 +41,10 @@ class CourseScheduleRow extends Model
     public function assignments()
     {
         return $this->hasMany(StudentClinicalAssignment::class);
+    }
+
+    public function supervisorLinks(): HasMany
+    {
+        return $this->hasMany(CourseScheduleRowSupervisor::class);
     }
 }

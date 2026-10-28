@@ -123,6 +123,11 @@ type Cell = {
   subgroup_name: string;
   main_group_name?: string;
 };
+type RowSupervisor = {
+  person_id: number;
+  weekdays: string[];
+  person: NonNullable<ScheduleRow["person"]>;
+};
 type ScheduleRow = {
   id: number;
   row_type: "doctor" | "vacancy";
@@ -137,6 +142,7 @@ type ScheduleRow = {
     work_schedules?: DoctorWorkSchedule[];
   };
   training_site?: { id: number; name_ar: string; name_en?: string | null };
+  supervisors?: RowSupervisor[];
 };
 type Version = { id: number; status: string; updated_at: string };
 type ApprovalState = {
@@ -182,6 +188,7 @@ type UnassignedStudent = {
 };
 
 const levelCodes: Level[] = ["fourth", "fifth", "sixth"];
+const weekdayCodes = ["saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday"] as const;
 const inputClass =
   "w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100";
 
@@ -243,6 +250,10 @@ export function DistributionPage() {
     fourth: tr("السنة الرابعة", "Fourth year"),
     fifth: tr("السنة الخامسة", "Fifth year"),
     sixth: tr("السنة السادسة", "Sixth year"),
+  };
+  const weekdayText: Record<string, string> = {
+    saturday: tr("السبت", "Saturday"), sunday: tr("الأحد", "Sunday"), monday: tr("الاثنين", "Monday"),
+    tuesday: tr("الثلاثاء", "Tuesday"), wednesday: tr("الأربعاء", "Wednesday"), thursday: tr("الخميس", "Thursday"), friday: tr("الجمعة", "Friday"),
   };
   const statusLabels: Record<string, string> = {
     draft: tr("مسودة", "Draft"),
@@ -310,7 +321,7 @@ export function DistributionPage() {
   const [rowForm, setRowForm] = useState({
     row_type: "doctor" as "doctor" | "vacancy",
     hospitalId: "",
-    personId: "",
+    supervisors: [] as Array<{ personId: string; weekdays: string[] }>,
     label: tr("شاغر", "Vacancy"),
     search: "",
   });
@@ -418,8 +429,8 @@ export function DistributionPage() {
         doctor.email?.toLowerCase().includes(query)
       );
     });
-  const doctorIsAvailable = (doctor: Doctor) => {
-    if (!doctor.work_schedules?.length) return true;
+  const doctorAvailableDays = (doctor: Doctor): string[] => {
+    if (!doctor.work_schedules?.length) return [...weekdayCodes];
     const rotationStart =
       schedule?.rotation?.start_date?.slice(0, 10) ?? startDate;
     const rotationEnd = new Date(`${rotationStart}T12:00:00`);
@@ -429,14 +440,15 @@ export function DistributionPage() {
         1,
     );
     const end = rotationEnd.toISOString().slice(0, 10);
-    return doctor.work_schedules.some(
-      (item) =>
-        String(item.training_site_id) === rowForm.hospitalId &&
-        (!item.valid_from || item.valid_from <= end) &&
-        (!item.valid_until || item.valid_until >= rotationStart) &&
-        item.days.some((day) => day.status === "work"),
-    );
+    return Array.from(new Set(doctor.work_schedules.flatMap((item) =>
+      String(item.training_site_id) === rowForm.hospitalId &&
+      (!item.valid_from || item.valid_from <= end) &&
+      (!item.valid_until || item.valid_until >= rotationStart)
+        ? item.days.filter((day) => day.status === "work").map((day) => day.day)
+        : [],
+    )));
   };
+  const doctorIsAvailable = (doctor: Doctor) => doctorAvailableDays(doctor).length > 0;
   const doctorsCount = (schedule?.rows ?? []).filter(
     (row) => row.row_type === "doctor",
   ).length;
@@ -481,6 +493,17 @@ export function DistributionPage() {
       thursday: tr("الخميس", "Thu"),
       friday: tr("الجمعة", "Fri"),
     })[day] ?? day;
+  const rowSupervisors = (row: ScheduleRow): RowSupervisor[] => {
+    if (row.supervisors?.length) return row.supervisors;
+    if (!row.person) return [];
+    const weekdays = row.person.work_schedules?.length
+      ? Array.from(new Set(row.person.work_schedules.flatMap((item) => item.days.filter((day) => day.status === "work").map((day) => day.day))))
+      : [...weekdayCodes];
+    return [{ person_id: row.person.id, weekdays, person: row.person }];
+  };
+  const rowSupervisorName = (row: ScheduleRow) => rowSupervisors(row)
+    .map((item) => ar ? item.person.full_name_ar : item.person.full_name_en || item.person.full_name_ar)
+    .join("، ");
   const rowDisplayedWorkLocations = (row: ScheduleRow) =>
     schedule?.blocks
       .flatMap((block) => rowWorkLocations(row, block))
@@ -493,12 +516,6 @@ export function DistributionPage() {
               other.valid_until === item.valid_until,
           ) === index,
       ) ?? [];
-  const workStatusLabel = (status: DoctorWorkSchedule["days"][number]["status"]) =>
-    ({
-      work: tr("دوام", "Working"),
-      leave: tr("إجازة", "Leave"),
-      unavailable: tr("غير متاح", "Unavailable"),
-    })[status];
   const workLocationInfoButton = (row: ScheduleRow) => {
     const locations = rowDisplayedWorkLocations(row);
     const hasFallback = Boolean(row.training_site);
@@ -695,7 +712,11 @@ export function DistributionPage() {
           body: {
             row_type: rowForm.row_type,
             person_id:
-              rowForm.row_type === "doctor" ? Number(rowForm.personId) : null,
+              rowForm.row_type === "doctor" && rowForm.supervisors.length ? Number(rowForm.supervisors[0].personId) : null,
+            supervisors: rowForm.row_type === "doctor" ? rowForm.supervisors.map((item) => ({
+              person_id: Number(item.personId),
+              weekdays: item.weekdays,
+            })) : [],
             training_site_id: Number(rowForm.hospitalId),
             label: rowForm.row_type === "vacancy" ? rowForm.label : null,
           },
@@ -990,11 +1011,19 @@ export function DistributionPage() {
   };
 
   const openRow = (row?: ScheduleRow) => {
+    const supervisors = row?.supervisors?.length
+      ? row.supervisors.map((item) => ({ personId: String(item.person_id), weekdays: item.weekdays }))
+      : row?.person_id
+        ? [{
+            personId: String(row.person_id),
+            weekdays: row.person?.work_schedules?.length ? row.person.work_schedules.flatMap((schedule) => schedule.days.filter((day) => day.status === "work").map((day) => day.day)) : [...weekdayCodes],
+          }]
+        : [];
     setEditingRowId(row?.id ?? null);
     setRowForm({
       row_type: row?.row_type ?? "doctor",
       hospitalId: row ? String(row.training_site_id) : "",
-      personId: row?.person_id ? String(row.person_id) : "",
+      supervisors,
       label: row?.label ?? tr("شاغر", "Vacancy"),
       search: "",
     });
@@ -1486,7 +1515,7 @@ export function DistributionPage() {
                         return <article key={row.id} className="min-w-0 p-3">
                           <div className="flex min-w-0 items-center justify-between gap-2">
                             <div className="flex min-w-0 items-center gap-1.5 text-sm font-black text-slate-800">
-                              <span className="min-w-0 break-words">{row.row_type === "vacancy" ? row.label || tr("شاغر", "Vacancy") : ar ? row.person?.full_name_ar : row.person?.full_name_en || row.person?.full_name_ar}</span>
+                              <span className="min-w-0 break-words">{row.row_type === "vacancy" ? row.label || tr("شاغر", "Vacancy") : rowSupervisorName(row)}</span>
                               {row.row_type === "doctor" && workLocationInfoButton(row)}
                             </div>
                             {can("distribution.schedule_rows.manage") && isEditable && <div className="flex shrink-0 gap-1">
@@ -1494,6 +1523,7 @@ export function DistributionPage() {
                               <button type="button" aria-label={tr("حذف الصف", "Delete row")} disabled={deleteRow.isPending} onClick={() => { if (window.confirm(tr("سيتم حذف الصف وكل توزيعاته. هل أنت متأكد؟", "The row and all its assignments will be deleted. Are you sure?"))) deleteRow.mutate({ rowId: row.id, versionId: schedule.version!.id }); }} className="grid h-9 w-9 place-items-center rounded-lg bg-red-50 text-red-600 disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>
                             </div>}
                           </div>
+                          {row.row_type === "doctor" && <div className="mt-1.5 space-y-1">{rowSupervisors(row).map((item) => <div key={item.person_id} className="text-[10px] font-bold text-slate-500">{ar ? item.person.full_name_ar : item.person.full_name_en || item.person.full_name_ar}: {item.weekdays.map(dayLabel).join("، ")}</div>)}</div>}
                           <button type="button" onClick={() => openCell(row, selectedMobileBlock)} disabled={!canEditCell} className={`mt-2 flex min-h-12 w-full min-w-0 items-center justify-between gap-2 rounded-xl border px-3 py-2 text-start text-xs font-bold ${wholeCohortActivity ? "border-amber-200 bg-amber-50 text-amber-800" : cells.length ? "border-teal-200 bg-teal-50 text-teal-800" : "border-slate-200 bg-slate-50 text-slate-500"} disabled:cursor-default`}>
                             <span className="flex min-w-0 flex-wrap gap-1.5">{wholeCohortActivity ? selectedMobileBlock.activity_label : cells.length ? cells.map((cell) => <span key={cell.subgroup_id} className="rounded-lg bg-white/80 px-2 py-1">{cell.subgroup_name}</span>) : canEditCell ? tr("اضغط لتوزيع مجموعة", "Tap to assign a group") : tr("لم يتم التوزيع", "Not assigned")}</span>
                             {canEditCell && <Pencil className="h-4 w-4 shrink-0" />}
@@ -1572,14 +1602,10 @@ export function DistributionPage() {
                                 <div
                                   className={`flex items-center gap-1.5 font-black ${row.row_type === "vacancy" ? "text-slate-700" : "text-slate-800"}`}
                                 >
-                                  <span>{row.row_type === "vacancy"
-                                    ? row.label || tr("شاغر", "Vacancy")
-                                    : ar
-                                      ? row.person?.full_name_ar
-                                      : row.person?.full_name_en ||
-                                        row.person?.full_name_ar}</span>
+                                  <span>{row.row_type === "vacancy" ? row.label || tr("شاغر", "Vacancy") : rowSupervisorName(row)}</span>
                                   {row.row_type === "doctor" && workLocationInfoButton(row)}
                                 </div>
+                                {row.row_type === "doctor" && <div className="mt-1 space-y-1">{rowSupervisors(row).map((item) => <div key={item.person_id} className="text-[9px] font-bold text-slate-400">{ar ? item.person.full_name_ar : item.person.full_name_en || item.person.full_name_ar}: {item.weekdays.map(dayLabel).join("، ")}</div>)}</div>}
                               </div>
                               {can("distribution.schedule_rows.manage") &&
                                 isEditable && (
@@ -1671,43 +1697,11 @@ export function DistributionPage() {
       >
         {workDetailsRow && (
           <div className="space-y-3">
-            <div className="font-black text-slate-800">
-              {ar
-                ? workDetailsRow.person?.full_name_ar
-                : workDetailsRow.person?.full_name_en || workDetailsRow.person?.full_name_ar}
-            </div>
-            {rowDisplayedWorkLocations(workDetailsRow).length ? (
-              rowDisplayedWorkLocations(workDetailsRow).map((location) => (
-                <section
-                  key={`${location.training_site_id}-${location.valid_from}-${location.valid_until}`}
-                  className="rounded-xl border border-slate-200 p-3"
-                >
-                  <h4 className="flex items-center gap-2 font-black text-teal-800">
-                    <Building2 className="h-4 w-4" />
-                    {ar
-                      ? location.training_site?.name_ar
-                      : location.training_site?.name_en || location.training_site?.name_ar}
-                  </h4>
-                  <div className="mt-2 divide-y divide-slate-100 text-xs">
-                    {location.days.map((day) => (
-                      <div key={day.day} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                        <span className="font-bold text-slate-700">{dayLabel(day.day)}</span>
-                        <span className={day.status === "work" ? "text-teal-700" : "text-slate-500"}>
-                          {workStatusLabel(day.status)}
-                          {day.note?.trim() ? ` — ${day.note.trim()}` : ""}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ))
-            ) : (
-              <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600">
-                {ar
-                  ? workDetailsRow.training_site?.name_ar
-                  : workDetailsRow.training_site?.name_en || workDetailsRow.training_site?.name_ar}
-              </div>
-            )}
+            <div className="flex items-center gap-2 text-sm font-black text-teal-800"><Building2 className="h-4 w-4" />{ar ? workDetailsRow.training_site?.name_ar : workDetailsRow.training_site?.name_en || workDetailsRow.training_site?.name_ar}</div>
+            {rowSupervisors(workDetailsRow).map((item) => <section key={item.person_id} className="rounded-xl border border-slate-200 p-3">
+              <h4 className="font-black text-slate-800">{ar ? item.person.full_name_ar : item.person.full_name_en || item.person.full_name_ar}</h4>
+              <div className="mt-2 flex flex-wrap gap-1.5">{item.weekdays.map((day) => <span key={day} className="rounded-lg bg-teal-50 px-2.5 py-1 text-xs font-bold text-teal-800">{dayLabel(day)}</span>)}</div>
+            </section>)}
           </div>
         )}
       </Modal>
@@ -1859,7 +1853,7 @@ export function DistributionPage() {
         onClose={() => setEditingCell(null)}
         title={
           editingCell
-            ? `${editingCell.row.row_type === "vacancy" ? editingCell.row.label || tr("شاغر", "Vacancy") : ar ? editingCell.row.person?.full_name_ar : editingCell.row.person?.full_name_en || editingCell.row.person?.full_name_ar} — ${tr("الأسبوع", "Week")} ${editingCell.block.from_week}`
+            ? `${editingCell.row.row_type === "vacancy" ? editingCell.row.label || tr("شاغر", "Vacancy") : rowSupervisorName(editingCell.row)} — ${tr("الأسبوع", "Week")} ${editingCell.block.from_week}`
             : ""
         }
         footer={
@@ -1895,11 +1889,9 @@ export function DistributionPage() {
               {tr("أماكن وأيام دوام المشرف", "Supervisor work locations")}
             </span>
             <div className="mt-2 space-y-1 text-[11px] font-bold text-teal-800">
-              {rowWorkLocations(editingCell.row, editingCell.block).map((location) => (
-                <div key={`${location.training_site_id}-${location.valid_from}`}>
-                  {ar ? location.training_site?.name_ar : location.training_site?.name_en || location.training_site?.name_ar}: {location.days.filter((day) => day.status === "work").map((day) => dayLabel(day.day)).join("، ")}
-                </div>
-              ))}
+              {rowSupervisors(editingCell.row).map((item) => <div key={item.person_id}>
+                {ar ? item.person.full_name_ar : item.person.full_name_en || item.person.full_name_ar}: {item.weekdays.map(dayLabel).join("، ")}
+              </div>)}
             </div>
           </div>
         )}
@@ -2003,7 +1995,7 @@ export function DistributionPage() {
             <button
               type="button"
               onClick={() =>
-                setRowForm({ ...rowForm, row_type: "vacancy", personId: "" })
+                setRowForm({ ...rowForm, row_type: "vacancy", supervisors: [] })
               }
               className={`rounded-lg px-3 py-2 text-xs font-black ${rowForm.row_type === "vacancy" ? "bg-white text-slate-700 shadow-sm" : "text-slate-500"}`}
             >
@@ -2024,7 +2016,7 @@ export function DistributionPage() {
                     setRowForm({
                       ...rowForm,
                       hospitalId: event.target.value,
-                      personId: "",
+                      supervisors: [],
                       search: "",
                     })
                   }
@@ -2062,41 +2054,27 @@ export function DistributionPage() {
                   )}
                 />
               </label>
-              <label>
+              <div>
                 <span className="mb-1 block text-xs font-bold">
-                  {tr("المشرف السريري", "Clinical supervisor")}
+                  {tr("المشرفون السريريون", "Clinical supervisors")}
                 </span>
-                <select
-                  required
-                  size={8}
-                  className={`${inputClass} h-56`}
-                  value={rowForm.personId}
-                  disabled={!rowForm.hospitalId}
-                  onChange={(event) =>
-                    setRowForm({ ...rowForm, personId: event.target.value })
-                  }
-                >
-                  <option value="">
-                    {rowForm.hospitalId
-                      ? tr("اختر المشرف", "Select supervisor")
-                      : tr("اختر المستشفى أولاً", "Select a hospital first")}
-                  </option>
-                  {rowDoctors.map(
-                    (doctor) =>
-                      doctor.id !== null && (
-                        <option key={doctor.id} value={doctor.id} disabled={!doctorIsAvailable(doctor)}>
-                          {ar
-                            ? doctor.full_name_ar
-                            : doctor.full_name_en || doctor.full_name_ar}
-                          {doctor.specialty ? ` — ${doctor.specialty}` : ""}
-                          {!doctorIsAvailable(doctor)
-                            ? tr(" — لا يوجد يوم دوام فعال ضمن مدة الجدول", " — no active work day in this schedule")
-                            : ""}
-                        </option>
-                      ),
-                  )}
-                </select>
-              </label>
+                <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">{rowDoctors.map((doctor) => {
+                  if (doctor.id === null) return null;
+                  const personId = String(doctor.id);
+                  const selected = rowForm.supervisors.some((item) => item.personId === personId);
+                  const available = doctorIsAvailable(doctor);
+                  return <button key={doctor.id} type="button" disabled={!available && !selected} onClick={() => {
+                    if (selected) return setRowForm({ ...rowForm, supervisors: rowForm.supervisors.filter((item) => item.personId !== personId) });
+                    const claimedDays = rowForm.supervisors.flatMap((item) => item.weekdays);
+                    const weekdays = doctorAvailableDays(doctor).filter((day) => !claimedDays.includes(day));
+                    setRowForm({ ...rowForm, supervisors: [...rowForm.supervisors, { personId, weekdays }] });
+                  }} className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-start text-xs font-bold ${selected ? "border-teal-500 bg-teal-50 text-teal-900" : available ? "border-slate-200 text-slate-700 hover:border-teal-200" : "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300"}`}>
+                    <span className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${selected ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300"}`}>{selected ? "✓" : ""}</span>
+                    <span>{ar ? doctor.full_name_ar : doctor.full_name_en || doctor.full_name_ar}{doctor.specialty ? ` — ${doctor.specialty}` : ""}</span>
+                  </button>;
+                })}</div>
+                <p className="mt-1 text-[11px] text-slate-500">{tr("اختر مشرفاً أو أكثر، ثم وزّع أيام الدوام بينهم أدناه.", "Select one or more supervisors, then distribute the working days below.")}</p>
+              </div>
               {rowForm.hospitalId && rowDoctors.length === 0 && (
                 <p className="rounded-lg bg-amber-50 p-3 text-xs font-bold text-amber-800">
                   {tr(
@@ -2113,26 +2091,21 @@ export function DistributionPage() {
                   )}
                 </p>
               )}
-              {rowForm.personId && (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-800">
-                  {tr("سيتم الحفظ:", "Will be saved:")}{" "}
-                  {ar
-                    ? selectedRowHospital?.name_ar
-                    : selectedRowHospital?.name_en ||
-                      selectedRowHospital?.name_ar}{" "}
-                  —{" "}
-                  {ar
-                    ? rowDoctors.find(
-                        (doctor) => String(doctor.id) === rowForm.personId,
-                      )?.full_name_ar
-                    : rowDoctors.find(
-                        (doctor) => String(doctor.id) === rowForm.personId,
-                      )?.full_name_en ||
-                      rowDoctors.find(
-                        (doctor) => String(doctor.id) === rowForm.personId,
-                      )?.full_name_ar}
-                </div>
-              )}
+              {rowForm.supervisors.map((selected) => {
+                const doctor = rowDoctors.find((item) => String(item.id) === selected.personId);
+                const availableDays = doctor ? doctorAvailableDays(doctor) : [];
+                return <div key={selected.personId} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                  <div className="text-xs font-black text-emerald-900">{ar ? doctor?.full_name_ar : doctor?.full_name_en || doctor?.full_name_ar}</div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">{weekdayCodes.map((day) => {
+                    const available = availableDays.includes(day);
+                    const active = selected.weekdays.includes(day);
+                    const claimedByOther = rowForm.supervisors.some((item) => item.personId !== selected.personId && item.weekdays.includes(day));
+                    const disabled = !available || (!active && claimedByOther);
+                    return <button key={day} type="button" disabled={disabled} onClick={() => setRowForm({ ...rowForm, supervisors: rowForm.supervisors.map((item) => item.personId !== selected.personId ? item : { ...item, weekdays: active ? item.weekdays.filter((value) => value !== day) : [...item.weekdays, day] }) })} className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold ${active ? "border-teal-600 bg-teal-600 text-white" : !disabled ? "border-slate-200 bg-white text-slate-600" : "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-300"}`}>{weekdayText[day]}</button>;
+                  })}</div>
+                  {!selected.weekdays.length && <p className="mt-2 text-[11px] font-bold text-red-600">{tr("حدد يوم دوام واحداً على الأقل.", "Select at least one working day.")}</p>}
+                </div>;
+              })}
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
@@ -2178,8 +2151,8 @@ export function DistributionPage() {
           )}
           <div className="rounded-xl border border-teal-100 bg-teal-50 p-3 text-[11px] leading-5 text-teal-800">
             {tr(
-              "اختر المستشفى أولاً ثم اختر أحد المشرفين المرتبطين به. يظهر ملخص الاختيار قبل الحفظ لمنع خلط الطبيب بالمستشفى.",
-              "Select the hospital first, then choose one of its linked supervisors. A confirmation summary is shown before saving to prevent mismatches.",
+              "اختر المستشفى أولاً، ثم اختر مشرفاً أو أكثر وحدد أيام دوام كل مشرف. لا يمكن إسناد اليوم نفسه لمشرفين داخل الصف الواحد.",
+              "Select the hospital first, then choose one or more supervisors and set each supervisor's working days. The same day cannot be assigned to two supervisors in one row.",
             )}
           </div>
           <div className="flex justify-end gap-2 border-t pt-3">
@@ -2195,7 +2168,7 @@ export function DistributionPage() {
               isLoading={saveRow.isPending}
               disabled={
                 !rowForm.hospitalId ||
-                (rowForm.row_type === "doctor" && !rowForm.personId)
+                (rowForm.row_type === "doctor" && (!rowForm.supervisors.length || rowForm.supervisors.some((item) => !item.weekdays.length)))
               }
             >
               {tr("حفظ الصف", "Save row")}

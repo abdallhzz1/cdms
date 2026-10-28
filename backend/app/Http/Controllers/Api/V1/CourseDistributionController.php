@@ -12,6 +12,7 @@ use App\Models\ClinicalAssessment;
 use App\Models\CourseScheduleCell;
 use App\Models\CourseScheduleBlockActivity;
 use App\Models\CourseScheduleRow;
+use App\Models\CourseScheduleRowSupervisor;
 use App\Models\DistributionVersion;
 use App\Models\Person;
 use App\Models\Role;
@@ -132,12 +133,29 @@ class CourseDistributionController extends Controller
         if ($version) {
             $rows = CourseScheduleRow::query()
                 ->where('distribution_version_id', $version->id)
-                ->with(['person:id,full_name_ar,full_name_en,email,specialty,primary_site_id', 'person.availabilities.trainingSite:id,name_ar,name_en', 'trainingSite:id,name_ar,name_en,site_code'])
+                ->with([
+                    'person:id,full_name_ar,full_name_en,email,specialty,primary_site_id',
+                    'person.availabilities.trainingSite:id,name_ar,name_en',
+                    'supervisorLinks.person:id,full_name_ar,full_name_en,email,specialty,primary_site_id',
+                    'supervisorLinks.person.availabilities.trainingSite:id,name_ar,name_en',
+                    'trainingSite:id,name_ar,name_en,site_code',
+                ])
                 ->orderBy('sort_order')->orderBy('id')->get();
             $rows->each(function (CourseScheduleRow $row) {
                 if ($row->person) {
                     $row->person->setAttribute('work_schedules', $this->workSchedules->schedules($row->person));
                 }
+                $row->supervisorLinks->each(function (CourseScheduleRowSupervisor $link) {
+                    if ($link->person) {
+                        $link->person->setAttribute('work_schedules', $this->workSchedules->schedules($link->person));
+                    }
+                });
+                $row->setAttribute('supervisors', $row->supervisorLinks->map(fn (CourseScheduleRowSupervisor $link) => [
+                    'person_id' => $link->person_id,
+                    'weekdays' => $link->weekdays,
+                    'person' => $link->person,
+                ])->values());
+                $row->makeHidden('supervisorLinks');
             });
             $cells = CourseScheduleCell::query()
                 ->where('distribution_version_id', $version->id)
@@ -271,13 +289,22 @@ class CourseDistributionController extends Controller
         $version->loadMissing('rotation');
         $block = RotationBlock::where('rotation_id', $version->rotation_id)->findOrFail($data['rotation_block_id']);
         $row = CourseScheduleRow::where('distribution_version_id', $version->id)->findOrFail($data['course_schedule_row_id']);
+        $row->loadMissing('supervisorLinks.person');
         $doctor = $row->person;
         $siteId = (int) ($data['training_site_id'] ?? $row->training_site_id);
-        if ($doctor && ! $doctor->trainingSites()->whereKey($siteId)->exists() && (int) $doctor->primary_site_id !== $siteId) {
-            throw ValidationException::withMessages(['training_site_id' => ['الطبيب غير مرتبط بالمستشفى المحدد.']]);
-        }
-        if ($doctor && ! $this->workSchedules->isAvailable($doctor, $siteId, $this->blockStartDate($version, $block), $this->blockEndDate($version, $block))) {
-            throw ValidationException::withMessages(['course_schedule_row_id' => ['المشرف غير متاح للعمل في هذا المستشفى خلال الأسبوع المحدد. راجع جدول دوامه أولاً.']]);
+        $rowSupervisors = $row->supervisorLinks->isNotEmpty()
+            ? $row->supervisorLinks
+            : collect($doctor ? [(object) ['person' => $doctor, 'weekdays' => null]] : []);
+        foreach ($rowSupervisors as $link) {
+            $rowDoctor = $link->person;
+            if (! $rowDoctor->trainingSites()->whereKey($siteId)->exists() && (int) $rowDoctor->primary_site_id !== $siteId) {
+                throw ValidationException::withMessages(['training_site_id' => ["المشرف {$rowDoctor->full_name_ar} غير مرتبط بالمستشفى المحدد."]]);
+            }
+            $workingDays = $this->workSchedules->workingDays($rowDoctor, $siteId, $this->blockStartDate($version, $block), $this->blockEndDate($version, $block));
+            $configuredDays = $link->weekdays ?: $workingDays;
+            if (! array_intersect($workingDays, $configuredDays)) {
+                throw ValidationException::withMessages(['course_schedule_row_id' => ["لا يوجد يوم دوام مطابق للمشرف {$rowDoctor->full_name_ar} خلال الأسبوع المحدد."]]);
+            }
         }
         $subgroups = StudentSubgroup::with('group')->whereIn('id', $subgroupIds)->get();
         $scope = app(\App\Services\DepartmentHeadCourseScope::class);
@@ -304,7 +331,9 @@ class CourseDistributionController extends Controller
             throw ValidationException::withMessages(['subgroup_ids' => ["المجموعة {$conflict->studentSubgroup?->name} موزعة على طبيب آخر في الأسبوع نفسه."]]);
         }
 
-        if ($doctor) $this->ensureNoCrossSiteScheduleConflict($doctor, $row, $version, $block, $siteId);
+        foreach ($rowSupervisors as $link) {
+            $this->ensureNoCrossSiteScheduleConflict($link->person, $row, $version, $block, $siteId, $link->weekdays);
+        }
 
         DB::transaction(function () use ($version, $block, $row, $doctor, $subgroupIds, $siteId) {
             CourseScheduleCell::where([
@@ -469,13 +498,18 @@ class CourseDistributionController extends Controller
     {
         $this->ensureVersionInUserScope($version);
         $this->ensureEditableVersion($version);
-        $data = $this->validateScheduleRow($request);
+        [$data, $supervisors] = $this->validateScheduleRow($request);
         $data['distribution_version_id'] = $version->id;
         $data['sort_order'] = (int) CourseScheduleRow::where('distribution_version_id', $version->id)->max('sort_order') + 1;
-        $row = CourseScheduleRow::create($data);
+        $row = DB::transaction(function () use ($data, $supervisors) {
+            $row = CourseScheduleRow::create($data);
+            $this->syncRowSupervisors($row, $supervisors);
+
+            return $row;
+        });
         $this->recordCellChange($request, $version, 'course_schedule.row_created', ['row_id' => $row->id] + $data);
 
-        return ApiResponse::success($row->load(['person', 'trainingSite']), 'تمت إضافة صف الجدول.', [], 201);
+        return ApiResponse::success($row->load(['person', 'trainingSite', 'supervisorLinks.person']), 'تمت إضافة صف الجدول.', [], 201);
     }
 
     public function updateScheduleRow(Request $request, DistributionVersion $version, CourseScheduleRow $row): JsonResponse
@@ -483,10 +517,11 @@ class CourseDistributionController extends Controller
         $this->ensureVersionInUserScope($version);
         $this->ensureEditableVersion($version);
         abort_unless((int) $row->distribution_version_id === (int) $version->id, 404);
-        $data = $this->validateScheduleRow($request, $row);
+        [$data, $supervisors] = $this->validateScheduleRow($request, $row);
 
-        DB::transaction(function () use ($row, $data) {
+        DB::transaction(function () use ($row, $data, $supervisors) {
             $row->update($data);
+            $this->syncRowSupervisors($row, $supervisors);
             // Route-bound rows may already have cached relations. Reload them
             // after changing person/site so propagated assignments always use
             // the supervisor that was selected in this request.
@@ -503,7 +538,7 @@ class CourseDistributionController extends Controller
         });
         $this->recordCellChange($request, $version, 'course_schedule.row_updated', ['row_id' => $row->id] + $data);
 
-        return ApiResponse::success($row->fresh()->load(['person', 'trainingSite']), 'تم تعديل صف الجدول.');
+        return ApiResponse::success($row->fresh()->load(['person', 'trainingSite', 'supervisorLinks.person']), 'تم تعديل صف الجدول.');
     }
 
     public function destroyScheduleRow(Request $request, DistributionVersion $version, CourseScheduleRow $row): JsonResponse
@@ -551,6 +586,12 @@ class CourseDistributionController extends Controller
                 $copy->distribution_version_id = $revision->id;
                 $copy->save();
                 $rowMap[$row->id] = $copy->id;
+                foreach ($row->supervisorLinks()->get() as $link) {
+                    $copy->supervisorLinks()->create([
+                        'person_id' => $link->person_id,
+                        'weekdays' => $link->weekdays,
+                    ]);
+                }
             }
 
             foreach (StudentClinicalAssignment::where('distribution_version_id', $version->id)->orderBy('id')->get() as $assignment) {
@@ -792,7 +833,11 @@ class CourseDistributionController extends Controller
     {
         $data = $request->validate([
             'row_type' => ['required', 'in:doctor,vacancy'],
-            'person_id' => ['nullable', 'integer', 'exists:people,id', 'required_if:row_type,doctor'],
+            'person_id' => ['nullable', 'integer', 'exists:people,id'],
+            'supervisors' => ['nullable', 'array', 'min:1'],
+            'supervisors.*.person_id' => ['required', 'integer', 'distinct', 'exists:people,id'],
+            'supervisors.*.weekdays' => ['required', 'array', 'min:1'],
+            'supervisors.*.weekdays.*' => ['required', 'string', 'distinct', 'in:'.implode(',', SupervisorWorkScheduleService::DAYS)],
             'training_site_id' => ['required', 'integer', 'exists:training_sites,id'],
             'label' => ['nullable', 'string', 'max:100', 'required_if:row_type,vacancy'],
         ]);
@@ -801,36 +846,78 @@ class CourseDistributionController extends Controller
             throw ValidationException::withMessages(['training_site_id' => ['المستشفى المحدد غير فعال.']]);
         }
 
+        $supervisors = [];
         if ($data['row_type'] === 'doctor') {
-            $doctor = Person::active()->findOrFail($data['person_id']);
-            if (! $doctor->trainingSites()->whereKey($data['training_site_id'])->exists()
-                && $doctor->primary_site_id !== (int) $data['training_site_id']) {
-                throw ValidationException::withMessages(['person_id' => ['الطبيب لا يتبع المستشفى المحدد.']]);
-            }
             $version = $row?->version ?? $request->route('version');
             $version?->loadMissing('rotation');
-            if ($version?->rotation && ! $this->workSchedules->isAvailable($doctor, (int) $data['training_site_id'], $version->rotation->start_date, Carbon::parse($version->rotation->start_date)->addWeeks(max(1, (int) $version->rotation->duration_weeks))->subDay())) {
-                throw ValidationException::withMessages(['person_id' => ['لا يوجد دوام فعال لهذا الطبيب في المستشفى ضمن مدة الجدول المحدد.']]);
+            $rangeStart = $version?->rotation?->start_date;
+            $rangeEnd = $rangeStart
+                ? Carbon::parse($rangeStart)->addWeeks(max(1, (int) $version->rotation->duration_weeks))->subDay()
+                : null;
+
+            $requested = collect($data['supervisors'] ?? []);
+            if ($requested->isEmpty() && ! empty($data['person_id'])) {
+                $doctor = Person::active()->findOrFail($data['person_id']);
+                $requested = collect([[
+                    'person_id' => $doctor->id,
+                    'weekdays' => $this->workSchedules->workingDays($doctor, (int) $data['training_site_id'], $rangeStart, $rangeEnd),
+                ]]);
             }
-            $duplicate = CourseScheduleRow::query()
-                ->where('distribution_version_id', $row?->distribution_version_id ?? $request->route('version')->id)
-                ->where('person_id', $doctor->id)
-                ->where('training_site_id', $data['training_site_id'])
-                ->when($row, fn ($query) => $query->whereKeyNot($row->id))
-                ->exists();
-            if ($duplicate) {
-                $siteName = TrainingSite::whereKey($data['training_site_id'])->value('name_ar');
-                throw ValidationException::withMessages([
-                    'person_id' => ["المشرف {$doctor->full_name_ar} مضاف مسبقاً في صف تابع لمستشفى {$siteName}. عدّل الصف الموجود بدل إضافته مرة أخرى."],
-                ]);
+            if ($requested->isEmpty()) {
+                throw ValidationException::withMessages(['supervisors' => ['اختر مشرفاً سريرياً واحداً على الأقل وحدد أيام دوامه.']]);
             }
+
+            $claimedDays = [];
+            foreach ($requested as $index => $item) {
+                $doctor = Person::active()->findOrFail($item['person_id']);
+                if (! $doctor->trainingSites()->whereKey($data['training_site_id'])->exists()
+                    && $doctor->primary_site_id !== (int) $data['training_site_id']) {
+                    throw ValidationException::withMessages(["supervisors.{$index}.person_id" => ['المشرف لا يتبع المستشفى المحدد.']]);
+                }
+                $availableDays = $this->workSchedules->workingDays($doctor, (int) $data['training_site_id'], $rangeStart, $rangeEnd);
+                $selectedDays = collect($item['weekdays'] ?? [])->unique()->values()->all();
+                if (! $selectedDays || array_diff($selectedDays, $availableDays)) {
+                    throw ValidationException::withMessages(["supervisors.{$index}.weekdays" => ['اختر فقط أيام الدوام الفعلية لهذا المشرف في المستشفى المحدد.']]);
+                }
+                if (array_intersect($selectedDays, $claimedDays)) {
+                    throw ValidationException::withMessages(["supervisors.{$index}.weekdays" => ['لا يمكن إسناد اليوم نفسه لأكثر من مشرف داخل الصف الواحد.']]);
+                }
+                $claimedDays = array_values(array_unique([...$claimedDays, ...$selectedDays]));
+
+                $duplicate = CourseScheduleRow::query()
+                    ->where('distribution_version_id', $row?->distribution_version_id ?? $request->route('version')->id)
+                    ->where('training_site_id', $data['training_site_id'])
+                    ->when($row, fn ($query) => $query->whereKeyNot($row->id))
+                    ->where(fn ($query) => $query->where('person_id', $doctor->id)
+                        ->orWhereHas('supervisorLinks', fn ($links) => $links->where('person_id', $doctor->id)))
+                    ->exists();
+                if ($duplicate) {
+                    $siteName = TrainingSite::whereKey($data['training_site_id'])->value('name_ar');
+                    throw ValidationException::withMessages([
+                        "supervisors.{$index}.person_id" => ["المشرف {$doctor->full_name_ar} مضاف مسبقاً في صف تابع لمستشفى {$siteName}. عدّل الصف الموجود بدل إضافته مرة أخرى."],
+                    ]);
+                }
+                $supervisors[] = ['person_id' => $doctor->id, 'weekdays' => $selectedDays];
+            }
+
+            $data['person_id'] = $supervisors[0]['person_id'];
             $data['label'] = null;
         } else {
             $data['person_id'] = null;
             $data['label'] = trim($data['label'] ?? '') ?: 'شاغر';
         }
 
-        return $data;
+        unset($data['supervisors']);
+
+        return [$data, $supervisors];
+    }
+
+    private function syncRowSupervisors(CourseScheduleRow $row, array $supervisors): void
+    {
+        $row->supervisorLinks()->delete();
+        foreach ($supervisors as $supervisor) {
+            $row->supervisorLinks()->create($supervisor);
+        }
     }
 
     private function ensureEditableVersion(DistributionVersion $version): void
@@ -938,17 +1025,19 @@ class CourseDistributionController extends Controller
         return Carbon::parse($version->rotation->start_date)->addWeeks(max(1, (int) $block->to_week))->subDay();
     }
 
-    private function ensureNoCrossSiteScheduleConflict(Person $doctor, CourseScheduleRow $row, DistributionVersion $version, RotationBlock $block, int $siteId): void
+    private function ensureNoCrossSiteScheduleConflict(Person $doctor, CourseScheduleRow $row, DistributionVersion $version, RotationBlock $block, int $siteId, ?array $configuredDays = null): void
     {
         $currentStart = $this->blockStartDate($version, $block);
         $currentEnd = $this->blockEndDate($version, $block);
         $currentDays = $this->workSchedules->workingDays($doctor, $siteId, $currentStart, $currentEnd);
+        if ($configuredDays) $currentDays = array_values(array_intersect($currentDays, $configuredDays));
 
         $cells = CourseScheduleCell::query()
             ->where(fn ($query) => $query->where('course_schedule_row_id', '!=', $row->id)->orWhere('rotation_block_id', '!=', $block->id))
-            ->whereHas('courseScheduleRow', fn ($query) => $query->where('person_id', $doctor->id))
+            ->whereHas('courseScheduleRow', fn ($query) => $query->where('person_id', $doctor->id)
+                ->orWhereHas('supervisorLinks', fn ($links) => $links->where('person_id', $doctor->id)))
             ->whereHas('distributionVersion', fn ($query) => $query->whereNot('status', 'withdrawn'))
-            ->with(['courseScheduleRow:id,training_site_id', 'trainingSite:id', 'rotationBlock:id,rotation_id,from_week,to_week', 'distributionVersion.rotation:id,start_date'])
+            ->with(['courseScheduleRow:id,person_id,training_site_id', 'courseScheduleRow.supervisorLinks:id,course_schedule_row_id,person_id,weekdays', 'trainingSite:id', 'rotationBlock:id,rotation_id,from_week,to_week', 'distributionVersion.rotation:id,start_date'])
             ->get();
 
         foreach ($cells as $cell) {
@@ -963,6 +1052,8 @@ class CourseDistributionController extends Controller
             $overlapStart = $currentStart->greaterThan($otherStart) ? $currentStart : $otherStart;
             $overlapEnd = $currentEnd->lessThan($otherEnd) ? $currentEnd : $otherEnd;
             $otherDays = $this->workSchedules->workingDays($doctor, $otherSiteId, $overlapStart, $overlapEnd);
+            $otherLink = $cell->courseScheduleRow?->supervisorLinks?->firstWhere('person_id', $doctor->id);
+            if ($otherLink?->weekdays) $otherDays = array_values(array_intersect($otherDays, $otherLink->weekdays));
             if (array_intersect($currentDays, $otherDays)) {
                 throw ValidationException::withMessages(['course_schedule_row_id' => ['المشرف موزع في مستشفى آخر خلال يوم عمل متداخل في نفس المدة. عدّل أيام دوامه أو التوزيع الآخر أولاً.']]);
             }

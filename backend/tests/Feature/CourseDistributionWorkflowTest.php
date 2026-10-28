@@ -21,6 +21,7 @@ use App\Models\User;
 use App\Services\Distribution\CourseScheduleMembershipSyncService;
 use App\Services\Distribution\DistributionApprovalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class CourseDistributionWorkflowTest extends TestCase
@@ -213,6 +214,72 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
             ->assertOk()
             ->assertJsonPath('data.approval_state.status', 'revoked');
+    }
+
+    public function test_one_schedule_row_accepts_multiple_supervisors_with_independent_weekdays_without_touching_publication(): void
+    {
+        $secondUser = User::factory()->create();
+        $secondUser->roles()->attach(Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail());
+        $secondDoctor = Person::factory()->create([
+            'user_id' => $secondUser->id,
+            'email' => $secondUser->email,
+            'primary_site_id' => $this->doctor->primary_site_id,
+            'is_active' => true,
+        ]);
+        $secondDoctor->trainingSites()->attach($this->doctor->primary_site_id, ['is_primary' => true]);
+
+        $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'course_id' => $this->course->id,
+            'start_date' => '2026-09-01',
+            'weeks_count' => 3,
+        ])->assertCreated();
+        $versionId = $created->json('data.version.id');
+
+        $row = $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$versionId}/rows", [
+            'row_type' => 'doctor',
+            'training_site_id' => $this->doctor->primary_site_id,
+            'supervisors' => [
+                ['person_id' => $this->doctor->id, 'weekdays' => ['saturday', 'sunday', 'monday']],
+                ['person_id' => $secondDoctor->id, 'weekdays' => ['tuesday', 'wednesday', 'thursday']],
+            ],
+        ])->assertCreated();
+
+        $rowId = $row->json('data.id');
+        $this->assertDatabaseHas('course_schedule_rows', [
+            'id' => $rowId,
+            'person_id' => $this->doctor->id,
+        ]);
+        $this->assertDatabaseHas('course_schedule_row_supervisors', [
+            'course_schedule_row_id' => $rowId,
+            'person_id' => $secondDoctor->id,
+        ]);
+        $this->assertDatabaseCount('course_schedule_row_supervisors', 2);
+        $this->assertSame('manual', DistributionVersion::findOrFail($versionId)->status);
+        $this->assertSame(0, DistributionVersion::where('rotation_id', $created->json('data.rotation.id'))->where('status', 'published')->count());
+
+        $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
+            ->assertOk()
+            ->assertJsonCount(2, 'data.rows.0.supervisors')
+            ->assertJsonPath('data.rows.0.supervisors.0.weekdays', ['saturday', 'sunday', 'monday'])
+            ->assertJsonPath('data.rows.0.supervisors.1.weekdays', ['tuesday', 'wednesday', 'thursday']);
+
+        DistributionVersion::whereKey($versionId)->update(['status' => 'published', 'is_current' => true]);
+        $this->actingAs($this->user)->putJson("/api/v1/course-distribution/versions/{$versionId}/rows/{$rowId}", [
+            'row_type' => 'doctor',
+            'training_site_id' => $this->doctor->primary_site_id,
+            'supervisors' => [['person_id' => $this->doctor->id, 'weekdays' => ['saturday']]],
+        ])->assertUnprocessable()->assertJsonValidationErrors('version');
+        $this->assertDatabaseCount('course_schedule_row_supervisors', 2);
+
+        $revision = $this->actingAs($this->user)
+            ->postJson("/api/v1/course-distribution/versions/{$versionId}/revise")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'manual');
+        $revisionRowId = CourseScheduleRow::where('distribution_version_id', $revision->json('data.id'))->value('id');
+        $this->assertSame(2, DB::table('course_schedule_row_supervisors')->where('course_schedule_row_id', $revisionRowId)->count());
+        $this->assertSame(1, DistributionVersion::where('rotation_id', $created->json('data.rotation.id'))->where('status', 'published')->count());
     }
 
     public function test_approval_only_requires_students_from_groups_targeted_by_this_schedule(): void
