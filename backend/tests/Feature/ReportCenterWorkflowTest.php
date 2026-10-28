@@ -13,6 +13,7 @@ use App\Models\StudentClinicalAssignment;
 use App\Models\TrainingSite;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class ReportCenterWorkflowTest extends TestCase
@@ -96,6 +97,7 @@ class ReportCenterWorkflowTest extends TestCase
         ]);
         $rotation = Rotation::factory()->create([
             'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
             'start_date' => '2026-09-01',
             'end_date' => '2026-11-30',
             'duration_weeks' => 13,
@@ -123,15 +125,46 @@ class ReportCenterWorkflowTest extends TestCase
             ]);
         }
 
+        foreach ([['fifth', '2026-09-01'], ['sixth', '2026-10-01']] as [$academicLevel, $startDate]) {
+            $levelRotation = Rotation::factory()->create([
+                'academic_year_id' => $this->year->id,
+                'academic_level' => $academicLevel,
+                'start_date' => $startDate,
+                'end_date' => Carbon::parse($startDate)->addWeeks(4)->subDay()->toDateString(),
+                'duration_weeks' => 4,
+                'status' => 'active',
+            ]);
+            $levelVersion = DistributionVersion::create([
+                'rotation_id' => $levelRotation->id,
+                'version_number' => 1,
+                'status' => 'published',
+                'is_current' => true,
+            ]);
+            $levelBlock = RotationBlock::factory()->create(['rotation_id' => $levelRotation->id, 'from_week' => 1, 'to_week' => 4]);
+            $levelStudent = Student::factory()->create(['academic_year_id' => $this->year->id, 'academic_level' => $academicLevel]);
+            StudentClinicalAssignment::create([
+                'distribution_version_id' => $levelVersion->id,
+                'student_id' => $levelStudent->id,
+                'rotation_block_id' => $levelBlock->id,
+                'training_site_id' => $siteA->id,
+            ]);
+        }
+
         $response = $this->actingAs($this->reporter)
             ->getJson('/api/v1/report-center/clinical_training_sites_sep_nov_2026/preview');
 
         $response->assertOk()
-            ->assertJsonPath('data.columns', ['اسم المستشفى أو المركز الصحي', 'سبتمبر 2026', 'أكتوبر 2026', 'نوفمبر 2026', 'الإجمالي']);
+            ->assertJsonPath('data.columns', [
+                'اسم المستشفى أو المركز الصحي',
+                'سبتمبر 2026 — الإجمالي', 'سبتمبر 2026 — رابعة', 'سبتمبر 2026 — خامسة', 'سبتمبر 2026 — سادسة',
+                'أكتوبر 2026 — الإجمالي', 'أكتوبر 2026 — رابعة', 'أكتوبر 2026 — خامسة', 'أكتوبر 2026 — سادسة',
+                'نوفمبر 2026 — الإجمالي', 'نوفمبر 2026 — رابعة', 'نوفمبر 2026 — خامسة', 'نوفمبر 2026 — سادسة',
+                'إجمالي الأشهر',
+            ]);
 
         $rows = collect($response->json('data.rows'))->keyBy(0);
-        $this->assertSame(['مستشفى أ', 2, 2, 1, 5], $rows->get('مستشفى أ'));
-        $this->assertSame(['مركز ب', 0, 0, 1, 1], $rows->get('مركز ب'));
+        $this->assertSame(['مستشفى أ', 3, 2, 1, 0, 3, 2, 0, 1, 1, 1, 0, 0, 7], $rows->get('مستشفى أ'));
+        $this->assertSame(['مركز ب', 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1], $rows->get('مركز ب'));
 
         $export = $this->actingAs($this->reporter)
             ->get('/api/v1/report-center/clinical_training_sites_sep_nov_2026/export?format=xlsx');
@@ -142,10 +175,17 @@ class ReportCenterWorkflowTest extends TestCase
             "/api/v1/report-center/clinical-training-sites-2026/details?training_site_id={$siteA->id}&month=2026-09"
         );
         $details->assertOk()
-            ->assertJsonPath('data.total', 2)
+            ->assertJsonPath('data.total', 3)
             ->assertJsonPath('data.site.name_ar', 'مستشفى أ')
-            ->assertJsonCount(2, 'data.students');
-        $this->assertCount(2, collect($details->json('data.students'))->pluck('student_id')->unique());
+            ->assertJsonCount(3, 'data.students');
+        $this->assertCount(3, collect($details->json('data.students'))->pluck('student_id')->unique());
+
+        $this->actingAs($this->reporter)->getJson(
+            "/api/v1/report-center/clinical-training-sites-2026/details?training_site_id={$siteA->id}&month=2026-09&academic_level=fifth"
+        )->assertOk()
+            ->assertJsonPath('data.total', 1)
+            ->assertJsonPath('data.academic_level', 'fifth')
+            ->assertJsonPath('data.academic_level_label', 'السنة الخامسة');
 
         $this->actingAs($this->reporter)->getJson(
             "/api/v1/report-center/clinical-training-sites-2026/details?training_site_id={$siteB->id}&month=2026-10"
@@ -157,8 +197,13 @@ class ReportCenterWorkflowTest extends TestCase
         $this->actingAs($this->reporter)
             ->getJson('/api/v1/report-center/clinical_training_sites_sep_nov_2026/preview?month_from=2026-11&month_to=2026-11')
             ->assertOk()
-            ->assertJsonPath('data.columns', ['اسم المستشفى أو المركز الصحي', 'نوفمبر 2026', 'الإجمالي'])
-            ->assertJsonPath('data.audit_months', ['2026-11']);
+            ->assertJsonPath('data.columns', ['اسم المستشفى أو المركز الصحي', 'نوفمبر 2026 — الإجمالي', 'نوفمبر 2026 — رابعة', 'نوفمبر 2026 — خامسة', 'نوفمبر 2026 — سادسة', 'إجمالي الأشهر'])
+            ->assertJsonPath('data.audit_columns', [
+                ['month' => '2026-11', 'academic_level' => null],
+                ['month' => '2026-11', 'academic_level' => 'fourth'],
+                ['month' => '2026-11', 'academic_level' => 'fifth'],
+                ['month' => '2026-11', 'academic_level' => 'sixth'],
+            ]);
     }
 
     public function test_export_requires_export_permission(): void

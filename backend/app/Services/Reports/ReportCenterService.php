@@ -225,6 +225,7 @@ class ReportCenterService
         $sites = [];
         foreach ($this->clinicalTrainingSiteAssignments($filters)->get() as $assignment) {
             $site = $assignment->trainingSite;
+            $academicLevel = $assignment->rotationBlock?->rotation?->academic_level;
             $period = $this->assignmentPeriod($assignment);
             if (! $site || ! $assignment->student_id || ! $period) {
                 continue;
@@ -236,25 +237,49 @@ class ReportCenterService
                 if ($blockStart->lessThanOrEqualTo($monthEnd) && $blockEnd->greaterThanOrEqualTo($monthStart)) {
                     $sites[$site->id] ??= [
                         'name' => $site->name_ar,
-                        'months' => array_fill_keys(array_keys($months), []),
+                        'months' => collect(array_keys($months))->mapWithKeys(fn (string $key) => [$key => [
+                            'total' => [],
+                            'fourth' => [],
+                            'fifth' => [],
+                            'sixth' => [],
+                        ]])->all(),
                     ];
-                    $sites[$site->id]['months'][$month][$assignment->student_id] = true;
+                    $sites[$site->id]['months'][$month]['total'][$assignment->student_id] = true;
+                    if (in_array($academicLevel, ['fourth', 'fifth', 'sixth'], true)) {
+                        $sites[$site->id]['months'][$month][$academicLevel][$assignment->student_id] = true;
+                    }
                 }
             }
         }
 
         $orderedSites = collect($sites)->sortBy('name');
         $rows = $orderedSites->map(function (array $site) use ($months): array {
-            $counts = collect(array_keys($months))->map(fn (string $month) => count($site['months'][$month]))->all();
+            $counts = collect(array_keys($months))->flatMap(fn (string $month) => [
+                count($site['months'][$month]['total']),
+                count($site['months'][$month]['fourth']),
+                count($site['months'][$month]['fifth']),
+                count($site['months'][$month]['sixth']),
+            ])->all();
+            $monthlyTotals = collect(array_keys($months))->map(fn (string $month) => count($site['months'][$month]['total']));
 
-            return [$site['name'], ...$counts, array_sum($counts)];
+            return [$site['name'], ...$counts, $monthlyTotals->sum()];
         })->values()->all();
 
+        $columns = ['اسم المستشفى أو المركز الصحي'];
+        $auditColumns = [];
+        foreach ($months as $month => $period) {
+            foreach ([null => 'الإجمالي', 'fourth' => 'رابعة', 'fifth' => 'خامسة', 'sixth' => 'سادسة'] as $level => $levelLabel) {
+                $columns[] = $period['label'].' — '.$levelLabel;
+                $auditColumns[] = ['month' => $month, 'academic_level' => $level ?: null];
+            }
+        }
+        $columns[] = 'إجمالي الأشهر';
+
         return [
-            'columns' => ['اسم المستشفى أو المركز الصحي', ...array_column($months, 'label'), 'الإجمالي'],
+            'columns' => $columns,
             'rows' => $rows,
             'audit_site_ids' => $orderedSites->keys()->map(fn ($id) => (int) $id)->values()->all(),
-            'audit_months' => array_keys($months),
+            'audit_columns' => $auditColumns,
         ];
     }
 
@@ -269,7 +294,7 @@ class ReportCenterService
             ->with([
                 'student:id,university_number,full_name_ar',
                 'studentSubgroup:id,name',
-                'rotationBlock.rotation:id,start_date,course_id',
+                'rotationBlock.rotation:id,start_date,course_id,academic_level',
                 'rotationBlock.rotation.course:id,name_ar',
             ])
             ->get();
@@ -303,6 +328,8 @@ class ReportCenterService
             'site' => $siteAssignments->first()->trainingSite->only(['id', 'name_ar']),
             'month' => $month,
             'month_label' => $period['label'],
+            'academic_level' => $filters['academic_level'] ?? null,
+            'academic_level_label' => isset($filters['academic_level']) ? $this->level($filters['academic_level']) : 'جميع السنوات',
             'total' => count($rows),
             'students' => $rows,
         ];
@@ -318,7 +345,7 @@ class ReportCenterService
             ->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation
                 ->whereDate('start_date', '<=', $rangeEnd)
                 ->where(fn ($period) => $period->whereNull('end_date')->orWhereDate('end_date', '>=', $rangeStart)))
-            ->with(['rotationBlock.rotation:id,start_date', 'trainingSite:id,name_ar']);
+            ->with(['rotationBlock.rotation:id,start_date,academic_level', 'trainingSite:id,name_ar']);
         $this->filterAssignments($query, $filters);
 
         return $query;
