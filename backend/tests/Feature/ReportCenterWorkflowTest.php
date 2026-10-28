@@ -139,7 +139,7 @@ class ReportCenterWorkflowTest extends TestCase
         $this->assertStringContainsString('spreadsheetml', (string) $export->headers->get('content-type'));
 
         $details = $this->actingAs($this->reporter)->getJson(
-            "/api/v1/report-center/clinical-training-sites-2026/details?training_site_id={$siteA->id}&month=september"
+            "/api/v1/report-center/clinical-training-sites-2026/details?training_site_id={$siteA->id}&month=2026-09"
         );
         $details->assertOk()
             ->assertJsonPath('data.total', 2)
@@ -148,11 +148,17 @@ class ReportCenterWorkflowTest extends TestCase
         $this->assertCount(2, collect($details->json('data.students'))->pluck('student_id')->unique());
 
         $this->actingAs($this->reporter)->getJson(
-            "/api/v1/report-center/clinical-training-sites-2026/details?training_site_id={$siteB->id}&month=october"
+            "/api/v1/report-center/clinical-training-sites-2026/details?training_site_id={$siteB->id}&month=2026-10"
         )->assertOk()
             ->assertJsonPath('data.total', 0)
             ->assertJsonPath('data.site.name_ar', 'مركز ب')
             ->assertJsonCount(0, 'data.students');
+
+        $this->actingAs($this->reporter)
+            ->getJson('/api/v1/report-center/clinical_training_sites_sep_nov_2026/preview?month_from=2026-11&month_to=2026-11')
+            ->assertOk()
+            ->assertJsonPath('data.columns', ['اسم المستشفى أو المركز الصحي', 'نوفمبر 2026', 'الإجمالي'])
+            ->assertJsonPath('data.audit_months', ['2026-11']);
     }
 
     public function test_export_requires_export_permission(): void

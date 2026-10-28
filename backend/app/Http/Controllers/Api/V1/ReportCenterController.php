@@ -47,7 +47,7 @@ class ReportCenterController extends Controller
     {
         $validated = $request->validate([
             'training_site_id' => ['required', 'integer', 'exists:training_sites,id'],
-            'month' => ['required', 'in:september,october,november'],
+            'month' => ['required', 'date_format:Y-m'],
         ]);
 
         return ApiResponse::success($this->reports->clinicalTrainingSiteMonthlyDetails(
@@ -91,6 +91,8 @@ class ReportCenterController extends Controller
             'academic_year_id' => ['nullable', 'integer', 'exists:academic_years,id'],
             'academic_level' => ['nullable', 'in:fourth,fifth,sixth'],
             'clinical_period_id' => ['nullable', 'integer', 'exists:clinical_periods,id'],
+            'month_from' => ['nullable', 'date_format:Y-m'],
+            'month_to' => ['nullable', 'date_format:Y-m', 'after_or_equal:month_from'],
         ];
         if ($withSearch) {
             $rules['search'] = ['nullable', 'string', 'max:100'];

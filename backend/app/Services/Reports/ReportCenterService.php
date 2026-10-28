@@ -26,7 +26,7 @@ class ReportCenterService
             ['key' => 'student_directory', 'category' => 'academic', 'title' => 'دليل الطلبة الأكاديمي', 'description' => 'قائمة الطلبة حسب السنة والحالة الأكاديمية والمجموعة الرئيسية.'],
             ['key' => 'group_rosters', 'category' => 'clinical', 'title' => 'قوائم مجموعات الطلبة', 'description' => 'كشف الطلبة المسجلين في المجموعات الرئيسية لكل عام وسنة سريرية.'],
             ['key' => 'clinical_schedule', 'category' => 'clinical', 'title' => 'الجدول السريري المنشور', 'description' => 'أماكن دوام الطلبة والمجموعات والمستشفيات والأطباء في الجداول المنشورة.'],
-            ['key' => 'clinical_training_sites_sep_nov_2026', 'category' => 'clinical', 'title' => 'إحصائية طلبة التدريب السريري في المراكز التدريبية', 'description' => 'أعداد الطلبة الفريدين في كل مستشفى أو مركز صحي خلال سبتمبر وأكتوبر ونوفمبر 2026.'],
+            ['key' => 'clinical_training_sites_sep_nov_2026', 'category' => 'clinical', 'title' => 'إحصائية طلبة التدريب السريري في المراكز التدريبية', 'description' => 'أعداد الطلبة الفريدين في كل مستشفى أو مركز صحي خلال فترة شهرية تختارها.'],
             ['key' => 'supervisors_hospitals', 'category' => 'clinical', 'title' => 'المستشفيات والمشرفون', 'description' => 'دليل المشرفين السريريين والمستشفيات المرتبطين بها وحالة الحساب.'],
             ['key' => 'grades', 'category' => 'academic', 'title' => 'علامات المساقات السريرية', 'description' => 'العلامة السريرية والأوسكي والامتحان الكتابي وحالة الاعتماد.'],
             ['key' => 'attendance', 'category' => 'clinical', 'title' => 'الحضور والغياب', 'description' => 'سجل حضور الطلبة للجلسات السريرية مع الملاحظات والأعذار.'],
@@ -103,7 +103,14 @@ class ReportCenterService
             'data_gaps' => $this->dataGaps($filters),
         };
 
-        $payload['rows'] = $this->search(collect($payload['rows']), $filters['search'] ?? null)->values()->all();
+        $rows = $this->search(collect($payload['rows']), $filters['search'] ?? null);
+        if (isset($payload['audit_site_ids'])) {
+            $payload['audit_site_ids'] = $rows->keys()
+                ->map(fn ($index) => $payload['audit_site_ids'][$index])
+                ->values()
+                ->all();
+        }
+        $payload['rows'] = $rows->values()->all();
         $payload['definition'] = $this->definition($key);
 
         return $payload;
@@ -121,6 +128,9 @@ class ReportCenterService
         if (! empty($filters['clinical_period_id'])) {
             $period = ClinicalPeriod::find($filters['clinical_period_id']);
             $parts[] = 'الفترة: '.($period?->name_ar ?? $filters['clinical_period_id']);
+        }
+        if (! empty($filters['month_from']) && ! empty($filters['month_to'])) {
+            $parts[] = 'الأشهر: '.$filters['month_from'].' — '.$filters['month_to'];
         }
         if (! empty($filters['search'])) {
             $parts[] = 'بحث: '.$filters['search'];
@@ -211,6 +221,7 @@ class ReportCenterService
 
     private function clinicalTrainingSitesSepNov2026(array $filters): array
     {
+        $months = $this->reportMonths($filters);
         $sites = [];
         foreach ($this->clinicalTrainingSiteAssignments($filters)->get() as $assignment) {
             $site = $assignment->trainingSite;
@@ -220,37 +231,39 @@ class ReportCenterService
             }
             [$blockStart, $blockEnd] = $period;
 
-            foreach ($this->reportMonths() as $month => [$monthStart, $monthEnd]) {
+            foreach ($months as $month => $period) {
+                [$monthStart, $monthEnd] = $period;
                 if ($blockStart->lessThanOrEqualTo($monthEnd) && $blockEnd->greaterThanOrEqualTo($monthStart)) {
                     $sites[$site->id] ??= [
                         'name' => $site->name_ar,
-                        'september' => [],
-                        'october' => [],
-                        'november' => [],
+                        'months' => array_fill_keys(array_keys($months), []),
                     ];
-                    $sites[$site->id][$month][$assignment->student_id] = true;
+                    $sites[$site->id]['months'][$month][$assignment->student_id] = true;
                 }
             }
         }
 
-        $rows = collect($sites)->map(function (array $site): array {
-            $september = count($site['september']);
-            $october = count($site['october']);
-            $november = count($site['november']);
+        $orderedSites = collect($sites)->sortBy('name');
+        $rows = $orderedSites->map(function (array $site) use ($months): array {
+            $counts = collect(array_keys($months))->map(fn (string $month) => count($site['months'][$month]))->all();
 
-            return [$site['name'], $september, $october, $november, $september + $october + $november];
-        })->sortBy(fn (array $row) => $row[0])->values()->all();
+            return [$site['name'], ...$counts, array_sum($counts)];
+        })->values()->all();
 
         return [
-            'columns' => ['اسم المستشفى أو المركز الصحي', 'سبتمبر 2026', 'أكتوبر 2026', 'نوفمبر 2026', 'الإجمالي'],
+            'columns' => ['اسم المستشفى أو المركز الصحي', ...array_column($months, 'label'), 'الإجمالي'],
             'rows' => $rows,
-            'audit_sites' => collect($sites)->mapWithKeys(fn (array $site, int $id) => [$site['name'] => $id])->all(),
+            'audit_site_ids' => $orderedSites->keys()->map(fn ($id) => (int) $id)->values()->all(),
+            'audit_months' => array_keys($months),
         ];
     }
 
     public function clinicalTrainingSiteMonthlyDetails(int $siteId, string $month, array $filters): array
     {
-        [$monthStart, $monthEnd] = $this->reportMonths()[$month];
+        $filters['month_from'] = $month;
+        $filters['month_to'] = $month;
+        $period = $this->reportMonths($filters)[$month];
+        [$monthStart, $monthEnd] = $period;
         $siteAssignments = $this->clinicalTrainingSiteAssignments($filters)
             ->where('training_site_id', $siteId)
             ->with([
@@ -289,7 +302,7 @@ class ReportCenterService
         return [
             'site' => $siteAssignments->first()->trainingSite->only(['id', 'name_ar']),
             'month' => $month,
-            'month_label' => ['september' => 'سبتمبر 2026', 'october' => 'أكتوبر 2026', 'november' => 'نوفمبر 2026'][$month],
+            'month_label' => $period['label'],
             'total' => count($rows),
             'students' => $rows,
         ];
@@ -297,11 +310,14 @@ class ReportCenterService
 
     private function clinicalTrainingSiteAssignments(array $filters)
     {
+        $months = $this->reportMonths($filters);
+        $rangeStart = collect($months)->first()[0]->toDateString();
+        $rangeEnd = collect($months)->last()[1]->toDateString();
         $query = StudentClinicalAssignment::query()
             ->whereHas('distributionVersion', fn ($version) => $version->where('status', 'published')->where('is_current', true))
             ->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation
-                ->whereDate('start_date', '<=', '2026-11-30')
-                ->where(fn ($period) => $period->whereNull('end_date')->orWhereDate('end_date', '>=', '2026-09-01')))
+                ->whereDate('start_date', '<=', $rangeEnd)
+                ->where(fn ($period) => $period->whereNull('end_date')->orWhereDate('end_date', '>=', $rangeStart)))
             ->with(['rotationBlock.rotation:id,start_date', 'trainingSite:id,name_ar']);
         $this->filterAssignments($query, $filters);
 
@@ -321,13 +337,24 @@ class ReportCenterService
         ];
     }
 
-    private function reportMonths(): array
+    private function reportMonths(array $filters = []): array
     {
-        return [
-            'september' => [CarbonImmutable::parse('2026-09-01')->startOfDay(), CarbonImmutable::parse('2026-09-30')->endOfDay()],
-            'october' => [CarbonImmutable::parse('2026-10-01')->startOfDay(), CarbonImmutable::parse('2026-10-31')->endOfDay()],
-            'november' => [CarbonImmutable::parse('2026-11-01')->startOfDay(), CarbonImmutable::parse('2026-11-30')->endOfDay()],
-        ];
+        $start = CarbonImmutable::createFromFormat('Y-m-d', ($filters['month_from'] ?? '2026-09') . '-01')->startOfMonth();
+        $end = CarbonImmutable::createFromFormat('Y-m-d', ($filters['month_to'] ?? '2026-11') . '-01')->endOfMonth();
+        abort_if($start->greaterThan($end), 422, 'شهر النهاية يجب أن يكون بعد شهر البداية.');
+        abort_if($start->diffInMonths($end) > 11, 422, 'يمكن عرض 12 شهراً كحد أقصى في التقرير الواحد.');
+
+        $monthNames = [1 => 'يناير', 2 => 'فبراير', 3 => 'مارس', 4 => 'أبريل', 5 => 'مايو', 6 => 'يونيو', 7 => 'يوليو', 8 => 'أغسطس', 9 => 'سبتمبر', 10 => 'أكتوبر', 11 => 'نوفمبر', 12 => 'ديسمبر'];
+        $months = [];
+        for ($cursor = $start; $cursor->lessThanOrEqualTo($end); $cursor = $cursor->addMonth()) {
+            $months[$cursor->format('Y-m')] = [
+                $cursor->startOfMonth()->startOfDay(),
+                $cursor->endOfMonth()->endOfDay(),
+                'label' => $monthNames[$cursor->month] . ' ' . $cursor->year,
+            ];
+        }
+
+        return $months;
     }
 
     private function grades(array $filters): array

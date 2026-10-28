@@ -67,8 +67,8 @@ describe('ReportsDashboard',()=>{
       const url=typeof input==='string'?input:input.toString();
       if(url.includes('/auth/me'))return envelope({id:1,name:'Admin',email:'admin@hebron.edu',roles:['SYS_ADMIN'],department_ids:[],permissions:[{code:'reports.view',scope:'global'}]});
       if(url.includes('/report-center/summary'))return envelope({...summary,reports:[...summary.reports,report]});
-      if(url.includes('/clinical-training-sites-2026/details'))return envelope({site:{id:5,name_ar:'مستشفى الخليل'},month:'september',month_label:'سبتمبر 2026',total:2,students:[{student_id:1,university_number:'22001',student_name:'طالب أول',courses:'الجراحة',subgroups:'A1',training_start:'2026-09-01',training_end:'2026-09-30'},{student_id:2,university_number:'22002',student_name:'طالب ثان',courses:'الباطني',subgroups:'A2',training_start:'2026-09-08',training_end:'2026-10-05'}]});
-      if(url.includes('/clinical_training_sites_sep_nov_2026/preview'))return envelope({definition:report,columns:['المركز','سبتمبر','أكتوبر','نوفمبر','الإجمالي'],rows:[['مستشفى الخليل',2,1,0,3]],total:1,preview_limit:20,audit_sites:{'مستشفى الخليل':5}});
+      if(url.includes('/clinical-training-sites-2026/details'))return envelope({site:{id:5,name_ar:'مستشفى الخليل'},month:'2026-09',month_label:'سبتمبر 2026',total:2,students:[{student_id:1,university_number:'22001',student_name:'طالب أول',courses:'الجراحة',subgroups:'A1',training_start:'2026-09-01',training_end:'2026-09-30'},{student_id:2,university_number:'22002',student_name:'طالب ثان',courses:'الباطني',subgroups:'A2',training_start:'2026-09-08',training_end:'2026-10-05'}]});
+      if(url.includes('/clinical_training_sites_sep_nov_2026/preview'))return envelope({definition:report,columns:['المركز','سبتمبر','أكتوبر','نوفمبر','الإجمالي'],rows:[['مستشفى الخليل',2,1,0,3]],total:1,preview_limit:20,audit_site_ids:[5],audit_months:['2026-09','2026-10','2026-11']});
       if(url.includes('/preview'))return envelope(preview);
       return new Response(JSON.stringify({success:false,message:'Not found'}),{status:404});
     });
@@ -77,7 +77,10 @@ describe('ReportsDashboard',()=>{
     const reportSelect=await screen.findByLabelText('Report');
     await user.selectOptions(reportSelect,'clinical_training_sites_sep_nov_2026');
     expect(reportSelect).toHaveValue('clinical_training_sites_sep_nov_2026');
+    expect(await screen.findByLabelText('From month')).toHaveValue('2026-09');
+    expect(screen.getByLabelText('To month')).toHaveValue('2026-11');
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input])=>String(input).includes('/clinical_training_sites_sep_nov_2026/preview'))).toBe(true));
+    expect(fetchSpy.mock.calls.some(([input])=>String(input).includes('month_from=2026-09')&&String(input).includes('month_to=2026-11'))).toBe(true);
     await screen.findByText('مستشفى الخليل');
     await user.click(await screen.findByRole('button',{name:'2'}));
     expect(await screen.findByText('طالب أول')).toBeVisible();
