@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AcademicYear;
 use App\Models\Course;
+use App\Models\ClinicalPeriod;
 use App\Models\CourseScheduleCell;
 use App\Models\CourseScheduleRow;
 use App\Models\DistributionVersion;
@@ -80,6 +81,52 @@ class CourseDistributionWorkflowTest extends TestCase
             ->assertOk()
             ->assertJsonFragment(['id' => $this->course->id, 'academic_level' => 'fourth'])
             ->assertJsonPath('data.hospitals.0.supervisors.0.id', $this->doctor->id);
+    }
+
+    public function test_period_schedule_uses_dates_for_the_selected_clinical_year_only(): void
+    {
+        $period = ClinicalPeriod::create([
+            'academic_year_id' => $this->year->id,
+            'code' => 'P1',
+            'name_ar' => 'الفترة الأولى',
+            'name_en' => 'First Period',
+            'sequence' => 1,
+            'start_date' => '2026-08-01',
+            'end_date' => '2026-11-23',
+            'weeks_count' => 12,
+            'status' => 'active',
+        ]);
+        $period->levelDates()->createMany([
+            ['academic_level' => 'fourth', 'start_date' => '2026-09-01', 'end_date' => '2026-11-23', 'weeks_count' => 12],
+            ['academic_level' => 'fifth', 'start_date' => '2026-09-01', 'end_date' => '2026-11-23', 'weeks_count' => 12],
+            ['academic_level' => 'sixth', 'start_date' => '2026-08-01', 'end_date' => '2026-10-23', 'weeks_count' => 12],
+        ]);
+
+        $this->actingAs($this->user)->getJson('/api/v1/course-distribution/options')
+            ->assertOk()
+            ->assertJsonPath('data.clinical_periods.0.level_dates.0.academic_level', 'fourth')
+            ->assertJsonPath('data.clinical_periods.0.level_dates.0.start_date', '2026-09-01')
+            ->assertJsonPath('data.clinical_periods.0.level_dates.2.start_date', '2026-08-01');
+
+        $payload = [
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'course_id' => $this->course->id,
+            'clinical_period_id' => $period->id,
+            'schedule_scope' => 'period',
+            'start_date' => '2026-08-01',
+            'weeks_count' => 12,
+        ];
+        $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', $payload)
+            ->assertUnprocessable()->assertJsonValidationErrors('start_date');
+
+        $payload['start_date'] = '2026-09-01';
+        $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', $payload)
+            ->assertCreated();
+        $this->assertSame(
+            '2026-09-01',
+            Rotation::findOrFail($created->json('data.rotation.id'))->start_date->toDateString(),
+        );
     }
 
     public function test_rta_distribution_options_and_operations_are_limited_to_assigned_cohort(): void

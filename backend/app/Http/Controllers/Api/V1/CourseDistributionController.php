@@ -51,9 +51,7 @@ class CourseDistributionController extends Controller
             'academic_years' => AcademicYear::query()->active()
                 ->orderByDesc('is_current')->orderByDesc('start_date')
                 ->get(['id', 'code', 'start_date', 'end_date', 'is_current']),
-            'clinical_periods' => ClinicalPeriod::query()
-                ->orderBy('academic_year_id')->orderBy('sequence')
-                ->get(['id', 'academic_year_id', 'code', 'name_ar', 'name_en', 'sequence', 'start_date', 'end_date', 'weeks_count', 'status']),
+            'clinical_periods' => $this->clinicalPeriods(),
             'courses' => $this->applyCourseAccessScope(Course::query())->where('is_active', true)
                 ->whereIn('academic_level', ['fourth', 'fifth', 'sixth'])
                 ->when($levelScope !== null, fn ($query) => $query->whereIn('academic_level', $levelScope))
@@ -72,10 +70,7 @@ class CourseDistributionController extends Controller
             'academic_years' => AcademicYear::query()->active()
                 ->orderByDesc('is_current')->orderByDesc('start_date')
                 ->get(['id', 'code', 'start_date', 'end_date', 'is_current']),
-            'clinical_periods' => ClinicalPeriod::query()
-                ->with('academicYear:id,code')
-                ->orderBy('academic_year_id')->orderBy('sequence')
-                ->get(['id', 'academic_year_id', 'code', 'name_ar', 'name_en', 'sequence', 'start_date', 'end_date', 'status']),
+            'clinical_periods' => $this->clinicalPeriods(true),
             'hospitals' => $this->hospitals($directory),
             'unassigned_doctors' => $directory->filter(fn ($doctor) => count($doctor['training_site_ids']) === 0)->values(),
         ]);
@@ -218,8 +213,16 @@ class CourseDistributionController extends Controller
             throw ValidationException::withMessages(['course_id' => ['المساق لا يتبع الدفعة المحددة.']]);
         }
         $period = null;
+        $periodDates = null;
         if ($data['schedule_scope'] === 'period') {
-            $period = ClinicalPeriod::where('academic_year_id', $data['academic_year_id'])->findOrFail($data['clinical_period_id']);
+            $period = ClinicalPeriod::where('academic_year_id', $data['academic_year_id'])
+                ->with('levelDates')->findOrFail($data['clinical_period_id']);
+            $periodDates = $period->datesForLevel($data['academic_level']);
+            if (! $periodDates) {
+                throw ValidationException::withMessages([
+                    'clinical_period_id' => ['لم يتم تحديد تواريخ هذه الفترة للسنة الدراسية المختارة. حدّث التقويم الأكاديمي أولاً.'],
+                ]);
+            }
         }
         $duplicate = Rotation::where('academic_year_id', $data['academic_year_id'])
             ->where('course_id', $course->id)
@@ -237,8 +240,8 @@ class CourseDistributionController extends Controller
                 'start_date' => ['يجب أن يقع الجدول كاملًا ضمن بداية ونهاية العام الأكاديمي المحدد.'],
             ]);
         }
-        if ($period && ($scheduleStart->lt($period->start_date) || $scheduleEnd->gt($period->end_date->endOfDay()))) {
-            throw ValidationException::withMessages(['start_date' => ['يجب أن يقع الجدول كاملًا ضمن بداية ونهاية الفترة السريرية المحددة.']]);
+        if ($periodDates && ($scheduleStart->lt($periodDates->start_date) || $scheduleEnd->gt($periodDates->end_date->copy()->endOfDay()))) {
+            throw ValidationException::withMessages(['start_date' => ['يجب أن يقع الجدول كاملًا ضمن تواريخ الفترة المحددة لهذه السنة الدراسية.']]);
         }
 
         [$rotation, $version] = DB::transaction(function () use ($data, $course, $year, $period) {
@@ -918,6 +921,36 @@ class CourseDistributionController extends Controller
         foreach ($supervisors as $supervisor) {
             $row->supervisorLinks()->create($supervisor);
         }
+    }
+
+    private function clinicalPeriods(bool $includeAcademicYear = false): \Illuminate\Support\Collection
+    {
+        return ClinicalPeriod::query()
+            ->with(array_values(array_filter([
+                'levelDates',
+                $includeAcademicYear ? 'academicYear:id,code' : null,
+            ])))
+            ->orderBy('academic_year_id')->orderBy('sequence')
+            ->get()
+            ->map(fn (ClinicalPeriod $period) => [
+                'id' => $period->id,
+                'academic_year_id' => $period->academic_year_id,
+                'academic_year' => $includeAcademicYear ? $period->academicYear?->only(['id', 'code']) : null,
+                'code' => $period->code,
+                'name_ar' => $period->name_ar,
+                'name_en' => $period->name_en,
+                'sequence' => $period->sequence,
+                'start_date' => $period->start_date?->toDateString(),
+                'end_date' => $period->end_date?->toDateString(),
+                'weeks_count' => $period->weeks_count,
+                'status' => $period->status,
+                'level_dates' => $period->levelDates->map(fn ($dates) => [
+                    'academic_level' => $dates->academic_level,
+                    'start_date' => $dates->start_date?->toDateString(),
+                    'end_date' => $dates->end_date?->toDateString(),
+                    'weeks_count' => $dates->weeks_count,
+                ])->sortBy(fn ($dates) => array_search($dates['academic_level'], ['fourth', 'fifth', 'sixth'], true))->values(),
+            ]);
     }
 
     private function ensureEditableVersion(DistributionVersion $version): void

@@ -51,6 +51,12 @@ type ClinicalPeriod = {
   end_date: string;
   weeks_count: number;
   status: string;
+  level_dates?: Array<{
+    academic_level: Level;
+    start_date: string;
+    end_date: string;
+    weeks_count: number;
+  }>;
 };
 type Course = {
   id: number;
@@ -345,6 +351,14 @@ export function DistributionPage() {
   const selectedPeriod = periods.find(
     (period) => String(period.id) === periodId,
   );
+  const selectedPeriodDates = selectedPeriod?.level_dates?.find(
+    (dates) => dates.academic_level === level,
+  ) ?? (selectedPeriod ? {
+    academic_level: level,
+    start_date: selectedPeriod.start_date,
+    end_date: selectedPeriod.end_date,
+    weeks_count: selectedPeriod.weeks_count,
+  } : null);
   const availableCourses = useMemo(
     () => courses.filter((course) => course.academic_level === level),
     [courses, level],
@@ -379,11 +393,11 @@ export function DistributionPage() {
         setStartDate(year.start_date);
         setWeeksCount(36);
       }
-    } else if (selectedPeriod) {
-      setStartDate(selectedPeriod.start_date);
-      setWeeksCount(selectedPeriod.weeks_count);
+    } else if (selectedPeriodDates) {
+      setStartDate(selectedPeriodDates.start_date);
+      setWeeksCount(selectedPeriodDates.weeks_count);
     }
-  }, [periodId, selectedPeriod?.id, yearId]);
+  }, [periodId, selectedPeriod?.id, selectedPeriodDates?.start_date, selectedPeriodDates?.weeks_count, level, yearId]);
   useEffect(() => {
     if (!availableCourses.some((course) => String(course.id) === courseId))
       setCourseId(availableCourses[0] ? String(availableCourses[0].id) : "");
@@ -1142,7 +1156,7 @@ export function DistributionPage() {
               </option>
               {periods.map((period) => (
                 <option key={period.id} value={period.id}>
-                  {period.name_ar} — {period.weeks_count} {tr("أسبوع", "weeks")}
+                  {ar ? period.name_ar : period.name_en || period.name_ar} — {(period.level_dates?.find((dates) => dates.academic_level === level)?.weeks_count ?? period.weeks_count)} {tr("أسبوع", "weeks")}
                 </option>
               ))}
             </select>
@@ -1236,12 +1250,12 @@ export function DistributionPage() {
                   periodId === "annual"
                     ? years.find((item) => String(item.id) === yearId)
                         ?.start_date
-                    : selectedPeriod?.start_date
+                    : selectedPeriodDates?.start_date
                 }
                 max={
                   periodId === "annual"
                     ? years.find((item) => String(item.id) === yearId)?.end_date
-                    : selectedPeriod?.end_date
+                    : selectedPeriodDates?.end_date
                 }
                 onChange={(event) => setStartDate(event.target.value)}
               />

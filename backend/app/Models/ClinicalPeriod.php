@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ClinicalPeriod extends Model
 {
@@ -20,4 +21,18 @@ class ClinicalPeriod extends Model
 
     public function academicYear() { return $this->belongsTo(AcademicYear::class); }
     public function rotations() { return $this->hasMany(Rotation::class); }
+
+    public function levelDates(): HasMany
+    {
+        return $this->hasMany(ClinicalPeriodLevelDate::class);
+    }
+
+    public function datesForLevel(string $level): ?ClinicalPeriodLevelDate
+    {
+        if ($this->relationLoaded('levelDates')) {
+            return $this->levelDates->firstWhere('academic_level', $level);
+        }
+
+        return $this->levelDates()->where('academic_level', $level)->first();
+    }
 }

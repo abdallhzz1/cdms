@@ -11,7 +11,9 @@ use App\Models\Rotation;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class AcademicCalendarEventController extends Controller
 {
@@ -39,7 +41,7 @@ class AcademicCalendarEventController extends Controller
         $rotations = Rotation::query()
             ->where('academic_year_id', $academicYear->id)
             ->with([
-                'clinicalPeriod',
+                'clinicalPeriod.levelDates',
                 'blocks' => fn ($query) => $query->orderBy('from_week'),
                 'distributionVersions' => fn ($query) => $query->latest('id'),
             ])
@@ -68,7 +70,8 @@ class AcademicCalendarEventController extends Controller
 
         return ApiResponse::success([
             'academic_year' => $academicYear,
-            'periods' => $academicYear->clinicalPeriods()->get()->map(fn (ClinicalPeriod $period) => $this->periodPayload($period)),
+            'periods' => $academicYear->clinicalPeriods()->with('levelDates')->orderBy('sequence')->get()
+                ->map(fn (ClinicalPeriod $period) => $this->periodPayload($period)),
             'events' => $events,
             'rotations' => $rotations,
         ]);
@@ -97,13 +100,25 @@ class AcademicCalendarEventController extends Controller
 
     public function storePeriod(Request $request): JsonResponse
     {
-        $period = ClinicalPeriod::create($this->validatedPeriodData($request));
+        [$data, $levelDates] = $this->validatedPeriodData($request);
+        $period = DB::transaction(function () use ($data, $levelDates) {
+            $period = ClinicalPeriod::create($data);
+            $this->syncLevelDates($period, $levelDates);
+
+            return $period;
+        });
+
         return ApiResponse::success($this->periodPayload($period), 'تمت إضافة الفترة السريرية.', [], 201);
     }
 
     public function updatePeriod(Request $request, ClinicalPeriod $period): JsonResponse
     {
-        $period->update($this->validatedPeriodData($request, $period));
+        [$data, $levelDates] = $this->validatedPeriodData($request, $period);
+        DB::transaction(function () use ($period, $data, $levelDates) {
+            $period->update($data);
+            $this->syncLevelDates($period, $levelDates);
+        });
+
         return ApiResponse::success($this->periodPayload($period->fresh()), 'تم تحديث الفترة السريرية.');
     }
 
@@ -161,6 +176,9 @@ class AcademicCalendarEventController extends Controller
         ];
     }
 
+    /**
+     * @return array{0: array<string, mixed>, 1: array<int, array<string, mixed>>}
+     */
     private function validatedPeriodData(Request $request, ?ClinicalPeriod $period = null): array
     {
         $required = $period ? 'sometimes' : 'required';
@@ -170,32 +188,107 @@ class AcademicCalendarEventController extends Controller
             'name_ar' => [$required, 'string', 'max:255'],
             'name_en' => ['nullable', 'string', 'max:255'],
             'sequence' => [$required, 'integer', 'min:1', 'max:10'],
-            'start_date' => [$required, 'date'],
-            'end_date' => [$required, 'date', 'after_or_equal:start_date'],
-            'weeks_count' => [$required, 'integer', 'min:1', 'max:52'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
+            'weeks_count' => ['nullable', 'integer', 'min:1', 'max:52'],
             'status' => [$required, Rule::in(['planned', 'active', 'closed'])],
             'notes' => ['nullable', 'string', 'max:3000'],
+            'level_dates' => ['nullable', 'array', 'size:3'],
+            'level_dates.*.academic_level' => ['required_with:level_dates', 'string', 'distinct', Rule::in(['fourth', 'fifth', 'sixth'])],
+            'level_dates.*.start_date' => ['required_with:level_dates', 'date'],
+            'level_dates.*.end_date' => ['required_with:level_dates', 'date'],
+            'level_dates.*.weeks_count' => ['required_with:level_dates', 'integer', 'min:1', 'max:52'],
         ]);
         $yearId = (int) ($data['academic_year_id'] ?? $period?->academic_year_id);
         $year = AcademicYear::findOrFail($yearId);
-        $start = Carbon::parse($data['start_date'] ?? $period?->start_date);
-        $end = Carbon::parse($data['end_date'] ?? $period?->end_date);
-        if ($start->lt($year->start_date) || $end->gt($year->end_date)) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['start_date' => ['يجب أن تقع الفترة كاملة ضمن العام الأكاديمي.']]);
+
+        $levelDates = collect($data['level_dates'] ?? []);
+        if ($levelDates->isEmpty() && $period) {
+            $period->loadMissing('levelDates');
+            $levelDates = $period->levelDates->map(fn ($item) => [
+                'academic_level' => $item->academic_level,
+                'start_date' => $item->start_date->toDateString(),
+                'end_date' => $item->end_date->toDateString(),
+                'weeks_count' => $item->weeks_count,
+            ]);
         }
-        $overlap = ClinicalPeriod::where('academic_year_id', $yearId)
-            ->when($period, fn ($query) => $query->whereKeyNot($period->id))
-            ->whereDate('start_date', '<=', $end->toDateString())
-            ->whereDate('end_date', '>=', $start->toDateString())
-            ->exists();
-        if ($overlap) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['start_date' => ['تتداخل هذه الفترة مع فترة سريرية أخرى.']]);
+        if ($levelDates->isEmpty() && ! empty($data['start_date']) && ! empty($data['end_date']) && ! empty($data['weeks_count'])) {
+            $levelDates = collect(['fourth', 'fifth', 'sixth'])->map(fn ($level) => [
+                'academic_level' => $level,
+                'start_date' => $data['start_date'],
+                'end_date' => $data['end_date'],
+                'weeks_count' => $data['weeks_count'],
+            ]);
         }
-        return $data;
+        if ($levelDates->count() !== 3 || $levelDates->pluck('academic_level')->sort()->values()->all() !== ['fifth', 'fourth', 'sixth']) {
+            throw ValidationException::withMessages(['level_dates' => ['يجب تحديد تواريخ الفترات للسنة الرابعة والخامسة والسادسة.']]);
+        }
+
+        $normalized = [];
+        foreach ($levelDates as $index => $item) {
+            $start = Carbon::parse($item['start_date'])->startOfDay();
+            $end = Carbon::parse($item['end_date'])->startOfDay();
+            $weeks = (int) $item['weeks_count'];
+            $key = "level_dates.{$index}.start_date";
+            if ($end->lt($start)) {
+                throw ValidationException::withMessages([$key => ['يجب أن يكون تاريخ النهاية بعد تاريخ البداية أو مساوياً له.']]);
+            }
+            if ($start->lt($year->start_date) || $end->gt($year->end_date)) {
+                throw ValidationException::withMessages([$key => ['يجب أن تقع فترة هذه السنة كاملة ضمن العام الأكاديمي.']]);
+            }
+            if ($start->copy()->addWeeks($weeks)->subDay()->gt($end)) {
+                throw ValidationException::withMessages(["level_dates.{$index}.weeks_count" => ['عدد الأسابيع لا يتسع ضمن تاريخ بداية ونهاية الفترة المحددين.']]);
+            }
+
+            $overlap = \App\Models\ClinicalPeriodLevelDate::query()
+                ->where('academic_level', $item['academic_level'])
+                ->whereHas('clinicalPeriod', fn ($query) => $query->where('academic_year_id', $yearId)
+                    ->when($period, fn ($periodQuery) => $periodQuery->whereKeyNot($period->id)))
+                ->whereDate('start_date', '<=', $end->toDateString())
+                ->whereDate('end_date', '>=', $start->toDateString())
+                ->exists();
+            if ($overlap) {
+                throw ValidationException::withMessages([$key => ['تتداخل هذه الفترة مع فترة أخرى للسنة الدراسية نفسها.']]);
+            }
+            $normalized[] = [
+                'academic_level' => $item['academic_level'],
+                'start_date' => $start->toDateString(),
+                'end_date' => $end->toDateString(),
+                'weeks_count' => $weeks,
+            ];
+        }
+
+        $starts = collect($normalized)->pluck('start_date');
+        $ends = collect($normalized)->pluck('end_date');
+        $data['start_date'] = $starts->min();
+        $data['end_date'] = $ends->max();
+        $data['weeks_count'] = collect($normalized)->max('weeks_count');
+        unset($data['level_dates']);
+
+        return [$data, $normalized];
+    }
+
+    private function syncLevelDates(ClinicalPeriod $period, array $levelDates): void
+    {
+        foreach ($levelDates as $item) {
+            $period->levelDates()->updateOrCreate(
+                ['academic_level' => $item['academic_level']],
+                $item,
+            );
+        }
+        $period->unsetRelation('levelDates');
     }
 
     private function periodPayload(ClinicalPeriod $period): array
     {
+        $period->loadMissing('levelDates');
+        $levelDates = $period->levelDates->map(fn ($item) => [
+            'academic_level' => $item->academic_level,
+            'start_date' => $item->start_date?->toDateString(),
+            'end_date' => $item->end_date?->toDateString(),
+            'weeks_count' => $item->weeks_count,
+        ])->sortBy(fn ($item) => array_search($item['academic_level'], ['fourth', 'fifth', 'sixth'], true))->values();
+
         return [
             'id' => $period->id,
             'academic_year_id' => $period->academic_year_id,
@@ -208,6 +301,7 @@ class AcademicCalendarEventController extends Controller
             'weeks_count' => $period->weeks_count,
             'status' => $period->status,
             'notes' => $period->notes,
+            'level_dates' => $levelDates,
         ];
     }
 }

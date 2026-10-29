@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AcademicYear;
+use App\Models\ClinicalPeriod;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Rotation;
@@ -91,5 +92,92 @@ class AcademicCalendarWorkflowTest extends TestCase
             'start_date' => '2027-08-01',
             'end_date' => '2027-08-01',
         ])->assertStatus(422);
+    }
+
+    public function test_period_dates_are_independent_per_clinical_year_without_rewriting_existing_rotations(): void
+    {
+        $created = $this->actingAs($this->user)->postJson('/api/v1/clinical-periods', [
+            'academic_year_id' => $this->year->id,
+            'code' => 'P1',
+            'name_ar' => 'الفترة السريرية الأولى',
+            'name_en' => 'Clinical Period 1',
+            'sequence' => 1,
+            'status' => 'active',
+            'level_dates' => [
+                ['academic_level' => 'fourth', 'start_date' => '2026-09-01', 'end_date' => '2026-11-23', 'weeks_count' => 12],
+                ['academic_level' => 'fifth', 'start_date' => '2026-09-01', 'end_date' => '2026-11-23', 'weeks_count' => 12],
+                ['academic_level' => 'sixth', 'start_date' => '2026-08-01', 'end_date' => '2026-10-23', 'weeks_count' => 12],
+            ],
+        ])->assertCreated()
+            ->assertJsonPath('data.level_dates.0.academic_level', 'fourth')
+            ->assertJsonPath('data.level_dates.2.start_date', '2026-08-01');
+
+        $period = ClinicalPeriod::findOrFail($created->json('data.id'));
+        $rotation = Rotation::create([
+            'academic_year_id' => $this->year->id,
+            'course_id' => null,
+            'clinical_period_id' => $period->id,
+            'schedule_scope' => 'period',
+            'code' => 'Y6-P1',
+            'name' => 'سادسة - الفترة الأولى',
+            'academic_level' => 'sixth',
+            'duration_weeks' => 12,
+            'start_date' => '2026-08-01',
+            'end_date' => '2026-10-23',
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($this->user)->putJson("/api/v1/clinical-periods/{$period->id}", [
+            'academic_year_id' => $this->year->id,
+            'code' => 'P1',
+            'name_ar' => 'الفترة السريرية الأولى',
+            'name_en' => 'Clinical Period 1',
+            'sequence' => 1,
+            'status' => 'active',
+            'level_dates' => [
+                ['academic_level' => 'fourth', 'start_date' => '2026-09-01', 'end_date' => '2026-11-23', 'weeks_count' => 12],
+                ['academic_level' => 'fifth', 'start_date' => '2026-09-01', 'end_date' => '2026-11-23', 'weeks_count' => 12],
+                ['academic_level' => 'sixth', 'start_date' => '2026-08-08', 'end_date' => '2026-10-30', 'weeks_count' => 12],
+            ],
+        ])->assertOk()->assertJsonPath('data.level_dates.2.start_date', '2026-08-08');
+
+        $rotation->refresh();
+        $this->assertSame('2026-08-01', $rotation->start_date->toDateString());
+        $this->assertSame('2026-10-23', $rotation->end_date->toDateString());
+        $period->refresh()->load('levelDates');
+        $this->assertSame('2026-08-08', $period->datesForLevel('sixth')?->start_date->toDateString());
+    }
+
+    public function test_period_envelopes_may_overlap_when_each_academic_level_remains_sequential(): void
+    {
+        $base = [
+            'academic_year_id' => $this->year->id,
+            'name_en' => null,
+            'status' => 'active',
+        ];
+        $this->actingAs($this->user)->postJson('/api/v1/clinical-periods', $base + [
+            'code' => 'P1',
+            'name_ar' => 'الفترة الأولى',
+            'sequence' => 1,
+            'level_dates' => [
+                ['academic_level' => 'fourth', 'start_date' => '2026-09-01', 'end_date' => '2026-11-23', 'weeks_count' => 12],
+                ['academic_level' => 'fifth', 'start_date' => '2026-09-01', 'end_date' => '2026-11-23', 'weeks_count' => 12],
+                ['academic_level' => 'sixth', 'start_date' => '2026-08-01', 'end_date' => '2026-10-23', 'weeks_count' => 12],
+            ],
+        ])->assertCreated();
+
+        $this->actingAs($this->user)->postJson('/api/v1/clinical-periods', $base + [
+            'code' => 'P2',
+            'name_ar' => 'الفترة الثانية',
+            'sequence' => 2,
+            'level_dates' => [
+                ['academic_level' => 'fourth', 'start_date' => '2026-11-24', 'end_date' => '2027-02-15', 'weeks_count' => 12],
+                ['academic_level' => 'fifth', 'start_date' => '2026-11-24', 'end_date' => '2027-02-15', 'weeks_count' => 12],
+                ['academic_level' => 'sixth', 'start_date' => '2026-10-24', 'end_date' => '2027-01-15', 'weeks_count' => 12],
+            ],
+        ])->assertCreated();
+
+        $this->assertDatabaseCount('clinical_periods', 2);
+        $this->assertDatabaseCount('clinical_period_level_dates', 6);
     }
 }

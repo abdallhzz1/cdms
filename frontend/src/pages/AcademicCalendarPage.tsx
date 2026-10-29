@@ -55,6 +55,12 @@ type CalendarEvent = {
   suspends_clinical_training: boolean;
   notes: string | null;
 };
+type ClinicalPeriodLevelDate = {
+  academic_level: Level;
+  start_date: string;
+  end_date: string;
+  weeks_count: number;
+};
 type ClinicalPeriod = {
   id: number;
   academic_year_id: number;
@@ -67,6 +73,7 @@ type ClinicalPeriod = {
   weeks_count: number;
   status: "planned" | "active" | "closed";
   notes: string | null;
+  level_dates: ClinicalPeriodLevelDate[];
 };
 type Rotation = {
   id: number;
@@ -157,9 +164,12 @@ const emptyPeriod = {
   name_ar: "الفترة السريرية الأولى",
   name_en: "Clinical Period 1",
   sequence: 1,
-  start_date: "",
-  end_date: "",
-  weeks_count: 12,
+  level_dates: (["fourth", "fifth", "sixth"] as Level[]).map((academic_level) => ({
+    academic_level,
+    start_date: "",
+    end_date: "",
+    weeks_count: 12,
+  })),
   status: "active" as ClinicalPeriod["status"],
   notes: "",
 };
@@ -409,12 +419,19 @@ export function AcademicCalendarPage() {
   const openNewPeriod = () => {
     const next = (overview?.periods.length ?? 0) + 1;
     const previous = overview?.periods.at(-1);
-    const start = previous
-      ? new Date(`${previous.end_date}T12:00:00`)
-      : new Date(`${selectedYear?.start_date}T12:00:00`);
-    if (previous) start.setDate(start.getDate() + 1);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 83);
+    const levelDates = (["fourth", "fifth", "sixth"] as Level[]).map((academicLevel) => {
+      const previousDates = previous?.level_dates.find((item) => item.academic_level === academicLevel);
+      const start = new Date(`${previousDates?.end_date ?? selectedYear?.start_date}T12:00:00`);
+      if (previousDates) start.setDate(start.getDate() + 1);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 83);
+      return {
+        academic_level: academicLevel,
+        start_date: start.toISOString().slice(0, 10),
+        end_date: end.toISOString().slice(0, 10),
+        weeks_count: 12,
+      };
+    });
     setEditingPeriod(null);
     setPeriodForm({
       ...emptyPeriod,
@@ -422,8 +439,7 @@ export function AcademicCalendarPage() {
       name_ar: `الفترة السريرية ${next}`,
       name_en: `Clinical Period ${next}`,
       sequence: next,
-      start_date: start.toISOString().slice(0, 10),
-      end_date: end.toISOString().slice(0, 10),
+      level_dates: levelDates,
     });
     setError("");
     setPeriodModal(true);
@@ -435,15 +451,28 @@ export function AcademicCalendarPage() {
       name_ar: item.name_ar,
       name_en: item.name_en ?? "",
       sequence: item.sequence,
-      start_date: item.start_date,
-      end_date: item.end_date,
-      weeks_count: item.weeks_count,
+      level_dates: (["fourth", "fifth", "sixth"] as Level[]).map((academicLevel) => {
+        const dates = item.level_dates.find((entry) => entry.academic_level === academicLevel);
+        return {
+          academic_level: academicLevel,
+          start_date: dates?.start_date ?? item.start_date,
+          end_date: dates?.end_date ?? item.end_date,
+          weeks_count: dates?.weeks_count ?? item.weeks_count,
+        };
+      }),
       status: item.status,
       notes: item.notes ?? "",
     });
     setError("");
     setPeriodModal(true);
   };
+  const updatePeriodLevelDate = (academicLevel: Level, patch: Partial<ClinicalPeriodLevelDate>) =>
+    setPeriodForm((current) => ({
+      ...current,
+      level_dates: current.level_dates.map((item) =>
+        item.academic_level === academicLevel ? { ...item, ...patch } : item,
+      ),
+    }));
   const openEditEvent = (item: CalendarEvent) => {
     setEditingEvent(item);
     setEventForm({
@@ -804,7 +833,14 @@ export function AcademicCalendarPage() {
                       key={period.id}
                       className="flex min-w-64 flex-1 items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5"
                     >
-                        <div className="min-w-0"><div className="flex items-center gap-2"><span className="rounded-md bg-teal-100 px-1.5 py-0.5 text-[9px] font-black text-teal-800">{period.code}</span><h3 className="truncate text-xs font-black text-slate-900">{ar ? period.name_ar : (period.name_en || period.name_ar)}</h3></div><p className="mt-1 truncate text-[10px] text-slate-500">{format(period.start_date)} — {format(period.end_date)} · {period.weeks_count} {tr("أسبوع", "weeks")}</p></div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2"><span className="rounded-md bg-teal-100 px-1.5 py-0.5 text-[9px] font-black text-teal-800">{period.code}</span><h3 className="truncate text-xs font-black text-slate-900">{ar ? period.name_ar : (period.name_en || period.name_ar)}</h3></div>
+                          <div className="mt-1 space-y-0.5 text-[10px] text-slate-500">
+                            {period.level_dates
+                              .filter((dates) => level === "all" || dates.academic_level === level)
+                              .map((dates) => <p key={dates.academic_level}><span className="font-bold text-slate-700">{levelLabel(dates.academic_level)}:</span> {format(dates.start_date)} — {format(dates.end_date)} · {dates.weeks_count} {tr("أسبوع", "weeks")}</p>)}
+                          </div>
+                        </div>
                         {canManage && (
                           <div className="flex shrink-0">
                             <Button
@@ -959,48 +995,6 @@ export function AcademicCalendarPage() {
                 }
               />
             </Field>
-            <Field label={tr("تاريخ البداية", "Start date")}>
-              <input
-                required
-                type="date"
-                min={selectedYear?.start_date}
-                max={selectedYear?.end_date}
-                className={inputClass}
-                value={periodForm.start_date}
-                onChange={(e) =>
-                  setPeriodForm({ ...periodForm, start_date: e.target.value })
-                }
-              />
-            </Field>
-            <Field label={tr("تاريخ النهاية", "End date")}>
-              <input
-                required
-                type="date"
-                min={periodForm.start_date}
-                max={selectedYear?.end_date}
-                className={inputClass}
-                value={periodForm.end_date}
-                onChange={(e) =>
-                  setPeriodForm({ ...periodForm, end_date: e.target.value })
-                }
-              />
-            </Field>
-            <Field label={tr("عدد الأسابيع", "Number of weeks")}>
-              <input
-                required
-                type="number"
-                min="1"
-                max="52"
-                className={inputClass}
-                value={periodForm.weeks_count}
-                onChange={(e) =>
-                  setPeriodForm({
-                    ...periodForm,
-                    weeks_count: Number(e.target.value),
-                  })
-                }
-              />
-            </Field>
             <Field label={tr("الحالة", "Status")}>
               <select
                 className={inputClass}
@@ -1017,6 +1011,27 @@ export function AcademicCalendarPage() {
                 <option value="closed">{tr("منتهية", "Closed")}</option>
               </select>
             </Field>
+          </div>
+          <div className="space-y-3">
+            <div className="rounded-xl border border-teal-100 bg-teal-50 px-3 py-2 text-xs font-bold leading-5 text-teal-900">
+              {tr("حدد تواريخ مستقلة لكل سنة دراسية. التعديل هنا يحدد الجداول الجديدة فقط ولا يغيّر أي توزيع منشور أو سجل حضور سابق.", "Set independent dates for each clinical year. Changes here apply to new schedules only and never alter published distributions or historical attendance.")}
+            </div>
+            {periodForm.level_dates.map((dates) => (
+              <section key={dates.academic_level} className="rounded-xl border border-slate-200 p-3">
+                <h4 className="mb-3 text-sm font-black text-slate-800">{levelLabel(dates.academic_level)}</h4>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Field label={tr("تاريخ البداية", "Start date")}>
+                    <input required type="date" min={selectedYear?.start_date} max={selectedYear?.end_date} className={inputClass} value={dates.start_date} onChange={(e) => updatePeriodLevelDate(dates.academic_level, { start_date: e.target.value })} />
+                  </Field>
+                  <Field label={tr("تاريخ النهاية", "End date")}>
+                    <input required type="date" min={dates.start_date || selectedYear?.start_date} max={selectedYear?.end_date} className={inputClass} value={dates.end_date} onChange={(e) => updatePeriodLevelDate(dates.academic_level, { end_date: e.target.value })} />
+                  </Field>
+                  <Field label={tr("عدد الأسابيع", "Number of weeks")}>
+                    <input required type="number" min="1" max="52" className={inputClass} value={dates.weeks_count} onChange={(e) => updatePeriodLevelDate(dates.academic_level, { weeks_count: Number(e.target.value) })} />
+                  </Field>
+                </div>
+              </section>
+            ))}
           </div>
           <Field label={tr("ملاحظات", "Notes")}>
             <textarea
