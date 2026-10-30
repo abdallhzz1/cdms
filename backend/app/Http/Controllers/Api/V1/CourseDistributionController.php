@@ -14,6 +14,7 @@ use App\Models\CourseScheduleBlockActivity;
 use App\Models\CourseScheduleRow;
 use App\Models\CourseScheduleRowSupervisor;
 use App\Models\DistributionVersion;
+use App\Models\DistributionVersionBreak;
 use App\Models\Person;
 use App\Models\Role;
 use App\Models\Rotation;
@@ -24,6 +25,7 @@ use App\Models\StudentSubgroup;
 use App\Models\TrainingSite;
 use App\Models\User;
 use App\Services\Distribution\DistributionApprovalService;
+use App\Services\Distribution\ClinicalScheduleDateCalculator;
 use App\Services\SupervisorWorkScheduleService;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Carbon\Carbon;
@@ -40,6 +42,7 @@ class CourseDistributionController extends Controller
     public function __construct(
         private readonly DistributionApprovalService $approvalService,
         private readonly SupervisorWorkScheduleService $workSchedules,
+        private readonly ClinicalScheduleDateCalculator $dateCalculator,
     ) {}
 
     public function options(): JsonResponse
@@ -126,6 +129,7 @@ class CourseDistributionController extends Controller
         $rows = collect();
         $approvalState = null;
         if ($version) {
+            $version->load('breaks');
             $rows = CourseScheduleRow::query()
                 ->where('distribution_version_id', $version->id)
                 ->with([
@@ -168,7 +172,15 @@ class CourseDistributionController extends Controller
             $approvalState = $this->approvalService->getApprovalState($version, $request->user());
         }
 
+        $breaks = $version?->breaks ?? collect();
         $blocks = $rotation->blocks->sortBy('from_week')->values();
+        $blocks->each(function (RotationBlock $block) use ($rotation, $breaks) {
+            $block->setAttribute('start_date', $this->dateCalculator->calculateBlockStartDate($rotation->start_date, (int) $block->from_week, $breaks));
+            $block->setAttribute('end_date', $this->dateCalculator->calculateBlockEndDate($rotation->start_date, (int) $block->to_week, $breaks));
+        });
+        if ($blocks->isNotEmpty()) {
+            $rotation->setAttribute('effective_end_date', $blocks->last()->end_date);
+        }
         if ($version) {
             $activities = CourseScheduleBlockActivity::where('distribution_version_id', $version->id)->get()->keyBy('rotation_block_id');
             $blocks->each(function (RotationBlock $block) use ($activities) {
@@ -186,6 +198,7 @@ class CourseDistributionController extends Controller
             'current_published_version' => $currentPublishedVersion,
             'approval_state' => $approvalState,
             'blocks' => $blocks,
+            'breaks' => $breaks->values(),
             'subgroups' => $this->subgroups($rotation->academic_year_id, $rotation->academic_level),
             'hospitals' => $this->hospitals($directory),
             'unassigned_doctors' => $directory->filter(fn ($doctor) => count($doctor['training_site_ids']) === 0)->values(),
@@ -497,6 +510,51 @@ class CourseDistributionController extends Controller
         return ApiResponse::success(null, 'تم تحديث نوع الأسبوع ونطاقه.');
     }
 
+    public function storeBreak(Request $request, DistributionVersion $version): JsonResponse
+    {
+        $this->ensureVersionInUserScope($version);
+        $this->ensureEditableVersion($version);
+        $data = $this->validateBreak($request, $version);
+
+        $break = DB::transaction(function () use ($request, $version, $data) {
+            $break = $version->breaks()->create($data);
+            $this->recordCellChange($request, $version, 'course_schedule.break_created', ['break_id' => $break->id] + $data);
+            return $break;
+        });
+
+        return ApiResponse::success($break, 'تمت إضافة العطلة وتحديث تواريخ الأسابيع اللاحقة.', [], 201);
+    }
+
+    public function updateBreak(Request $request, DistributionVersion $version, DistributionVersionBreak $break): JsonResponse
+    {
+        $this->ensureVersionInUserScope($version);
+        $this->ensureEditableVersion($version);
+        abort_unless((int) $break->distribution_version_id === (int) $version->id, 404);
+        $data = $this->validateBreak($request, $version, $break);
+
+        DB::transaction(function () use ($request, $version, $break, $data) {
+            $break->update($data);
+            $this->recordCellChange($request, $version, 'course_schedule.break_updated', ['break_id' => $break->id] + $data);
+        });
+
+        return ApiResponse::success($break->fresh(), 'تم تحديث العطلة وتواريخ الأسابيع اللاحقة.');
+    }
+
+    public function destroyBreak(Request $request, DistributionVersion $version, DistributionVersionBreak $break): JsonResponse
+    {
+        $this->ensureVersionInUserScope($version);
+        $this->ensureEditableVersion($version);
+        abort_unless((int) $break->distribution_version_id === (int) $version->id, 404);
+        $breakId = $break->id;
+
+        DB::transaction(function () use ($request, $version, $break, $breakId) {
+            $break->delete();
+            $this->recordCellChange($request, $version, 'course_schedule.break_deleted', ['break_id' => $breakId]);
+        });
+
+        return ApiResponse::success(null, 'تم حذف العطلة وإعادة احتساب تواريخ الأسابيع.');
+    }
+
     public function storeScheduleRow(Request $request, DistributionVersion $version): JsonResponse
     {
         $this->ensureVersionInUserScope($version);
@@ -615,6 +673,12 @@ class CourseDistributionController extends Controller
 
             foreach (CourseScheduleBlockActivity::where('distribution_version_id', $version->id)->get() as $activity) {
                 $copy = $activity->replicate();
+                $copy->distribution_version_id = $revision->id;
+                $copy->save();
+            }
+
+            foreach ($version->breaks()->get() as $break) {
+                $copy = $break->replicate();
                 $copy->distribution_version_id = $revision->id;
                 $copy->save();
             }
@@ -852,10 +916,10 @@ class CourseDistributionController extends Controller
         $supervisors = [];
         if ($data['row_type'] === 'doctor') {
             $version = $row?->version ?? $request->route('version');
-            $version?->loadMissing('rotation');
+            $version?->loadMissing('rotation', 'breaks');
             $rangeStart = $version?->rotation?->start_date;
             $rangeEnd = $rangeStart
-                ? Carbon::parse($rangeStart)->addWeeks(max(1, (int) $version->rotation->duration_weeks))->subDay()
+                ? Carbon::parse($this->dateCalculator->calculateBlockEndDate($rangeStart, max(1, (int) $version->rotation->duration_weeks), $version->breaks))
                 : null;
 
             $requested = collect($data['supervisors'] ?? []);
@@ -1050,12 +1114,68 @@ class CourseDistributionController extends Controller
 
     private function blockStartDate(DistributionVersion $version, RotationBlock $block): Carbon
     {
-        return Carbon::parse($version->rotation->start_date)->addWeeks(max(0, (int) $block->from_week - 1));
+        $version->loadMissing('breaks');
+        return Carbon::parse($this->dateCalculator->calculateBlockStartDate($version->rotation->start_date, (int) $block->from_week, $version->breaks));
     }
 
     private function blockEndDate(DistributionVersion $version, RotationBlock $block): Carbon
     {
-        return Carbon::parse($version->rotation->start_date)->addWeeks(max(1, (int) $block->to_week))->subDay();
+        $version->loadMissing('breaks');
+        return Carbon::parse($this->dateCalculator->calculateBlockEndDate($version->rotation->start_date, (int) $block->to_week, $version->breaks));
+    }
+
+    private function validateBreak(Request $request, DistributionVersion $version, ?DistributionVersionBreak $current = null): array
+    {
+        $data = $request->validate([
+            'label' => ['required', 'string', 'max:100'],
+            'start_date' => ['required', 'date'],
+            'end_date' => ['required', 'date', 'after_or_equal:start_date'],
+        ]);
+        $version->loadMissing('rotation.academicYear', 'rotation.clinicalPeriod.levelDates', 'breaks');
+        $rotation = $version->rotation;
+        $start = Carbon::parse($data['start_date'])->startOfDay();
+        $end = Carbon::parse($data['end_date'])->endOfDay();
+
+        if ($start->lte(Carbon::parse($rotation->start_date))) {
+            throw ValidationException::withMessages(['start_date' => ['يجب أن تبدأ العطلة بعد بداية الأسبوع السريري الأول.']]);
+        }
+        if ($version->breaks->contains(fn ($break) => (int) $break->id !== (int) $current?->id
+            && $start->lte($break->end_date->copy()->endOfDay()) && $end->gte($break->start_date->copy()->startOfDay()))) {
+            throw ValidationException::withMessages(['start_date' => ['تتداخل هذه المدة مع عطلة مضافة مسبقاً. عدّل العطلة القائمة بدلاً من ذلك.']]);
+        }
+
+        $candidateBreaks = $version->breaks->reject(fn ($break) => (int) $break->id === (int) $current?->id)
+            ->map(fn ($break) => ['start_date' => $break->start_date->toDateString(), 'end_date' => $break->end_date->toDateString()])
+            ->push(['start_date' => $data['start_date'], 'end_date' => $data['end_date']]);
+        $existingBreaks = $candidateBreaks->slice(0, -1);
+        $currentScheduleEnd = Carbon::parse($this->dateCalculator->calculateBlockEndDate(
+            $rotation->start_date,
+            (int) $rotation->duration_weeks,
+            $existingBreaks,
+        ));
+        if ($start->gt($currentScheduleEnd->endOfDay())) {
+            throw ValidationException::withMessages(['start_date' => ['يجب أن تقع العطلة داخل مدة الجدول السريري الحالية.']]);
+        }
+
+        $effectiveEnd = Carbon::parse($this->dateCalculator->calculateBlockEndDate(
+            $rotation->start_date,
+            (int) $rotation->duration_weeks,
+            $candidateBreaks,
+        ));
+        $allowedEnd = Carbon::parse($rotation->academicYear->end_date)->endOfDay();
+        if ($rotation->schedule_scope === 'period' && $rotation->clinicalPeriod) {
+            $levelDates = $rotation->clinicalPeriod->datesForLevel($rotation->academic_level);
+            if ($levelDates) $allowedEnd = $levelDates->end_date->copy()->endOfDay();
+        }
+        if ($end->gt($allowedEnd) || $effectiveEnd->gt($allowedEnd)) {
+            throw ValidationException::withMessages(['end_date' => ['ستجعل هذه العطلة نهاية الجدول تتجاوز نهاية الفترة المحددة. وسّع تاريخ نهاية الفترة من التقويم الأكاديمي أولاً.']]);
+        }
+
+        return [
+            'label' => trim($data['label']) ?: 'عطلة',
+            'start_date' => $data['start_date'],
+            'end_date' => $data['end_date'],
+        ];
     }
 
     private function ensureNoCrossSiteScheduleConflict(Person $doctor, CourseScheduleRow $row, DistributionVersion $version, RotationBlock $block, int $siteId, ?array $configuredDays = null): void

@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import {
   BookOpen,
   Building2,
+  CalendarX2,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -107,6 +108,14 @@ type Block = {
   activity_label?: string | null;
   activity_scope?: "all" | "main_groups";
   main_group_codes?: string[] | null;
+  start_date?: string | null;
+  end_date?: string | null;
+};
+type ScheduleBreak = {
+  id: number;
+  label: string;
+  start_date: string;
+  end_date: string;
 };
 type Subgroup = {
   id: number;
@@ -166,6 +175,7 @@ type Rotation = {
   duration_weeks: number;
   schedule_scope?: "period" | "annual";
   clinical_period?: ClinicalPeriod | null;
+  effective_end_date?: string | null;
 };
 type Options = {
   academic_years: Year[];
@@ -180,6 +190,7 @@ type Schedule = {
   current_published_version?: Version | null;
   approval_state?: ApprovalState | null;
   blocks: Block[];
+  breaks: ScheduleBreak[];
   subgroups: Subgroup[];
   hospitals: Hospital[];
   unassigned_doctors: Doctor[];
@@ -294,6 +305,9 @@ export function DistributionPage() {
   const [periodId, setPeriodId] = useState(searchParams.get("period_id") ?? "");
   const [startDate, setStartDate] = useState("");
   const [weeksCount, setWeeksCount] = useState(12);
+  const [breakModal, setBreakModal] = useState(false);
+  const [editingBreak, setEditingBreak] = useState<ScheduleBreak | null>(null);
+  const [breakForm, setBreakForm] = useState({ label: tr("عطلة", "Break"), start_date: "", end_date: "" });
   const [showMobileContext, setShowMobileContext] = useState(false);
   const [mobileBlockId, setMobileBlockId] = useState<number | null>(null);
   const [notice, setNotice] = useState<{
@@ -422,6 +436,7 @@ export function DistributionPage() {
     enabled: Boolean(yearId && courseId && periodId),
   });
   const schedule = scheduleQuery.data;
+  const scheduleBreaks = schedule?.breaks ?? [];
   const isEditable = ["draft", "suggested", "manual"].includes(
     schedule?.version?.status ?? "",
   );
@@ -448,12 +463,10 @@ export function DistributionPage() {
     const rotationStart =
       schedule?.rotation?.start_date?.slice(0, 10) ?? startDate;
     const rotationEnd = new Date(`${rotationStart}T12:00:00`);
-    rotationEnd.setDate(
-      rotationEnd.getDate() +
-        Math.max(1, schedule?.rotation?.duration_weeks ?? weeksCount) * 7 -
-        1,
-    );
-    const end = rotationEnd.toISOString().slice(0, 10);
+    const end = schedule?.rotation?.effective_end_date?.slice(0, 10) ?? (() => {
+      rotationEnd.setDate(rotationEnd.getDate() + Math.max(1, schedule?.rotation?.duration_weeks ?? weeksCount) * 7 - 1);
+      return rotationEnd.toISOString().slice(0, 10);
+    })();
     return Array.from(new Set(doctor.work_schedules.flatMap((item) =>
       String(item.training_site_id) === rowForm.hospitalId &&
       (!item.valid_from || item.valid_from <= end) &&
@@ -482,14 +495,9 @@ export function DistributionPage() {
     ? (schedule?.rows.filter((row) => (cellMap.get(`${row.id}|${selectedMobileBlock.id}`) ?? []).length > 0).length ?? 0)
     : 0;
   const rowWorkLocations = (row: ScheduleRow, block: Block) => {
-    const rotationStart = schedule?.rotation?.start_date?.slice(0, 10);
-    if (!rotationStart) return row.person?.work_schedules ?? [];
-    const start = new Date(`${rotationStart}T12:00:00`);
-    start.setDate(start.getDate() + (block.from_week - 1) * 7);
-    const end = new Date(`${rotationStart}T12:00:00`);
-    end.setDate(end.getDate() + block.to_week * 7 - 1);
-    const from = start.toISOString().slice(0, 10);
-    const until = end.toISOString().slice(0, 10);
+    const from = block.start_date?.slice(0, 10);
+    const until = block.end_date?.slice(0, 10);
+    if (!from || !until) return row.person?.work_schedules ?? [];
     return (row.person?.work_schedules ?? []).filter(
       (item) =>
         (!item.valid_from || item.valid_from <= until) &&
@@ -638,6 +646,28 @@ export function DistributionPage() {
           locale,
         ),
       }),
+  });
+  const saveBreak = useMutation({
+    mutationFn: () => apiFetch(
+      `/course-distribution/versions/${schedule!.version!.id}/breaks${editingBreak ? `/${editingBreak.id}` : ""}`,
+      { method: editingBreak ? "PUT" : "POST", body: breakForm },
+    ),
+    onSuccess: async () => {
+      setEditingBreak(null);
+      setBreakForm({ label: tr("عطلة", "Break"), start_date: "", end_date: "" });
+      await refresh();
+      setNotice({ type: "success", text: tr("تم حفظ العطلة وإعادة احتساب تواريخ الأسابيع.", "The break was saved and week dates were recalculated.") });
+    },
+    onError: (error) => setNotice({ type: "error", text: message(error, { ar: "تعذر حفظ العطلة.", en: "Could not save the break." }, locale) }),
+  });
+  const deleteBreak = useMutation({
+    mutationFn: (id: number) => apiFetch(`/course-distribution/versions/${schedule!.version!.id}/breaks/${id}`, { method: "DELETE" }),
+    onSuccess: async () => {
+      setEditingBreak(null);
+      await refresh();
+      setNotice({ type: "success", text: tr("تم حذف العطلة وإعادة احتساب التواريخ.", "The break was removed and dates were recalculated.") });
+    },
+    onError: (error) => setNotice({ type: "error", text: message(error, { ar: "تعذر حذف العطلة.", en: "Could not remove the break." }, locale) }),
   });
   const saveCell = useMutation({
     mutationFn: () =>
@@ -1320,6 +1350,13 @@ export function DistributionPage() {
                   {tr("إضافة صف", "Add row")}
                 </Button>
               )}
+              {can("distribution.update") && (
+                <Button variant="outline" onClick={() => setBreakModal(true)}>
+                  <CalendarX2 className="me-1 h-4 w-4" />
+                  {tr("العطل", "Breaks")}
+                  {scheduleBreaks.length > 0 && <span className="ms-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">{scheduleBreaks.length}</span>}
+                </Button>
+              )}
               {(can("distribution.approve") || can("approvals.decide")) &&
                 isEditable &&
                 approvalState !== "approved" && (
@@ -1478,7 +1515,7 @@ export function DistributionPage() {
                 <button type="button" aria-label={tr("الأسبوع التالي", "Next week")} disabled={selectedMobileBlockIndex >= schedule.blocks.length - 1} onClick={() => setMobileBlockId(schedule.blocks[selectedMobileBlockIndex + 1].id)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 text-teal-800 disabled:opacity-35">{ar ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button>
               </div>
               <div className="mt-2 flex min-w-0 items-center justify-between gap-2 text-xs text-slate-600">
-                <span className="truncate">{weekDate(schedule.rotation.start_date, selectedMobileBlock.from_week, locale)} · {tr(`${selectedMobileAssignedRows} صفوف موزعة`, `${selectedMobileAssignedRows} assigned rows`)}</span>
+                <span className="truncate">{selectedMobileBlock.start_date ? new Intl.DateTimeFormat(locale === "ar" ? "ar-PS" : "en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(`${selectedMobileBlock.start_date}T12:00:00`)) : weekDate(schedule.rotation.start_date, selectedMobileBlock.from_week, locale)} · {tr(`${selectedMobileAssignedRows} صفوف موزعة`, `${selectedMobileAssignedRows} assigned rows`)}</span>
                 {can("distribution.update") && isEditable && <button type="button" onClick={() => openBlock(selectedMobileBlock)} className="shrink-0 font-bold text-teal-800">{tr("نوع الأسبوع", "Week type")}</button>}
               </div>
               {(selectedMobileBlock.activity_type ?? "clinical") !== "clinical" && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">{selectedMobileBlock.activity_label} · {(selectedMobileBlock.activity_scope ?? "all") === "all" ? tr("كل الدفعة", "Entire cohort") : selectedMobileBlock.main_group_codes?.join("، ")}</p>}
@@ -1581,11 +1618,9 @@ export function DistributionPage() {
                               )}
                             </div>
                             <div className="mt-1 text-[10px] font-normal text-slate-500">
-                              {weekDate(
-                                schedule.rotation?.start_date,
-                                block.from_week,
-                                locale,
-                              )}
+                              {block.start_date
+                                ? new Intl.DateTimeFormat(locale === "ar" ? "ar-PS" : "en-GB", { day: "2-digit", month: "2-digit" }).format(new Date(`${block.start_date}T12:00:00`))
+                                : weekDate(schedule.rotation?.start_date, block.from_week, locale)}
                             </div>
                             {(block.activity_type ?? "clinical") !==
                               "clinical" && (
@@ -1702,6 +1737,56 @@ export function DistributionPage() {
           )}
         </>
       )}
+
+      <Modal
+        isOpen={breakModal}
+        onClose={() => { setBreakModal(false); setEditingBreak(null); }}
+        title={tr("عطل الجدول السريري", "Clinical schedule breaks")}
+        maxWidth="lg"
+      >
+        <div className="space-y-4">
+          <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+            {tr(
+              "أدخل مدة العطلة الفعلية. إذا وقع تاريخ بداية أسبوع سريري داخلها، ينتقل ذلك الأسبوع وما بعده تلقائياً مع بقاء ترقيم الأسابيع كما هو.",
+              "Enter the actual break period. If a clinical week start falls within it, that week and all following weeks move automatically while week numbers remain unchanged.",
+            )}
+          </p>
+          {scheduleBreaks.length ? (
+            <div className="space-y-2">
+              {scheduleBreaks.map((item) => (
+                <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <div>
+                    <div className="text-sm font-black text-amber-950">{item.label}</div>
+                    <div className="mt-1 text-xs font-bold text-amber-800" dir="ltr">{item.start_date.slice(0, 10)} — {item.end_date.slice(0, 10)}</div>
+                  </div>
+                  {isEditable && can("distribution.update") && (
+                    <div className="flex gap-1.5">
+                      <button type="button" onClick={() => { setEditingBreak(item); setBreakForm({ label: item.label, start_date: item.start_date.slice(0, 10), end_date: item.end_date.slice(0, 10) }); }} className="grid h-9 w-9 place-items-center rounded-lg bg-white text-slate-600" aria-label={tr("تعديل العطلة", "Edit break")}><Pencil className="h-4 w-4" /></button>
+                      <button type="button" disabled={deleteBreak.isPending} onClick={() => { if (window.confirm(tr("حذف هذه العطلة وإعادة التواريخ لوضعها السابق؟", "Remove this break and recalculate the dates?"))) deleteBreak.mutate(item.id); }} className="grid h-9 w-9 place-items-center rounded-lg bg-white text-red-600 disabled:opacity-50" aria-label={tr("حذف العطلة", "Delete break")}><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : <p className="py-3 text-center text-xs font-bold text-slate-400">{tr("لا توجد عطل مضافة.", "No breaks have been added.")}</p>}
+
+          {isEditable && can("distribution.update") ? (
+            <form onSubmit={(event) => { event.preventDefault(); saveBreak.mutate(); }} className="space-y-3 rounded-xl border border-slate-200 p-3">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label><span className="mb-1 block text-xs font-bold">{tr("اسم العطلة", "Break name")}</span><input required maxLength={100} className={inputClass} value={breakForm.label} onChange={(event) => setBreakForm({ ...breakForm, label: event.target.value })} /></label>
+                <label><span className="mb-1 block text-xs font-bold">{tr("من تاريخ", "From date")}</span><input required type="date" className={inputClass} value={breakForm.start_date} onChange={(event) => setBreakForm({ ...breakForm, start_date: event.target.value })} /></label>
+                <label><span className="mb-1 block text-xs font-bold">{tr("إلى تاريخ", "To date")}</span><input required type="date" min={breakForm.start_date || undefined} className={inputClass} value={breakForm.end_date} onChange={(event) => setBreakForm({ ...breakForm, end_date: event.target.value })} /></label>
+              </div>
+              <div className="flex justify-end gap-2">
+                {editingBreak && <Button type="button" variant="outline" onClick={() => { setEditingBreak(null); setBreakForm({ label: tr("عطلة", "Break"), start_date: "", end_date: "" }); }}>{tr("إلغاء التعديل", "Cancel edit")}</Button>}
+                <Button type="submit" isLoading={saveBreak.isPending} disabled={!breakForm.label.trim() || !breakForm.start_date || !breakForm.end_date}>{editingBreak ? tr("حفظ التعديل", "Save changes") : tr("إضافة عطلة", "Add break")}</Button>
+              </div>
+            </form>
+          ) : (
+            <p className="rounded-xl border border-slate-200 p-3 text-xs font-bold text-slate-600">{tr("لإضافة أو تعديل عطلة في جدول منشور، أنشئ نسخة للتعديل أولاً.", "Create an editable revision before adding or changing a break in a published schedule.")}</p>
+          )}
+        </div>
+      </Modal>
 
       <Modal
         isOpen={Boolean(workDetailsRow)}

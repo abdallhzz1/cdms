@@ -37,8 +37,7 @@ class ClinicalScheduleQueryService
             ->whereHas('distributionVersion', fn ($version) => $version
                 ->where('status', 'published')->where('is_current', true))
             ->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation
-                ->whereDate('start_date', '<=', $date)
-                ->where(fn ($period) => $period->whereNull('end_date')->orWhereDate('end_date', '>=', $date)))
+                ->whereDate('start_date', '<=', $date))
             ->whereNotNull('student_subgroup_id')
             ->when($siteId, fn ($assignments) => $assignments->where('training_site_id', $siteId))
             ->with([
@@ -48,6 +47,7 @@ class ClinicalScheduleQueryService
                 'rotationBlock.rotation.academicYear:id,code',
                 'trainingSite:id,name_ar,name_en',
                 'supervisor.availabilities',
+                'distributionVersion.breaks',
             ]);
 
         $departmentId = $this->getClinicalOperationsDepartmentId();
@@ -65,8 +65,10 @@ class ClinicalScheduleQueryService
             if (! $assignment->student || ! $assignment->studentSubgroup?->group || ! $assignment->trainingSite
                 || ! $assignment->supervisor || ! $rotation?->start_date || ! $block?->from_week || ! $block?->to_week) return false;
 
-            $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
-            $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->endOfDay();
+            $breaks = $assignment->distributionVersion?->breaks ?? [];
+            if ($this->dateCalculator->isBreakDate($day, $breaks)) return false;
+            $start = Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, (int) $block->from_week, $breaks))->startOfDay();
+            $end = Carbon::parse($this->dateCalculator->calculateBlockEndDate($rotation->start_date, (int) $block->to_week, $breaks))->endOfDay();
             if ($day->lt($start) || $day->gt($end)) return false;
 
             return $assignment->supervisor->availabilities->contains(fn ($availability) =>

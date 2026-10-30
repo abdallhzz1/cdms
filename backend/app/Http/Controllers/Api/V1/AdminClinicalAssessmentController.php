@@ -21,10 +21,15 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use App\Services\Distribution\ClinicalScheduleDateCalculator;
 
 /** System-admin registry: current and historic assessments remain separately visible. */
 class AdminClinicalAssessmentController extends Controller
 {
+    private array $breakCache = [];
+
+    public function __construct(private ClinicalScheduleDateCalculator $dateCalculator) {}
+
     private function authorizeAdmin(Request $request): void
     {
         abort_unless($request->user()?->is_active && $request->user()->hasRole('SYS_ADMIN'), 403);
@@ -306,7 +311,7 @@ class AdminClinicalAssessmentController extends Controller
                 $key = implode(':', [$assignment->rotation_id, $assignment->student_id, $assignment->supervisor_id, $week]);
                 if (isset($seenWeekly[$key])) continue;
                 $seenWeekly[$key] = true;
-                $end = Carbon::parse($assignment->start_date)->addWeeks($week - 1)->addDays(6);
+                $end = $this->weekStart($assignment->start_date, $week, (int) $assignment->version_id)->addDays(6);
                 if ($end->greaterThanOrEqualTo($today) || $weeklyKeys->has($key)) continue;
                 if (($filters['kind'] ?? 'clinical') === 'clinical') $gaps->push($this->gapRow($assignment, 'clinical', $week, $week, $assignment->entry_max_score ?: 10));
             }
@@ -333,8 +338,8 @@ class AdminClinicalAssessmentController extends Controller
             foreach ($periods as $period) {
                 $first = $period['first'];
                 if (! $first->start_date || (! empty($filters['week']) && ((int) $filters['week'] < $period['start'] || (int) $filters['week'] > $period['end']))) continue;
-                $startDate = Carbon::parse($first->start_date)->addWeeks($period['start'] - 1);
-                $endDate = Carbon::parse($first->start_date)->addWeeks($period['end'] - 1)->addDays(6);
+                $startDate = $this->weekStart($first->start_date, $period['start'], (int) $first->version_id);
+                $endDate = $this->weekStart($first->start_date, $period['end'], (int) $first->version_id)->addDays(6);
                 if ($endDate->greaterThanOrEqualTo($today)) continue;
                 if (($filters['kind'] ?? 'clinical') === 'clinical' && $first->assessment_frequency === 'period'
                     && (float) $first->clinical_max_score > 0) {
@@ -418,7 +423,7 @@ class AdminClinicalAssessmentController extends Controller
                 $period = app(ClinicalAssessmentPeriods::class)->groups($related)
                     ->first(fn (array $item) => $item['assignments']->contains('id', $assignment->id));
                 abort_unless($period, 409);
-                $end = Carbon::parse($rotation->start_date)->addWeeks($period['end_week'] - 1)->addDays(6);
+                $end = $this->weekStart($rotation->start_date, $period['end_week'], (int) $version->id)->addDays(6);
                 abort_if($end->greaterThanOrEqualTo(today()), 422, 'Mini-OSCE period has not finished.');
                 $blockIds = $period['block_ids']->all();
                 abort_if(DB::table('clinical_mini_osce_scores')->where('student_id', $assignment->student_id)
@@ -462,7 +467,7 @@ class AdminClinicalAssessmentController extends Controller
                 $week = $data['evaluation_week'] ?? null;
                 abort_if(! $week || $week < $block->from_week || $week > $block->to_week, 422,
                     'Week is outside the current assignment.');
-                $start = Carbon::parse($rotation->start_date)->addWeeks($week - 1);
+                $start = $this->weekStart($rotation->start_date, $week, (int) $version->id);
                 $end = $start->copy()->addDays(6);
             } else {
                 abort_if(isset($data['evaluation_week']), 422, 'A period assessment must not specify a week.');
@@ -477,8 +482,8 @@ class AdminClinicalAssessmentController extends Controller
                     ->first(fn (array $item) => $item['assignments']->contains('id', $assignment->id));
                 abort_unless($period, 409);
                 $assignment = $period['assignments']->firstWhere('rotation_block_id', $period['primary_block_id']);
-                $start = Carbon::parse($rotation->start_date)->addWeeks($period['start_week'] - 1);
-                $end = Carbon::parse($rotation->start_date)->addWeeks($period['end_week'] - 1)->addDays(6);
+                $start = $this->weekStart($rotation->start_date, $period['start_week'], (int) $version->id);
+                $end = $this->weekStart($rotation->start_date, $period['end_week'], (int) $version->id)->addDays(6);
                 $week = null;
             }
             abort_if($start->isFuture(), 422, 'Assessment period has not begun.');
@@ -1223,5 +1228,21 @@ class AdminClinicalAssessmentController extends Controller
             elseif ($duplicate) $data['finding'] = 'duplicate_current';
         }
         return $data;
+    }
+    private function weekStart($rotationStart, int $week, int $versionId): Carbon
+    {
+        return Carbon::parse($this->dateCalculator->calculateBlockStartDate(
+            $rotationStart,
+            $week,
+            $this->breaksForVersion($versionId),
+        ));
+    }
+
+    private function breaksForVersion(int $versionId): array
+    {
+        return $this->breakCache[$versionId] ??= DB::table('distribution_version_breaks')
+            ->where('distribution_version_id', $versionId)
+            ->orderBy('start_date')->get(['start_date', 'end_date'])
+            ->map(fn ($break) => ['start_date' => $break->start_date, 'end_date' => $break->end_date])->all();
     }
 }

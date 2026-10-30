@@ -19,10 +19,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
+use App\Services\Distribution\ClinicalScheduleDateCalculator;
 
 class ClinicalAssessmentReviewController extends Controller
 {
     use ScopesByDepartmentAndLevel;
+
+    public function __construct(private ClinicalScheduleDateCalculator $dateCalculator) {}
 
     public function groups(Request $request): JsonResponse
     {
@@ -31,6 +34,7 @@ class ClinicalAssessmentReviewController extends Controller
                 'student:id,university_number,full_name_ar,full_name_en,photo_url,batch_year',
                 'studentSubgroup.group.academicYear:id,code',
                 'rotationBlock.rotation.course.assessmentComponents',
+                'distributionVersion.breaks',
             ])->orderBy('id')->get();
 
         $groupIds = $assignments->pluck('studentSubgroup.student_group_id')->filter()->unique()->values();
@@ -183,7 +187,8 @@ class ClinicalAssessmentReviewController extends Controller
         $rotations = $assignments->groupBy(fn (StudentClinicalAssignment $assignment) => (string) $assignment->rotationBlock?->rotation_id)
             ->map(function (Collection $rotationAssignments) use ($assessments, $miniScores) {
             $rotation = $rotationAssignments->first()?->rotationBlock?->rotation;
-            $weeks = $this->weekNumbers($rotationAssignments)->map(function (int $number) use ($rotationAssignments, $assessments, $rotation, $miniScores) {
+            $breaks = $rotationAssignments->first()?->distributionVersion?->breaks ?? [];
+            $weeks = $this->weekNumbers($rotationAssignments)->map(function (int $number) use ($rotationAssignments, $assessments, $rotation, $miniScores, $breaks) {
             $period = $number < 0 ? app(ClinicalAssessmentPeriods::class)->groups($rotationAssignments, false)
                 ->first(fn (array $item) => $item['primary_block_id'] === -$number) : null;
             $active = $rotationAssignments->filter(fn (StudentClinicalAssignment $assignment) => $number < 0
@@ -193,9 +198,9 @@ class ClinicalAssessmentReviewController extends Controller
                 && (int) $assignment->rotationBlock->to_week >= $number)
             );
             $periodStart = $period && $rotation?->start_date
-                ? Carbon::parse($rotation->start_date)->addWeeks($period['start_week'] - 1)->toDateString() : null;
+                ? $this->dateCalculator->calculateBlockStartDate($rotation->start_date, $period['start_week'], $breaks) : null;
             $periodEnd = $period && $rotation?->start_date
-                ? Carbon::parse($rotation->start_date)->addWeeks($period['end_week'])->subDay()->toDateString() : null;
+                ? $this->dateCalculator->calculateBlockEndDate($rotation->start_date, $period['end_week'], $breaks) : null;
             $weekAssessments = ($number < 0 ? $assessments->where('assessment_kind', 'period') : $assessments->where('evaluation_week', $number))
                 ->filter(fn (ClinicalAssessment $assessment) => (int) ($assessment->clinicalAssignment?->rotationBlock?->rotation_id
                     ?? $assessment->session?->rotationBlock?->rotation_id) === (int) $rotation?->id)
@@ -231,14 +236,17 @@ class ClinicalAssessmentReviewController extends Controller
                     ];
                 })->values();
             $periodBlock = $period ? $rotationAssignments->firstWhere('rotation_block_id', $period['primary_block_id'])?->rotationBlock : null;
-            $start = $rotation?->start_date ? Carbon::parse($rotation->start_date)->addWeeks($period ? $period['start_week'] - 1 : max(0, $number - 1)) : null;
+            $rangeStartWeek = $period ? $period['start_week'] : $number;
+            $rangeEndWeek = $period ? $period['end_week'] : $number;
+            $start = $rotation?->start_date ? Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, $rangeStartWeek, $breaks)) : null;
+            $end = $rotation?->start_date ? Carbon::parse($this->dateCalculator->calculateBlockEndDate($rotation->start_date, $rangeEndWeek, $breaks)) : null;
 
             return [
                 'number' => $number,
                 'block_code' => $period && $period['block_ids']->count() > 1
                     ? 'W'.$period['start_week'].'–W'.$period['end_week'] : $periodBlock?->block_code,
                 'start_date' => $start?->toDateString(),
-                'end_date' => $start?->copy()->addDays($period ? max(0, ($period['end_week'] - $period['start_week'] + 1) * 7 - 1) : 6)->toDateString(),
+                'end_date' => $end?->toDateString(),
                 'student_count' => $students->count(),
                 'ready_count' => $students->where('ready', true)->count(),
                 'students' => $students,

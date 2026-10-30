@@ -19,6 +19,7 @@ use App\Models\StudentClinicalAssignment;
 use App\Models\SupervisorStudentNote;
 use App\Models\WorkflowTransitionLog;
 use App\Services\Distribution\SupervisorReassignmentService;
+use App\Services\Distribution\ClinicalScheduleDateCalculator;
 use App\Services\SupervisorWorkScheduleService;
 use App\Services\ClinicalAssessmentPeriods;
 use App\Services\ClinicalAssessmentContinuity;
@@ -53,6 +54,7 @@ class SupervisorController extends Controller
         private SupervisorReassignmentService $reassignmentService,
         private SupervisorWorkScheduleService $workScheduleService,
         private ClinicalAssessmentContinuity $assessmentContinuity,
+        private ClinicalScheduleDateCalculator $dateCalculator,
     ) {}
 
     /**
@@ -908,13 +910,13 @@ class SupervisorController extends Controller
 
     private function assignmentWeek(StudentClinicalAssignment $assignment, int $week): array
     {
-        $assignment->loadMissing('rotationBlock.rotation');
+        $assignment->loadMissing('rotationBlock.rotation', 'distributionVersion.breaks');
         $block = $assignment->rotationBlock;
         $rotation = $block?->rotation;
         if (! $rotation?->start_date || $week < (int) $block->from_week || $week > (int) $block->to_week) {
             throw ValidationException::withMessages(['evaluation_week' => ['الأسبوع المحدد ليس ضمن فترة تكليف المجموعة.']]);
         }
-        $start = Carbon::parse($rotation->start_date)->addWeeks($week - 1)->startOfDay();
+        $start = Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, $week, $assignment->distributionVersion?->breaks ?? []))->startOfDay();
         if ($start->isFuture()) {
             throw ValidationException::withMessages(['evaluation_week' => ['لا يمكن رصد تقييم لأسبوع لم يبدأ بعد.']]);
         }
@@ -933,6 +935,7 @@ class SupervisorController extends Controller
         );
         $dates = [];
         for ($date = $start->copy()->startOfDay(); $date->lte($end); $date->addDay()) {
+            if ($this->dateCalculator->isBreakDate($date, $assignment->distributionVersion?->breaks ?? [])) continue;
             if ($records->contains(fn ($row) =>
                 $row->day === strtolower($date->format('l'))
                 && (! $row->available_from || $row->available_from->lte($date))
@@ -944,12 +947,13 @@ class SupervisorController extends Controller
 
     private function evaluationWeeks(StudentClinicalAssignment $assignment): array
     {
-        $assignment->loadMissing('rotationBlock.rotation');
+        $assignment->loadMissing('rotationBlock.rotation', 'distributionVersion.breaks');
         $block = $assignment->rotationBlock;
         $rotation = $block?->rotation;
         if (! $rotation?->start_date || ! $block?->from_week || ! $block?->to_week) return [];
-        return collect(range((int) $block->from_week, (int) $block->to_week))->map(function (int $week) use ($rotation) {
-            $start = Carbon::parse($rotation->start_date)->addWeeks($week - 1);
+        $breaks = $assignment->distributionVersion?->breaks ?? [];
+        return collect(range((int) $block->from_week, (int) $block->to_week))->map(function (int $week) use ($rotation, $breaks) {
+            $start = Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, $week, $breaks));
             return ['number' => $week, 'start_date' => $start->toDateString(), 'end_date' => $start->copy()->addDays(6)->toDateString()];
         })->all();
     }
@@ -1032,7 +1036,7 @@ class SupervisorController extends Controller
 
     private function periodAssignments(StudentClinicalAssignment $assignment): \Illuminate\Support\Collection
     {
-        $assignment->loadMissing('rotationBlock.rotation');
+        $assignment->loadMissing('rotationBlock.rotation', 'distributionVersion.breaks');
         $candidates = StudentClinicalAssignment::query()
             ->where('distribution_version_id', $assignment->distribution_version_id)
             ->where('supervisor_id', $assignment->supervisor_id)
@@ -1103,8 +1107,9 @@ class SupervisorController extends Controller
             return [null, null];
         }
 
-        $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
-        $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->endOfDay();
+        $breaks = $assignment->distributionVersion?->breaks ?? [];
+        $start = Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, (int) $block->from_week, $breaks))->startOfDay();
+        $end = Carbon::parse($this->dateCalculator->calculateBlockEndDate($rotation->start_date, (int) $block->to_week, $breaks))->endOfDay();
 
         return [$start, $end];
     }

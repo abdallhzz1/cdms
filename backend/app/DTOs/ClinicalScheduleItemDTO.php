@@ -28,16 +28,21 @@ class ClinicalScheduleItemDTO
         $site = $assignment->trainingSite;
         $department = $assignment->department ?? $block?->department;
         $supervisor = $assignment->supervisor;
+        $version = $assignment->distributionVersion;
+        $version?->loadMissing('breaks');
+        $breaks = $version?->breaks ?? [];
 
         $rotationStartDate = $rotation?->start_date?->toDateString();
-        $rotationEndDate = $rotation?->end_date?->toDateString();
+        $rotationEndDate = $rotationStartDate && $rotation?->duration_weeks
+            ? $dateCalculator->calculateBlockEndDate($rotationStartDate, (int) $rotation->duration_weeks, $breaks)
+            : $rotation?->end_date?->toDateString();
 
         $blockStartDate = null;
         $blockEndDate = null;
 
         if ($rotationStartDate && $block && (int) $block->from_week >= 1 && (int) $block->to_week >= (int) $block->from_week) {
-            $blockStartDate = $dateCalculator->calculateBlockStartDate($rotationStartDate, $block->from_week);
-            $blockEndDate = $dateCalculator->calculateBlockEndDate($rotationStartDate, $block->to_week);
+            $blockStartDate = $dateCalculator->calculateBlockStartDate($rotationStartDate, $block->from_week, $breaks);
+            $blockEndDate = $dateCalculator->calculateBlockEndDate($rotationStartDate, $block->to_week, $breaks);
         }
         $workSchedule = $supervisor ? $supervisor->availabilities
             ->filter(fn ($entry) => (int) $entry->training_site_id === (int) $assignment->training_site_id

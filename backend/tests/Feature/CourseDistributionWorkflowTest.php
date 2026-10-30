@@ -708,4 +708,45 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->assertDatabaseMissing('rotations', ['id' => $rotationId]);
         $this->assertDatabaseMissing('distribution_versions', ['id' => $revisionId]);
     }
+
+    public function test_breaks_shift_later_week_dates_and_remain_versioned(): void
+    {
+        $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id,
+            'academic_level' => 'fourth',
+            'course_id' => $this->course->id,
+            'schedule_scope' => 'annual',
+            'start_date' => '2027-01-01',
+            'weeks_count' => 3,
+        ])->assertCreated();
+        $version = DistributionVersion::findOrFail($created->json('data.version.id'));
+
+        $breakId = $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$version->id}/breaks", [
+            'label' => 'عطلة منتصف الفترة',
+            'start_date' => '2027-01-08',
+            'end_date' => '2027-01-14',
+        ])->assertCreated()->json('data.id');
+
+        $this->actingAs($this->user)->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id.'&schedule_scope=annual')
+            ->assertOk()
+            ->assertJsonPath('data.breaks.0.id', $breakId)
+            ->assertJsonPath('data.blocks.0.start_date', '2027-01-01')
+            ->assertJsonPath('data.blocks.1.start_date', '2027-01-15')
+            ->assertJsonPath('data.blocks.2.start_date', '2027-01-22')
+            ->assertJsonPath('data.rotation.effective_end_date', '2027-01-28');
+
+        $version->update(['status' => 'published', 'is_current' => true]);
+        $this->actingAs($this->user)->putJson("/api/v1/course-distribution/versions/{$version->id}/breaks/{$breakId}", [
+            'label' => 'تعديل غير مسموح',
+            'start_date' => '2027-01-08',
+            'end_date' => '2027-01-14',
+        ])->assertUnprocessable()->assertJsonValidationErrors('version');
+
+        $revisionId = $this->actingAs($this->user)->postJson("/api/v1/course-distribution/versions/{$version->id}/revise")
+            ->assertOk()->json('data.id');
+        $this->assertDatabaseHas('distribution_version_breaks', [
+            'distribution_version_id' => $revisionId,
+            'label' => 'عطلة منتصف الفترة',
+        ]);
+    }
 }

@@ -278,19 +278,20 @@ class PublicStudentScheduleController extends Controller
                 ->whereHas('distributionVersion.rotation', fn ($query) => $query
                     ->where('academic_year_id', $group->academic_year_id)
                     ->where('academic_level', $student->academic_level))
-                ->with(['distributionVersion.rotation.course', 'distributionVersion.rotation.academicYear', 'distributionVersion.rotation.clinicalPeriod', 'rotationBlock'])
+                ->with(['distributionVersion.breaks', 'distributionVersion.rotation.course', 'distributionVersion.rotation.academicYear', 'distributionVersion.rotation.clinicalPeriod', 'rotationBlock'])
                 ->get()
                 ->filter(fn (CourseScheduleBlockActivity $activity) => $activity->activity_scope === 'all'
                     || in_array($group->name, $activity->main_group_codes ?? [], true))
                 ->map(function (CourseScheduleBlockActivity $activity): array {
                     $block = $activity->rotationBlock;
                     $rotation = $activity->distributionVersion?->rotation;
+                    $breaks = $activity->distributionVersion?->breaks ?? [];
                     $course = $rotation?->course;
                     $startDate = $rotation?->start_date && $block
-                        ? $this->dateCalculator->calculateBlockStartDate($rotation->start_date, $block->from_week)
+                        ? $this->dateCalculator->calculateBlockStartDate($rotation->start_date, $block->from_week, $breaks)
                         : null;
                     $endDate = $rotation?->start_date && $block
-                        ? $this->dateCalculator->calculateBlockEndDate($rotation->start_date, $block->to_week)
+                        ? $this->dateCalculator->calculateBlockEndDate($rotation->start_date, $block->to_week, $breaks)
                         : null;
 
                     return [

@@ -18,10 +18,13 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use App\Services\Distribution\ClinicalScheduleDateCalculator;
 
 class AttendanceRecordController extends Controller
 {
     use ScopesByDepartmentAndLevel;
+
+    public function __construct(private ClinicalScheduleDateCalculator $dateCalculator) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -262,12 +265,15 @@ class AttendanceRecordController extends Controller
                     ->map(function ($rotationAssignments) use ($students, $records, $qrSessions, $universityLectures, $universityRecords, $universityMemberships, $assignments) {
                         $rotation = $rotationAssignments->first()?->rotationBlock?->rotation;
                         if (! $rotation?->start_date) return null;
+                        $referenceAssignment = $rotationAssignments->first();
+                        $referenceAssignment?->loadMissing('distributionVersion.breaks');
+                        $breaks = $referenceAssignment?->distributionVersion?->breaks ?? [];
                         $weekNumbers = $rotationAssignments->pluck('rotationBlock')->filter()
                             ->flatMap(fn ($block) => $block->from_week && $block->to_week
                                 ? range((int) $block->from_week, (int) $block->to_week) : [])
                             ->unique()->sort()->values();
-                        $weeks = $weekNumbers->map(function ($number) use ($rotation, $rotationAssignments, $students, $records, $qrSessions, $universityLectures, $universityRecords, $universityMemberships, $assignments) {
-                            $start = Carbon::parse($rotation->start_date)->addWeeks($number - 1)->startOfDay();
+                        $weeks = $weekNumbers->map(function ($number) use ($rotation, $breaks, $rotationAssignments, $students, $records, $qrSessions, $universityLectures, $universityRecords, $universityMemberships, $assignments) {
+                            $start = Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, $number, $breaks))->startOfDay();
                             $end = $start->copy()->addDays(6)->endOfDay();
                             return [
                                 'number' => $number,
@@ -401,17 +407,21 @@ class AttendanceRecordController extends Controller
             ->get();
         $students = $assignments->pluck('student')->filter()->unique('id')->values();
         $rotation = $reference->rotationBlock?->rotation;
+        $reference->loadMissing('distributionVersion.breaks');
+        $breaks = $reference->distributionVersion?->breaks ?? [];
         $availableWeeks = $assignments->pluck('rotationBlock')->filter()
             ->flatMap(fn ($block) => ($block->from_week && $block->to_week)
                 ? range((int) $block->from_week, (int) $block->to_week)
                 : [])
             ->unique()->sort()->values();
-        $currentWeek = $rotation?->start_date ? Carbon::parse($rotation->start_date)->diffInWeeks(today(), false) + 1 : null;
+        $currentWeek = $rotation?->start_date ? $availableWeeks->filter(fn ($week) =>
+            Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, (int) $week, $breaks))->lte(today())
+        )->last() : null;
         $defaultWeek = $currentWeek === null ? $availableWeeks->first() : $availableWeeks->sortBy(fn ($week) => abs($week - $currentWeek))->first();
         $selectedWeek = $request->filled('week') ? $request->integer('week') : $defaultWeek;
         abort_unless($selectedWeek && $availableWeeks->contains($selectedWeek), 422, 'The selected week is outside this group schedule.');
 
-        $weekStart = Carbon::parse($rotation->start_date)->addWeeks($selectedWeek - 1)->startOfDay();
+        $weekStart = Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, $selectedWeek, $breaks))->startOfDay();
         $weekEnd = $weekStart->copy()->addDays(6)->endOfDay();
         $weekAssignments = $assignments->filter(fn (StudentClinicalAssignment $assignment) =>
             $assignment->rotationBlock
@@ -545,8 +555,8 @@ class AttendanceRecordController extends Controller
             ],
             'weeks' => $availableWeeks->map(fn ($week) => [
                 'number' => $week,
-                'start_date' => Carbon::parse($rotation->start_date)->addWeeks($week - 1)->toDateString(),
-                'end_date' => Carbon::parse($rotation->start_date)->addWeeks($week - 1)->addDays(6)->toDateString(),
+                'start_date' => $this->dateCalculator->calculateBlockStartDate($rotation->start_date, (int) $week, $breaks),
+                'end_date' => $this->dateCalculator->calculateBlockEndDate($rotation->start_date, (int) $week, $breaks),
             ]),
             'selected_week' => ['number' => $selectedWeek, 'start_date' => $weekStart->toDateString(), 'end_date' => $weekEnd->toDateString()],
             'schedule' => $schedule,
@@ -614,9 +624,11 @@ class AttendanceRecordController extends Controller
                 $rotation = $first->rotationBlock?->rotation;
                 $block = $first->rotationBlock;
                 if (! $rotation?->start_date || ! $block?->from_week || ! $block?->to_week) return [];
+                $first->loadMissing('distributionVersion.breaks');
+                $breaks = $first->distributionVersion?->breaks ?? [];
 
-                $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
-                $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->min(today())->endOfDay();
+                $start = Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, (int) $block->from_week, $breaks))->startOfDay();
+                $end = Carbon::parse($this->dateCalculator->calculateBlockEndDate($rotation->start_date, (int) $block->to_week, $breaks))->min(today())->endOfDay();
                 if ($targetDate) {
                     if ($targetDate->lt($start) || $targetDate->gt($end)) return [];
                     $start = $targetDate->copy();
@@ -635,6 +647,7 @@ class AttendanceRecordController extends Controller
                 $studentIds = $group->pluck('student_id')->map(fn ($id) => (int) $id)->unique();
                 $items = [];
                 for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
+                    if ($this->dateCalculator->isBreakDate($date, $breaks)) continue;
                     if (! $availability->contains(fn ($row) =>
                         $row->day === strtolower($date->format('l'))
                         && (! $row->available_from || $row->available_from->lte($date))
@@ -739,8 +752,11 @@ class AttendanceRecordController extends Controller
                 $block = $assignment->rotationBlock;
                 $startDate = $block?->rotation?->start_date;
                 if (! $startDate || ! $block->from_week || ! $block->to_week) return false;
-                $start = Carbon::parse($startDate)->addWeeks((int) $block->from_week - 1)->toDateString();
-                $end = Carbon::parse($startDate)->addWeeks((int) $block->to_week)->subDay()->toDateString();
+                $assignment->loadMissing('distributionVersion.breaks');
+                $breaks = $assignment->distributionVersion?->breaks ?? [];
+                if ($this->dateCalculator->isBreakDate($date, $breaks)) return false;
+                $start = $this->dateCalculator->calculateBlockStartDate($startDate, (int) $block->from_week, $breaks);
+                $end = $this->dateCalculator->calculateBlockEndDate($startDate, (int) $block->to_week, $breaks);
                 return $date >= $start && $date <= $end;
             })
             ->map(fn (StudentClinicalAssignment $assignment) => (int) $assignment->rotationBlock->rotation_id)
@@ -767,15 +783,16 @@ class AttendanceRecordController extends Controller
     /** @return array<string> */
     private function scheduledDates(StudentClinicalAssignment $assignment, Carbon $rangeStart, Carbon $rangeEnd): array
     {
-        $assignment->loadMissing('supervisor.availabilities', 'rotationBlock.rotation');
+        $assignment->loadMissing('supervisor.availabilities', 'rotationBlock.rotation', 'distributionVersion.breaks');
         $rotation = $assignment->rotationBlock?->rotation;
         $block = $assignment->rotationBlock;
         if (! $rotation?->start_date || ! $block?->from_week || ! $block?->to_week || ! $assignment->training_site_id || ! $assignment->supervisor) {
             return [];
         }
 
-        $assignmentStart = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
-        $assignmentEnd = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->endOfDay();
+        $breaks = $assignment->distributionVersion?->breaks ?? [];
+        $assignmentStart = Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, (int) $block->from_week, $breaks))->startOfDay();
+        $assignmentEnd = Carbon::parse($this->dateCalculator->calculateBlockEndDate($rotation->start_date, (int) $block->to_week, $breaks))->endOfDay();
         $start = $rangeStart->copy()->max($assignmentStart)->startOfDay();
         $end = $rangeEnd->copy()->min($assignmentEnd)->endOfDay();
         $availability = $assignment->supervisor->availabilities->filter(fn ($row) =>
@@ -786,6 +803,7 @@ class AttendanceRecordController extends Controller
 
         $dates = [];
         for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
+            if ($this->dateCalculator->isBreakDate($date, $breaks)) continue;
             if ($availability->contains(fn ($row) =>
                 $row->day === strtolower($date->format('l'))
                 && (! $row->available_from || $row->available_from->lte($date))

@@ -19,10 +19,13 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Throwable;
+use App\Services\Distribution\ClinicalScheduleDateCalculator;
 
 class AttendanceWarningController extends Controller
 {
     use ScopesByDepartmentAndLevel;
+
+    public function __construct(private ClinicalScheduleDateCalculator $dateCalculator) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -199,7 +202,7 @@ class AttendanceWarningController extends Controller
             ->whereIn('student_id', $this->applyStudentAccessScope(Student::query())->select('students.id'))
             ->whereHas('distributionVersion', fn ($query) => $query->where('status', 'published')->where('is_current', true))
             ->with(['studentSubgroup:id,student_group_id', 'rotationBlock:id,rotation_id,from_week,to_week',
-                'rotationBlock.rotation:id,academic_year_id,start_date'])
+                'rotationBlock.rotation:id,academic_year_id,start_date', 'distributionVersion.breaks'])
             ->get()->groupBy('student_id');
 
         // Campus attendance may be a student's first recorded session in a rotation.
@@ -216,6 +219,7 @@ class AttendanceWarningController extends Controller
                 'rotationBlock.rotation.course:id,code,name_ar,name_en,credit_hours',
                 'rotationBlock.rotation.academicYear:id,code,start_date,end_date',
                 'rotationBlock.rotation.clinicalPeriod:id,academic_year_id,code,name_ar,name_en,sequence',
+                'distributionVersion.breaks',
             ]);
         if ($departmentId) $assignmentQuery->whereHas('rotationBlock', fn ($block) => $block->where('department_id', $departmentId));
         if ($this->isSupervisorOnly($roles)) $assignmentQuery->where('supervisor_id', $user?->person?->id ?: 0);
@@ -245,8 +249,10 @@ class AttendanceWarningController extends Controller
                     if (!$rotation?->start_date || !$block?->from_week || !$block?->to_week
                         || (int) $assignment->studentSubgroup?->student_group_id !== (int) $lecture->student_group_id
                         || (int) $rotation->academic_year_id !== (int) $lecture->group?->academic_year_id) return false;
-                    $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->toDateString();
-                    $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->toDateString();
+                    $breaks = $assignment->distributionVersion?->breaks ?? [];
+                    if ($this->dateCalculator->isBreakDate($date, $breaks)) return false;
+                    $start = $this->dateCalculator->calculateBlockStartDate($rotation->start_date, (int) $block->from_week, $breaks);
+                    $end = $this->dateCalculator->calculateBlockEndDate($rotation->start_date, (int) $block->to_week, $breaks);
                     return $date >= $start && $date <= $end;
                 })->map(fn (StudentClinicalAssignment $assignment) => $assignment->rotationBlock->rotation_id)->unique()->values();
                 // Never attribute a lecture to the wrong course when an assignment is ambiguous.

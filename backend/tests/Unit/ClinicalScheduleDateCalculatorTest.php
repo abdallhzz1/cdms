@@ -69,4 +69,24 @@ class ClinicalScheduleDateCalculatorTest extends TestCase
         $this->assertEquals('2028-02-20', $startDate);
         $this->assertEquals('2028-03-04', $endDate);
     }
+
+    public function test_break_skips_week_markers_inside_the_break_without_changing_week_numbers(): void
+    {
+        $breaks = [['start_date' => '2027-01-01', 'end_date' => '2027-01-08']];
+
+        $this->assertSame('2026-12-31', $this->calculator->calculateBlockStartDate('2026-10-29', 10, $breaks));
+        $this->assertSame('2027-01-14', $this->calculator->calculateBlockStartDate('2026-10-29', 11, $breaks));
+        $this->assertSame('2027-01-20', $this->calculator->calculateBlockEndDate('2026-10-29', 11, $breaks));
+    }
+
+    public function test_multiple_breaks_are_applied_in_sequence(): void
+    {
+        $breaks = [
+            ['start_date' => '2026-09-08', 'end_date' => '2026-09-14'],
+            ['start_date' => '2026-09-22', 'end_date' => '2026-09-28'],
+        ];
+
+        $this->assertSame('2026-09-15', $this->calculator->calculateBlockStartDate('2026-09-01', 2, $breaks));
+        $this->assertSame('2026-09-29', $this->calculator->calculateBlockStartDate('2026-09-01', 3, $breaks));
+    }
 }

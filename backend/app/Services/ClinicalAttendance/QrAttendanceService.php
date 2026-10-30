@@ -16,10 +16,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Services\Distribution\ClinicalScheduleDateCalculator;
 
 class QrAttendanceService
 {
-    public function __construct(private QrTokenService $tokens) {}
+    public function __construct(private QrTokenService $tokens, private ClinicalScheduleDateCalculator $dateCalculator) {}
 
     public function open(User $actor, int $assignmentId, string $date): ClinicalQrAttendanceSession
     {
@@ -134,13 +135,15 @@ class QrAttendanceService
     }
     private function ensureScheduledDate(Person $person, StudentClinicalAssignment $assignment, string $date): void
     {
-        $assignment->loadMissing('rotationBlock.rotation');
+        $assignment->loadMissing('rotationBlock.rotation', 'distributionVersion.breaks');
         $block = $assignment->rotationBlock;
         $rotation = $block?->rotation;
         abort_unless($rotation?->start_date && $block?->from_week && $block?->to_week, 422, 'لا يوجد جدول منشور صالح لهذه المجموعة.');
         $day = Carbon::parse($date)->startOfDay();
-        $start = Carbon::parse($rotation->start_date)->addWeeks((int) $block->from_week - 1)->startOfDay();
-        $end = Carbon::parse($rotation->start_date)->addWeeks((int) $block->to_week)->subDay()->endOfDay();
+        $breaks = $assignment->distributionVersion?->breaks ?? [];
+        abort_if($this->dateCalculator->isBreakDate($day, $breaks), 422, 'اليوم المحدد يقع ضمن عطلة الجدول السريري.');
+        $start = Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, (int) $block->from_week, $breaks))->startOfDay();
+        $end = Carbon::parse($this->dateCalculator->calculateBlockEndDate($rotation->start_date, (int) $block->to_week, $breaks))->endOfDay();
         abort_unless($day->gte($start) && $day->lte($end), 422, 'اليوم المحدد خارج فترة تكليف المجموعة.');
         $scheduled = $person->availabilities()->where('training_site_id', $assignment->training_site_id)
             ->where('day', strtolower($day->format('l')))

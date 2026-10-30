@@ -1013,6 +1013,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 ->middleware('permission:distribution.update')->name('cells.destroy');
             Route::put('versions/{version}/blocks/{block}/activity', [CourseDistributionController::class, 'updateBlockActivity'])
                 ->middleware('permission:distribution.update')->name('blocks.activity.update');
+            Route::post('versions/{version}/breaks', [CourseDistributionController::class, 'storeBreak'])
+                ->middleware('permission:distribution.update')->name('breaks.store');
+            Route::put('versions/{version}/breaks/{break}', [CourseDistributionController::class, 'updateBreak'])
+                ->middleware('permission:distribution.update')->name('breaks.update');
+            Route::delete('versions/{version}/breaks/{break}', [CourseDistributionController::class, 'destroyBreak'])
+                ->middleware('permission:distribution.update')->name('breaks.destroy');
             Route::post('versions/{version}/rows', [CourseDistributionController::class, 'storeScheduleRow'])
                 ->middleware('permission:distribution.schedule_rows.manage')->name('rows.store');
             Route::put('versions/{version}/rows/{row}', [CourseDistributionController::class, 'updateScheduleRow'])

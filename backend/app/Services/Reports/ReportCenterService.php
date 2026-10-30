@@ -15,11 +15,14 @@ use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroupRoster;
 use App\Services\DepartmentHeadCourseScope;
+use App\Services\Distribution\ClinicalScheduleDateCalculator;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
 class ReportCenterService
 {
+    public function __construct(private ClinicalScheduleDateCalculator $dateCalculator) {}
+
     public function catalog(): array
     {
         $catalog = [
@@ -343,9 +346,8 @@ class ReportCenterService
         $query = StudentClinicalAssignment::query()
             ->whereHas('distributionVersion', fn ($version) => $version->where('status', 'published')->where('is_current', true))
             ->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation
-                ->whereDate('start_date', '<=', $rangeEnd)
-                ->where(fn ($period) => $period->whereNull('end_date')->orWhereDate('end_date', '>=', $rangeStart)))
-            ->with(['rotationBlock.rotation:id,start_date,academic_level', 'trainingSite:id,name_ar']);
+                ->whereDate('start_date', '<=', $rangeEnd))
+            ->with(['rotationBlock.rotation:id,start_date,academic_level', 'distributionVersion.breaks', 'trainingSite:id,name_ar']);
         $this->filterAssignments($query, $filters);
 
         return $query;
@@ -358,9 +360,12 @@ class ReportCenterService
             return null;
         }
 
+        $assignment->loadMissing('distributionVersion.breaks');
+        $breaks = $assignment->distributionVersion?->breaks ?? [];
+
         return [
-            CarbonImmutable::parse($rotation->start_date)->addWeeks(max(0, (int) $assignment->rotationBlock->from_week - 1))->startOfDay(),
-            CarbonImmutable::parse($rotation->start_date)->addWeeks((int) $assignment->rotationBlock->to_week)->subDay()->endOfDay(),
+            CarbonImmutable::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, (int) $assignment->rotationBlock->from_week, $breaks))->startOfDay(),
+            CarbonImmutable::parse($this->dateCalculator->calculateBlockEndDate($rotation->start_date, (int) $assignment->rotationBlock->to_week, $breaks))->endOfDay(),
         ];
     }
 

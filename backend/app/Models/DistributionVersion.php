@@ -51,6 +51,11 @@ class DistributionVersion extends Model
         return $this->hasMany(CourseScheduleCell::class);
     }
 
+    public function breaks()
+    {
+        return $this->hasMany(DistributionVersionBreak::class)->orderBy('start_date')->orderBy('id');
+    }
+
     public function scopeCurrentPublishedForRotation($query, int $rotationId)
     {
         return $query->where('rotation_id', $rotationId)
