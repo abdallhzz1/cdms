@@ -335,6 +335,8 @@ describe('clinical supervisor workspace',()=>{
     const activePeriod=await screen.findByRole('button',{name:/Second clinical period/});
     expect(activePeriod).toHaveAttribute('aria-pressed','true');
     expect(screen.getByRole('button',{name:/First clinical period/})).toHaveAttribute('aria-pressed','false');
+    expect(screen.getByText('Clinical period').nextElementSibling).toHaveClass('overflow-x-auto');
+    expect(screen.getByText('My groups').nextElementSibling).toHaveClass('overflow-x-auto','sm:grid');
     expect(screen.getByRole('spinbutton',{name:'Score out of 10'})).toBeEnabled();
     const weekSelect=screen.getByLabelText('Assessment time for this group');
     expect(weekSelect).toHaveValue('1');
