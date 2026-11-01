@@ -303,7 +303,8 @@ describe('clinical supervisor workspace',()=>{
     const assignment={...workspace.assignments[0],rotation_block:{...workspace.assignments[0].rotation_block,rotation:{...workspace.assignments[0].rotation_block.rotation,course:{...workspace.assignments[0].rotation_block.rotation.course,assessment_components:[{code:'clinical',max_score:20,entry_max_score:10,assessment_frequency:'period',mini_osce_max_score:5}]}}}};
     const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope({...workspace,assignments:[assignment],mini_osce_scores:[]});if(url.includes('/my-supervisor-mini-osce'))return envelope({score:4,max_score:5});if(url.includes('/my-supervisor-assessment-batches'))return envelope({batch_uuid:'period',assessments:[{id:1,status:'submitted'}]});throw new Error(`Unmocked ${url} ${init?.method}`)});
     renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=0'});
-    expect(await screen.findByRole('option',{name:'One assessment per training period'})).toBeInTheDocument();
+    expect(await screen.findByText(/Period assessment ·/)).toBeInTheDocument();
+    expect(screen.queryByRole('combobox',{name:'Assessment week'})).not.toBeInTheDocument();
     await userEvent.type(screen.getByRole('spinbutton',{name:'Score out of 10'}),'8');
     await userEvent.type(screen.getByRole('spinbutton',{name:'Mini OSCE Clinical Student'}),'4');
     await userEvent.click(screen.getByRole('button',{name:'Save'}));
@@ -338,14 +339,24 @@ describe('clinical supervisor workspace',()=>{
     expect(screen.getByText('Clinical period').nextElementSibling).toHaveClass('overflow-x-auto');
     expect(screen.getByText('My groups').nextElementSibling).toHaveClass('overflow-x-auto','sm:grid');
     expect(screen.getByRole('spinbutton',{name:'Score out of 10'})).toBeEnabled();
-    const weekSelect=screen.getByLabelText('Assessment time for this group');
+    const weekSelect=screen.getByLabelText('Assessment week');
     expect(weekSelect).toHaveValue('1');
     expect(within(weekSelect).getAllByRole('option')).toHaveLength(2);
     expect(within(weekSelect).getByRole('option',{name:/Week 1/})).toHaveTextContent(shift(-3).split('-').reverse().join('/'));
     expect(screen.getByText('Current Student')).toBeVisible();
     await userEvent.click(screen.getByRole('button',{name:/First clinical period/}));
     expect(screen.getByText('Clinical Student')).toBeVisible();
-    expect(screen.getByLabelText('Assessment time for this group')).toHaveValue('2');
+    expect(screen.getByLabelText('Assessment week')).toHaveValue('2');
+  });
+
+  it('hides the redundant week selector when a group has one assessment week', async()=>{
+    const shift=(days:number)=>{const date=new Date();date.setDate(date.getDate()+days);return dateValue(date);};
+    const assignment={...workspace.assignments[0],session_start_date:shift(-3),session_end_date:shift(3),evaluation_weeks:[{number:5,start_date:shift(-3),end_date:shift(3)}],rotation_block:{...workspace.assignments[0].rotation_block,from_week:5,to_week:5}};
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments:[assignment]}));
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments'});
+    expect(await screen.findByRole('spinbutton',{name:'Score out of 10'})).toBeEnabled();
+    expect(screen.queryByRole('combobox',{name:'Assessment week'})).not.toBeInTheDocument();
+    expect(screen.getByText(/Week 5 ·/)).toBeVisible();
   });
 
   it('keeps a returned old assessment out of 10 after switching the course to direct /15',async()=>{
