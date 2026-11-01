@@ -7,6 +7,7 @@ import { SupervisorAssessmentsPage } from './SupervisorAssessmentsPage';
 import { SupervisorOscePage } from './SupervisorOscePage';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { agendaWeekStart, buildSupervisorAgenda, preferredAgendaWeek, sortAgendaByNextSession } from './SupervisorSchedulePage';
+import { dateValue } from './supervisorWorkspace';
 
 const envelope=(data:unknown,status=200)=>new Response(JSON.stringify({success:status<400,data:status<400?data:null,message:status<400?null:'Forbidden',errors:{},meta:{}}),{status,headers:{'Content-Type':'application/json'}});
 const permissions=['supervisor.workspace.view','attendance.view','attendance.record','assessment.view','assessment.create'].map(code=>({code,scope:'global'}));
@@ -218,7 +219,7 @@ describe('clinical supervisor workspace',()=>{
     const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(mixed);if(url.includes('/my-supervisor-assessment-batches'))return envelope({batch_uuid:'mixed',assessments:[{id:1,status:'submitted'},{id:2,status:'submitted'}]});throw new Error(`Unmocked ${url} ${init?.method}`)});
     renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments'});
     const scores=await screen.findAllByRole('spinbutton');
-    expect(within(screen.getAllByRole('combobox')[1]).getAllByRole('option')).toHaveLength(1);
+    expect(screen.getAllByRole('button',{name:/General Surgery — L \(L1\)/})).toHaveLength(1);
     await userEvent.type(scores[0],'8');
     await userEvent.type(scores[1],'9');
     await userEvent.click(screen.getByRole('button',{name:'Submit group assessment'}));
@@ -319,11 +320,30 @@ describe('clinical supervisor workspace',()=>{
     const old={id:70,student_id:7,student_clinical_assignment_id:42,assessment_kind:'period',evaluation_week:null,score:8,max_score:10,status:'submitted',created_at:'2026-09-06'};
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments,assessments:[old]}));
     renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=0'});
-    await screen.findByRole('option',{name:'General Surgery — L (L1) · Al Ahli Hospital'});
-    const groups=screen.getAllByRole('combobox')[1];
-    expect(within(groups).getAllByRole('option')).toHaveLength(1);
+    await screen.findByRole('button',{name:/General Surgery — L \(L1\)/});
+    expect(screen.getAllByRole('button',{name:/General Surgery — L \(L1\)/})).toHaveLength(1);
     await waitFor(()=>expect(screen.getByRole('spinbutton',{name:'Score out of 10'})).toHaveValue(8));
     expect(screen.getByRole('button',{name:'Group assessment submitted'})).toBeDisabled();
+  });
+
+  it('opens the active clinical period and only its group weeks when week numbers repeat', async()=>{
+    const shift=(days:number)=>{const date=new Date();date.setDate(date.getDate()+days);return dateValue(date);};
+    const old={...workspace.assignments[0],rotation_block:{...workspace.assignments[0].rotation_block,rotation:{...workspace.assignments[0].rotation_block.rotation,clinical_period:{id:1,code:'P1',name_ar:'الفترة السريرية الأولى',name_en:'First clinical period',sequence:1}}}};
+    const current={...old,id:51,distribution_version_id:8,rotation_block_id:52,session_start_date:shift(-3),session_end_date:shift(10),evaluation_weeks:[{number:1,start_date:shift(-3),end_date:shift(3)},{number:2,start_date:shift(4),end_date:shift(10)}],student:{...old.student,id:8,full_name_en:'Current Student'},rotation_block:{...old.rotation_block,id:52,rotation:{...old.rotation_block.rotation,clinical_period:{id:2,code:'P2',name_ar:'الفترة السريرية الثانية',name_en:'Second clinical period',sequence:2}}}};
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments:[old,current]}));
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments'});
+    const activePeriod=await screen.findByRole('button',{name:/Second clinical period/});
+    expect(activePeriod).toHaveAttribute('aria-pressed','true');
+    expect(screen.getByRole('button',{name:/First clinical period/})).toHaveAttribute('aria-pressed','false');
+    expect(screen.getByRole('spinbutton',{name:'Score out of 10'})).toBeEnabled();
+    const weekSelect=screen.getByLabelText('Assessment time for this group');
+    expect(weekSelect).toHaveValue('1');
+    expect(within(weekSelect).getAllByRole('option')).toHaveLength(2);
+    expect(within(weekSelect).getByRole('option',{name:/Week 1/})).toHaveTextContent(shift(-3).split('-').reverse().join('/'));
+    expect(screen.getByText('Current Student')).toBeVisible();
+    await userEvent.click(screen.getByRole('button',{name:/First clinical period/}));
+    expect(screen.getByText('Clinical Student')).toBeVisible();
+    expect(screen.getByLabelText('Assessment time for this group')).toHaveValue('2');
   });
 
   it('keeps a returned old assessment out of 10 after switching the course to direct /15',async()=>{
