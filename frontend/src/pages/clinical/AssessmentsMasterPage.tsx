@@ -12,7 +12,7 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
 
-type Named = { id: number; code?: string; name_ar?: string; name_en?: string | null };
+type Named = { id: number; code?: string; name_ar?: string; name_en?: string | null; sequence?: number };
 type Person = { id: number; full_name_ar: string; full_name_en?: string | null };
 type Student = { id: number; university_number: string; full_name_ar: string; full_name_en?: string | null; photo_url?: string | null };
 type ReviewSubgroup = { id: number; name: string; student_count: number; week_count: number; students: Student[] };
@@ -137,6 +137,7 @@ function AssessmentWeekTable({ students, rotations, ar, label }: { students: Stu
   const matrixRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(() => Math.max(240, window.innerWidth - 24));
   const [startIndex, setStartIndex] = useState(0);
+  const [periodChoice, setPeriodChoice] = useState('');
   const [selection, setSelection] = useState<{ row: ReviewStudent; week: ReviewWeek; rotation: ReviewRotation } | null>(null);
 
   useEffect(() => {
@@ -159,7 +160,13 @@ function AssessmentWeekTable({ students, rotations, ar, label }: { students: Stu
     };
   }, []);
 
-  const assignedRotations = rotations.filter(rotation => rotation.weeks.length > 0);
+  const periods = [...new Map(rotations.filter(rotation => rotation.weeks.length > 0).map(rotation => {
+    const period = rotation.clinical_period;
+    const key = period ? `period:${period.id}` : 'period:none';
+    return [key, { key, period, startDate: rotation.weeks.map(week => week.start_date).filter((date): date is string => Boolean(date)).sort()[0] ?? '' }] as const;
+  })).values()].sort((a, b) => (a.period?.sequence ?? Number.MAX_SAFE_INTEGER) - (b.period?.sequence ?? Number.MAX_SAFE_INTEGER) || a.startDate.localeCompare(b.startDate));
+  const selectedPeriod = periods.find(period => period.key === periodChoice) ?? periods[0] ?? null;
+  const assignedRotations = rotations.filter(rotation => rotation.weeks.length > 0 && (rotation.clinical_period ? `period:${rotation.clinical_period.id}` : 'period:none') === selectedPeriod?.key);
   const columns = assignedRotations.flatMap(rotation => [...rotation.weeks].sort((a, b) => a.number - b.number).map(week => ({ rotation, week })));
   const roster = [...new Map([...students, ...columns.flatMap(({ week }) => week.students.map(row => row.student))].map(student => [student.id, student])).values()];
   const studentWidth = width < 640 ? Math.min(176, Math.round(width * 0.46)) : 216;
@@ -175,6 +182,7 @@ function AssessmentWeekTable({ students, rotations, ar, label }: { students: Stu
 
   return <>
     <div ref={matrixRef} className="min-w-0">
+      {periods.some(item => item.period) && <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2.5 sm:justify-end"><label htmlFor={`clinical-period-${label}`} className="shrink-0 text-[11px] font-bold text-slate-600">{ar ? 'الفترة السريرية' : 'Clinical period'}</label><select id={`clinical-period-${label}`} aria-label={ar ? 'الفترة السريرية' : 'Clinical period'} value={selectedPeriod?.key ?? ''} onChange={event => { setPeriodChoice(event.target.value); setStartIndex(0); }} className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-teal-500 sm:max-w-sm">{periods.map(item => <option key={item.key} value={item.key}>{item.period ? courseName(item.period, ar) : ar ? 'جدول سنوي' : 'Annual schedule'}</option>)}</select></div>}
       {paged && <div role="group" aria-label={t('assessments.matrix.weekNavigation')} className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-2 py-2 sm:px-3">
         <button type="button" disabled={pageStart === 0} onClick={() => setStartIndex(pageStart - capacity)} aria-label={t('assessments.matrix.previousWeeks')} title={t('assessments.matrix.previousWeeks')} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-teal-800 hover:bg-teal-50 disabled:cursor-default disabled:opacity-30"><PreviousIcon aria-hidden="true" className="h-4 w-4" /></button>
         <p aria-live="polite" className="min-w-0 text-center text-[11px] font-medium text-slate-600">{t('assessments.matrix.visibleColumns')} <span dir="ltr" className="inline-block font-bold tabular-nums text-slate-800">{pageStart + 1}–{pageStart + visibleColumns.length} / {columns.length}</span></p>

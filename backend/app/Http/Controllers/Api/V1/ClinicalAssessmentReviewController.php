@@ -102,7 +102,7 @@ class ClinicalAssessmentReviewController extends Controller
                 'studentSubgroup.group',
                 'rotationBlock.rotation.course.assessmentComponents',
                 'rotationBlock.rotation.academicYear:id,code',
-                'rotationBlock.rotation.clinicalPeriod:id,code,name_ar,name_en',
+                'rotationBlock.rotation.clinicalPeriod:id,code,name_ar,name_en,sequence',
                 'trainingSite:id,name_ar,name_en',
                 'supervisor:id,full_name_ar,full_name_en',
             ])->get();
