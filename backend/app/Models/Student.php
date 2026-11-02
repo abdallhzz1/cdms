@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Support\ArabicText;
 use Carbon\Carbon;
 use Database\Factories\StudentFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -47,6 +49,14 @@ class Student extends Model
 {
     /** @use HasFactory<StudentFactory> */
     use HasFactory;
+
+    protected function fullNameAr(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => ArabicText::normalize($value),
+            set: fn ($value) => ArabicText::normalize($value),
+        );
+    }
 
     protected $fillable = [
         'university_number',

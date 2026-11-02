@@ -2,13 +2,15 @@
 
 namespace App\Models;
 
+use App\Support\ArabicText;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 /**
  * Person — the unified staff/people record.
@@ -45,6 +47,14 @@ class Person extends Model
 {
     /** @use HasFactory<\Database\Factories\PersonFactory> */
     use HasFactory;
+
+    protected function fullNameAr(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => ArabicText::normalize($value),
+            set: fn ($value) => ArabicText::normalize($value),
+        );
+    }
 
     protected $fillable = [
         'staff_code',
