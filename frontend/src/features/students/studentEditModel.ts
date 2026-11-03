@@ -2,6 +2,7 @@ export type StudentEditForm = {
   university_number: string;
   full_name_ar: string;
   full_name_en: string;
+  gender: string;
   academic_level: string;
   batch_year: number;
   registration_status: string;
@@ -20,6 +21,7 @@ export const emptyStudentEditForm: StudentEditForm = {
   university_number: '',
   full_name_ar: '',
   full_name_en: '',
+  gender: '',
   academic_level: 'fourth',
   batch_year: 2022,
   registration_status: 'active',
@@ -46,6 +48,7 @@ export function buildStudentEditForm(student: Record<string, unknown>): StudentE
     university_number: String(student.university_number || ''),
     full_name_ar: String(student.full_name_ar || ''),
     full_name_en: String(student.full_name_en || ''),
+    gender: String(student.gender || ''),
     academic_level: academicLevel,
     batch_year: Number(student.batch_year || defaultBatchYear),
     registration_status: String(student.registration_status || 'active'),
@@ -68,6 +71,7 @@ export function buildStudentUpdatePayload(form: StudentEditForm) {
     university_number: form.university_number.trim(),
     full_name_ar: form.full_name_ar.trim(),
     full_name_en: form.full_name_en.trim(),
+    gender: form.gender || null,
     academic_level: form.academic_level,
     batch_year: Number(form.batch_year),
     registration_status: form.registration_status,
