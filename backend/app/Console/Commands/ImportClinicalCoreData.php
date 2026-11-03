@@ -79,7 +79,9 @@ class ImportClinicalCoreData extends Command
         }
         foreach (['02_طلاب_السنة_الرابعة'=>'fourth','03_طلاب_السنة_الخامسة'=>'fifth','04_طلاب_السنة_السادسة'=>'sixth'] as $sheet=>$level) foreach ($book->getSheetByName($sheet)->toArray(null,true,true,false) as $index=>$row) {
             if ($index===0 || blank($row[0])) continue;
-            $data=['university_number'=>(string)$row[0],'full_name_ar'=>(string)$row[1],'full_name_en'=>$row[2] ?: null,'national_id'=>$row[3] ?: null,'gender'=>in_array(mb_strtolower((string)$row[4]),['أنثى','female'])?'female':'male','date_of_birth'=>$row[5] ?: null,'city'=>$row[6] ?: null,'phone'=>$row[7] ?: null,'guardian_phone'=>$row[8] ?: null,'university_email'=>$row[9] ?: null,'photo_url'=>$row[10] ?: null,'batch_year'=>is_numeric($row[11])?(int)$row[11]:null,'academic_level'=>$level,'registration_status'=>'active','warning_count'=>0,'clinical_fees_status'=>'unknown','has_amboss_subscription'=>false,'data_source'=>'clinical-workbook'];
+            $rawGender=mb_strtolower(trim((string)$row[4]));
+            $data=['university_number'=>(string)$row[0],'full_name_ar'=>(string)$row[1],'full_name_en'=>$row[2] ?: null,'national_id'=>$row[3] ?: null,'date_of_birth'=>$row[5] ?: null,'city'=>$row[6] ?: null,'phone'=>$row[7] ?: null,'guardian_phone'=>$row[8] ?: null,'university_email'=>$row[9] ?: null,'photo_url'=>$row[10] ?: null,'batch_year'=>is_numeric($row[11])?(int)$row[11]:null,'academic_level'=>$level,'registration_status'=>'active','warning_count'=>0,'clinical_fees_status'=>'unknown','has_amboss_subscription'=>false,'data_source'=>'clinical-workbook'];
+            if ($rawGender !== '') $data['gender']=match($rawGender){'أنثى','انثى','female'=>'female','ذكر','male'=>'male',default=>null};
             if (!$dryRun) Student::updateOrCreate(['university_number'=>$data['university_number']],$data); $students++;
         }
         foreach ($book->getSheetByName('08_الطاقم_والمشرفون')->toArray(null,true,true,false) as $index=>$row) {

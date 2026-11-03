@@ -260,6 +260,9 @@ class StudentController extends Controller
                 fn ($q, $w) => $q->where('warning_count', '>=', $w)
             )
             ->when($request->query('search'), fn ($q, $s) => app(StudentDirectorySearch::class)->apply($q, (string) $s))
+            ->when($request->query('gender') === 'male', fn ($q) => $q->where('gender', 'male'))
+            ->when($request->query('gender') === 'female', fn ($q) => $q->where('gender', 'female'))
+            ->when($request->query('gender') === 'unspecified', fn ($q) => $q->where(fn ($gender) => $gender->whereNull('gender')->orWhereNotIn('gender', ['male', 'female'])))
             ->orderBy('full_name_ar')
             ->paginate($request->integer('per_page', 25));
 
@@ -280,6 +283,52 @@ class StudentController extends Controller
                 'per_page' => $students->perPage(),
             ]
         );
+    }
+
+    /** Return gender counts for the whole permission-scoped directory result, across all pages. */
+    public function genderSummary(Request $request): JsonResponse
+    {
+        $scopedLevels = $this->getUserScopedLevels();
+        $query = $this->applyStudentAccessScope(Student::query());
+
+        if ($request->filled('quality_survey_id')) {
+            abort_unless(Gate::forUser($request->user())->allows('permission', ['quality.view']), 403);
+            $qualitySurvey = QualitySurvey::findOrFail($request->integer('quality_survey_id'));
+            abort_if(empty($qualitySurvey->target_levels), 422);
+
+            if (in_array($request->query('quality_participation'), ['completed', 'pending'], true)) {
+                $query->whereIn('students.id', function ($subquery) use ($qualitySurvey) {
+                    $subquery->select('student_id')->from('quality_survey_audience_students')->where('quality_survey_id', $qualitySurvey->id);
+                });
+                $query->{$request->query('quality_participation') === 'pending' ? 'whereNotIn' : 'whereIn'}('students.id', function ($subquery) use ($qualitySurvey) {
+                    $subquery->select('student_id')->from('quality_survey_participations')->where('quality_survey_id', $qualitySurvey->id);
+                });
+            }
+        }
+
+        $counts = $query
+            ->when(! empty($scopedLevels) && ! $request->query('academic_level'), fn ($q) => $q->whereIn('academic_level', $scopedLevels))
+            ->when($request->query('academic_level'), fn ($q, $level) => $q->where('academic_level', $level))
+            ->when($request->query('main_group_code'), function ($q, $groupCode) {
+                $normalized = strtoupper(trim((string) $groupCode));
+                $q->whereHas('groupRegistrationRosters.group', fn ($group) => $group->whereRaw('UPPER(name) = ?', [$normalized]));
+            })
+            ->when($request->query('search'), fn ($q, $search) => app(StudentDirectorySearch::class)->apply($q, (string) $search))
+            ->selectRaw("SUM(CASE WHEN gender = 'female' THEN 1 ELSE 0 END) AS female")
+            ->selectRaw("SUM(CASE WHEN gender = 'male' THEN 1 ELSE 0 END) AS male")
+            ->selectRaw("SUM(CASE WHEN gender IS NULL OR gender NOT IN ('female', 'male') THEN 1 ELSE 0 END) AS unspecified")
+            ->first();
+
+        $female = (int) ($counts?->female ?? 0);
+        $male = (int) ($counts?->male ?? 0);
+        $unspecified = (int) ($counts?->unspecified ?? 0);
+
+        return ApiResponse::success([
+            'female' => $female,
+            'male' => $male,
+            'unspecified' => $unspecified,
+            'total' => $female + $male + $unspecified,
+        ]);
     }
 
     /**
@@ -734,7 +783,7 @@ class StudentController extends Controller
             'students.*.academic_level' => ['required', 'string', 'max:20'],
             'students.*.main_group_code' => ['nullable', 'string', 'max:2'],
             'students.*.academic_registration_status' => ['nullable', 'in:registered,unregistered'],
-            'students.*.gender' => ['nullable', 'in:male,female'],
+            'students.*.gender' => ['nullable', 'string', 'max:20'],
             'students.*.city' => ['nullable', 'string', 'max:100'],
             'students.*.phone' => ['nullable', 'string', 'max:30'],
             'students.*.university_email' => ['nullable', 'email', 'max:255'],
@@ -808,12 +857,12 @@ class StudentController extends Controller
             foreach ($validated['students'] as $row) {
                 $univNumber = trim((string) $row['university_number']);
                 $level = $normalizeLevel($row['academic_level']) ?: 'fourth';
+                $rawGender = mb_strtolower(trim((string) ($row['gender'] ?? '')));
 
                 $data = [
                     'full_name_ar' => trim((string) $row['full_name_ar']),
                     'full_name_en' => ! empty($row['full_name_en']) ? trim((string) $row['full_name_en']) : null,
                     'national_id' => ! empty($row['national_id']) ? trim((string) $row['national_id']) : null,
-                    'gender' => in_array(strtolower((string) ($row['gender'] ?? '')), ['male', 'female']) ? strtolower((string) $row['gender']) : (str_contains((string) ($row['gender'] ?? ''), 'أنثى') ? 'female' : 'male'),
                     'city' => ! empty($row['city']) ? trim((string) $row['city']) : 'الخليل',
                     'phone' => ! empty($row['phone']) ? trim((string) $row['phone']) : null,
                     'university_email' => ! empty($row['university_email']) ? trim((string) $row['university_email']) : "{$univNumber}@students.hebron.edu",
@@ -823,6 +872,14 @@ class StudentController extends Controller
                     'academic_registration_status' => in_array(strtolower((string) ($row['academic_registration_status'] ?? 'registered')), ['registered', 'unregistered'], true)
                         ? strtolower((string) ($row['academic_registration_status'] ?? 'registered')) : 'registered',
                 ];
+
+                if ($rawGender !== '') {
+                    $data['gender'] = match ($rawGender) {
+                        'male', 'ذكر' => 'male',
+                        'female', 'أنثى', 'انثى' => 'female',
+                        default => null,
+                    };
+                }
 
                 if (isset($row['gpa']) && $row['gpa'] !== '' && $row['gpa'] !== null) {
                     $data['gpa'] = (float) $row['gpa'];

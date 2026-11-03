@@ -96,7 +96,7 @@ function mapStudentImportRows(rows: unknown[][]): any[] {
         university_number: cols[0], full_name_ar: cols[1], full_name_en: cols[2] || '',
         academic_level: cols[3] || 'fourth', gpa: cols[4] ? Number(cols[4]) : undefined,
         warning_count: cols[5] ? Number(cols[5]) : 0, batch_year: cols[6] || '2022',
-        gender: cols[7] || 'male', phone: cols[8] || '', city: cols[9] || 'الخليل',
+        gender: cols[7] || '', phone: cols[8] || '', city: cols[9] || 'الخليل',
         registration_status: cols[10] || 'active', academic_registration_status: cols[11] || 'registered',
         main_group_code: (cols[12] || '').toUpperCase(),
       }];
@@ -104,7 +104,7 @@ function mapStudentImportRows(rows: unknown[][]): any[] {
     return [{
       university_number: cols[0], full_name_ar: cols[1], full_name_en: cols[2] || '',
       academic_level: cols[3] || 'fourth', batch_year: cols[4] || '2022',
-      gender: cols[5] || 'male', phone: cols[6] || '', city: cols[7] || 'الخليل',
+      gender: cols[5] || '', phone: cols[6] || '', city: cols[7] || 'الخليل',
       registration_status: cols[8] || 'active', academic_registration_status: 'registered',
     }];
   });
@@ -139,6 +139,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     kind === 'students' && isCohortScopedRta ? (assignedRtaLevels[0] ?? '') : '',
   );
   const [mainGroupFilter, setMainGroupFilter] = useState('');
+  const [genderFilter, setGenderFilter] = useState('');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState('50');
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
@@ -196,7 +197,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     batch_year: 2022,
     registration_status: 'active',
     academic_registration_status: 'registered',
-    gender: 'male',
+    gender: '',
     university_email: '',
     phone: '',
     city: 'الخليل',
@@ -217,7 +218,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       batch_year: 2022,
       registration_status: 'active',
       academic_registration_status: 'registered',
-      gender: 'male',
+      gender: '',
       university_email: '',
       phone: '',
       city: 'الخليل',
@@ -233,13 +234,26 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   if (debouncedSearch.trim()) query.set('search', debouncedSearch.trim());
   if (kind === 'students' && levelFilter) query.set('academic_level', levelFilter);
   if (kind === 'students' && mainGroupFilter) query.set('main_group_code', mainGroupFilter);
+  if (kind === 'students' && genderFilter) query.set('gender', genderFilter);
   if (kind === 'students' && qualitySurveyId && can('quality.view')) query.set('quality_survey_id', qualitySurveyId);
   if (kind === 'students' && qualitySurveyId && qualityParticipation) query.set('quality_participation', qualityParticipation);
   
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['directory', kind, page, perPage, debouncedSearch, levelFilter, mainGroupFilter, qualitySurveyId, qualityParticipation],
+    queryKey: ['directory', kind, page, perPage, debouncedSearch, levelFilter, mainGroupFilter, genderFilter, qualitySurveyId, qualityParticipation],
     queryFn: () => apiFetch<RecordItem[]>(`${paths[kind]}?${query.toString()}`),
     placeholderData: (previousData) => previousData,
+  });
+
+  const genderSummaryQuery = new URLSearchParams();
+  if (debouncedSearch.trim()) genderSummaryQuery.set('search', debouncedSearch.trim());
+  if (kind === 'students' && levelFilter) genderSummaryQuery.set('academic_level', levelFilter);
+  if (kind === 'students' && mainGroupFilter) genderSummaryQuery.set('main_group_code', mainGroupFilter);
+  if (kind === 'students' && qualitySurveyId && can('quality.view')) genderSummaryQuery.set('quality_survey_id', qualitySurveyId);
+  if (kind === 'students' && qualitySurveyId && qualityParticipation) genderSummaryQuery.set('quality_participation', qualityParticipation);
+  const { data: genderSummary } = useQuery({
+    queryKey: ['directory', 'gender-summary', debouncedSearch, levelFilter, mainGroupFilter, qualitySurveyId, qualityParticipation],
+    queryFn: () => apiFetch<{ female:number; male:number; unspecified:number; total:number }>(`/students/gender-summary?${genderSummaryQuery.toString()}`),
+    enabled: kind === 'students',
   });
 
   const { data: qualitySurveys = [] } = useQuery({
@@ -448,6 +462,37 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   
   const rows = data ?? [];
   const name = (row: RecordItem) => String(locale === 'ar' ? row.full_name_ar ?? row.name_ar ?? '' : row.full_name_en ?? row.name_en ?? row.full_name_ar ?? row.name_ar ?? '');
+  const genderLabel = (gender: unknown) => gender === 'female'
+    ? (locale === 'ar' ? 'أنثى' : 'Female')
+    : gender === 'male'
+    ? (locale === 'ar' ? 'ذكر' : 'Male')
+    : (locale === 'ar' ? 'غير محدد' : 'Unspecified');
+
+  const handleDownloadGenderReport = () => {
+    if (!genderSummary) return;
+    const reportRows = [
+      [locale === 'ar' ? 'تقرير أعداد الطلبة حسب الجنس' : 'Student Count by Gender'],
+      [locale === 'ar' ? 'الدفعة' : 'Cohort', levelFilter ? cohorts.find(cohort => cohort.value === levelFilter)?.[locale === 'ar' ? 'label_ar' : 'label_en'] ?? levelFilter : (locale === 'ar' ? 'كل الدفعات المتاحة' : 'All available cohorts')],
+      [locale === 'ar' ? 'المجموعة الرئيسية' : 'Main group', mainGroupFilter || (locale === 'ar' ? 'كل المجموعات' : 'All groups')],
+      [locale === 'ar' ? 'يشمل البحث الحالي' : 'Current search applied', debouncedSearch ? (locale === 'ar' ? 'نعم' : 'Yes') : (locale === 'ar' ? 'لا' : 'No')],
+      [locale === 'ar' ? 'استبيان المتابعة' : 'Survey filter', qualitySurveyId ? qualitySurveys.find(survey => String(survey.id) === qualitySurveyId)?.title ?? qualitySurveyId : (locale === 'ar' ? 'بدون تصفية' : 'No filter')],
+      [locale === 'ar' ? 'حالة الاستبيان' : 'Survey status', qualityParticipation === 'completed' ? (locale === 'ar' ? 'أجاب' : 'Completed') : qualityParticipation === 'pending' ? (locale === 'ar' ? 'لم يجب' : 'Pending') : (locale === 'ar' ? 'الكل' : 'All')],
+      [locale === 'ar' ? 'الفئة' : 'Category', locale === 'ar' ? 'العدد' : 'Count'],
+      [locale === 'ar' ? 'الطالبات' : 'Female students', genderSummary.female],
+      [locale === 'ar' ? 'الطلاب' : 'Male students', genderSummary.male],
+      [locale === 'ar' ? 'غير محدد' : 'Unspecified', genderSummary.unspecified],
+      [locale === 'ar' ? 'الإجمالي' : 'Total', genderSummary.total],
+    ];
+    const csv = '\uFEFF' + reportRows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = locale === 'ar' ? 'تقرير_أعداد_الطلبة_حسب_الجنس.csv' : 'student_gender_counts.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
   const studentEmail = (row: RecordItem) => {
     const email = String(row.resolved_university_email || row.university_email || '').trim();
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
@@ -504,6 +549,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
       locale === 'ar' ? 'الرقم الجامعي' : 'University ID', 
       locale === 'ar' ? 'الدفعة' : 'Batch',
       locale === 'ar' ? 'السنة الدراسية' : 'Academic Year', 
+      locale === 'ar' ? 'الجنس' : 'Gender',
       locale === 'ar' ? 'المجموعة الرئيسية' : 'Main Group',
       locale === 'ar' ? 'الحالة الأكاديمية' : 'Status',
       locale === 'ar' ? 'الإجراءات' : 'Actions'
@@ -667,6 +713,17 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               ))}
             </select>
           )}
+          {kind === 'students' && <select
+            value={genderFilter}
+            onChange={event => { setGenderFilter(event.target.value); setPage(1); }}
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-bold text-slate-700 focus:border-teal-500 sm:w-36"
+            aria-label={locale === 'ar' ? 'تصنيف حسب الجنس' : 'Filter by gender'}
+          >
+            <option value="">{locale === 'ar' ? 'كل الطلبة' : 'All genders'}</option>
+            <option value="female">{locale === 'ar' ? 'الطالبات' : 'Female'}</option>
+            <option value="male">{locale === 'ar' ? 'الطلاب' : 'Male'}</option>
+            <option value="unspecified">{locale === 'ar' ? 'غير محدد' : 'Unspecified'}</option>
+          </select>}
         </div>
 
         <div className="flex items-center gap-3 self-start sm:self-auto">
@@ -691,6 +748,24 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
         </div>
       </div>
 
+      {kind === 'students' && <section className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-black text-slate-800">{locale === 'ar' ? 'تقرير أعداد الطلبة حسب الجنس' : 'Student count by gender'}</h2>
+          <button type="button" disabled={!genderSummary} onClick={handleDownloadGenderReport} className="inline-flex h-9 items-center gap-2 rounded-xl bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-50">
+            <Download className="h-4 w-4" />{locale === 'ar' ? 'تنزيل التقرير CSV' : 'Download CSV report'}
+          </button>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            [locale === 'ar' ? 'الطالبات' : 'Female students', genderSummary?.female],
+            [locale === 'ar' ? 'الطلاب' : 'Male students', genderSummary?.male],
+            [locale === 'ar' ? 'غير محدد' : 'Unspecified', genderSummary?.unspecified],
+            [locale === 'ar' ? 'الإجمالي' : 'Total', genderSummary?.total],
+          ].map(([label, count]) => <div key={String(label)} className="rounded-xl bg-slate-50 p-3 text-center"><p className="text-[11px] font-bold text-slate-500">{label}</p><p className="mt-1 text-lg font-black text-teal-800">{count ?? '—'}</p></div>)}
+        </div>
+        <p className="mt-2 text-[10px] text-slate-500">{locale === 'ar' ? 'الأعداد محسوبة لكل النتائج حسب البحث والدفعة والمجموعة، وتشمل الجنسين بغض النظر عن فلتر الجنس أو الصفحة الحالية.' : 'Counts cover all results for search, cohort, and group, across genders and pages.'}</p>
+      </section>}
+
       {/* Records Table */}
       {rows.length === 0 ? (
         <EmptyState message={locale === 'ar' ? 'لا توجد نتائج مطابقة' : 'No matching records'} />
@@ -703,7 +778,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-teal-100 bg-teal-50 text-sm font-black text-teal-700">
                   {row.photo_url ? <img src={row.photo_url} alt={name(row)} className="h-full w-full object-cover"/> : name(row).substring(0,1)}
                 </div>
-                <div className="min-w-0 flex-1"><h3 className="break-words text-sm font-black leading-6 text-slate-800">{name(row)}</h3>{kind==='students'&&<p className="mt-0.5 font-mono text-[11px] text-slate-500" dir="ltr">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span>}{getStatus(row)}{qualityStatus(row)}</div></div>
+                <div className="min-w-0 flex-1"><h3 className="break-words text-sm font-black leading-6 text-slate-800">{name(row)}</h3>{kind==='students'&&<p className="mt-0.5 font-mono text-[11px] text-slate-500" dir="ltr">{row.university_number}</p>}<div className="mt-2 flex flex-wrap gap-1.5">{kind==='students'&&<><span className="rounded-lg bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-800">{getLevelLabel(row.academic_level)}</span><span className="rounded-lg bg-violet-50 px-2 py-1 text-[10px] font-bold text-violet-800">{genderLabel(row.gender)}</span></>}{getStatus(row)}{qualityStatus(row)}</div></div>
               </div>
               {kind==='students'&&<>
                 <div className="mt-3 grid min-w-0 grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]"><div className="min-w-0"><span className="text-slate-400">{locale==='ar'?'الدفعة':'Batch'}</span><p className="mt-1 truncate font-bold text-slate-700">{getBatchLabel(row)}</p></div><div className="min-w-0"><span className="text-slate-400">{locale==='ar'?'المجموعة الرئيسية':'Main group'}</span><p className="mt-1 truncate font-bold text-slate-700">{row.registration_main_group||'—'}</p></div></div>
@@ -778,6 +853,8 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                       {getLevelLabel(row.academic_level)}
                     </span>
                   </TableCell>
+
+                  {kind === 'students' && <TableCell><span className="rounded-lg border border-violet-100 bg-violet-50 px-2.5 py-1 text-xs font-bold text-violet-800">{genderLabel(row.gender)}</span></TableCell>}
 
                   {/* 5. Main registration group */}
                   <TableCell>
@@ -1058,6 +1135,7 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                     onChange={(e) => setStudentForm({ ...studentForm, gender: e.target.value })}
                     className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
                   >
+                    <option value="">{locale === 'ar' ? 'غير محدد' : 'Unspecified'}</option>
                     <option value="male">{locale === 'ar' ? 'ذكر' : 'Male'}</option>
                     <option value="female">{locale === 'ar' ? 'أنثى' : 'Female'}</option>
                   </select>
