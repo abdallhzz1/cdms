@@ -285,52 +285,6 @@ class StudentController extends Controller
         );
     }
 
-    /** Return gender counts for the whole permission-scoped directory result, across all pages. */
-    public function genderSummary(Request $request): JsonResponse
-    {
-        $scopedLevels = $this->getUserScopedLevels();
-        $query = $this->applyStudentAccessScope(Student::query());
-
-        if ($request->filled('quality_survey_id')) {
-            abort_unless(Gate::forUser($request->user())->allows('permission', ['quality.view']), 403);
-            $qualitySurvey = QualitySurvey::findOrFail($request->integer('quality_survey_id'));
-            abort_if(empty($qualitySurvey->target_levels), 422);
-
-            if (in_array($request->query('quality_participation'), ['completed', 'pending'], true)) {
-                $query->whereIn('students.id', function ($subquery) use ($qualitySurvey) {
-                    $subquery->select('student_id')->from('quality_survey_audience_students')->where('quality_survey_id', $qualitySurvey->id);
-                });
-                $query->{$request->query('quality_participation') === 'pending' ? 'whereNotIn' : 'whereIn'}('students.id', function ($subquery) use ($qualitySurvey) {
-                    $subquery->select('student_id')->from('quality_survey_participations')->where('quality_survey_id', $qualitySurvey->id);
-                });
-            }
-        }
-
-        $counts = $query
-            ->when(! empty($scopedLevels) && ! $request->query('academic_level'), fn ($q) => $q->whereIn('academic_level', $scopedLevels))
-            ->when($request->query('academic_level'), fn ($q, $level) => $q->where('academic_level', $level))
-            ->when($request->query('main_group_code'), function ($q, $groupCode) {
-                $normalized = strtoupper(trim((string) $groupCode));
-                $q->whereHas('groupRegistrationRosters.group', fn ($group) => $group->whereRaw('UPPER(name) = ?', [$normalized]));
-            })
-            ->when($request->query('search'), fn ($q, $search) => app(StudentDirectorySearch::class)->apply($q, (string) $search))
-            ->selectRaw("SUM(CASE WHEN gender = 'female' THEN 1 ELSE 0 END) AS female")
-            ->selectRaw("SUM(CASE WHEN gender = 'male' THEN 1 ELSE 0 END) AS male")
-            ->selectRaw("SUM(CASE WHEN gender IS NULL OR gender NOT IN ('female', 'male') THEN 1 ELSE 0 END) AS unspecified")
-            ->first();
-
-        $female = (int) ($counts?->female ?? 0);
-        $male = (int) ($counts?->male ?? 0);
-        $unspecified = (int) ($counts?->unspecified ?? 0);
-
-        return ApiResponse::success([
-            'female' => $female,
-            'male' => $male,
-            'unspecified' => $unspecified,
-            'total' => $female + $male + $unspecified,
-        ]);
-    }
-
     /**
      * POST /api/v1/students
      * Permission: students.create

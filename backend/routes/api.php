@@ -326,8 +326,6 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::prefix('students')->name('students.')->group(function () {
             Route::get('/scope-options', [StudentController::class, 'scopeOptions'])
                 ->middleware('permission:students.view')->name('scope-options');
-            Route::get('/gender-summary', [StudentController::class, 'genderSummary'])
-                ->middleware('permission:students.view')->name('gender-summary');
             Route::get('/', [StudentController::class, 'index'])
                 ->middleware('permission:students.view')->name('index');
             Route::get('/main-groups', [StudentController::class, 'mainGroups'])
@@ -633,6 +631,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         // Unified branded report center
         Route::get('report-center/summary', [ReportCenterController::class, 'summary'])->middleware('permission:reports.view');
+        Route::get('report-center/student-gender-summary', [ReportCenterController::class, 'studentGenderSummary'])->middleware('permission:reports.view');
         Route::get('report-center/clinical-training-sites-2026/details', [ReportCenterController::class, 'clinicalTrainingSiteDetails'])->middleware('permission:reports.view');
         Route::get('report-center/{report}/preview', [ReportCenterController::class, 'preview'])->middleware('permission:reports.view');
         Route::get('report-center/{report}/export', [ReportCenterController::class, 'export'])->middleware(['permission:reports.export', 'throttle:export']);

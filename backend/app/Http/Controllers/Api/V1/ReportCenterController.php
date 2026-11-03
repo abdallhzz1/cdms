@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AcademicYear;
 use App\Models\ClinicalPeriod;
+use App\Models\Student;
 use App\Services\Reports\ReportCenterService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
@@ -28,6 +29,33 @@ class ReportCenterController extends Controller
             'metrics' => $this->reports->summary($filters),
             'reports' => $this->reports->catalog(),
             'generated_at' => now()->toIso8601String(),
+        ]);
+    }
+
+    public function studentGenderSummary(Request $request): JsonResponse
+    {
+        $filters = $request->validate([
+            'academic_year_id' => ['nullable', 'integer', 'exists:academic_years,id'],
+            'academic_level' => ['nullable', 'in:fourth,fifth,sixth'],
+        ]);
+
+        $counts = Student::query()
+            ->when($filters['academic_year_id'] ?? null, fn ($query, $yearId) => $query->where('academic_year_id', $yearId))
+            ->when($filters['academic_level'] ?? null, fn ($query, $level) => $query->where('academic_level', $level))
+            ->selectRaw("SUM(CASE WHEN gender = 'female' THEN 1 ELSE 0 END) AS female")
+            ->selectRaw("SUM(CASE WHEN gender = 'male' THEN 1 ELSE 0 END) AS male")
+            ->selectRaw("SUM(CASE WHEN gender IS NULL OR gender NOT IN ('female', 'male') THEN 1 ELSE 0 END) AS unspecified")
+            ->first();
+
+        $female = (int) ($counts?->female ?? 0);
+        $male = (int) ($counts?->male ?? 0);
+        $unspecified = (int) ($counts?->unspecified ?? 0);
+
+        return ApiResponse::success([
+            'female' => $female,
+            'male' => $male,
+            'unspecified' => $unspecified,
+            'total' => $female + $male + $unspecified,
         ]);
     }
 

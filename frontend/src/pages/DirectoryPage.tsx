@@ -244,18 +244,6 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     placeholderData: (previousData) => previousData,
   });
 
-  const genderSummaryQuery = new URLSearchParams();
-  if (debouncedSearch.trim()) genderSummaryQuery.set('search', debouncedSearch.trim());
-  if (kind === 'students' && levelFilter) genderSummaryQuery.set('academic_level', levelFilter);
-  if (kind === 'students' && mainGroupFilter) genderSummaryQuery.set('main_group_code', mainGroupFilter);
-  if (kind === 'students' && qualitySurveyId && can('quality.view')) genderSummaryQuery.set('quality_survey_id', qualitySurveyId);
-  if (kind === 'students' && qualitySurveyId && qualityParticipation) genderSummaryQuery.set('quality_participation', qualityParticipation);
-  const { data: genderSummary } = useQuery({
-    queryKey: ['directory', 'gender-summary', debouncedSearch, levelFilter, mainGroupFilter, qualitySurveyId, qualityParticipation],
-    queryFn: () => apiFetch<{ female:number; male:number; unspecified:number; total:number }>(`/students/gender-summary?${genderSummaryQuery.toString()}`),
-    enabled: kind === 'students',
-  });
-
   const { data: qualitySurveys = [] } = useQuery({
     queryKey: ['quality-surveys', 'directory-options'],
     queryFn: () => apiFetch<Array<{id:number;title:string;target_levels?:string[]|null}>>('/quality-surveys/participation-options'),
@@ -468,31 +456,6 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     ? (locale === 'ar' ? 'ذكر' : 'Male')
     : (locale === 'ar' ? 'غير محدد' : 'Unspecified');
 
-  const handleDownloadGenderReport = () => {
-    if (!genderSummary) return;
-    const reportRows = [
-      [locale === 'ar' ? 'تقرير أعداد الطلبة حسب الجنس' : 'Student Count by Gender'],
-      [locale === 'ar' ? 'الدفعة' : 'Cohort', levelFilter ? cohorts.find(cohort => cohort.value === levelFilter)?.[locale === 'ar' ? 'label_ar' : 'label_en'] ?? levelFilter : (locale === 'ar' ? 'كل الدفعات المتاحة' : 'All available cohorts')],
-      [locale === 'ar' ? 'المجموعة الرئيسية' : 'Main group', mainGroupFilter || (locale === 'ar' ? 'كل المجموعات' : 'All groups')],
-      [locale === 'ar' ? 'يشمل البحث الحالي' : 'Current search applied', debouncedSearch ? (locale === 'ar' ? 'نعم' : 'Yes') : (locale === 'ar' ? 'لا' : 'No')],
-      [locale === 'ar' ? 'استبيان المتابعة' : 'Survey filter', qualitySurveyId ? qualitySurveys.find(survey => String(survey.id) === qualitySurveyId)?.title ?? qualitySurveyId : (locale === 'ar' ? 'بدون تصفية' : 'No filter')],
-      [locale === 'ar' ? 'حالة الاستبيان' : 'Survey status', qualityParticipation === 'completed' ? (locale === 'ar' ? 'أجاب' : 'Completed') : qualityParticipation === 'pending' ? (locale === 'ar' ? 'لم يجب' : 'Pending') : (locale === 'ar' ? 'الكل' : 'All')],
-      [locale === 'ar' ? 'الفئة' : 'Category', locale === 'ar' ? 'العدد' : 'Count'],
-      [locale === 'ar' ? 'الطالبات' : 'Female students', genderSummary.female],
-      [locale === 'ar' ? 'الطلاب' : 'Male students', genderSummary.male],
-      [locale === 'ar' ? 'غير محدد' : 'Unspecified', genderSummary.unspecified],
-      [locale === 'ar' ? 'الإجمالي' : 'Total', genderSummary.total],
-    ];
-    const csv = '\uFEFF' + reportRows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = locale === 'ar' ? 'تقرير_أعداد_الطلبة_حسب_الجنس.csv' : 'student_gender_counts.csv';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
   const studentEmail = (row: RecordItem) => {
     const email = String(row.resolved_university_email || row.university_email || '').trim();
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
@@ -747,24 +710,6 @@ export function DirectoryPage({ kind }: { kind: DirectoryKind }) {
           </span>
         </div>
       </div>
-
-      {kind === 'students' && <section className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-black text-slate-800">{locale === 'ar' ? 'تقرير أعداد الطلبة حسب الجنس' : 'Student count by gender'}</h2>
-          <button type="button" disabled={!genderSummary} onClick={handleDownloadGenderReport} className="inline-flex h-9 items-center gap-2 rounded-xl bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-50">
-            <Download className="h-4 w-4" />{locale === 'ar' ? 'تنزيل التقرير CSV' : 'Download CSV report'}
-          </button>
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {[
-            [locale === 'ar' ? 'الطالبات' : 'Female students', genderSummary?.female],
-            [locale === 'ar' ? 'الطلاب' : 'Male students', genderSummary?.male],
-            [locale === 'ar' ? 'غير محدد' : 'Unspecified', genderSummary?.unspecified],
-            [locale === 'ar' ? 'الإجمالي' : 'Total', genderSummary?.total],
-          ].map(([label, count]) => <div key={String(label)} className="rounded-xl bg-slate-50 p-3 text-center"><p className="text-[11px] font-bold text-slate-500">{label}</p><p className="mt-1 text-lg font-black text-teal-800">{count ?? '—'}</p></div>)}
-        </div>
-        <p className="mt-2 text-[10px] text-slate-500">{locale === 'ar' ? 'الأعداد محسوبة لكل النتائج حسب البحث والدفعة والمجموعة، وتشمل الجنسين بغض النظر عن فلتر الجنس أو الصفحة الحالية.' : 'Counts cover all results for search, cohort, and group, across genders and pages.'}</p>
-      </section>}
 
       {/* Records Table */}
       {rows.length === 0 ? (
