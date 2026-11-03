@@ -19,7 +19,8 @@ type SummaryPayload = {
   reports:ReportDefinition[];
   generated_at:string;
 };
-type GenderSummaryPayload = { female:number; male:number; unspecified:number; total:number };
+type GenderBatchCount = { academic_level:string; batch_year:number|null; female:number; male:number; unspecified:number; total:number };
+type GenderSummaryPayload = { female:number; male:number; unspecified:number; total:number; batches:GenderBatchCount[] };
 type PreviewPayload = { definition:ReportDefinition; columns:string[]; rows:Array<Array<string|number|null>>; total:number; preview_limit:number; audit_site_ids?:number[]; audit_columns?:Array<{month:string;academic_level:string|null}> };
 type TrainingSiteAudit = {
   site:{id:number;name_ar:string};month:string;month_label:string;academic_level:string|null;academic_level_label:string;total:number;
@@ -66,6 +67,8 @@ export function ReportsDashboard() {
   const [monthTo,setMonthTo] = useState('2026-11');
   const [downloadKey,setDownloadKey] = useState('');
   const [downloadError,setDownloadError] = useState('');
+  const [genderListDownloadKey,setGenderListDownloadKey] = useState('');
+  const [genderListDownloadError,setGenderListDownloadError] = useState('');
   const [audit,setAudit] = useState<{siteId:number;siteName:string;month:string;level:string|null;levelLabel:string;expected:number}|null>(null);
   const initializedCurrentYear=useRef(false);
 
@@ -109,25 +112,19 @@ export function ReportsDashboard() {
     }catch(error){setDownloadError(error instanceof Error?error.message:tr('تعذر تنزيل التقرير.', 'Could not download the report.'));}finally{setDownloadKey('');}
   };
 
-  const downloadGenderSummary=()=>{
-    const counts=genderSummaryQuery.data;
-    if(!counts)return;
-    const yearLabel=summary.academic_years.find(year=>String(year.id)===yearId)?.code??tr('جميع الأعوام الأكاديمية','All academic years');
-    const levelLabels:Record<string,string>={fourth:tr('السنة الرابعة','Fourth year'),fifth:tr('السنة الخامسة','Fifth year'),sixth:tr('السنة السادسة','Sixth year')};
-    const reportRows=[
-      [tr('تقرير أعداد الطلبة حسب الجنس','Student count by gender')],
-      [tr('العام الأكاديمي','Academic year'),yearLabel],
-      [tr('السنة السريرية','Clinical year'),level?levelLabels[level]:tr('جميع السنوات السريرية','All clinical years')],
-      [tr('الفئة','Category'),tr('العدد','Count')],
-      [tr('الطالبات','Female students'),counts.female],
-      [tr('الطلاب','Male students'),counts.male],
-      [tr('غير محدد','Unspecified'),counts.unspecified],
-      [tr('الإجمالي','Total'),counts.total],
-    ];
-    const csv='\uFEFF'+reportRows.map(row=>row.map(value=>`"${String(value).replace(/"/g,'""')}"`).join(',')).join('\n');
-    const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
-    const link=document.createElement('a');link.href=url;link.download=ar?'تقرير_أعداد_الطلبة_حسب_الجنس.csv':'student_gender_counts.csv';
-    document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
+  const downloadGenderStudents=async(batch:GenderBatchCount,gender:'female'|'male')=>{
+    const key=`${batch.academic_level}-${batch.batch_year??'unknown'}-${gender}`;
+    setGenderListDownloadKey(key);setGenderListDownloadError('');
+    try{
+      const params=new URLSearchParams({academic_level:batch.academic_level,batch_year:batch.batch_year===null?'unknown':String(batch.batch_year),gender});
+      if(yearId)params.set('academic_year_id',yearId);
+      const response=await fetch(apiUrl(`/report-center/student-gender-students?${params}`),{credentials:'include',headers:{Accept:'text/csv'}});
+      if(!response.ok){const body=await response.json().catch(()=>null);throw new Error(body?.message||tr('تعذر تنزيل قائمة الطلبة.','Could not download the student list.'));}
+      const blob=await response.blob();const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;
+      const disposition=response.headers.get('content-disposition')||'';const utf=disposition.match(/filename\*=UTF-8''([^;]+)/i);const plain=disposition.match(/filename="?([^";]+)"?/i);
+      link.download=utf?decodeURIComponent(utf[1]):plain?.[1]||`students-${gender}-${key}.csv`;
+      document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
+    }catch(error){setGenderListDownloadError(error instanceof Error?error.message:tr('تعذر تنزيل قائمة الطلبة.','Could not download the student list.'));}finally{setGenderListDownloadKey('');}
   };
 
   return <div className="space-y-4 pb-20">
@@ -140,14 +137,12 @@ export function ReportsDashboard() {
         <FilterField label={tr('السنة السريرية','Clinical year')}><select value={level} onChange={e=>setLevel(e.target.value)} disabled={selectedKey==='clinical_training_sites_sep_nov_2026'} className="input disabled:bg-slate-50 disabled:text-slate-400"><option value="">{tr('جميع السنوات', 'All years')}</option><option value="fourth">{tr('السنة الرابعة','Fourth year')}</option><option value="fifth">{tr('السنة الخامسة','Fifth year')}</option><option value="sixth">{tr('السنة السادسة','Sixth year')}</option></select></FilterField>
       <button onClick={resetFilters} disabled={!activeFilterCount&&!searchInput} className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-500 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-default disabled:opacity-40"><X className="h-4 w-4"/>{tr('مسح','Clear')}</button>
     </section>
-    <section className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 className="text-sm font-black text-slate-800">{tr('تقرير أعداد الطلبة حسب الجنس','Student count by gender')}</h2><p className="mt-1 text-[10px] text-slate-500">{tr('يتبع اختيار العام الأكاديمي والسنة السريرية أعلاه.','Uses the academic year and clinical year selected above.')}</p></div>
-        {can('reports.export')&&<Button variant="outline" disabled={!genderSummaryQuery.data||genderSummaryQuery.isFetching} onClick={downloadGenderSummary}><Download className="ms-1 h-4 w-4"/>{tr('تنزيل التقرير CSV','Download CSV report')}</Button>}
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60 p-4">
+        <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-700 text-white"><Users className="h-5 w-5"/></span><div><h2 className="text-sm font-black text-slate-800">{tr('تقرير أعداد الطلبة حسب الجنس والدفعة','Student counts by gender and cohort')}</h2><p className="mt-1 text-[10px] text-slate-500">{tr('الأعداد موزعة حسب السنة السريرية وسنة الدفعة، وتتبع فلاتر العام والسنة أعلاه.','Counts by clinical year and cohort year; follows the academic year and clinical year filters above.')}</p></div></div>
       </div>
-      {genderSummaryQuery.isError?<div className="mt-3"><ErrorState title={tr('تعذر تحميل إحصائية الجنس','Could not load gender statistics')} onRetry={()=>genderSummaryQuery.refetch()}/></div>:<div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {[[tr('الطالبات','Female students'),genderSummaryQuery.data?.female],[tr('الطلاب','Male students'),genderSummaryQuery.data?.male],[tr('غير محدد','Unspecified'),genderSummaryQuery.data?.unspecified],[tr('الإجمالي','Total'),genderSummaryQuery.data?.total]].map(([label,count])=><div key={String(label)} className="rounded-xl bg-slate-50 p-3 text-center"><p className="text-[11px] font-bold text-slate-500">{label}</p><p className="mt-1 text-lg font-black text-teal-800">{genderSummaryQuery.isLoading?'—':count}</p></div>)}
-      </div>}
+      {genderListDownloadError&&<div role="alert" className="border-b border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-700">{genderListDownloadError}</div>}
+      {genderSummaryQuery.isError?<div className="p-4"><ErrorState title={tr('تعذر تحميل تقرير الجنس','Could not load the gender report')} onRetry={()=>genderSummaryQuery.refetch()}/></div>:genderSummaryQuery.isLoading?<div className="p-8 text-center text-xs font-bold text-slate-500">{tr('جارٍ تحميل التقرير...','Loading report...')}</div>:!genderSummaryQuery.data?.batches.length?<div className="p-8 text-center text-xs font-bold text-slate-500">{tr('لا توجد دفعات مطابقة للفلاتر الحالية.','No cohorts match the selected filters.')}</div>:<div className="overflow-x-auto"><table className="w-full min-w-[880px] text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-4 py-3 text-start">{tr('السنة السريرية','Clinical year')}</th><th className="px-4 py-3 text-start">{tr('الدفعة','Cohort')}</th><th className="px-4 py-3 text-center">{tr('الإناث','Female')}</th><th className="px-4 py-3 text-center">{tr('الذكور','Male')}</th><th className="px-4 py-3 text-center">{tr('غير محدد','Unspecified')}</th><th className="px-4 py-3 text-center">{tr('الإجمالي','Total')}</th><th className="px-4 py-3 text-start">{tr('قوائم الطلبة','Student lists')}</th></tr></thead><tbody className="divide-y divide-slate-100">{genderSummaryQuery.data.batches.map(batch=>{const keyBase=`${batch.academic_level}-${batch.batch_year??'unknown'}`;const levelLabels:Record<string,string>={fourth:tr('الرابعة','Fourth'),fifth:tr('الخامسة','Fifth'),sixth:tr('السادسة','Sixth')};return <tr key={keyBase} className="hover:bg-teal-50/30"><td className="px-4 py-3 font-bold text-slate-700">{tr('السنة','Year')} {levelLabels[batch.academic_level]??batch.academic_level}</td><td className="px-4 py-3 font-bold text-slate-700">{batch.batch_year??tr('غير معروف','Unspecified')}</td><td className="px-4 py-3 text-center font-black text-pink-700">{batch.female}</td><td className="px-4 py-3 text-center font-black text-sky-700">{batch.male}</td><td className="px-4 py-3 text-center font-bold text-slate-500">{batch.unspecified}</td><td className="px-4 py-3 text-center font-black text-teal-800">{batch.total}</td><td className="px-4 py-3">{can('reports.export')?<div className="flex flex-wrap gap-1.5"><Button size="sm" variant="outline" disabled={Boolean(genderListDownloadKey)} onClick={()=>downloadGenderStudents(batch,'female')}><Download className="me-1 h-3.5 w-3.5"/>{genderListDownloadKey===`${keyBase}-female`?tr('جارٍ التنزيل','Downloading'):tr('قائمة الإناث','Female list')}</Button><Button size="sm" variant="outline" disabled={Boolean(genderListDownloadKey)} onClick={()=>downloadGenderStudents(batch,'male')}><Download className="me-1 h-3.5 w-3.5"/>{genderListDownloadKey===`${keyBase}-male`?tr('جارٍ التنزيل','Downloading'):tr('قائمة الذكور','Male list')}</Button></div>:<span className="text-slate-400">—</span>}</td></tr>})}</tbody><tfoot className="border-t border-slate-200 bg-slate-50 font-black"><tr><td className="px-4 py-3" colSpan={2}>{tr('الإجمالي حسب الفلاتر','Filtered total')}</td><td className="px-4 py-3 text-center text-pink-700">{genderSummaryQuery.data.female}</td><td className="px-4 py-3 text-center text-sky-700">{genderSummaryQuery.data.male}</td><td className="px-4 py-3 text-center text-slate-500">{genderSummaryQuery.data.unspecified}</td><td className="px-4 py-3 text-center text-teal-800">{genderSummaryQuery.data.total}</td><td/></tr></tfoot></table></div>}
     </section>
     <section id="report-preview" className="min-w-0 overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 bg-slate-50/60 p-4"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 items-start gap-3">{selectedReport&&(()=>{const Icon=reportIcons[selectedReport.key]||FileSpreadsheet;return <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-600 text-white"><Icon className="h-5 w-5"/></span>})()}<div className="min-w-0"><h2 className="text-base font-black text-slate-900">{selectedCopy?.title??tr('معاينة التقرير','Report preview')}</h2><p className="mt-1 max-w-2xl text-[11px] leading-5 text-slate-500">{selectedCopy?.description}</p></div></div><div className="flex shrink-0 flex-wrap gap-2">{can('reports.export')&&<><Button variant="outline" disabled={Boolean(downloadKey)||previewQuery.isLoading} onClick={()=>download('xlsx')}>{downloadKey.endsWith('xlsx')?<Loader2 className="ms-1 h-4 w-4 animate-spin"/>:<FileSpreadsheet className="ms-1 h-4 w-4"/>}Excel</Button><Button disabled={Boolean(downloadKey)||previewQuery.isLoading} onClick={()=>download('pdf')}>{downloadKey.endsWith('pdf')?<Loader2 className="ms-1 h-4 w-4 animate-spin"/>:<Download className="ms-1 h-4 w-4"/>}PDF</Button></>}</div></div>
