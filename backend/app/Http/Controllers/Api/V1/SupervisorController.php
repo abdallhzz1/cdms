@@ -31,6 +31,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Str;
+use App\Traits\ScopesByDepartmentAndLevel;
 
 /**
  * SupervisorController — Phase 5C
@@ -50,6 +51,8 @@ use Illuminate\Support\Str;
  */
 class SupervisorController extends Controller
 {
+    use ScopesByDepartmentAndLevel;
+
     public function __construct(
         private SupervisorReassignmentService $reassignmentService,
         private SupervisorWorkScheduleService $workScheduleService,
@@ -528,6 +531,83 @@ class SupervisorController extends Controller
                 ? 'تم إرسال التقييم السريري إلى مساعد البحث والتدريس وإتاحته في كشف العلامات.'
                 : 'The clinical assessment was sent to the research and teaching assistant and is now available in the grade sheet.'
         );
+    }
+
+    /** Record a current clinical assessment on behalf of its assigned supervisor. */
+    public function storeReviewAssessment(Request $request, WorkflowTransitionService $workflow): JsonResponse
+    {
+        $data = $request->validate([
+            'assignment_id' => ['required', 'integer'],
+            'student_id' => ['required', 'integer', 'exists:students,id'],
+            'evaluation_week' => ['nullable', 'integer', 'min:1'],
+            'score' => ['required', 'numeric', 'min:0'],
+            'notes' => ['nullable', 'string', 'max:3000'],
+        ]);
+
+        $assignment = $this->reviewScopedAssignments($request)
+            ->with(['student:id,batch_year', 'supervisor', 'rotationBlock.rotation.course.assessmentComponents', 'distributionVersion.breaks'])
+            ->whereKey((int) $data['assignment_id'])
+            ->where('student_id', (int) $data['student_id'])
+            ->firstOrFail();
+        abort_unless($assignment->supervisor_id && $assignment->supervisor, 422, 'The current assignment has no clinical supervisor.');
+
+        $person = $assignment->supervisor;
+        $kind = $this->assessmentKind($assignment, $data['evaluation_week'] ?? null);
+        $week = $kind === 'weekly' ? (int) $data['evaluation_week'] : null;
+        [$weekStart, $weekEnd] = $kind === 'weekly'
+            ? $this->assignmentWeek($assignment, $week)
+            : $this->assignmentPeriod($assignment);
+        $template = ClinicalAssessmentTemplate::currentForCourse(
+            $assignment->rotationBlock?->rotation?->course_id,
+            $assignment->student?->batch_year,
+        );
+        if (! $template) {
+            throw ValidationException::withMessages(['assignment_id' => ['لا يوجد نموذج تقييم معتمد لهذا المساق والدفعة.']]);
+        }
+
+        $assessment = DB::transaction(function () use ($assignment, $person, $template, $week, $weekStart, $weekEnd, $data, $workflow, $kind) {
+            $this->lockCurrentAssessmentVersion((int) $assignment->distribution_version_id);
+            [, $snapshot, $score, $entryMax] = $this->validatedTotalScore(
+                $assignment, (int) $template->id, $data['score'], $week, (int) $person->id, $kind, $weekStart, $weekEnd,
+            );
+
+            return $this->persistWeeklyAssessment(
+                $assignment, $person, $template, $week, $weekStart, $weekEnd,
+                $snapshot, $score, $entryMax, $data['notes'] ?? null, (string) Str::uuid(), $workflow, $kind,
+            );
+        });
+
+        return ApiResponse::success(
+            $assessment->load('student', 'session', 'template.criteria', 'evaluator'),
+            app()->getLocale() === 'ar'
+                ? 'تم حفظ التقييم باسم المشرف السريري المكلّف وإتاحته في سجل العلامات.'
+                : 'The assessment was recorded for the assigned clinical supervisor and is available in the grade sheet.'
+        );
+    }
+
+    private function reviewScopedAssignments(Request $request)
+    {
+        $query = app(\App\Services\DepartmentHeadCourseScope::class)->assignments(StudentClinicalAssignment::query())
+            ->whereHas('distributionVersion', fn ($version) => $version->where('status', 'published')->where('is_current', true))
+            ->whereIn('student_id', $this->applyStudentAccessScope(\App\Models\Student::query())->select('students.id'));
+
+        $departmentId = $this->getClinicalOperationsDepartmentId();
+        if ($departmentId) $query->where('department_id', $departmentId);
+
+        $levels = $this->getEffectiveAcademicLevelScope();
+        if ($levels !== null) {
+            empty($levels)
+                ? $query->whereRaw('1 = 0')
+                : $query->whereHas('student', fn ($student) => $student->whereIn('academic_level', $levels));
+        }
+
+        $roles = $request->user()?->roles()->pluck('code') ?? collect();
+        if ($roles->contains('CLINICAL_SUPERVISOR')
+            && $roles->intersect(['SYS_ADMIN', 'CLINICAL_DIRECTOR', 'DEPARTMENT_HEAD', 'DEAN', 'VICE_DEAN', 'RTA', 'ADMIN_ASSISTANT'])->isEmpty()) {
+            $query->where('supervisor_id', $request->user()?->person?->id ?: 0);
+        }
+
+        return $query;
     }
 
     /** Read-after-write receipt: only the evaluator's marks still visible in the current distribution. */

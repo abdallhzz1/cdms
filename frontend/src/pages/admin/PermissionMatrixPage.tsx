@@ -142,7 +142,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   'student_events.delete': 'حذف أي فعالية وكشف حضورها نهائيًا',
   'university_lectures.delete_with_attendance': 'حذف محاضرة الجامعة وكشوف حضورها نهائيًا (للمساعد الإداري فقط)',
   'assessment.view': 'عرض بوابة التقييم السريري',
-  'assessment.review': 'عرض شاشة مراجعة التقييمات السريرية',
+  'assessment.review': 'مراجعة التقييمات وإدخالها نيابةً عن المشرف السريري',
   'assessment.create': 'إدخال تقييم سريري',
   'assessment.submit': 'تسليم التقييم السريري',
   'assessment.criteria.manage': 'إدارة معايير نموذج التقييم',

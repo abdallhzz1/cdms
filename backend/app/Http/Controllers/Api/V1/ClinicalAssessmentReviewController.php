@@ -19,6 +19,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
+use App\Models\ClinicalAssessmentTemplate;
 use App\Services\Distribution\ClinicalScheduleDateCalculator;
 
 class ClinicalAssessmentReviewController extends Controller
@@ -223,10 +224,27 @@ class ClinicalAssessmentReviewController extends Controller
                         'evaluator' => $assessment->evaluator,
                     ])->values();
 
+                    $assessmentAssignments = $studentAssignments->map(function (StudentClinicalAssignment $studentAssignment) {
+                        $clinical = $studentAssignment->rotationBlock?->rotation?->course?->assessmentComponents?->firstWhere('code', 'clinical');
+                        $template = ClinicalAssessmentTemplate::currentForCourse(
+                            $studentAssignment->rotationBlock?->rotation?->course_id,
+                            $studentAssignment->student?->batch_year,
+                        );
+
+                        return [
+                            'id' => (int) $studentAssignment->id,
+                            'supervisor' => $studentAssignment->supervisor,
+                            'training_site' => $studentAssignment->trainingSite,
+                            'template_id' => $template?->id,
+                            'max_score' => (float) ($clinical?->entry_max_score ?: $template?->total_score ?: 0),
+                        ];
+                    })->values();
+
                     return [
                         'student' => $assignment->student,
                         'supervisors' => $studentAssignments->pluck('supervisor')->filter()->unique('id')->values(),
                         'training_sites' => $studentAssignments->pluck('trainingSite')->filter()->unique('id')->values(),
+                        'assessment_assignments' => $assessmentAssignments,
                         'assessments' => $records,
                         'mini_osce' => app(ClinicalAssessmentContinuity::class)->miniForPeriod(
                             $miniScores, (int) $assignment->student_id, (int) $rotation?->id,

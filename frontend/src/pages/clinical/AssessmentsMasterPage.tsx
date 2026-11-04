@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Settings2 } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronLeft, ChevronRight, PenLine, Settings2 } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
@@ -18,7 +18,8 @@ type Student = { id: number; university_number: string; full_name_ar: string; fu
 type ReviewSubgroup = { id: number; name: string; student_count: number; week_count: number; students: Student[] };
 type ReviewGroup = { key: string; academic_year: Named | null; group_name: string; academic_level: string | null; student_count: number; subgroups: ReviewSubgroup[] };
 type ReviewAssessment = { id: number; status: string; score: string | number | null; max_score: string | number; notes: string | null; evaluator: Person | null };
-type ReviewStudent = { student: Student; supervisors: Person[]; assessments: ReviewAssessment[]; mini_osce?:{score:number|string;max_score:number|string}|null; ready: boolean };
+type ReviewAssignment = { id: number; supervisor: Person | null; training_site: Named | null; max_score: number; template_id: number | null };
+type ReviewStudent = { student: Student; supervisors: Person[]; assessment_assignments?: ReviewAssignment[]; assessments: ReviewAssessment[]; mini_osce?:{score:number|string;max_score:number|string}|null; ready: boolean };
 type ReviewWeek = { number: number; block_code?: string | null; start_date: string | null; end_date: string | null; student_count: number; ready_count: number; students: ReviewStudent[] };
 type ReviewRotation = { id: number; course: Named | null; clinical_period: Named | null; weeks: ReviewWeek[] };
 type FinalOsceStudent = { student: Student; osce_score: string | number | null; grade_status: string | null; recorded_by: { id: number; name: string } | null };
@@ -134,11 +135,21 @@ function FinalOsceReview({ courses, ar }: { courses: FinalOsceCourse[]; ar: bool
 
 function AssessmentWeekTable({ students, rotations, ar, label }: { students: Student[]; rotations: ReviewRotation[]; ar: boolean; label: string }) {
   const { t } = useI18n();
+  const { can } = useAuth();
+  const queryClient = useQueryClient();
   const matrixRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(() => Math.max(240, window.innerWidth - 24));
   const [startIndex, setStartIndex] = useState(0);
   const [periodChoice, setPeriodChoice] = useState('');
   const [selection, setSelection] = useState<{ row: ReviewStudent; week: ReviewWeek; rotation: ReviewRotation } | null>(null);
+  const saveAssessment = useMutation({
+    mutationFn: (payload: { assignment_id: number; student_id: number; evaluation_week?: number; score: number; notes?: string }) =>
+      apiFetch('/clinical-assessments/review-entry', { method: 'POST', body: payload }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['clinical-assessment-review-subgroup'] });
+      setSelection(null);
+    },
+  });
 
   useEffect(() => {
     const container = matrixRef.current;
@@ -210,8 +221,9 @@ function AssessmentWeekTable({ students, rotations, ar, label }: { students: Stu
             const row = week.students.find(item => item.student.id === student.id);
             const official = row?.assessments.filter(assessment => ['submitted', 'approved'].includes(assessment.status)) ?? [];
             return <td key={`${rotation.id}-${week.number}`} className={`border-e border-t border-slate-200 p-0 text-center last:border-e-0 ${row ? 'bg-white' : 'bg-slate-50'}`}>
-              {row ? <button type="button" onClick={() => setSelection({ row, week, rotation })} title={!official.length ? (row.assessments.length ? t('assessments.matrix.notSubmitted') : t('assessments.matrix.pending')) : undefined} aria-label={`${studentName(student, ar)} · ${slotLabel(week, ar)} · ${label} · ${courseName(rotation.course, ar)}`} className="flex min-h-16 w-full flex-col items-center justify-center gap-1 px-1 py-2 hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-teal-500">
+              {row ? <button type="button" onClick={() => { saveAssessment.reset(); setSelection({ row, week, rotation }); }} title={!official.length ? (can('assessment.review') ? (ar ? 'إدخال تقييم باسم المشرف' : 'Enter assessment for supervisor') : (row.assessments.length ? t('assessments.matrix.notSubmitted') : t('assessments.matrix.pending'))) : undefined} aria-label={`${studentName(student, ar)} · ${slotLabel(week, ar)} · ${label} · ${courseName(rotation.course, ar)}`} className="flex min-h-16 w-full flex-col items-center justify-center gap-1 px-1 py-2 hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-teal-500">
                 <span dir="ltr" className={`break-words text-sm font-black tabular-nums ${official.length ? 'text-slate-900' : 'text-slate-400'}`}>{official.length ? official.map(assessment => assessment.score === null ? '—' : Number(assessment.score).toString()).join(' · ') : '—'}</span>
+                {!official.length && can('assessment.review') && <PenLine aria-hidden="true" className="h-3.5 w-3.5 text-teal-700" />}
                 {!official.length && <span className="sr-only">{row.assessments.length ? t('assessments.matrix.notSubmitted') : t('assessments.matrix.pending')}</span>}
               </button> : <span className="block px-2 py-4 text-slate-400" title={t('assessments.matrix.notAssigned')}>—<span className="sr-only">{t('assessments.matrix.notAssigned')}</span></span>}
             </td>;
@@ -222,9 +234,56 @@ function AssessmentWeekTable({ students, rotations, ar, label }: { students: Stu
     </div>
     </div>
     <Modal isOpen={Boolean(selection)} onClose={() => setSelection(null)} title={`${selection ? slotLabel(selection.week, ar) : ''} · ${label}${selection ? ` · ${courseName(selection.rotation.course, ar)}` : ''}`} backdropTone="light">
-      {selection && <StudentAssessmentRow row={selection.row} ar={ar} />}
+      {selection && <>
+        <StudentAssessmentRow row={selection.row} ar={ar} />
+        {can('assessment.review') && !selection.row.assessments.some(assessment => ['submitted', 'approved'].includes(assessment.status)) && <ReviewAssessmentForm
+          key={`${selection.row.student.id}:${selection.rotation.id}:${selection.week.number}`}
+          row={selection.row}
+          week={selection.week}
+          ar={ar}
+          loading={saveAssessment.isPending}
+          error={saveAssessment.error instanceof Error ? saveAssessment.error.message : null}
+          onSubmit={payload => saveAssessment.mutate(payload)}
+        />}
+      </>}
     </Modal>
   </>;
+}
+
+function ReviewAssessmentForm({ row, week, ar, loading, error, onSubmit }: {
+  row: ReviewStudent;
+  week: ReviewWeek;
+  ar: boolean;
+  loading: boolean;
+  error: string | null;
+  onSubmit: (payload: { assignment_id: number; student_id: number; evaluation_week?: number; score: number; notes?: string }) => void;
+}) {
+  const tr = (arabic: string, english: string) => ar ? arabic : english;
+  const assignments = row.assessment_assignments ?? [];
+  const [assignmentId, setAssignmentId] = useState(String(assignments[0]?.id ?? ''));
+  const [score, setScore] = useState('');
+  const [notes, setNotes] = useState('');
+  const assignment = assignments.find(item => String(item.id) === assignmentId) ?? assignments[0];
+  const prior = row.assessments.find(item => ['draft', 'returned'].includes(item.status) && item.evaluator?.id === assignment?.supervisor?.id);
+  const maxScore = Number(prior?.max_score ?? assignment?.max_score ?? 0);
+
+  if (!assignments.length) return <p className="border-t border-slate-200 px-4 py-3 text-xs text-amber-800">{tr('لا يوجد تكليف حالي يحدد المشرف لهذا الطالب.', 'No current assignment identifies the supervisor for this student.')}</p>;
+
+  return <form className="space-y-3 border-t border-slate-200 bg-slate-50 px-4 py-4" onSubmit={event => {
+    event.preventDefault();
+    if (!assignment || maxScore <= 0) return;
+    onSubmit({ assignment_id: assignment.id, student_id: row.student.id, ...(week.number > 0 ? { evaluation_week: week.number } : {}), score: Number(score), notes: notes.trim() || undefined });
+  }}>
+    <h6 className="text-xs font-black text-slate-800">{tr('إدخال تقييم باسم المشرف السريري', 'Enter assessment for clinical supervisor')}</h6>
+    {assignments.length > 1 && <label className="block space-y-1 text-[11px] font-bold text-slate-600">{tr('المشرف المكلّف', 'Assigned supervisor')}<select value={assignmentId} onChange={event => setAssignmentId(event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-900">{assignments.map(item => <option key={item.id} value={item.id}>{item.supervisor ? personName(item.supervisor, ar) : '—'}{item.training_site ? ` · ${courseName(item.training_site, ar)}` : ''}</option>)}</select></label>}
+    {assignment && <p className="text-[11px] text-slate-600">{tr('سيُسجّل باسم:', 'Recorded for:')} <b className="text-slate-800">{personName(assignment.supervisor, ar)}</b></p>}
+    {maxScore <= 0 ? <p className="text-xs text-amber-800">{tr('لا يوجد نموذج تقييم معتمد لهذا المساق والدفعة.', 'No active assessment template is configured for this course and cohort.')}</p> : <>
+      <label className="block space-y-1 text-[11px] font-bold text-slate-600">{tr('العلامة', 'Score')}<span dir="ltr" className="ms-1 text-slate-400">/ {maxScore}</span><input type="number" required min="0" max={maxScore} step="0.01" value={score} onChange={event => setScore(event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900" /></label>
+      <label className="block space-y-1 text-[11px] font-bold text-slate-600">{tr('ملاحظة (اختياري)', 'Note (optional)')}<textarea maxLength={3000} value={notes} onChange={event => setNotes(event.target.value)} rows={2} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900" /></label>
+    </>}
+    {error && <p role="alert" className="text-xs font-bold text-red-700">{error}</p>}
+    <button type="submit" disabled={loading || maxScore <= 0 || !score} className="min-h-10 rounded-lg bg-teal-700 px-4 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{loading ? tr('جارٍ الحفظ…', 'Saving…') : tr('حفظ وإرسال التقييم', 'Save and submit assessment')}</button>
+  </form>;
 }
 
 function StudentAssessmentRow({ row, ar }: { row: ReviewStudent; ar: boolean }) {

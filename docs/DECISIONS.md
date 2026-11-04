@@ -397,3 +397,15 @@ that instruction fails as written on a Windows + Herd setup.
 **Migration impact:** Existing non-draft correspondence is normalized to `sent`; existing closed correspondence becomes archived for its participants. Existing participants and attachments are preserved. Pending legacy correspondence approval requests are cancelled and the correspondence approval workflow is disabled and hidden.
 
 **Status:** Adopted 2026-09-12 by explicit owner direction.
+
+## ADR-026 — Assessment reviewers may enter marks on behalf of assigned supervisors
+
+**Date:** 2026-11-04.
+
+**Decision:** Users with `assessment.review` may submit a missing clinical assessment from the clinical assessment review screen on behalf of the supervisor assigned to that student and assessment slot in the current published distribution. The backend derives the evaluator from that assignment, enforces the reviewer's existing student/department/academic scope, and uses the same template, score validation, current-version lock, and workflow audit as supervisor entry. Submitted or approved assessments remain read-only in this screen.
+
+**Rationale:** By explicit Clinical Department direction, research and teaching assistants and other users granted review access need to enter supervisor assessments directly from the review screen.
+
+**Impact:** No database migration. A new scoped API write endpoint and a review-screen entry form; assessment and grade records continue to use the assigned supervisor as evaluator and the authenticated reviewer as workflow actor.
+
+**Status:** Adopted 2026-11-04 by explicit owner direction.

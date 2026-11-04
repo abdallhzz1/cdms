@@ -429,6 +429,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('clinical-assessments-summary', [ClinicalAssessmentController::class, 'summary'])->middleware('permission:assessment.review');
         Route::get('clinical-assessments/review-groups', [ClinicalAssessmentReviewController::class, 'groups'])->middleware('permission:assessment.review');
         Route::get('clinical-assessments/review-subgroup', [ClinicalAssessmentReviewController::class, 'subgroup'])->middleware('permission:assessment.review');
+        Route::post('clinical-assessments/review-entry', [SupervisorController::class, 'storeReviewAssessment'])->middleware('permission:assessment.review');
         Route::post('clinical-assessments', [ClinicalAssessmentController::class, 'store'])->middleware('permission:assessment.create');
         Route::post('clinical-assessments/{clinicalAssessment}/submit', [ClinicalAssessmentController::class, 'submit'])->middleware('permission:assessment.submit');
         Route::get('clinical-assessment-templates', [ClinicalAssessmentTemplateController::class, 'index'])->middleware('permission:assessment.criteria.manage');
