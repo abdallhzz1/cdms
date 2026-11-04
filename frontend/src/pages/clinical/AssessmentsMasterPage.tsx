@@ -42,7 +42,7 @@ export function AssessmentsMasterPage() {
   const ar = locale === 'ar';
   const tr = (arabic: string, english: string) => ar ? arabic : english;
   const [groupKey, setGroupKey] = useState('');
-  const [reviewMode, setReviewMode] = useState<'assessments' | 'osce'>('assessments');
+  const [reviewMode, setReviewMode] = useState<'assessments' | 'osce' | 'mini'>('assessments');
   const allowed = can('assessment.review');
   const groupsQuery = useQuery({
     queryKey: ['clinical-assessment-review-groups'],
@@ -68,12 +68,13 @@ export function AssessmentsMasterPage() {
         </select>
       </section>
       <div role="group" aria-label={tr('نوع المراجعة', 'Review type')} className="inline-flex w-full gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:w-auto">
-        {([['assessments', tr('تقييمات المشرف', 'Supervisor assessments')], ['osce', tr('OSCE النهائي', 'Final OSCE')]] as const).map(([mode, title]) =>
+        {([['assessments', tr('تقييمات المشرف', 'Supervisor assessments')], ['osce', tr('OSCE النهائي', 'Final OSCE')], ['mini', tr('الميني أوسكي', 'Mini OSCE')]] as const).map(([mode, title]) =>
           <button key={mode} type="button" aria-pressed={reviewMode === mode} onClick={() => setReviewMode(mode)} className={`min-h-10 flex-1 rounded-lg px-3 text-xs font-bold transition sm:flex-none ${reviewMode === mode ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>{title}</button>
         )}
       </div>
       {reviewMode === 'assessments' && <p className="text-[11px] text-slate-500">{t('assessments.matrix.hint')}</p>}
       {reviewMode === 'osce' && <p className="text-[11px] text-slate-500">{tr('علامة OSCE النهائي مرة واحدة لكل مساق وسنة أكاديمية. حالة الكشف لا تعني اعتماد علامة الأوسكي بشكل منفصل.', 'Final OSCE is recorded once per course and academic year. The grade-sheet status is not a separate OSCE approval.')}</p>}
+      {reviewMode === 'mini' && <p className="text-[11px] text-slate-500">{tr('علامات الميني أوسكي منفصلة عن الأوسكي النهائي، وتُعرض حسب طريقة حسابها في خطة المساق.', 'Mini OSCE scores are separate from the final OSCE and are shown by their course-plan calculation method.')}</p>}
       <section aria-label={tr('المجموعات الفرعية', 'Subgroups')} className="space-y-6">
         {selectedGroup?.subgroups.map(subgroup => <SubgroupSection key={subgroup.id} subgroup={subgroup} ar={ar} mode={reviewMode} />)}
       </section>
@@ -81,7 +82,7 @@ export function AssessmentsMasterPage() {
   </div>;
 }
 
-function SubgroupSection({ subgroup, ar, mode }: { subgroup: ReviewSubgroup; ar: boolean; mode: 'assessments' | 'osce' }) {
+function SubgroupSection({ subgroup, ar, mode }: { subgroup: ReviewSubgroup; ar: boolean; mode: 'assessments' | 'osce' | 'mini' }) {
   const tr = (arabic: string, english: string) => ar ? arabic : english;
   const detailQuery = useQuery({
     queryKey: ['clinical-assessment-review-subgroup', subgroup.id],
@@ -112,7 +113,7 @@ function SubgroupSection({ subgroup, ar, mode }: { subgroup: ReviewSubgroup; ar:
         {mode === 'assessments' ? <>
           {!detail?.rotations.length && <p className="px-3 py-3 text-xs text-slate-500">{tr('لا توجد أسابيع تكليف منشورة لهذه المجموعة بعد.', 'No published assignment weeks for this subgroup yet.')}</p>}
           <AssessmentWeekTable students={subgroup.students} rotations={rotations} ar={ar} label={subgroup.name} />
-        </> : <><FinalOsceReview courses={detail?.final_osce ?? []} ar={ar} />{weeklyMini.length > 0 && <div className="border-t border-slate-200"><h3 className="px-4 pt-4 text-sm font-bold">{tr('الميني أوسكي ضمن التقييم السريري', 'Mini OSCE within clinical assessment')}</h3><FinalOsceReview courses={weeklyMini} ar={ar} /></div>}{directMini.length > 0 && <div className="border-t border-slate-200"><h3 className="px-4 pt-4 text-sm font-bold">{tr('الميني أوسكي — حصة مستقلة', 'Mini OSCE — separate component')}</h3><FinalOsceReview courses={directMini} ar={ar} /></div>}</>}
+        </> : mode === 'osce' ? <FinalOsceReview courses={detail?.final_osce ?? []} ar={ar} /> : <>{weeklyMini.length > 0 && <div><h3 className="px-4 pt-4 text-sm font-bold">{tr('الميني أوسكي ضمن التقييم السريري', 'Mini OSCE within clinical assessment')}</h3><FinalOsceReview courses={weeklyMini} ar={ar} /></div>}{directMini.length > 0 && <div className="border-t border-slate-200"><h3 className="px-4 pt-4 text-sm font-bold">{tr('الميني أوسكي — حصة مستقلة', 'Mini OSCE — separate component')}</h3><FinalOsceReview courses={directMini} ar={ar} /></div>}{!weeklyMini.length && !directMini.length && <p className="px-4 py-5 text-xs text-slate-500">{tr('لا توجد علامات ميني أوسكي لهذه المجموعة الفرعية.', 'No Mini OSCE scores exist for this subgroup.')}</p>}</>}
       </>}
     </div>
   </article>;
