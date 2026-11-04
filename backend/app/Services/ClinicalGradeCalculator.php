@@ -20,7 +20,7 @@ class ClinicalGradeCalculator
         $expectedAssignments = app(DepartmentHeadCourseScope::class)
             ->publishedAssignments($courseId, $academicYearId)
             ->whereIn('student_id', $studentIds)
-            ->with(['rotationBlock', 'student:id,batch_year'])->get();
+            ->with(['rotationBlock.rotation', 'distributionVersion.breaks', 'student:id,batch_year'])->get();
         $continuity = app(ClinicalAssessmentContinuity::class);
         $currentAssessments = $continuity->forAssignments($expectedAssignments)
             ->whereIn('status', ['submitted', 'approved'])->where('max_score', '>', 0)
@@ -28,7 +28,19 @@ class ClinicalGradeCalculator
             ->with(['session.rotationBlock', 'clinicalAssignment.rotationBlock'])->get();
         $currentAssessments = $continuity->distinctOfficial($currentAssessments);
 
-        if ($miniMax > 0) {
+        $mode = $courseId ? CourseAssessmentComponent::where('course_id', $courseId)->where('code', 'clinical')->value('mini_osce_mode') : 'legacy';
+        if ($miniMax > 0 && $mode === 'weekly_average') {
+            $mini = app(CourseMiniOsce::class)->scores(app(CourseMiniOsce::class)->lastAssignments($expectedAssignments));
+            return $currentAssessments->groupBy('student_id')->map(function ($items, $studentId) use ($mini, $clinicalMax, $withMetadata) {
+                $exam = $mini->get($studentId);
+                $score = $exam && (float) $exam->max_score > 0
+                    ? round(($items->sum(fn ($item) => (float) $item->score / (float) $item->max_score)
+                        + (float) $exam->score / (float) $exam->max_score) / ($items->count() + 1) * $clinicalMax, 2)
+                    : null;
+                return $withMetadata ? ['clinical_score' => $score, 'assessments_count' => $items->count()] : $score;
+            });
+        }
+        if ($miniMax > 0 && $mode !== 'direct') {
             // Mini-OSCE is entered once per continuous training period even
             // when the clinical assessments themselves are weekly.
             $expectedPeriods = $expectedAssignments->groupBy('student_id')->map(fn ($items) =>

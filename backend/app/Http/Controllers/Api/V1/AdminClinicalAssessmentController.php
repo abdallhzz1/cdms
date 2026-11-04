@@ -1071,7 +1071,7 @@ class AdminClinicalAssessmentController extends Controller
             })
             ->leftJoin('users as u', 'u.id', '=', 'ge.osce_recorded_by_user_id')
             ->select('ge.id as record_id', 'e.student_id', 'e.academic_year_id', 'e.course_id',
-                'ge.osce_score as score', 'oc.max_score', 'ge.status', 'ge.score as total_score', 'ge.clinical_score',
+                'ge.osce_score as score', 'ge.mini_osce_score', 'oc.max_score', 'ge.status', 'ge.score as total_score', 'ge.clinical_score',
                 'ge.written_score', 'ge.created_at', 'ge.updated_at', 's.full_name_ar as student_name',
                 's.university_number', 'c.code as course_code', 'c.name_ar as course_name',
                 'u.name as supervisor_name', 'ge.osce_recorded_by_user_id as supervisor_id');
@@ -1091,7 +1091,7 @@ class AdminClinicalAssessmentController extends Controller
                 ->orWhereColumn('ge.osce_score', '>', 'oc.max_score')
                 ->orWhere(fn ($sub) => $sub->whereNotNull('ge.osce_score')->where(fn ($max) => $max
                     ->whereNull('oc.max_score')->orWhere('oc.max_score', '<=', 0)))
-                ->orWhereRaw('(ge.clinical_score IS NOT NULL AND ge.osce_score IS NOT NULL AND ge.written_score IS NOT NULL AND ge.score IS NOT NULL AND ABS(ge.score - ge.clinical_score - ge.osce_score - ge.written_score) > 0.01)'));
+                ->orWhereRaw('(ge.clinical_score IS NOT NULL AND ge.osce_score IS NOT NULL AND ge.written_score IS NOT NULL AND ge.score IS NOT NULL AND ABS(ge.score - ge.clinical_score - ge.osce_score - ge.written_score - COALESCE(ge.mini_osce_score, 0)) > 0.01)'));
             return;
         }
         if (! empty($filters['supervisor_id'])) $query->where($type === 'clinical' ? 'ca.evaluator_person_id' : 'm.entered_by_person_id', $filters['supervisor_id']);
@@ -1180,7 +1180,7 @@ class AdminClinicalAssessmentController extends Controller
             $type === 'final_osce' && $row->total_score !== null && $row->clinical_score !== null
                 && $row->written_score !== null
                 && abs((float) $row->total_score - (float) $row->clinical_score
-                    - (float) $row->score - (float) $row->written_score) > 0.01 => 'grade_total_mismatch',
+                    - (float) $row->score - (float) $row->written_score - (float) ($row->mini_osce_score ?? 0)) > 0.01 => 'grade_total_mismatch',
             $type === 'final_osce' => 'current',
             $row->version_id === null => 'unlinked',
             $row->version_status !== 'published' => 'unpublished',

@@ -20,11 +20,12 @@ type ReviewGroup = { key: string; academic_year: Named | null; group_name: strin
 type ReviewAssessment = { id: number; status: string; score: string | number | null; max_score: string | number; notes: string | null; evaluator: Person | null };
 type ReviewAssignment = { id: number; supervisor: Person | null; training_site: Named | null; max_score: number; template_id: number | null };
 type ReviewStudent = { student: Student; supervisors: Person[]; assessment_assignments?: ReviewAssignment[]; assessments: ReviewAssessment[]; mini_osce?:{score:number|string;max_score:number|string}|null; ready: boolean };
-type ReviewWeek = { number: number; block_code?: string | null; start_date: string | null; end_date: string | null; student_count: number; ready_count: number; students: ReviewStudent[] };
+type ReviewWeek = { mini?: boolean; number: number; block_code?: string | null; start_date: string | null; end_date: string | null; student_count: number; ready_count: number; students: ReviewStudent[] };
 type ReviewRotation = { id: number; course: Named | null; clinical_period: Named | null; weeks: ReviewWeek[] };
 type FinalOsceStudent = { student: Student; osce_score: string | number | null; grade_status: string | null; recorded_by: { id: number; name: string } | null };
 type FinalOsceCourse = { course: Named; academic_year: Named | null; max_score: string | number; entry_mode: string; student_count: number; recorded_count: number; students: FinalOsceStudent[] };
-type ReviewDetail = { subgroup_id: number; rotations: ReviewRotation[]; final_osce?: FinalOsceCourse[] };
+type MiniExam = { course: Named; academic_year: Named|null; mode: string; max_score: number|string; students: { student: Student; rotation_id: number; supervisor: Person|null; score: number|string|null; max_score: number|string }[] };
+type ReviewDetail = { subgroup_id: number; rotations: ReviewRotation[]; final_osce?: FinalOsceCourse[]; mini_osce?: MiniExam[] };
 
 const dateLabel = (value: string | null, ar: boolean) => value
   ? new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB', { day: '2-digit', month: '2-digit' }).format(new Date(`${value.slice(0, 10)}T12:00:00`))
@@ -33,7 +34,7 @@ const personName = (person: Person | null, ar: boolean) => person ? (ar ? person
 const courseName = (course: Named | null, ar: boolean) => course ? (ar ? course.name_ar : course.name_en || course.name_ar) || course.code || '—' : '—';
 const studentName = (student: Student, ar: boolean) => ar ? student.full_name_ar : student.full_name_en || student.full_name_ar;
 const levelName = (level: string | null, ar: boolean) => ({ fourth: ar ? 'السنة الرابعة' : 'Fourth year', fifth: ar ? 'السنة الخامسة' : 'Fifth year', sixth: ar ? 'السنة السادسة' : 'Sixth year' }[level || ''] || level || '');
-const slotLabel = (week: ReviewWeek, ar: boolean) => week.number < 0 ? `${ar ? 'فترة' : 'Period'} ${week.block_code || ''}`.trim() : `${ar ? 'الأسبوع' : 'Week'} ${week.number}`;
+const slotLabel = (week: ReviewWeek, ar: boolean) => week.mini ? (ar ? 'ميني أوسكي' : 'Mini OSCE') : week.number < 0 ? `${ar ? 'فترة' : 'Period'} ${week.block_code || ''}`.trim() : `${ar ? 'الأسبوع' : 'Week'} ${week.number}`;
 
 export function AssessmentsMasterPage() {
   const { can } = useAuth();
@@ -89,6 +90,20 @@ function SubgroupSection({ subgroup, ar, mode }: { subgroup: ReviewSubgroup; ar:
     refetchOnWindowFocus: false,
   });
   const detail = detailQuery.data;
+  const rotations = (detail?.rotations ?? []).map(rotation => {
+    const exams = (detail?.mini_osce ?? []).filter(exam => exam.mode === 'weekly_average' && exam.students.some(row => row.rotation_id === rotation.id));
+    const extra: ReviewWeek[] = exams.map((exam, index) => {
+      const rows = exam.students.filter(row => row.rotation_id === rotation.id);
+      return { mini: true, number: 1000 + index, start_date: null, end_date: null, student_count: rows.length, ready_count: rows.filter(row => row.score !== null).length,
+        students: rows.map(row => ({ student: row.student, supervisors: row.supervisor ? [row.supervisor] : [], ready: row.score !== null, assessments: row.score === null ? [] : [{ id: -row.student.id, status: 'submitted', score: row.score, max_score: row.max_score, notes: null, evaluator: row.supervisor }] })) };
+    });
+    return { ...rotation, weeks: [...rotation.weeks, ...extra] };
+  });
+  const directMini: FinalOsceCourse[] = (detail?.mini_osce ?? []).filter(exam => exam.mode === 'direct').map(exam => ({
+    course: { ...exam.course, name_ar: 'ميني أوسكي — ' + courseName(exam.course, true), name_en: 'Mini OSCE — ' + courseName(exam.course, false) },
+    academic_year: exam.academic_year, max_score: exam.max_score, entry_mode: 'supervisor', student_count: exam.students.length, recorded_count: exam.students.filter(row => row.score !== null).length,
+    students: exam.students.map(row => ({ student: row.student, osce_score: row.score, grade_status: null, recorded_by: row.supervisor ? { id: row.supervisor.id, name: personName(row.supervisor, ar) } : null })),
+  }));
   return <article className="overflow-hidden rounded-xl border border-slate-200 bg-white">
     <header className="border-b border-slate-200 px-4 py-4 sm:px-5">
       <h2 className="flex flex-wrap items-baseline gap-2"><span className="text-xs font-bold text-slate-500">{tr('المجموعة الفرعية', 'Subgroup')}</span><b dir="ltr" className="text-2xl font-black tracking-wide text-teal-800">{subgroup.name}</b></h2>
@@ -98,8 +113,8 @@ function SubgroupSection({ subgroup, ar, mode }: { subgroup: ReviewSubgroup; ar:
       {detailQuery.isLoading ? <LoadingState /> : detailQuery.isError ? <ErrorState onRetry={() => detailQuery.refetch()} /> : <>
         {mode === 'assessments' ? <>
           {!detail?.rotations.length && <p className="px-3 py-3 text-xs text-slate-500">{tr('لا توجد أسابيع تكليف منشورة لهذه المجموعة بعد.', 'No published assignment weeks for this subgroup yet.')}</p>}
-          <AssessmentWeekTable students={subgroup.students} rotations={detail?.rotations ?? []} ar={ar} label={subgroup.name} />
-        </> : <FinalOsceReview courses={detail?.final_osce ?? []} ar={ar} />}
+          <AssessmentWeekTable students={subgroup.students} rotations={rotations} ar={ar} label={subgroup.name} />
+        </> : <><FinalOsceReview courses={detail?.final_osce ?? []} ar={ar} />{directMini.length > 0 && <div className="border-t border-slate-200"><h3 className="px-4 pt-4 text-sm font-bold">{tr('الميني أوسكي — حصة مستقلة', 'Mini OSCE — separate component')}</h3><FinalOsceReview courses={directMini} ar={ar} /></div>}</>}
       </>}
     </div>
   </article>;
@@ -222,7 +237,7 @@ function AssessmentWeekTable({ students, rotations, ar, label }: { students: Stu
             const official = row?.assessments.filter(assessment => ['submitted', 'approved'].includes(assessment.status)) ?? [];
             return <td key={`${rotation.id}-${week.number}`} className={`border-e border-t border-slate-200 p-0 text-center last:border-e-0 ${row ? 'bg-white' : 'bg-slate-50'}`}>
               {row ? <button type="button" onClick={() => { saveAssessment.reset(); setSelection({ row, week, rotation }); }} title={!official.length && !can('assessment.review') ? (row.assessments.length ? t('assessments.matrix.notSubmitted') : t('assessments.matrix.pending')) : undefined} aria-label={`${studentName(student, ar)} · ${slotLabel(week, ar)} · ${label} · ${courseName(rotation.course, ar)}`} className="flex min-h-16 w-full flex-col items-center justify-center gap-1 px-1 py-2 hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-teal-500">
-                <span dir="ltr" className={`break-words text-sm font-black tabular-nums ${official.length ? 'text-slate-900' : 'text-slate-400'}`}>{official.length ? official.map(assessment => assessment.score === null ? '—' : Number(assessment.score).toString()).join(' · ') : '—'}</span>
+                <span dir="ltr" className={`break-words text-sm font-black tabular-nums ${official.length ? 'text-slate-900' : 'text-slate-400'}`}>{official.length ? official.map(assessment => assessment.score === null ? '—' : (week.mini ? Number(assessment.score) + ' / ' + Number(assessment.max_score) : Number(assessment.score).toString())).join(' · ') : '—'}</span>
                 {!official.length && <span className="sr-only">{row.assessments.length ? t('assessments.matrix.notSubmitted') : t('assessments.matrix.pending')}</span>}
               </button> : <span className="block px-2 py-4 text-slate-400" title={t('assessments.matrix.notAssigned')}>—<span className="sr-only">{t('assessments.matrix.notAssigned')}</span></span>}
             </td>;
@@ -235,7 +250,7 @@ function AssessmentWeekTable({ students, rotations, ar, label }: { students: Stu
     <Modal isOpen={Boolean(selection)} onClose={() => setSelection(null)} title={`${selection ? slotLabel(selection.week, ar) : ''} · ${label}${selection ? ` · ${courseName(selection.rotation.course, ar)}` : ''}`} backdropTone="light">
       {selection && <>
         <StudentAssessmentRow row={selection.row} ar={ar} />
-        {can('assessment.review') && !selection.row.assessments.some(assessment => ['submitted', 'approved'].includes(assessment.status)) && <ReviewAssessmentForm
+        {can('assessment.review') && !selection.week.mini && !selection.row.assessments.some(assessment => ['submitted', 'approved'].includes(assessment.status)) && <ReviewAssessmentForm
           key={`${selection.row.student.id}:${selection.rotation.id}:${selection.week.number}`}
           row={selection.row}
           week={selection.week}

@@ -210,6 +210,14 @@ class SupervisorController extends Controller
         [$user, $person] = $this->supervisorIdentity($request);
         $person->loadMissing('availabilities');
         $assignments = $this->currentAssignments($person);
+        $miniEligible = collect();
+        foreach ($assignments->groupBy(fn ($a) => $a->rotationBlock?->rotation?->course_id.':'.$a->rotationBlock?->rotation?->academic_year_id) as $items) {
+            $rotation = $items->first()->rotationBlock?->rotation;
+            if (! $rotation?->course_id || ! $rotation->academic_year_id) continue;
+            $service = app(\App\Services\CourseMiniOsce::class);
+            $miniEligible = $miniEligible->concat($service->lastAssignments($service->assignments($rotation->course_id, $rotation->academic_year_id, $items->pluck('student_id')->all()))->pluck('id'));
+        }
+        $assignments->each(fn ($a) => $a->setAttribute('mini_osce_eligible', $miniEligible->contains($a->id)));
         $periods = app(ClinicalAssessmentPeriods::class)->groups($assignments);
         $assignments->each(function (StudentClinicalAssignment $assignment) use ($person): void {
             [$start, $end] = $this->assignmentDateRange($assignment);
@@ -638,6 +646,31 @@ class SupervisorController extends Controller
             'score' => ['required', 'numeric', 'min:0'],
         ]);
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
+        $assignment->loadMissing('rotationBlock.rotation.course.assessmentComponents');
+        $miniComponent = $assignment->rotationBlock?->rotation?->course?->assessmentComponents?->firstWhere('code', 'clinical');
+        if (in_array($miniComponent?->mini_osce_mode, ['weekly_average', 'direct'], true)) {
+            $rotation = $assignment->rotationBlock->rotation;
+            $service = app(\App\Services\CourseMiniOsce::class);
+            return DB::transaction(function () use ($assignment, $data, $person, $rotation, $service, $miniComponent) {
+                $this->lockCurrentAssessmentVersion($assignment->distribution_version_id);
+                DB::table('students')->where('id', $data['student_id'])->lockForUpdate()->first();
+                $last = $service->lastAssignments($service->assignments($rotation->course_id, $rotation->academic_year_id, [(int) $data['student_id']]))->first();
+                abort_unless($last && (int) $last->supervisor_id === (int) $person->id
+                    && (int) $last->id === (int) $assignment->id, 403, 'Only the supervisor assigned to the final clinical week may record Mini OSCE.');
+                $this->assignmentWeek($last, (int) $last->rotationBlock->to_week);
+                $max = (float) $miniComponent->mini_osce_max_score;
+                if ($max <= 0 || (float) $data['score'] > $max) throw ValidationException::withMessages(['score' => ["علامة الميني أوسكي يجب أن تكون بين 0 و {$max}."]]);
+                if (GradeEntry::whereHas('enrollment', fn ($q) => $q->where('student_id', $data['student_id'])->where('course_id', $rotation->course_id)->where('academic_year_id', $rotation->academic_year_id))->whereIn('status', ['submitted', 'approved', 'published', 'locked'])->exists()) {
+                    throw ValidationException::withMessages(['score' => ['لا يمكن تعديل الميني أوسكي بعد إرسال كشف العلامات.']]);
+                }
+                $key = ['student_id' => $data['student_id'], 'rotation_block_id' => $last->rotation_block_id, 'distribution_version_id' => $last->distribution_version_id];
+                $old = DB::table('clinical_mini_osce_scores')->where($key)->first();
+                if ($old && ($old->superseded_at || (int) $old->entered_by_person_id !== (int) $person->id)) throw ValidationException::withMessages(['score' => ['توجد علامة سابقة تتطلب مراجعة إدارة التقييمات.']]);
+                DB::table('clinical_mini_osce_scores')->updateOrInsert($key, ['entered_by_person_id' => $person->id, 'score' => round((float) $data['score'], 2), 'max_score' => $max, 'created_at' => $old?->created_at ?? now(), 'updated_at' => now()]);
+                AuditLog::create(['user_id' => auth()->id(), 'action' => 'grade.mini_osce.recorded', 'entity_type' => \App\Models\Course::class, 'entity_id' => $rotation->course_id, 'changes' => [...$key, 'previous' => $old?->score, 'current' => $data['score'], 'mode' => $miniComponent->mini_osce_mode]]);
+                return ApiResponse::success(['score' => round((float) $data['score'], 2), 'max_score' => $max]);
+            });
+        }
         $periodAssignments = $this->periodAssignments($assignment);
         abort_unless($assignment->rotation_block_id && $periodAssignments->contains('student_id', (int) $data['student_id']), 403);
         $assignment->loadMissing('rotationBlock.rotation.course.assessmentComponents');

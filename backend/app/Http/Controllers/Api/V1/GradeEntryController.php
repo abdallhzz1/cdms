@@ -34,7 +34,7 @@ class GradeEntryController extends Controller
     {
         $levelScope = $this->getEffectiveAcademicLevelScope();
         $courses = $this->applyCourseAccessScope(Course::query())
-            ->with(['assessmentComponents' => fn ($query) => $query->select('id', 'course_id', 'code', 'name', 'weight', 'max_score', 'entry_max_score', 'assessment_frequency', 'mini_osce_max_score', 'osce_entry_mode')->orderBy('id')])
+            ->with(['assessmentComponents' => fn ($query) => $query->select('id', 'course_id', 'code', 'name', 'weight', 'max_score', 'entry_max_score', 'assessment_frequency', 'mini_osce_max_score', 'mini_osce_mode', 'osce_entry_mode')->orderBy('id')])
             ->when($levelScope !== null, function ($query) use ($levelScope) {
                 empty($levelScope)
                     ? $query->whereRaw('1 = 0')
@@ -86,10 +86,11 @@ class GradeEntryController extends Controller
 
         $clinical = $this->clinicalScores($students->pluck('id')->all(), $course->id, (int) $data['academic_year_id']);
 
-        return ApiResponse::success($students->map(function (Student $student) use ($enrollments, $clinical) {
+        return ApiResponse::success($students->map(function (Student $student) use ($enrollments, $clinical, $course, $data) {
             $enrollment = $enrollments->get($student->id);
             $official = $clinical->get($student->id);
             $saved = $enrollment?->gradeEntry;
+            $mini = app(\App\Services\CourseMiniOsce::class)->directScore($student->id, $course->id, (int) $data['academic_year_id']);
             $outdated = $saved && in_array($saved->status, ['submitted', 'approved'], true)
                 && ($official === null || $saved->clinical_score === null
                     || abs((float) $saved->clinical_score - (float) $official) > 0.005);
@@ -98,7 +99,8 @@ class GradeEntryController extends Controller
                 'enrollment_id' => $enrollment?->id,
                 'grade_entry' => $saved,
                 'official_clinical_score' => $official,
-                'clinical_score_outdated' => (bool) $outdated,
+                'official_mini_osce_score' => $mini,
+                'clinical_score_outdated' => (bool) ($outdated || ($saved && in_array($saved->status, ['submitted', 'approved'], true) && ($mini === null || abs((float) $mini - (float) $saved->mini_osce_score) > 0.005))),
             ];
         })->values());
     }
@@ -696,6 +698,11 @@ class GradeEntryController extends Controller
 
     private function assertCurrentClinicalScore(GradeEntry $grade, mixed $officialClinical): void
     {
+        $enrollment = $grade->enrollment;
+        $mini = $enrollment ? app(\App\Services\CourseMiniOsce::class)->directScore($enrollment->student_id, $enrollment->course_id, $enrollment->academic_year_id) : 0.0;
+        if ($mini === null || abs((float) $mini - (float) $grade->mini_osce_score) > 0.005) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['grades' => ['تغيّرت علامة الميني أوسكي أو لم تكتمل؛ راجع الكشف وأعد إرساله.']]);
+        }
         if ($officialClinical === null || $grade->clinical_score === null
             || abs((float) $grade->clinical_score - (float) $officialClinical) > 0.005) {
             throw \Illuminate\Validation\ValidationException::withMessages(['grades' => [$this->tr(
@@ -710,8 +717,8 @@ class GradeEntryController extends Controller
         $components = $course->assessmentComponents->keyBy('code');
         $required = collect(['clinical', 'osce', 'written']);
         $valid = $required->every(fn (string $code) => $components->has($code))
-            && abs((float) $components->sum('weight') - 100.0) < 0.001
-            && abs((float) $components->sum('max_score') - 100.0) < 0.001;
+            && abs((float) $components->sum('weight') + ($components->get('clinical')?->mini_osce_mode === 'direct' ? (float) $components->get('clinical')->mini_osce_max_score : 0) - 100.0) < 0.001
+            && abs((float) $components->sum('max_score') + ($components->get('clinical')?->mini_osce_mode === 'direct' ? (float) $components->get('clinical')->mini_osce_max_score : 0) - 100.0) < 0.001;
 
         if (! $valid) {
             throw \Illuminate\Validation\ValidationException::withMessages(['assessment_components' => [$this->tr(

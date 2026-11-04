@@ -281,7 +281,31 @@ class ClinicalAssessmentReviewController extends Controller
             ];
         })->sortBy(fn (array $rotation) => (string) ($rotation['start_date'] ?? ''))->values();
 
+        $miniExams = $assignments->groupBy(fn ($a) => $a->rotationBlock->rotation->course_id.':'.$a->rotationBlock->rotation->academic_year_id)
+            ->map(function ($items) {
+                $rotation = $items->first()->rotationBlock->rotation;
+                $component = $rotation->course?->assessmentComponents?->firstWhere('code', 'clinical');
+                if (! in_array($component?->mini_osce_mode, ['weekly_average', 'direct'], true) || (float) $component->mini_osce_max_score <= 0) return null;
+                $service = app(\App\Services\CourseMiniOsce::class);
+                $last = $service->lastAssignments($service->assignments($rotation->course_id, $rotation->academic_year_id, $items->pluck('student_id')->unique()->all()));
+                $scores = $service->scores($last);
+                return [
+                    'course' => $rotation->course->only(['id', 'code', 'name_ar', 'name_en']),
+                    'academic_year' => $rotation->academicYear?->only(['id', 'code']),
+                    'mode' => $component->mini_osce_mode,
+                    'max_score' => $component->mini_osce_max_score,
+                    'students' => $last->map(fn ($a) => [
+                        'student' => $a->student->only(['id', 'university_number', 'full_name_ar', 'full_name_en', 'photo_url']),
+                        'rotation_id' => $a->rotationBlock->rotation_id,
+                        'supervisor' => $a->supervisor?->only(['id', 'full_name_ar', 'full_name_en']),
+                        'score' => $scores->get($a->student_id)?->score,
+                        'max_score' => $scores->get($a->student_id)?->max_score ?? $component->mini_osce_max_score,
+                    ])->values(),
+                ];
+            })->filter()->values();
+
         return ApiResponse::success([
+            'mini_osce' => $miniExams,
             'subgroup_id' => $subgroup->id,
             'academic_year' => $subgroup->group?->academicYear,
             'group_name' => $subgroup->group?->name,

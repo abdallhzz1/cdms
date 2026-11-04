@@ -1746,4 +1746,65 @@ class Phase5CTest extends TestCase
             ->assertJsonPath('data.0.distribution_version_id', $this->publishedVersion->id)
             ->assertJsonPath('data.0.academic_year.id', $this->rotation->academic_year_id);
     }
+
+    public function test_new_mini_weekly_average_counts_one_normalized_assessment(): void
+    {
+        $this->actingAs($this->admin);
+        $this->course->assessmentComponents()->where('code', 'clinical')->update(['mini_osce_mode' => 'weekly_average', 'mini_osce_max_score' => 5, 'max_score' => 20]);
+        foreach ([[1, 8, 10], [2, 6, 10]] as [$week, $score, $max]) {
+            ClinicalAssessment::create(['student_id' => $this->student1->id, 'student_clinical_assignment_id' => $this->assignment1->id,
+                'evaluator_person_id' => $this->supervisor1->id, 'assessment_kind' => 'weekly', 'evaluation_week' => $week,
+                'score' => $score, 'max_score' => $max, 'status' => 'submitted']);
+        }
+        $calculator = app(\App\Services\ClinicalGradeCalculator::class);
+        $this->assertNull($calculator->scores([$this->student1->id], $this->course->id, $this->rotation->academic_year_id)->get($this->student1->id));
+        $miniService = app(\App\Services\CourseMiniOsce::class);
+        $lastAssignment = $miniService->lastAssignments($miniService->assignments($this->course->id, $this->rotation->academic_year_id, [$this->student1->id]))->first();
+        DB::table('clinical_mini_osce_scores')->insert(['student_id' => $this->student1->id, 'rotation_block_id' => $lastAssignment->rotation_block_id,
+            'distribution_version_id' => $lastAssignment->distribution_version_id, 'entered_by_person_id' => $lastAssignment->supervisor_id,
+            'score' => 3, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now()]);
+        $this->assertEquals(13.33, $calculator->scores([$this->student1->id], $this->course->id, $this->rotation->academic_year_id)->get($this->student1->id));
+        $this->admin->roles()->first()->permissions()->syncWithoutDetaching([Permission::where('code', 'assessment.review')->value('id') => ['scope_type' => 'global']]);
+        $this->getJson('/api/v1/clinical-assessments/review-subgroup?subgroup_id='.$this->subgroup->id)
+            ->assertOk()->assertJsonPath('data.mini_osce.0.mode', 'weekly_average');
+    }
+
+    public function test_new_mini_direct_is_separate_and_included_in_saved_total(): void
+    {
+        $this->course->assessmentComponents()->where('code', 'clinical')->update(['mini_osce_mode' => 'direct', 'mini_osce_max_score' => 5, 'max_score' => 15, 'weight' => 15]);
+        DB::table('clinical_mini_osce_scores')->insert(['student_id' => $this->student1->id, 'rotation_block_id' => $this->block1->id,
+            'distribution_version_id' => $this->publishedVersion->id, 'entered_by_person_id' => $this->supervisor1->id,
+            'score' => 3, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now()]);
+        $enrollment = StudentCourseEnrollment::create(['student_id' => $this->student1->id, 'course_id' => $this->course->id, 'academic_year_id' => $this->rotation->academic_year_id, 'semester' => 'FIRST', 'status' => 'enrolled']);
+        $grade = GradeEntry::create(['student_course_enrollment_id' => $enrollment->id, 'clinical_score' => 12, 'osce_score' => 30, 'written_score' => 35, 'score' => 77, 'max_score' => 100, 'status' => 'draft']);
+        $this->assertEquals(3, $grade->fresh()->mini_osce_score);
+        $this->assertEquals(80, $grade->fresh()->score);
+        DB::table('clinical_mini_osce_scores')->delete();
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        $grade->update(['status' => 'submitted']);
+    }
+
+    public function test_new_mini_only_last_week_supervisor_can_record(): void
+    {
+        $this->travelTo(\Carbon\Carbon::parse('2026-11-04'));
+        $this->course->assessmentComponents()->where('code', 'clinical')->update(['mini_osce_mode' => 'weekly_average', 'mini_osce_max_score' => 5]);
+        $role = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
+        $role->permissions()->syncWithoutDetaching([Permission::where('code', 'assessment.create')->value('id') => ['scope_type' => 'global']]);
+        $this->admin->roles()->attach($role);
+        $this->supervisor1->update(['user_id' => $this->admin->id]);
+        $block = RotationBlock::factory()->create(['rotation_id' => $this->rotation->id, 'from_week' => 5, 'to_week' => 8]);
+        $last = $this->assignment1->replicate();
+        $last->rotation_block_id = $block->id;
+        $last->supervisor_id = $this->supervisor2->id;
+        $last->save();
+        $this->actingAs($this->admin)->postJson('/api/v1/operational/my-supervisor-mini-osce', ['assignment_id' => $this->assignment1->id, 'student_id' => $this->student1->id, 'score' => 3])->assertForbidden();
+        $lastUser = User::factory()->create();
+        $lastUser->roles()->attach($role);
+        $this->supervisor2->update(['user_id' => $lastUser->id]);
+        $this->actingAs($lastUser)->postJson('/api/v1/operational/my-supervisor-mini-osce', ['assignment_id' => $last->id, 'student_id' => $this->student1->id, 'score' => 6])->assertUnprocessable();
+        $this->actingAs($lastUser)->postJson('/api/v1/operational/my-supervisor-mini-osce', ['assignment_id' => $last->id, 'student_id' => $this->student1->id, 'score' => 3])->assertOk();
+        $this->assertDatabaseHas('clinical_mini_osce_scores', ['student_id' => $this->student1->id, 'rotation_block_id' => $block->id, 'entered_by_person_id' => $this->supervisor2->id, 'score' => 3, 'max_score' => 5]);
+        $this->travelBack();
+    }
+
 }
