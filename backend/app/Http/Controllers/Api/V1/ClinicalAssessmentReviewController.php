@@ -288,7 +288,7 @@ class ClinicalAssessmentReviewController extends Controller
                 if (! in_array($component?->mini_osce_mode, ['weekly_average', 'direct'], true) || (float) $component->mini_osce_max_score <= 0) return null;
                 $service = app(\App\Services\CourseMiniOsce::class);
                 $all = $service->assignments($rotation->course_id, $rotation->academic_year_id, $items->pluck('student_id')->unique()->all());
-                $selected = $component->mini_osce_mode === 'weekly_average' ? $service->checkpointAssignments($all) : $service->lastAssignments($all);
+                $selected = $component->mini_osce_mode === 'direct' ? $service->checkpointAssignments($all) : $service->assignmentsAtWeek($all, 12);
                 $scores = $service->checkpointScores($selected);
                 return [
                     'course' => $rotation->course->only(['id', 'code', 'name_ar', 'name_en']),
@@ -300,7 +300,7 @@ class ClinicalAssessmentReviewController extends Controller
                         return [
                         'student' => $a->student->only(['id', 'university_number', 'full_name_ar', 'full_name_en', 'photo_url']),
                         'rotation_id' => $a->rotationBlock->rotation_id,
-                        'checkpoint_week' => $component->mini_osce_mode === 'weekly_average' && (int) $a->rotationBlock->to_week <= 6 ? 6 : ($component->mini_osce_mode === 'weekly_average' ? 12 : null),
+                        'checkpoint_week' => $component->mini_osce_mode === 'direct' && (int) $a->rotationBlock->to_week <= 6 ? 6 : ($component->mini_osce_mode === 'direct' ? 12 : null),
                         'supervisor' => $a->supervisor?->only(['id', 'full_name_ar', 'full_name_en']),
                         'score' => $score?->score,
                         'max_score' => $score?->max_score ?? $component->mini_osce_max_score,

@@ -1750,7 +1750,7 @@ class Phase5CTest extends TestCase
     public function test_new_mini_weekly_average_counts_one_normalized_assessment(): void
     {
         $this->actingAs($this->admin);
-        $this->block1->update(['to_week' => 6]);
+        $this->block1->update(['to_week' => 12]);
         $this->course->assessmentComponents()->where('code', 'clinical')->update(['mini_osce_mode' => 'weekly_average', 'mini_osce_max_score' => 5, 'max_score' => 20]);
         foreach ([[1, 8, 10], [2, 6, 10]] as [$week, $score, $max]) {
             ClinicalAssessment::create(['student_id' => $this->student1->id, 'student_clinical_assignment_id' => $this->assignment1->id,
@@ -1772,8 +1772,16 @@ class Phase5CTest extends TestCase
 
     public function test_new_mini_direct_is_separate_and_included_in_saved_total(): void
     {
+        $this->block1->update(['to_week' => 6]);
         $this->course->assessmentComponents()->where('code', 'clinical')->update(['mini_osce_mode' => 'direct', 'mini_osce_max_score' => 5, 'max_score' => 15, 'weight' => 15]);
+        $block12 = RotationBlock::factory()->create(['rotation_id' => $this->rotation->id, 'from_week' => 7, 'to_week' => 12]);
+        $assignment12 = $this->assignment1->replicate();
+        $assignment12->rotation_block_id = $block12->id;
+        $assignment12->save();
         DB::table('clinical_mini_osce_scores')->insert(['student_id' => $this->student1->id, 'rotation_block_id' => $this->block1->id,
+            'distribution_version_id' => $this->publishedVersion->id, 'entered_by_person_id' => $this->supervisor1->id,
+            'score' => 3, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('clinical_mini_osce_scores')->insert(['student_id' => $this->student1->id, 'rotation_block_id' => $block12->id,
             'distribution_version_id' => $this->publishedVersion->id, 'entered_by_person_id' => $this->supervisor1->id,
             'score' => 3, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now()]);
         $enrollment = StudentCourseEnrollment::create(['student_id' => $this->student1->id, 'course_id' => $this->course->id, 'academic_year_id' => $this->rotation->academic_year_id, 'semester' => 'FIRST', 'status' => 'enrolled']);
@@ -1788,7 +1796,7 @@ class Phase5CTest extends TestCase
     public function test_new_mini_only_last_week_supervisor_can_record(): void
     {
         $this->travelTo(\Carbon\Carbon::parse('2026-11-04'));
-        $this->course->assessmentComponents()->where('code', 'clinical')->update(['mini_osce_mode' => 'weekly_average', 'mini_osce_max_score' => 5]);
+        $this->course->assessmentComponents()->where('code', 'clinical')->update(['mini_osce_mode' => 'direct', 'mini_osce_max_score' => 5]);
         $role = Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail();
         $role->permissions()->syncWithoutDetaching([Permission::where('code', 'assessment.create')->value('id') => ['scope_type' => 'global']]);
         $this->admin->roles()->attach($role);

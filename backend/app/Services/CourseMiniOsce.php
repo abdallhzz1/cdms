@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Models\StudentClinicalAssignment;
 use Illuminate\Support\Collection;
 
-/** Mini OSCE checkpoints at weeks 6 and 12, owned by the assignment covering each checkpoint. */
+/** Supports a final-week Mini OSCE and direct-grade checkpoints at weeks 6 and 12. */
 class CourseMiniOsce
 {
     public function assignments(int $courseId, int $yearId, array $studentIds): Collection
@@ -29,8 +29,12 @@ class CourseMiniOsce
 
     public function checkpointAssignments(Collection $assignments): Collection
     {
-        return $assignments->filter(fn ($a) => in_array(6, range((int) $a->rotationBlock?->from_week, (int) $a->rotationBlock?->to_week), true)
-            || in_array(12, range((int) $a->rotationBlock?->from_week, (int) $a->rotationBlock?->to_week), true))->values();
+        return $this->assignmentsAtWeek($assignments, 6)->merge($this->assignmentsAtWeek($assignments, 12))->unique('id')->values();
+    }
+
+    public function assignmentsAtWeek(Collection $assignments, int $week): Collection
+    {
+        return $assignments->filter(fn ($a) => (int) $a->rotationBlock?->from_week <= $week && (int) $a->rotationBlock?->to_week >= $week)->values();
     }
 
     public function scores(Collection $last): Collection
@@ -49,8 +53,9 @@ class CourseMiniOsce
     {
         $component = \App\Models\CourseAssessmentComponent::where('course_id', $courseId)->where('code', 'clinical')->first();
         if ($component?->mini_osce_mode !== 'direct' || (float) $component->mini_osce_max_score <= 0) return 0.0;
-        $score = $this->scores($this->lastAssignments($this->assignments($courseId, $yearId, [$studentId])))->get($studentId);
-        return $score && (float) $score->max_score > 0
-            ? round((float) $score->score / (float) $score->max_score * (float) $component->mini_osce_max_score, 2) : null;
+        $checkpoints = $this->checkpointAssignments($this->assignments($courseId, $yearId, [$studentId]));
+        $scores = $this->checkpointScores($checkpoints)->get($studentId, collect())->filter(fn ($score) => (float) $score->max_score > 0);
+        return $checkpoints->isNotEmpty() && $scores->count() === $checkpoints->count()
+            ? round($scores->avg(fn ($score) => (float) $score->score / (float) $score->max_score) * (float) $component->mini_osce_max_score, 2) : null;
     }
 }

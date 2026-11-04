@@ -217,9 +217,9 @@ class SupervisorController extends Controller
             $service = app(\App\Services\CourseMiniOsce::class);
             $current = $service->assignments($rotation->course_id, $rotation->academic_year_id, $items->pluck('student_id')->all());
             $component = $rotation->course?->assessmentComponents?->firstWhere('code', 'clinical');
-            $eligible = $component?->mini_osce_mode === 'weekly_average'
+            $eligible = $component?->mini_osce_mode === 'direct'
                 ? $service->checkpointAssignments($current)
-                : $service->lastAssignments($current);
+                : $service->assignmentsAtWeek($current, 12);
             $miniEligible = $miniEligible->concat($eligible->pluck('id'));
         }
         $assignments->each(fn ($a) => $a->setAttribute('mini_osce_eligible', $miniEligible->contains($a->id)));
@@ -660,14 +660,14 @@ class SupervisorController extends Controller
                 $this->lockCurrentAssessmentVersion($assignment->distribution_version_id);
                 DB::table('students')->where('id', $data['student_id'])->lockForUpdate()->first();
                 $current = $service->assignments($rotation->course_id, $rotation->academic_year_id, [(int) $data['student_id']]);
-                $checkpoint = $miniComponent->mini_osce_mode === 'weekly_average'
+                $checkpoint = $miniComponent->mini_osce_mode === 'direct'
                     ? $service->checkpointAssignments($current)->firstWhere('id', $assignment->id)
-                    : $service->lastAssignments($current)->first();
+                    : $service->assignmentsAtWeek($current, 12)->first();
                 abort_unless($checkpoint && (int) $checkpoint->supervisor_id === (int) $person->id
                     && (int) $checkpoint->id === (int) $assignment->id, 403, 'Only the assigned checkpoint supervisor may record Mini OSCE.');
-                $week = $miniComponent->mini_osce_mode === 'weekly_average'
+                $week = $miniComponent->mini_osce_mode === 'direct'
                     ? (in_array(6, range((int) $checkpoint->rotationBlock->from_week, (int) $checkpoint->rotationBlock->to_week), true) ? 6 : 12)
-                    : (int) $checkpoint->rotationBlock->to_week;
+                    : 12;
                 $this->assignmentWeek($checkpoint, $week);
                 $max = (float) $miniComponent->mini_osce_max_score;
                 if ($max <= 0 || (float) $data['score'] > $max) throw ValidationException::withMessages(['score' => ["علامة الميني أوسكي يجب أن تكون بين 0 و {$max}."]]);
