@@ -30,14 +30,17 @@ class ClinicalGradeCalculator
 
         $mode = $courseId ? CourseAssessmentComponent::where('course_id', $courseId)->where('code', 'clinical')->value('mini_osce_mode') : 'legacy';
         if ($miniMax > 0 && $mode === 'weekly_average') {
-            $mini = app(CourseMiniOsce::class)->scores(app(CourseMiniOsce::class)->lastAssignments($expectedAssignments));
-            return $currentAssessments->groupBy('student_id')->map(function ($items, $studentId) use ($mini, $clinicalMax, $withMetadata) {
-                $exam = $mini->get($studentId);
-                $score = $exam && (float) $exam->max_score > 0
+            $miniService = app(CourseMiniOsce::class);
+            $checkpoints = $miniService->checkpointAssignments($expectedAssignments);
+            $mini = $miniService->checkpointScores($checkpoints);
+            $required = $checkpoints->countBy('student_id');
+            return $currentAssessments->groupBy('student_id')->map(function ($items, $studentId) use ($mini, $required, $clinicalMax, $withMetadata) {
+                $exams = $mini->get($studentId, collect())->filter(fn ($exam) => (float) $exam->max_score > 0);
+                $score = $exams->count() === (int) ($required->get($studentId) ?? 0) && $exams->isNotEmpty()
                     ? round(($items->sum(fn ($item) => (float) $item->score / (float) $item->max_score)
-                        + (float) $exam->score / (float) $exam->max_score) / ($items->count() + 1) * $clinicalMax, 2)
+                        + $exams->sum(fn ($exam) => (float) $exam->score / (float) $exam->max_score)) / ($items->count() + $exams->count()) * $clinicalMax, 2)
                     : null;
-                return $withMetadata ? ['clinical_score' => $score, 'assessments_count' => $items->count()] : $score;
+                return $withMetadata ? ['clinical_score' => $score, 'assessments_count' => $items->count() + $exams->count()] : $score;
             });
         }
         if ($miniMax > 0 && $mode !== 'direct') {

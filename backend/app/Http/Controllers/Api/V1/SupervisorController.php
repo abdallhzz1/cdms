@@ -215,7 +215,12 @@ class SupervisorController extends Controller
             $rotation = $items->first()->rotationBlock?->rotation;
             if (! $rotation?->course_id || ! $rotation->academic_year_id) continue;
             $service = app(\App\Services\CourseMiniOsce::class);
-            $miniEligible = $miniEligible->concat($service->lastAssignments($service->assignments($rotation->course_id, $rotation->academic_year_id, $items->pluck('student_id')->all()))->pluck('id'));
+            $current = $service->assignments($rotation->course_id, $rotation->academic_year_id, $items->pluck('student_id')->all());
+            $component = $rotation->course?->assessmentComponents?->firstWhere('code', 'clinical');
+            $eligible = $component?->mini_osce_mode === 'weekly_average'
+                ? $service->checkpointAssignments($current)
+                : $service->lastAssignments($current);
+            $miniEligible = $miniEligible->concat($eligible->pluck('id'));
         }
         $assignments->each(fn ($a) => $a->setAttribute('mini_osce_eligible', $miniEligible->contains($a->id)));
         $periods = app(ClinicalAssessmentPeriods::class)->groups($assignments);
@@ -654,16 +659,22 @@ class SupervisorController extends Controller
             return DB::transaction(function () use ($assignment, $data, $person, $rotation, $service, $miniComponent) {
                 $this->lockCurrentAssessmentVersion($assignment->distribution_version_id);
                 DB::table('students')->where('id', $data['student_id'])->lockForUpdate()->first();
-                $last = $service->lastAssignments($service->assignments($rotation->course_id, $rotation->academic_year_id, [(int) $data['student_id']]))->first();
-                abort_unless($last && (int) $last->supervisor_id === (int) $person->id
-                    && (int) $last->id === (int) $assignment->id, 403, 'Only the supervisor assigned to the final clinical week may record Mini OSCE.');
-                $this->assignmentWeek($last, (int) $last->rotationBlock->to_week);
+                $current = $service->assignments($rotation->course_id, $rotation->academic_year_id, [(int) $data['student_id']]);
+                $checkpoint = $miniComponent->mini_osce_mode === 'weekly_average'
+                    ? $service->checkpointAssignments($current)->firstWhere('id', $assignment->id)
+                    : $service->lastAssignments($current)->first();
+                abort_unless($checkpoint && (int) $checkpoint->supervisor_id === (int) $person->id
+                    && (int) $checkpoint->id === (int) $assignment->id, 403, 'Only the assigned checkpoint supervisor may record Mini OSCE.');
+                $week = $miniComponent->mini_osce_mode === 'weekly_average'
+                    ? (in_array(6, range((int) $checkpoint->rotationBlock->from_week, (int) $checkpoint->rotationBlock->to_week), true) ? 6 : 12)
+                    : (int) $checkpoint->rotationBlock->to_week;
+                $this->assignmentWeek($checkpoint, $week);
                 $max = (float) $miniComponent->mini_osce_max_score;
                 if ($max <= 0 || (float) $data['score'] > $max) throw ValidationException::withMessages(['score' => ["علامة الميني أوسكي يجب أن تكون بين 0 و {$max}."]]);
                 if (GradeEntry::whereHas('enrollment', fn ($q) => $q->where('student_id', $data['student_id'])->where('course_id', $rotation->course_id)->where('academic_year_id', $rotation->academic_year_id))->whereIn('status', ['submitted', 'approved', 'published', 'locked'])->exists()) {
                     throw ValidationException::withMessages(['score' => ['لا يمكن تعديل الميني أوسكي بعد إرسال كشف العلامات.']]);
                 }
-                $key = ['student_id' => $data['student_id'], 'rotation_block_id' => $last->rotation_block_id, 'distribution_version_id' => $last->distribution_version_id];
+                $key = ['student_id' => $data['student_id'], 'rotation_block_id' => $checkpoint->rotation_block_id, 'distribution_version_id' => $checkpoint->distribution_version_id];
                 $old = DB::table('clinical_mini_osce_scores')->where($key)->first();
                 if ($old && ($old->superseded_at || (int) $old->entered_by_person_id !== (int) $person->id)) throw ValidationException::withMessages(['score' => ['توجد علامة سابقة تتطلب مراجعة إدارة التقييمات.']]);
                 DB::table('clinical_mini_osce_scores')->updateOrInsert($key, ['entered_by_person_id' => $person->id, 'score' => round((float) $data['score'], 2), 'max_score' => $max, 'created_at' => $old?->created_at ?? now(), 'updated_at' => now()]);

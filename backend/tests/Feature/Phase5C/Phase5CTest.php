@@ -1750,6 +1750,7 @@ class Phase5CTest extends TestCase
     public function test_new_mini_weekly_average_counts_one_normalized_assessment(): void
     {
         $this->actingAs($this->admin);
+        $this->block1->update(['to_week' => 6]);
         $this->course->assessmentComponents()->where('code', 'clinical')->update(['mini_osce_mode' => 'weekly_average', 'mini_osce_max_score' => 5, 'max_score' => 20]);
         foreach ([[1, 8, 10], [2, 6, 10]] as [$week, $score, $max]) {
             ClinicalAssessment::create(['student_id' => $this->student1->id, 'student_clinical_assignment_id' => $this->assignment1->id,
@@ -1759,9 +1760,9 @@ class Phase5CTest extends TestCase
         $calculator = app(\App\Services\ClinicalGradeCalculator::class);
         $this->assertNull($calculator->scores([$this->student1->id], $this->course->id, $this->rotation->academic_year_id)->get($this->student1->id));
         $miniService = app(\App\Services\CourseMiniOsce::class);
-        $lastAssignment = $miniService->lastAssignments($miniService->assignments($this->course->id, $this->rotation->academic_year_id, [$this->student1->id]))->first();
-        DB::table('clinical_mini_osce_scores')->insert(['student_id' => $this->student1->id, 'rotation_block_id' => $lastAssignment->rotation_block_id,
-            'distribution_version_id' => $lastAssignment->distribution_version_id, 'entered_by_person_id' => $lastAssignment->supervisor_id,
+        $checkpoint = $miniService->checkpointAssignments($miniService->assignments($this->course->id, $this->rotation->academic_year_id, [$this->student1->id]))->first();
+        DB::table('clinical_mini_osce_scores')->insert(['student_id' => $this->student1->id, 'rotation_block_id' => $checkpoint->rotation_block_id,
+            'distribution_version_id' => $checkpoint->distribution_version_id, 'entered_by_person_id' => $checkpoint->supervisor_id,
             'score' => 3, 'max_score' => 5, 'created_at' => now(), 'updated_at' => now()]);
         $this->assertEquals(13.33, $calculator->scores([$this->student1->id], $this->course->id, $this->rotation->academic_year_id)->get($this->student1->id));
         $this->admin->roles()->first()->permissions()->syncWithoutDetaching([Permission::where('code', 'assessment.review')->value('id') => ['scope_type' => 'global']]);

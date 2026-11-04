@@ -287,20 +287,24 @@ class ClinicalAssessmentReviewController extends Controller
                 $component = $rotation->course?->assessmentComponents?->firstWhere('code', 'clinical');
                 if (! in_array($component?->mini_osce_mode, ['weekly_average', 'direct'], true) || (float) $component->mini_osce_max_score <= 0) return null;
                 $service = app(\App\Services\CourseMiniOsce::class);
-                $last = $service->lastAssignments($service->assignments($rotation->course_id, $rotation->academic_year_id, $items->pluck('student_id')->unique()->all()));
-                $scores = $service->scores($last);
+                $all = $service->assignments($rotation->course_id, $rotation->academic_year_id, $items->pluck('student_id')->unique()->all());
+                $selected = $component->mini_osce_mode === 'weekly_average' ? $service->checkpointAssignments($all) : $service->lastAssignments($all);
+                $scores = $service->checkpointScores($selected);
                 return [
                     'course' => $rotation->course->only(['id', 'code', 'name_ar', 'name_en']),
                     'academic_year' => $rotation->academicYear?->only(['id', 'code']),
                     'mode' => $component->mini_osce_mode,
                     'max_score' => $component->mini_osce_max_score,
-                    'students' => $last->map(fn ($a) => [
+                    'students' => $selected->map(function ($a) use ($scores, $component) {
+                        $score = $scores->get($a->student_id, collect())->first(fn ($row) => (int) $row->rotation_block_id === (int) $a->rotation_block_id && (int) $row->distribution_version_id === (int) $a->distribution_version_id);
+                        return [
                         'student' => $a->student->only(['id', 'university_number', 'full_name_ar', 'full_name_en', 'photo_url']),
                         'rotation_id' => $a->rotationBlock->rotation_id,
+                        'checkpoint_week' => $component->mini_osce_mode === 'weekly_average' && (int) $a->rotationBlock->to_week <= 6 ? 6 : ($component->mini_osce_mode === 'weekly_average' ? 12 : null),
                         'supervisor' => $a->supervisor?->only(['id', 'full_name_ar', 'full_name_en']),
-                        'score' => $scores->get($a->student_id)?->score,
-                        'max_score' => $scores->get($a->student_id)?->max_score ?? $component->mini_osce_max_score,
-                    ])->values(),
+                        'score' => $score?->score,
+                        'max_score' => $score?->max_score ?? $component->mini_osce_max_score,
+                    ]; })->values(),
                 ];
             })->filter()->values();
 

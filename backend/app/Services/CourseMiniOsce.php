@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Models\StudentClinicalAssignment;
 use Illuminate\Support\Collection;
 
-/** One exam per student/course/year, owned by the last published clinical assignment. */
+/** Mini OSCE checkpoints at weeks 6 and 12, owned by the assignment covering each checkpoint. */
 class CourseMiniOsce
 {
     public function assignments(int $courseId, int $yearId, array $studentIds): Collection
@@ -27,10 +27,22 @@ class CourseMiniOsce
             ->unique(fn ($a) => $a->student_id.':'.$a->rotationBlock->rotation->course_id.':'.$a->rotationBlock->rotation->academic_year_id)->values();
     }
 
+    public function checkpointAssignments(Collection $assignments): Collection
+    {
+        return $assignments->filter(fn ($a) => in_array(6, range((int) $a->rotationBlock?->from_week, (int) $a->rotationBlock?->to_week), true)
+            || in_array(12, range((int) $a->rotationBlock?->from_week, (int) $a->rotationBlock?->to_week), true))->values();
+    }
+
     public function scores(Collection $last): Collection
     {
         return app(ClinicalAssessmentContinuity::class)->miniScoresForAssignments($last)
             ->groupBy('student_id')->map(fn ($rows) => $rows->count() === 1 ? $rows->first() : null);
+    }
+
+    public function checkpointScores(Collection $assignments): Collection
+    {
+        return app(ClinicalAssessmentContinuity::class)->miniScoresForAssignments($assignments)
+            ->groupBy('student_id')->map(fn ($rows) => $rows->values());
     }
 
     public function directScore(int $studentId, int $courseId, int $yearId): ?float

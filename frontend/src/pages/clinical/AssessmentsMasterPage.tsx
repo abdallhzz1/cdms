@@ -24,7 +24,7 @@ type ReviewWeek = { mini?: boolean; number: number; block_code?: string | null; 
 type ReviewRotation = { id: number; course: Named | null; clinical_period: Named | null; weeks: ReviewWeek[] };
 type FinalOsceStudent = { student: Student; osce_score: string | number | null; grade_status: string | null; recorded_by: { id: number; name: string } | null };
 type FinalOsceCourse = { course: Named; academic_year: Named | null; max_score: string | number; entry_mode: string; student_count: number; recorded_count: number; students: FinalOsceStudent[] };
-type MiniExam = { course: Named; academic_year: Named|null; mode: string; max_score: number|string; students: { student: Student; rotation_id: number; supervisor: Person|null; score: number|string|null; max_score: number|string }[] };
+type MiniExam = { course: Named; academic_year: Named|null; mode: string; max_score: number|string; students: { student: Student; rotation_id: number; checkpoint_week?: number|null; supervisor: Person|null; score: number|string|null; max_score: number|string }[] };
 type ReviewDetail = { subgroup_id: number; rotations: ReviewRotation[]; final_osce?: FinalOsceCourse[]; mini_osce?: MiniExam[] };
 
 const dateLabel = (value: string | null, ar: boolean) => value
@@ -90,20 +90,18 @@ function SubgroupSection({ subgroup, ar, mode }: { subgroup: ReviewSubgroup; ar:
     refetchOnWindowFocus: false,
   });
   const detail = detailQuery.data;
-  const rotations = (detail?.rotations ?? []).map(rotation => {
-    const exams = (detail?.mini_osce ?? []).filter(exam => exam.mode === 'weekly_average' && exam.students.some(row => row.rotation_id === rotation.id));
-    const extra: ReviewWeek[] = exams.map((exam, index) => {
-      const rows = exam.students.filter(row => row.rotation_id === rotation.id);
-      return { mini: true, number: 1000 + index, start_date: null, end_date: null, student_count: rows.length, ready_count: rows.filter(row => row.score !== null).length,
-        students: rows.map(row => ({ student: row.student, supervisors: row.supervisor ? [row.supervisor] : [], ready: row.score !== null, assessments: row.score === null ? [] : [{ id: -row.student.id, status: 'submitted', score: row.score, max_score: row.max_score, notes: null, evaluator: row.supervisor }] })) };
-    });
-    return { ...rotation, weeks: [...rotation.weeks, ...extra] };
-  });
+  const rotations = detail?.rotations ?? [];
   const directMini: FinalOsceCourse[] = (detail?.mini_osce ?? []).filter(exam => exam.mode === 'direct').map(exam => ({
     course: { ...exam.course, name_ar: 'ميني أوسكي — ' + courseName(exam.course, true), name_en: 'Mini OSCE — ' + courseName(exam.course, false) },
     academic_year: exam.academic_year, max_score: exam.max_score, entry_mode: 'supervisor', student_count: exam.students.length, recorded_count: exam.students.filter(row => row.score !== null).length,
     students: exam.students.map(row => ({ student: row.student, osce_score: row.score, grade_status: null, recorded_by: row.supervisor ? { id: row.supervisor.id, name: personName(row.supervisor, ar) } : null })),
   }));
+  const weeklyMini: FinalOsceCourse[] = (detail?.mini_osce ?? []).filter(exam => exam.mode === 'weekly_average').flatMap(exam => [6, 12].map(checkpoint => {
+    const rows = exam.students.filter(row => row.checkpoint_week === checkpoint);
+    if (!rows.length) return null;
+    return { course: { ...exam.course, id: exam.course.id * 100 + checkpoint, name_ar: `ميني أوسكي الأسبوع ${checkpoint} — ${courseName(exam.course, true)}`, name_en: `Week ${checkpoint} Mini OSCE — ${courseName(exam.course, false)}` }, academic_year: exam.academic_year, max_score: exam.max_score, entry_mode: 'supervisor', student_count: rows.length, recorded_count: rows.filter(row => row.score !== null).length,
+      students: rows.map(row => ({ student: row.student, osce_score: row.score, grade_status: null, recorded_by: row.supervisor ? { id: row.supervisor.id, name: personName(row.supervisor, ar) } : null })) } as FinalOsceCourse;
+  }).filter((course): course is FinalOsceCourse => course !== null));
   return <article className="overflow-hidden rounded-xl border border-slate-200 bg-white">
     <header className="border-b border-slate-200 px-4 py-4 sm:px-5">
       <h2 className="flex flex-wrap items-baseline gap-2"><span className="text-xs font-bold text-slate-500">{tr('المجموعة الفرعية', 'Subgroup')}</span><b dir="ltr" className="text-2xl font-black tracking-wide text-teal-800">{subgroup.name}</b></h2>
@@ -114,7 +112,7 @@ function SubgroupSection({ subgroup, ar, mode }: { subgroup: ReviewSubgroup; ar:
         {mode === 'assessments' ? <>
           {!detail?.rotations.length && <p className="px-3 py-3 text-xs text-slate-500">{tr('لا توجد أسابيع تكليف منشورة لهذه المجموعة بعد.', 'No published assignment weeks for this subgroup yet.')}</p>}
           <AssessmentWeekTable students={subgroup.students} rotations={rotations} ar={ar} label={subgroup.name} />
-        </> : <><FinalOsceReview courses={detail?.final_osce ?? []} ar={ar} />{directMini.length > 0 && <div className="border-t border-slate-200"><h3 className="px-4 pt-4 text-sm font-bold">{tr('الميني أوسكي — حصة مستقلة', 'Mini OSCE — separate component')}</h3><FinalOsceReview courses={directMini} ar={ar} /></div>}</>}
+        </> : <><FinalOsceReview courses={detail?.final_osce ?? []} ar={ar} />{weeklyMini.length > 0 && <div className="border-t border-slate-200"><h3 className="px-4 pt-4 text-sm font-bold">{tr('الميني أوسكي ضمن التقييم السريري', 'Mini OSCE within clinical assessment')}</h3><FinalOsceReview courses={weeklyMini} ar={ar} /></div>}{directMini.length > 0 && <div className="border-t border-slate-200"><h3 className="px-4 pt-4 text-sm font-bold">{tr('الميني أوسكي — حصة مستقلة', 'Mini OSCE — separate component')}</h3><FinalOsceReview courses={directMini} ar={ar} /></div>}</>}
       </>}
     </div>
   </article>;
