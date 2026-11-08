@@ -9,47 +9,56 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('clinical_field_forms', function (Blueprint $table) {
-            $table->id();
-            $table->uuid('public_id')->unique();
-            $table->string('reference_number', 40)->unique();
-            $table->string('type', 40);
-            $table->string('status', 30)->default('draft');
-            $table->unsignedInteger('revision')->default(1);
-            $table->string('locale', 2)->default('ar');
-            $table->foreignId('creator_user_id')->constrained('users')->restrictOnDelete();
-            $table->foreignId('recipient_user_id')->constrained('users')->restrictOnDelete();
-            $table->foreignId('department_id')->nullable()->constrained()->nullOnDelete();
-            $table->foreignId('training_site_id')->nullable()->constrained()->nullOnDelete();
-            $table->foreignId('course_id')->nullable()->constrained()->nullOnDelete();
-            $table->date('activity_date')->nullable();
-            $table->date('period_from')->nullable();
-            $table->date('period_to')->nullable();
-            $table->json('payload');
-            $table->boolean('is_urgent')->default(false);
-            $table->text('latest_review_note')->nullable();
-            $table->dateTime('submitted_at')->nullable();
-            $table->dateTime('acknowledged_at')->nullable();
-            $table->dateTime('completed_at')->nullable();
-            $table->timestamps();
-            $table->index(['creator_user_id', 'status']);
-            $table->index(['recipient_user_id', 'status']);
-            $table->index(['type', 'activity_date']);
-            $table->index(['is_urgent', 'status']);
-        });
+        if (! Schema::hasTable('clinical_field_forms')) {
+            Schema::create('clinical_field_forms', function (Blueprint $table) {
+                $table->id();
+                $table->uuid('public_id')->unique();
+                $table->string('reference_number', 40)->unique();
+                $table->string('type', 40);
+                $table->string('status', 30)->default('draft');
+                $table->unsignedInteger('revision')->default(1);
+                $table->string('locale', 2)->default('ar');
+                $table->foreignId('creator_user_id')->constrained('users')->restrictOnDelete();
+                $table->foreignId('recipient_user_id')->constrained('users')->restrictOnDelete();
+                $table->foreignId('department_id')->nullable()->constrained()->nullOnDelete();
+                $table->foreignId('training_site_id')->nullable()->constrained()->nullOnDelete();
+                $table->foreignId('course_id')->nullable()->constrained()->nullOnDelete();
+                $table->date('activity_date')->nullable();
+                $table->date('period_from')->nullable();
+                $table->date('period_to')->nullable();
+                $table->json('payload');
+                $table->boolean('is_urgent')->default(false);
+                $table->text('latest_review_note')->nullable();
+                $table->dateTime('submitted_at')->nullable();
+                $table->dateTime('acknowledged_at')->nullable();
+                $table->dateTime('completed_at')->nullable();
+                $table->timestamps();
+                $table->index(['creator_user_id', 'status']);
+                $table->index(['recipient_user_id', 'status']);
+                $table->index(['type', 'activity_date']);
+                $table->index(['is_urgent', 'status']);
+            });
+        }
 
-        Schema::create('clinical_field_form_events', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('clinical_field_form_id')->constrained('clinical_field_forms')->cascadeOnDelete();
-            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->string('action', 40);
-            $table->string('from_status', 30)->nullable();
-            $table->string('to_status', 30)->nullable();
-            $table->text('note')->nullable();
-            $table->json('metadata')->nullable();
-            $table->timestamps();
-            $table->index(['clinical_field_form_id', 'created_at']);
-        });
+        if (! Schema::hasTable('clinical_field_form_events')) {
+            Schema::create('clinical_field_form_events', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('clinical_field_form_id')->constrained('clinical_field_forms')->cascadeOnDelete();
+                $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
+                $table->string('action', 40);
+                $table->string('from_status', 30)->nullable();
+                $table->string('to_status', 30)->nullable();
+                $table->text('note')->nullable();
+                $table->json('metadata')->nullable();
+                $table->timestamps();
+            });
+        }
+
+        if (! Schema::hasIndex('clinical_field_form_events', 'cfm_events_form_created_idx')) {
+            Schema::table('clinical_field_form_events', function (Blueprint $table) {
+                $table->index(['clinical_field_form_id', 'created_at'], 'cfm_events_form_created_idx');
+            });
+        }
 
         $permissions = [
             ['clinical_field_monitoring.view', 'VIEW'],

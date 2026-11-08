@@ -10,7 +10,9 @@ use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class ClinicalFieldMonitoringWorkflowTest extends TestCase
@@ -141,6 +143,19 @@ class ClinicalFieldMonitoringWorkflowTest extends TestCase
         ])->assertCreated()
             ->assertJsonPath('data.type', 'department_periodic_report')
             ->assertJsonPath('data.recipient.id', $this->director->id);
+    }
+
+    public function test_migration_recovers_an_existing_partial_install_and_adds_the_short_index(): void
+    {
+        Schema::table('clinical_field_form_events', function (Blueprint $table) {
+            $table->dropIndex('cfm_events_form_created_idx');
+        });
+
+        $migration = require database_path('migrations/2026_11_08_100000_create_clinical_field_monitoring.php');
+        $migration->up();
+
+        $this->assertTrue(Schema::hasIndex('clinical_field_form_events', 'cfm_events_form_created_idx'));
+        $this->assertDatabaseHas('permissions', ['code' => 'clinical_field_monitoring.view']);
     }
 
     private function assistantRequest(): array
