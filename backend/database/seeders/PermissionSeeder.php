@@ -106,6 +106,13 @@ class PermissionSeeder extends Seeder
             ['code' => 'student_events.manage', 'module' => 'StudentEvents', 'action' => 'manage', 'description_key' => 'permissions.student_events_manage.description'],
             ['code' => 'student_events.attendance.manage', 'module' => 'StudentEvents', 'action' => 'attendance_manage', 'description_key' => 'permissions.student_events_attendance_manage.description'],
             ['code' => 'student_events.delete', 'module' => 'StudentEvents', 'action' => 'delete', 'description_key' => 'permissions.student_events_delete.description'],
+            ['code' => 'clinical_field_monitoring.view', 'module' => 'Clinical Field Monitoring', 'action' => 'VIEW', 'description_key' => 'permissions.clinical_field_monitoring_view.description'],
+            ['code' => 'clinical_field_monitoring.create_assistant', 'module' => 'Clinical Field Monitoring', 'action' => 'CREATE_ASSISTANT', 'description_key' => 'permissions.clinical_field_monitoring_create_assistant.description'],
+            ['code' => 'clinical_field_monitoring.create_department_report', 'module' => 'Clinical Field Monitoring', 'action' => 'CREATE_DEPARTMENT_REPORT', 'description_key' => 'permissions.clinical_field_monitoring_create_department_report.description'],
+            ['code' => 'clinical_field_monitoring.create_supervisory_visit', 'module' => 'Clinical Field Monitoring', 'action' => 'CREATE_SUPERVISORY_VISIT', 'description_key' => 'permissions.clinical_field_monitoring_create_supervisory_visit.description'],
+            ['code' => 'clinical_field_monitoring.review', 'module' => 'Clinical Field Monitoring', 'action' => 'REVIEW', 'description_key' => 'permissions.clinical_field_monitoring_review.description'],
+            ['code' => 'clinical_field_monitoring.export', 'module' => 'Clinical Field Monitoring', 'action' => 'EXPORT', 'description_key' => 'permissions.clinical_field_monitoring_export.description'],
+            ['code' => 'clinical_field_monitoring.manage', 'module' => 'Clinical Field Monitoring', 'action' => 'MANAGE', 'description_key' => 'permissions.clinical_field_monitoring_manage.description'],
         ];
 
         foreach ($permissions as $permission) {

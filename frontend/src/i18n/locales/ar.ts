@@ -335,6 +335,13 @@ const ar: typeof en = {
     student_events_manage: { description: 'إضافة وتعديل ونشر وأرشفة فعاليات الكلية' },
     student_events_attendance_manage: { description: 'فتح وإغلاق رمز الحضور وتصحيح كشف الفعالية' },
     student_events_delete: { description: 'الحذف النهائي لأي فعالية مع كشف حضورها' },
+    clinical_field_monitoring_view: { description: 'عرض نماذج المتابعة والزيارات الميدانية الخاصة بالمستخدم' },
+    clinical_field_monitoring_create_assistant: { description: 'إنشاء نموذج المتابعة الميدانية لمساعد البحث والتدريس' },
+    clinical_field_monitoring_create_department_report: { description: 'إنشاء التقرير الدوري لرئيس القسم السريري' },
+    clinical_field_monitoring_create_supervisory_visit: { description: 'إنشاء الزيارة الإشرافية لمدير الدائرة السريرية' },
+    clinical_field_monitoring_review: { description: 'مراجعة نماذج المتابعة الواردة واتخاذ الإجراء' },
+    clinical_field_monitoring_export: { description: 'تنزيل نماذج المتابعة الميدانية بالعربية أو الإنجليزية' },
+    clinical_field_monitoring_manage: { description: 'إدارة جميع نماذج المتابعة والزيارات الميدانية' },
   },
 };
 

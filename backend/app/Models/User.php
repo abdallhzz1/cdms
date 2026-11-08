@@ -5,6 +5,7 @@ namespace App\Models;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -98,5 +99,15 @@ class User extends Authenticatable
     public function departmentHeadEvaluations()
     {
         return $this->hasMany(DepartmentHeadEvaluation::class, 'department_head_user_id');
+    }
+
+    public function createdClinicalFieldForms(): HasMany
+    {
+        return $this->hasMany(ClinicalFieldForm::class, 'creator_user_id');
+    }
+
+    public function receivedClinicalFieldForms(): HasMany
+    {
+        return $this->hasMany(ClinicalFieldForm::class, 'recipient_user_id');
     }
 }

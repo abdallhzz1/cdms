@@ -90,6 +90,7 @@ import { PublicStudentPolicyPage } from '@/pages/public/PublicStudentPolicyPage'
 import { PublicClinicalAttendancePage } from '@/pages/public/PublicClinicalAttendancePage';
 import { StudentEventsPage } from '@/pages/StudentEventsPage';
 import { PublicStudentEventCheckInPage } from '@/pages/public/PublicStudentEventCheckInPage';
+import { ClinicalFieldMonitoringPage } from '@/pages/ClinicalFieldMonitoringPage';
 
 function SurveyTabRedirect({ tab }: { tab: 'responses' | 'participation' }) {
   const { id } = useParams();
@@ -245,6 +246,7 @@ export function App() {
                 <Route path="/attendance" element={<ProtectedRoute requiredPermission="attendance.review"><AttendanceMasterPage /></ProtectedRoute>} />
                 <Route path="/attendance/university" element={<ProtectedRoute requiredPermission="university_lectures.manage"><UniversityAttendanceAdminPage /></ProtectedRoute>} />
                 <Route path="/assessments" element={<ProtectedRoute requiredPermission="assessment.review"><AssessmentsMasterPage /></ProtectedRoute>} />
+                <Route path="/clinical-field-monitoring" element={<ProtectedRoute requiredPermission="clinical_field_monitoring.view"><ClinicalFieldMonitoringPage /></ProtectedRoute>} />
                 <Route path="/admin/clinical-assessments" element={<ProtectedRoute requiredRole="SYS_ADMIN"><AdminClinicalAssessmentsPage /></ProtectedRoute>} />
                 
                 {/* Correspondence & Tasks */}

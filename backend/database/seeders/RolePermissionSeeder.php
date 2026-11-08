@@ -83,6 +83,9 @@ class RolePermissionSeeder extends Seeder
             'student_events.manage',
             'student_events.attendance.manage',
             'student_events.delete',
+            'clinical_field_monitoring.view',
+            'clinical_field_monitoring.export',
+            'clinical_field_monitoring.manage',
         ];
 
         foreach ($bootstrapGrants as $code) {
@@ -109,9 +112,15 @@ class RolePermissionSeeder extends Seeder
             'DEPARTMENT_HEAD' => ['approvals.view', 'approvals.decide'],
             'RTA' => ['assessment.review', 'attendance.review', 'university_lectures.manage', 'student_events.view', 'student_events.manage', 'student_events.attendance.manage'],
         ];
+        $defaultGrants['RTA'] = array_merge($defaultGrants['RTA'], ['clinical_field_monitoring.view', 'clinical_field_monitoring.create_assistant', 'clinical_field_monitoring.export']);
+        $defaultGrants['DEPARTMENT_HEAD'] = array_merge($defaultGrants['DEPARTMENT_HEAD'], ['clinical_field_monitoring.view', 'clinical_field_monitoring.create_department_report', 'clinical_field_monitoring.export']);
+        $defaultGrants['CLINICAL_DIRECTOR'] = array_merge($defaultGrants['CLINICAL_DIRECTOR'], ['clinical_field_monitoring.view', 'clinical_field_monitoring.create_supervisory_visit', 'clinical_field_monitoring.review', 'clinical_field_monitoring.export']);
+        $defaultGrants['DEAN'] = array_merge($defaultGrants['DEAN'], ['clinical_field_monitoring.view', 'clinical_field_monitoring.review', 'clinical_field_monitoring.export']);
         foreach ($defaultGrants as $roleCode => $codes) {
             $role = Role::where('code', $roleCode)->first();
-            if (! $role) continue;
+            if (! $role) {
+                continue;
+            }
             foreach (Permission::whereIn('code', $codes)->get() as $permission) {
                 $role->permissions()->syncWithoutDetaching([$permission->id => ['scope_type' => 'global']]);
             }

@@ -1,8 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AcademicCalendarEventController;
-use App\Http\Controllers\Api\V1\AdminClinicalAssessmentController;
 use App\Http\Controllers\Api\V1\AcademicYearController;
+use App\Http\Controllers\Api\V1\AdminClinicalAssessmentController;
 use App\Http\Controllers\Api\V1\AdminDepartmentController;
 use App\Http\Controllers\Api\V1\AdvisingRecordController;
 use App\Http\Controllers\Api\V1\AnnualReportEntryController;
@@ -12,14 +12,16 @@ use App\Http\Controllers\Api\V1\AttendanceRecordController;
 use App\Http\Controllers\Api\V1\AttendanceWarningController;
 use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\BasicAttendanceController;
 use App\Http\Controllers\Api\V1\ClinicalAssessmentController;
 use App\Http\Controllers\Api\V1\ClinicalAssessmentReviewController;
 use App\Http\Controllers\Api\V1\ClinicalAssessmentTemplateController;
-use App\Http\Controllers\Api\V1\ClinicalSessionController;
+use App\Http\Controllers\Api\V1\ClinicalFieldMonitoringController;
 use App\Http\Controllers\Api\V1\ClinicalQrAttendanceController;
-use App\Http\Controllers\Api\V1\ClinicalUniversityAttendanceController;
+use App\Http\Controllers\Api\V1\ClinicalSessionController;
 use App\Http\Controllers\Api\V1\ClinicalSupervisorController;
 use App\Http\Controllers\Api\V1\ClinicalSupervisorEvaluationController;
+use App\Http\Controllers\Api\V1\ClinicalUniversityAttendanceController;
 use App\Http\Controllers\Api\V1\ConfidentialFinancialVaultController;
 use App\Http\Controllers\Api\V1\CorrespondenceController;
 use App\Http\Controllers\Api\V1\CourseController;
@@ -51,12 +53,13 @@ use App\Http\Controllers\Api\V1\OperationalReportController;
 use App\Http\Controllers\Api\V1\OperationalTaskController;
 use App\Http\Controllers\Api\V1\PartnershipController;
 use App\Http\Controllers\Api\V1\PersonController;
+use App\Http\Controllers\Api\V1\PublicBasicAttendanceController;
+use App\Http\Controllers\Api\V1\PublicClinicalQrAttendanceController;
 use App\Http\Controllers\Api\V1\PublicGroupRegistrationController;
 use App\Http\Controllers\Api\V1\PublicProfileImageController;
-use App\Http\Controllers\Api\V1\PublicStudentScheduleController;
-use App\Http\Controllers\Api\V1\PublicClinicalQrAttendanceController;
-use App\Http\Controllers\Api\V1\PublicStudentPolicyController;
 use App\Http\Controllers\Api\V1\PublicStudentEventController;
+use App\Http\Controllers\Api\V1\PublicStudentPolicyController;
+use App\Http\Controllers\Api\V1\PublicStudentScheduleController;
 use App\Http\Controllers\Api\V1\QualityImprovementController;
 use App\Http\Controllers\Api\V1\QualityOperationsController;
 use App\Http\Controllers\Api\V1\QualitySurveyController;
@@ -66,11 +69,11 @@ use App\Http\Controllers\Api\V1\RotationController;
 use App\Http\Controllers\Api\V1\SkillLogbookRequirementController;
 use App\Http\Controllers\Api\V1\StaffAllocationController;
 use App\Http\Controllers\Api\V1\StudentController;
-use App\Http\Controllers\Api\V1\StudentEventController;
-use App\Http\Controllers\Api\V1\StudentPolicyController;
 use App\Http\Controllers\Api\V1\StudentCourseEnrollmentController;
+use App\Http\Controllers\Api\V1\StudentEventController;
 use App\Http\Controllers\Api\V1\StudentGroupAssignmentController;
 use App\Http\Controllers\Api\V1\StudentGroupController;
+use App\Http\Controllers\Api\V1\StudentPolicyController;
 use App\Http\Controllers\Api\V1\StudentSchedulePortalController;
 use App\Http\Controllers\Api\V1\StudyPlanController;
 use App\Http\Controllers\Api\V1\SupervisorAnnualWorkloadController;
@@ -83,6 +86,7 @@ use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\UserProfileController;
 use App\Http\Controllers\ProgramOutcomeController;
 use Illuminate\Support\Facades\Route;
+use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
 /*
 |--------------------------------------------------------------------------
@@ -121,19 +125,19 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('posters/{publicId}', [PublicStudentEventController::class, 'poster'])
                 ->whereUuid('publicId')->middleware('throttle:operational-read')
                 // A stale staff session must not turn a published public image into a 401 JSON page.
-                ->withoutMiddleware(\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class);
+                ->withoutMiddleware(EnsureFrontendRequestsAreStateful::class);
             Route::post('begin', [PublicStudentEventController::class, 'begin'])->middleware('throttle:student-event-scan');
             Route::post('identity', [PublicStudentEventController::class, 'identity'])->middleware('throttle:operational-read');
             Route::post('request-otp', [PublicStudentEventController::class, 'requestOtp'])->middleware('throttle:student-event-otp-request');
             Route::post('verify-otp', [PublicStudentEventController::class, 'verifyOtp'])->middleware('throttle:student-event-otp-verify');
             Route::post('check-in', [PublicStudentEventController::class, 'checkIn'])->middleware('throttle:student-event-scan');
         });
-        Route::get('basic-attendance/identity', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'identity'])->middleware('throttle:basic-student-read');
-        Route::post('basic-attendance/prepare', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'prepare'])->middleware('throttle:basic-student-read');
-        Route::post('basic-attendance/forget', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'forget'])->middleware('throttle:basic-student-read');
-        Route::post('basic-attendance/request-otp', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'requestOtp'])->middleware('throttle:basic-otp-request');
-        Route::post('basic-attendance/verify-otp', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'verifyOtp'])->middleware('throttle:basic-otp-verify');
-        Route::post('basic-attendance/scan', [\App\Http\Controllers\Api\V1\PublicBasicAttendanceController::class, 'scan'])->middleware('throttle:basic-student-read');
+        Route::get('basic-attendance/identity', [PublicBasicAttendanceController::class, 'identity'])->middleware('throttle:basic-student-read');
+        Route::post('basic-attendance/prepare', [PublicBasicAttendanceController::class, 'prepare'])->middleware('throttle:basic-student-read');
+        Route::post('basic-attendance/forget', [PublicBasicAttendanceController::class, 'forget'])->middleware('throttle:basic-student-read');
+        Route::post('basic-attendance/request-otp', [PublicBasicAttendanceController::class, 'requestOtp'])->middleware('throttle:basic-otp-request');
+        Route::post('basic-attendance/verify-otp', [PublicBasicAttendanceController::class, 'verifyOtp'])->middleware('throttle:basic-otp-verify');
+        Route::post('basic-attendance/scan', [PublicBasicAttendanceController::class, 'scan'])->middleware('throttle:basic-student-read');
         Route::get('profile-images/{path}', PublicProfileImageController::class)
             ->where('path', '.*')
             ->middleware('throttle:operational-read')
@@ -195,7 +199,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 ->whereNumber(['event', 'attendance'])->middleware('permission:student_events.attendance.manage');
         });
         Route::prefix('basic-attendance')->middleware('permission:basic_attendance.view')->group(function () {
-            $controller = \App\Http\Controllers\Api\V1\BasicAttendanceController::class;
+            $controller = BasicAttendanceController::class;
             Route::get('sections', [$controller, 'sections']);
             Route::get('sections/{section}/roster', [$controller, 'roster'])->whereNumber('section');
             Route::get('sections/{section}/sessions', [$controller, 'sessions'])->whereNumber('section');
@@ -258,6 +262,16 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         // Every authenticated user can access only their own local notification inbox.
         Route::get('notifications', [NotificationController::class, 'index']);
         Route::get('notifications/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::prefix('clinical-field-monitoring')->middleware('permission:clinical_field_monitoring.view')->group(function () {
+            Route::get('/', [ClinicalFieldMonitoringController::class, 'index']);
+            Route::get('/options', [ClinicalFieldMonitoringController::class, 'options']);
+            Route::post('/forms', [ClinicalFieldMonitoringController::class, 'store']);
+            Route::get('/forms/{clinicalFieldForm}', [ClinicalFieldMonitoringController::class, 'show'])->whereNumber('clinicalFieldForm');
+            Route::put('/forms/{clinicalFieldForm}', [ClinicalFieldMonitoringController::class, 'update'])->whereNumber('clinicalFieldForm');
+            Route::post('/forms/{clinicalFieldForm}/submit', [ClinicalFieldMonitoringController::class, 'submit'])->whereNumber('clinicalFieldForm');
+            Route::post('/forms/{clinicalFieldForm}/review', [ClinicalFieldMonitoringController::class, 'review'])->whereNumber('clinicalFieldForm');
+            Route::get('/forms/{clinicalFieldForm}/pdf', [ClinicalFieldMonitoringController::class, 'pdf'])->whereNumber('clinicalFieldForm')->middleware('throttle:export');
+        });
         Route::patch('notifications/{notification}/read', [NotificationController::class, 'markRead']);
         Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
 

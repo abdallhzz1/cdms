@@ -346,6 +346,13 @@ const en = {
     student_events_manage: { description: 'Create, edit, publish and archive college events' },
     student_events_attendance_manage: { description: 'Open or close check-in QR and correct event attendance' },
     student_events_delete: { description: 'Permanently delete any event and its attendance register' },
+    clinical_field_monitoring_view: { description: 'View field monitoring and supervisory visit forms in the user scope' },
+    clinical_field_monitoring_create_assistant: { description: 'Create the research and teaching assistant field follow-up form' },
+    clinical_field_monitoring_create_department_report: { description: 'Create the clinical department head periodic report' },
+    clinical_field_monitoring_create_supervisory_visit: { description: 'Create the clinical director supervisory visit form' },
+    clinical_field_monitoring_review: { description: 'Review incoming field monitoring forms and record decisions' },
+    clinical_field_monitoring_export: { description: 'Export field monitoring forms in Arabic or English' },
+    clinical_field_monitoring_manage: { description: 'Manage all field monitoring and supervisory visit forms' },
   },
 };
 
