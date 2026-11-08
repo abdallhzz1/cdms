@@ -37,7 +37,13 @@ export function ClinicalFieldMonitoringPage() {
   const optionsQuery = useQuery({ queryKey: ['clinical-field-monitoring-options'], queryFn: () => apiFetch<FieldMonitoringOptions>('/clinical-field-monitoring/options') });
   const listQuery = useQuery({
     queryKey: ['clinical-field-monitoring', mailbox, status, type, search],
-    queryFn: () => apiFetchEnvelope<FieldFormRecord[]>(`/clinical-field-monitoring?mailbox=${mailbox}&status=${encodeURIComponent(status)}&type=${encodeURIComponent(type)}&search=${encodeURIComponent(search)}`),
+    queryFn: () => {
+      const filters = new URLSearchParams({ mailbox });
+      if (status) filters.set('status', status);
+      if (type) filters.set('type', type);
+      if (search.trim()) filters.set('search', search.trim());
+      return apiFetchEnvelope<FieldFormRecord[]>(`/clinical-field-monitoring?${filters.toString()}`);
+    },
   });
   const detailQuery = useMutation({ mutationFn: (id: number) => apiFetch<FieldFormRecord>(`/clinical-field-monitoring/forms/${id}`), onSuccess: record => { setSelected(record); setReviewNote(record.latest_review_note || ''); setError(''); } });
 

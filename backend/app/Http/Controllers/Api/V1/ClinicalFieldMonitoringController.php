@@ -29,9 +29,9 @@ class ClinicalFieldMonitoringController extends Controller
     {
         $validated = $request->validate([
             'mailbox' => ['sometimes', Rule::in(['all', 'outgoing', 'incoming'])],
-            'status' => ['sometimes', 'string', 'max:30'],
-            'type' => ['sometimes', Rule::in(ClinicalFieldFormSchema::TYPES)],
-            'search' => ['sometimes', 'string', 'max:100'],
+            'status' => ['sometimes', 'nullable', Rule::in(['draft', 'submitted', 'acknowledged', 'action_required', 'returned_for_revision', 'completed'])],
+            'type' => ['sometimes', 'nullable', Rule::in(ClinicalFieldFormSchema::TYPES)],
+            'search' => ['sometimes', 'nullable', 'string', 'max:100'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:50'],
         ]);
         $user = $request->user();

@@ -88,6 +88,13 @@ class ClinicalFieldMonitoringWorkflowTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['department_id']);
     }
 
+    public function test_form_list_accepts_the_empty_filter_values_sent_by_older_frontends(): void
+    {
+        $this->actingAs($this->assistant)
+            ->getJson('/api/v1/clinical-field-monitoring?mailbox=all&status=&type=&search=')
+            ->assertOk()->assertJsonPath('data', []);
+    }
+
     public function test_patient_safety_failure_requires_complete_urgent_documentation(): void
     {
         $request = $this->assistantRequest();
