@@ -149,7 +149,7 @@ class ReportCenterController extends Controller
     {
         $filters = $this->filters($request, true);
         $format = $request->validate(['format' => ['required', 'in:xlsx,pdf']])['format'];
-        $payload = $this->reports->report($report, $filters);
+        $payload = $this->reports->exportReport($report, $filters);
         $title = $payload['definition']['title'];
         $fileBase = $report . '-' . now()->format('Y-m-d-His');
         $filterLabel = $this->reports->filterLabel($filters);

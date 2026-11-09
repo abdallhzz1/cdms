@@ -12,6 +12,7 @@ use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\TrainingSite;
 use App\Models\User;
+use App\Services\Reports\ReportCenterService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Tests\TestCase;
@@ -95,6 +96,7 @@ class ReportCenterWorkflowTest extends TestCase
             'academic_year_id' => $this->year->id,
             'academic_level' => 'fourth',
         ]);
+        $students[0]->update(['university_number' => '22990001', 'full_name_ar' => 'طالب التقرير']);
         $rotation = Rotation::factory()->create([
             'academic_year_id' => $this->year->id,
             'academic_level' => 'fourth',
@@ -165,6 +167,18 @@ class ReportCenterWorkflowTest extends TestCase
         $rows = collect($response->json('data.rows'))->keyBy(0);
         $this->assertSame(['مستشفى أ', 3, 2, 1, 0, 3, 2, 0, 1, 1, 1, 0, 0, 7], $rows->get('مستشفى أ'));
         $this->assertSame(['مركز ب', 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1], $rows->get('مركز ب'));
+
+        $detailed = app(ReportCenterService::class)->exportReport('clinical_training_sites_sep_nov_2026', []);
+        $this->assertSame([
+            'الشهر', 'المستشفى أو المركز الصحي', 'الرقم الجامعي', 'اسم الطالب', 'السنة السريرية',
+            'العام الأكاديمي', 'الفترة السريرية', 'المساق', 'المجموعة الفرعية', 'بداية التدريب', 'نهاية التدريب',
+        ], $detailed['columns']);
+        $this->assertCount(8, $detailed['rows']);
+        $this->assertCount(8, collect($detailed['rows'])->map(fn (array $row) => $row[0].'|'.$row[1].'|'.$row[2])->unique());
+        $studentRows = collect($detailed['rows'])->where(2, '22990001')->values();
+        $this->assertCount(2, $studentRows);
+        $this->assertSame(['سبتمبر 2026', 'أكتوبر 2026'], $studentRows->pluck(0)->all());
+        $this->assertTrue($studentRows->every(fn (array $row) => $row[1] === 'مستشفى أ' && $row[3] === 'طالب التقرير'));
 
         $export = $this->actingAs($this->reporter)
             ->get('/api/v1/report-center/clinical_training_sites_sep_nov_2026/export?format=xlsx');

@@ -29,7 +29,7 @@ class ReportCenterService
             ['key' => 'student_directory', 'category' => 'academic', 'title' => 'دليل الطلبة الأكاديمي', 'description' => 'قائمة الطلبة حسب السنة والحالة الأكاديمية والمجموعة الرئيسية.'],
             ['key' => 'group_rosters', 'category' => 'clinical', 'title' => 'قوائم مجموعات الطلبة', 'description' => 'كشف الطلبة المسجلين في المجموعات الرئيسية لكل عام وسنة سريرية.'],
             ['key' => 'clinical_schedule', 'category' => 'clinical', 'title' => 'الجدول السريري المنشور', 'description' => 'أماكن دوام الطلبة والمجموعات والمستشفيات والأطباء في الجداول المنشورة.'],
-            ['key' => 'clinical_training_sites_sep_nov_2026', 'category' => 'clinical', 'title' => 'إحصائية طلبة التدريب السريري في المراكز التدريبية', 'description' => 'أعداد الطلبة الفريدين في كل مستشفى أو مركز صحي خلال فترة شهرية تختارها.'],
+            ['key' => 'clinical_training_sites_sep_nov_2026', 'category' => 'clinical', 'title' => 'إحصائية طلبة التدريب السريري في المراكز التدريبية', 'description' => 'ملخص شهري للأعداد، مع كشف تصدير تفصيلي بأسماء الطلبة وأرقامهم ومراكز تدريبهم حسب الشهر.'],
             ['key' => 'supervisors_hospitals', 'category' => 'clinical', 'title' => 'المستشفيات والمشرفون', 'description' => 'دليل المشرفين السريريين والمستشفيات المرتبطين بها وحالة الحساب.'],
             ['key' => 'grades', 'category' => 'academic', 'title' => 'علامات المساقات السريرية', 'description' => 'العلامة السريرية والأوسكي والامتحان الكتابي وحالة الاعتماد.'],
             ['key' => 'attendance', 'category' => 'clinical', 'title' => 'الحضور والغياب', 'description' => 'سجل حضور الطلبة للجلسات السريرية مع الملاحظات والأعذار.'],
@@ -115,6 +115,22 @@ class ReportCenterService
         }
         $payload['rows'] = $rows->values()->all();
         $payload['definition'] = $this->definition($key);
+
+        return $payload;
+    }
+
+    public function exportReport(string $key, array $filters): array
+    {
+        if ($key !== 'clinical_training_sites_sep_nov_2026') {
+            return $this->report($key, $filters);
+        }
+
+        abort_unless($this->hasReport($key), 404);
+        $payload = $this->clinicalTrainingSiteStudentsByMonth($filters);
+        $payload['rows'] = $this->search(collect($payload['rows']), $filters['search'] ?? null)->values()->all();
+        $payload['definition'] = array_merge($this->definition($key), [
+            'title' => 'كشف طلبة التدريب السريري في المراكز التدريبية حسب الأشهر',
+        ]);
 
         return $payload;
     }
@@ -286,6 +302,110 @@ class ReportCenterService
         ];
     }
 
+    private function clinicalTrainingSiteStudentsByMonth(array $filters): array
+    {
+        $months = $this->reportMonths($filters);
+        $entries = [];
+        $assignments = $this->clinicalTrainingSiteAssignments($filters)
+            ->with([
+                'student:id,university_number,full_name_ar',
+                'studentSubgroup:id,name',
+                'rotationBlock.rotation.academicYear:id,code',
+                'rotationBlock.rotation.course:id,name_ar',
+                'rotationBlock.rotation.clinicalPeriod:id,name_ar',
+            ])
+            ->get();
+
+        foreach ($assignments as $assignment) {
+            $student = $assignment->student;
+            $site = $assignment->trainingSite;
+            $rotation = $assignment->rotationBlock?->rotation;
+            $assignmentPeriod = $this->assignmentPeriod($assignment);
+            if (! $student || ! $site || ! $rotation || ! $assignmentPeriod) {
+                continue;
+            }
+            [$trainingStart, $trainingEnd] = $assignmentPeriod;
+
+            foreach ($months as $month => $monthPeriod) {
+                [$monthStart, $monthEnd] = $monthPeriod;
+                if (! $trainingStart->lessThanOrEqualTo($monthEnd) || ! $trainingEnd->greaterThanOrEqualTo($monthStart)) {
+                    continue;
+                }
+
+                $key = $month.'|'.$site->id.'|'.$student->id;
+                $entries[$key] ??= [
+                    'month' => $month,
+                    'month_label' => $monthPeriod['label'],
+                    'site' => $site->name_ar,
+                    'university_number' => $student->university_number,
+                    'student_name' => $student->full_name_ar,
+                    'academic_levels' => [],
+                    'academic_years' => [],
+                    'clinical_periods' => [],
+                    'courses' => [],
+                    'subgroups' => [],
+                    'training_starts' => [],
+                    'training_ends' => [],
+                ];
+
+                $entry = &$entries[$key];
+                if ($rotation->academic_level) {
+                    $entry['academic_levels'][$rotation->academic_level] = $this->level($rotation->academic_level);
+                }
+                if ($rotation->academicYear?->code) {
+                    $entry['academic_years'][$rotation->academicYear->code] = true;
+                }
+                if ($rotation->clinicalPeriod?->name_ar) {
+                    $entry['clinical_periods'][$rotation->clinicalPeriod->name_ar] = true;
+                }
+                if ($rotation->course?->name_ar) {
+                    $entry['courses'][$rotation->course->name_ar] = true;
+                }
+                if ($assignment->studentSubgroup?->name) {
+                    $entry['subgroups'][$assignment->studentSubgroup->name] = true;
+                }
+                $entry['training_starts'][] = $trainingStart->format('Y-m-d');
+                $entry['training_ends'][] = $trainingEnd->format('Y-m-d');
+                unset($entry);
+            }
+        }
+
+        $rows = collect($entries)
+            ->sortBy(fn (array $entry) => $entry['month'].'|'.$entry['site'].'|'.$entry['student_name'].'|'.$entry['university_number'])
+            ->map(fn (array $entry) => [
+                $entry['month_label'],
+                $entry['site'],
+                $entry['university_number'],
+                $entry['student_name'],
+                implode('، ', $entry['academic_levels']),
+                implode('، ', array_keys($entry['academic_years'])),
+                implode('، ', array_keys($entry['clinical_periods'])),
+                implode('، ', array_keys($entry['courses'])),
+                implode('، ', array_keys($entry['subgroups'])),
+                min($entry['training_starts']),
+                max($entry['training_ends']),
+            ])
+            ->values()
+            ->all();
+
+        return [
+            'columns' => [
+                'الشهر',
+                'المستشفى أو المركز الصحي',
+                'الرقم الجامعي',
+                'اسم الطالب',
+                'السنة السريرية',
+                'العام الأكاديمي',
+                'الفترة السريرية',
+                'المساق',
+                'المجموعة الفرعية',
+                'بداية التدريب',
+                'نهاية التدريب',
+            ],
+            'rows' => $rows,
+        ];
+    }
+
     public function clinicalTrainingSiteMonthlyDetails(int $siteId, string $month, array $filters): array
     {
         $filters['month_from'] = $month;
@@ -347,7 +467,11 @@ class ReportCenterService
             ->whereHas('distributionVersion', fn ($version) => $version->where('status', 'published')->where('is_current', true))
             ->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation
                 ->whereDate('start_date', '<=', $rangeEnd))
-            ->with(['rotationBlock.rotation:id,start_date,academic_level', 'distributionVersion.breaks', 'trainingSite:id,name_ar']);
+            ->with([
+                'rotationBlock.rotation:id,start_date,academic_level,academic_year_id,course_id,clinical_period_id',
+                'distributionVersion.breaks',
+                'trainingSite:id,name_ar',
+            ]);
         $this->filterAssignments($query, $filters);
 
         return $query;
