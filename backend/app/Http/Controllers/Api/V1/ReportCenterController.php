@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Exports\BrandedReportExport;
+use App\Exports\ClinicalTrainingSitesExport;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AcademicYear;
@@ -156,6 +157,20 @@ class ReportCenterController extends Controller
 
         if ($format === 'pdf') {
             $logoPath = base_path('../frontend/src/assets/hebron.png');
+            if ($report === 'clinical_training_sites_sep_nov_2026') {
+                $groups = collect($payload['rows'])
+                    ->groupBy(0)
+                    ->map(fn ($monthRows) => $monthRows->groupBy(1));
+                $pdf = Pdf::loadView('reports.clinical_training_sites', [
+                    'title' => $title,
+                    'rows' => $payload['rows'],
+                    'groups' => $groups,
+                    'filterLabel' => $filterLabel,
+                    'logoData' => is_file($logoPath) ? base64_encode(file_get_contents($logoPath)) : null,
+                ])->setPaper('a4', 'landscape');
+
+                return $pdf->download($fileBase.'.pdf');
+            }
             $pdf = Pdf::loadView('reports.branded_report', [
                 'title' => $title,
                 'columns' => $payload['columns'],
@@ -165,6 +180,13 @@ class ReportCenterController extends Controller
             ])->setPaper('a4', count($payload['columns']) > 6 ? 'landscape' : 'portrait');
 
             return $pdf->download($fileBase . '.pdf');
+        }
+
+        if ($report === 'clinical_training_sites_sep_nov_2026') {
+            return Excel::download(
+                new ClinicalTrainingSitesExport($payload['rows'], $filterLabel),
+                $fileBase.'.xlsx',
+            );
         }
 
         return Excel::download(

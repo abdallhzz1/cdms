@@ -12,6 +12,7 @@ use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\TrainingSite;
 use App\Models\User;
+use App\Exports\ClinicalTrainingSitesExport;
 use App\Services\Reports\ReportCenterService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -179,6 +180,15 @@ class ReportCenterWorkflowTest extends TestCase
         $this->assertCount(2, $studentRows);
         $this->assertSame(['سبتمبر 2026', 'أكتوبر 2026'], $studentRows->pluck(0)->all());
         $this->assertTrue($studentRows->every(fn (array $row) => $row[1] === 'مستشفى أ' && $row[3] === 'طالب التقرير'));
+        $sheets = (new ClinicalTrainingSitesExport($detailed['rows'], 'جميع البيانات'))->sheets();
+        $this->assertCount(4, $sheets);
+        $this->assertSame(['الشهر', 'المركز التدريبي', 'الإجمالي', 'السنة الرابعة', 'السنة الخامسة', 'السنة السادسة'], $sheets[0]->headings());
+        $this->assertSame(['المركز التدريبي', 'الرقم الجامعي', 'اسم الطالب', 'السنة السريرية', 'المساق', 'المجموعة', 'فترة التدريب'], $sheets[1]->headings());
+
+        $pdf = $this->actingAs($this->reporter)
+            ->get('/api/v1/report-center/clinical_training_sites_sep_nov_2026/export?format=pdf');
+        $pdf->assertOk();
+        $this->assertStringStartsWith('%PDF', $pdf->getContent());
 
         $export = $this->actingAs($this->reporter)
             ->get('/api/v1/report-center/clinical_training_sites_sep_nov_2026/export?format=xlsx');
