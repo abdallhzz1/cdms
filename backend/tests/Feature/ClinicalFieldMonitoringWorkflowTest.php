@@ -44,6 +44,7 @@ class ClinicalFieldMonitoringWorkflowTest extends TestCase
     {
         $created = $this->actingAs($this->assistant)->postJson('/api/v1/clinical-field-monitoring/forms', $this->assistantRequest())
             ->assertCreated()->assertJsonPath('data.status', 'draft')
+            ->assertJsonPath('data.department.id', $this->department->id)
             ->assertJsonPath('data.recipient.id', $this->director->id);
 
         $id = $created->json('data.id');
@@ -138,7 +139,6 @@ class ClinicalFieldMonitoringWorkflowTest extends TestCase
 
         $this->actingAs($departmentHead)->postJson('/api/v1/clinical-field-monitoring/forms', [
             'type' => 'department_periodic_report', 'locale' => 'ar',
-            'department_id' => $this->department->id,
             'period_from' => '2026-11-01', 'period_to' => '2026-11-30',
             'payload' => [
                 'context' => ['department_head' => $departmentHead->name, 'training_sites' => 'مستشفى الخليل', 'courses_rotations' => 'باطني', 'student_count' => 40, 'supervisor_count' => 4],
@@ -149,6 +149,7 @@ class ClinicalFieldMonitoringWorkflowTest extends TestCase
             ],
         ])->assertCreated()
             ->assertJsonPath('data.type', 'department_periodic_report')
+            ->assertJsonPath('data.department.id', $this->department->id)
             ->assertJsonPath('data.recipient.id', $this->director->id);
     }
 
@@ -175,7 +176,7 @@ class ClinicalFieldMonitoringWorkflowTest extends TestCase
 
         return [
             'type' => 'assistant_follow_up', 'locale' => 'ar',
-            'department_id' => $this->department->id, 'training_site_id' => $this->site->id,
+            'training_site_id' => $this->site->id,
             'activity_date' => '2026-11-08',
             'payload' => [
                 'context' => ['clinical_specialty' => 'الباطني', 'rotation_name' => 'باطني 1', 'clinical_supervisor' => 'د. مشرف', 'student_group' => 'A1', 'students_present' => 8, 'students_absent' => 0],

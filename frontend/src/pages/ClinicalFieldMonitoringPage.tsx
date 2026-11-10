@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowDownToLine, CheckCircle2, ClipboardCheck, Clock3, Eye, FilePlus2, Inbox, Search, Send, Undo2 } from 'lucide-react';
+import { AlertTriangle, ArrowDownToLine, CheckCircle2, Clock3, Eye, FilePlus2, Search, Send, Undo2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { apiFetch, apiFetchEnvelope, apiUrl, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -15,7 +15,7 @@ import { ClinicalFieldMonitoringForm } from '@/features/fieldMonitoring/Clinical
 import { emptyDraft, FORM_TITLES, STATUS_LABELS } from '@/features/fieldMonitoring/definitions';
 import type { FieldFormDraft, FieldFormRecord, FieldFormType, FieldMonitoringOptions } from '@/features/fieldMonitoring/types';
 
-type Mailbox = 'all' | 'outgoing' | 'incoming';
+type Mailbox = 'outgoing' | 'incoming';
 
 export function ClinicalFieldMonitoringPage() {
   const { locale } = useI18n();
@@ -24,10 +24,9 @@ export function ClinicalFieldMonitoringPage() {
   const tr = (a: string, e: string) => ar ? a : e;
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
-  const [mailbox, setMailbox] = useState<Mailbox>('all');
-  const [status, setStatus] = useState('');
-  const [type, setType] = useState('');
+  const [mailbox, setMailbox] = useState<Mailbox>('outgoing');
   const [search, setSearch] = useState('');
+  const [newType, setNewType] = useState<FieldFormType | ''>('');
   const [selected, setSelected] = useState<FieldFormRecord | null>(null);
   const [editing, setEditing] = useState<{ record?: FieldFormRecord; draft: FieldFormDraft } | null>(null);
   const [reviewNote, setReviewNote] = useState('');
@@ -36,11 +35,9 @@ export function ClinicalFieldMonitoringPage() {
 
   const optionsQuery = useQuery({ queryKey: ['clinical-field-monitoring-options'], queryFn: () => apiFetch<FieldMonitoringOptions>('/clinical-field-monitoring/options') });
   const listQuery = useQuery({
-    queryKey: ['clinical-field-monitoring', mailbox, status, type, search],
+    queryKey: ['clinical-field-monitoring', mailbox, search],
     queryFn: () => {
       const filters = new URLSearchParams({ mailbox });
-      if (status) filters.set('status', status);
-      if (type) filters.set('type', type);
       if (search.trim()) filters.set('search', search.trim());
       return apiFetchEnvelope<FieldFormRecord[]>(`/clinical-field-monitoring?${filters.toString()}`);
     },
@@ -79,8 +76,6 @@ export function ClinicalFieldMonitoringPage() {
   });
 
   const rows = listQuery.data?.data ?? [];
-  const counts = useMemo(() => ({ urgent: rows.filter(row => row.is_urgent && row.status !== 'completed').length, incoming: rows.filter(row => row.recipient.id === user?.id && !['completed'].includes(row.status)).length, drafts: rows.filter(row => row.creator.id === user?.id && ['draft','returned_for_revision','action_required'].includes(row.status)).length }), [rows, user?.id]);
-
   if (optionsQuery.isLoading || listQuery.isLoading) return <LoadingState message={tr('تحميل نماذج المتابعة الميدانية...', 'Loading field monitoring forms...')} />;
   if (optionsQuery.isError || listQuery.isError || !optionsQuery.data) return <ErrorState title={tr('تعذر تحميل شاشة المتابعة', 'Could not load field monitoring')} onRetry={() => { optionsQuery.refetch(); listQuery.refetch(); }} />;
   const options = optionsQuery.data;
@@ -88,7 +83,7 @@ export function ClinicalFieldMonitoringPage() {
   const openDetail = (record: FieldFormRecord) => { setParams({ form: String(record.id) }); detailQuery.mutate(record.id); };
   const closeDetail = () => { setSelected(null); setParams({}); setError(''); setNotice(''); };
   const openNew = (formType?: FieldFormType) => {
-    const selectedType = formType || options.allowed_types[0];
+    const selectedType = formType || newType || options.allowed_types[0];
     if (!selectedType) return;
     setEditing({ draft: emptyDraft(selectedType, locale, options.creator.name) }); setSelected(null); setError(''); setNotice('');
   };
@@ -99,30 +94,24 @@ export function ClinicalFieldMonitoringPage() {
   };
 
   return <div className="space-y-5">
-    <PageHeader title={tr('المتابعة والزيارات الميدانية', 'Field Monitoring and Supervisory Visits')} description={tr('أنشئ نماذجك وتابع الوارد إليك ضمن مسار موثق من الإعداد حتى الإغلاق.', 'Create your forms and process incoming records through a documented workflow.')}>
-      {options.allowed_types.length === 1 && <Button onClick={() => openNew()}><FilePlus2 className="me-1.5 h-4 w-4" />{tr('نموذج جديد', 'New form')}</Button>}
-      {options.allowed_types.length > 1 && <div className="flex flex-wrap gap-2">{options.allowed_types.map(item => <Button key={item} size="sm" onClick={() => openNew(item)}><FilePlus2 className="me-1 h-4 w-4" />{ar ? FORM_TITLES[item].ar : FORM_TITLES[item].en}</Button>)}</div>}
+    <PageHeader title={tr('المتابعة والزيارات الميدانية', 'Field Monitoring and Supervisory Visits')} description={tr('عبّئ النموذج وأرسله، أو راجع النماذج الواردة إليك.', 'Complete and send a form, or review forms received by you.')}>
+      {options.allowed_types.length > 1 && <select aria-label={tr('نوع النموذج', 'Form type')} value={newType || options.allowed_types[0]} onChange={event => setNewType(event.target.value as FieldFormType)} className="h-10 max-w-56 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none focus:border-teal-500">{options.allowed_types.map(item => <option key={item} value={item}>{ar ? FORM_TITLES[item].ar : FORM_TITLES[item].en}</option>)}</select>}
+      {options.allowed_types.length > 0 && <Button onClick={() => openNew()}><FilePlus2 className="me-1.5 h-4 w-4" />{tr('نموذج جديد', 'New form')}</Button>}
     </PageHeader>
 
     {notice && <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800"><CheckCircle2 className="h-4 w-4" />{notice}</div>}
-    <div className="grid grid-cols-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><Summary icon={Inbox} label={tr('وارد يحتاج متابعة', 'Incoming pending')} value={counts.incoming} /><Summary icon={ClipboardCheck} label={tr('مسوداتي وإجراءاتي', 'My drafts and actions')} value={counts.drafts} /><Summary icon={AlertTriangle} label={tr('حالات عاجلة مفتوحة', 'Open urgent matters')} value={counts.urgent} danger={counts.urgent > 0} /></div>
-
     <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-slate-100 p-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="grid grid-cols-3 rounded-xl bg-slate-100 p-1 text-[11px] font-black sm:w-fit">
-          {([['all',tr('الكل','All')],['outgoing',tr('نماذجي والصادر','My forms')],['incoming',tr('الوارد إليّ','Incoming')]] as [Mailbox,string][]).map(([value,label]) => <button key={value} onClick={() => setMailbox(value)} className={`rounded-lg px-3 py-2 transition ${mailbox === value ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500'}`}>{label}</button>)}
+      <div className="flex flex-col gap-3 border-b border-slate-100 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1 text-[11px] font-black sm:w-fit">
+          {([['outgoing',tr('نماذجي','My forms')],['incoming',tr('الوارد إليّ','Incoming')]] as [Mailbox,string][]).map(([value,label]) => <button key={value} onClick={() => setMailbox(value)} className={`rounded-lg px-5 py-2.5 transition ${mailbox === value ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500'}`}>{label}</button>)}
         </div>
-        <div className="grid gap-2 sm:grid-cols-3 lg:flex">
-          <label className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 px-3 sm:col-span-3 lg:w-64"><Search className="h-4 w-4 text-slate-400" /><input value={search} onChange={event => setSearch(event.target.value)} className="w-full bg-transparent text-xs font-bold outline-none" placeholder={tr('بحث بالرقم أو الاسم...', 'Search reference or name...')} /></label>
-          <select value={type} onChange={event => setType(event.target.value)} className="h-9 rounded-xl border border-slate-200 px-3 text-xs font-bold"><option value="">{tr('كل النماذج','All forms')}</option>{Object.entries(FORM_TITLES).map(([key,value]) => <option key={key} value={key}>{ar ? value.ar : value.en}</option>)}</select>
-          <select value={status} onChange={event => setStatus(event.target.value)} className="h-9 rounded-xl border border-slate-200 px-3 text-xs font-bold"><option value="">{tr('كل الحالات','All statuses')}</option>{Object.entries(STATUS_LABELS).map(([key,value]) => <option key={key} value={key}>{ar ? value.ar : value.en}</option>)}</select>
-        </div>
+        <label className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 sm:w-72"><Search className="h-4 w-4 text-slate-400" /><input value={search} onChange={event => setSearch(event.target.value)} className="w-full bg-transparent text-xs font-bold outline-none" placeholder={tr('بحث بالرقم أو الاسم...', 'Search reference or name...')} /></label>
       </div>
-      {rows.length === 0 ? <div className="p-10"><EmptyState title={tr('لا توجد نماذج', 'No forms found')} message={tr('أنشئ نموذجًا جديدًا أو غيّر عوامل التصفية.', 'Create a new form or change the filters.')} /></div> : <div className="divide-y divide-slate-100">{rows.map(record => <FormRow key={record.id} record={record} locale={locale} currentUserId={user?.id || 0} onOpen={() => openDetail(record)} />)}</div>}
+      {rows.length === 0 ? <div className="p-10"><EmptyState title={mailbox === 'outgoing' ? tr('لا توجد نماذج بعد', 'No forms yet') : tr('لا يوجد وارد حالياً', 'Nothing received yet')} message={mailbox === 'outgoing' ? tr('ابدأ بنموذج جديد من الزر في أعلى الشاشة.', 'Start a new form using the button above.') : tr('ستظهر هنا النماذج المرسلة إليك للمراجعة.', 'Forms sent to you for review will appear here.')} /></div> : <div className="divide-y divide-slate-100">{rows.map(record => <FormRow key={record.id} record={record} locale={locale} currentUserId={user?.id || 0} onOpen={() => openDetail(record)} />)}</div>}
     </section>
 
     <Modal isOpen={Boolean(editing)} onClose={() => !saveMutation.isPending && setEditing(null)} title={editing ? (ar ? FORM_TITLES[editing.draft.type].ar : FORM_TITLES[editing.draft.type].en) : ''} maxWidth="2xl" footer={editing && <><Button variant="ghost" disabled={saveMutation.isPending} onClick={() => setEditing(null)}>{tr('إلغاء','Cancel')}</Button><Button variant="outline" isLoading={saveMutation.isPending} onClick={() => saveMutation.mutate({ ...editing, submit: false })}>{tr('حفظ كمسودة','Save draft')}</Button><Button isLoading={saveMutation.isPending} onClick={() => saveMutation.mutate({ ...editing, submit: true })}><Send className="me-1 h-4 w-4" />{tr('حفظ وإرسال','Save and submit')}</Button></>}>
-      {editing && <><div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-3 text-[11px]"><span className="font-bold text-slate-600">{tr('لغة النموذج الحالية','Current form language')}: <strong className="text-slate-900">{ar ? 'العربية' : 'English'}</strong></span><span className="font-bold text-slate-500">{tr('يمكن تنزيل النسخة لاحقًا بأي لغة.','The record can later be exported in either language.')}</span></div>{error && <FormError text={error} />}<ClinicalFieldMonitoringForm draft={editing.draft} options={options} locale={locale} onChange={draft => setEditing({ ...editing, draft })} /></>}
+      {editing && <>{error && <FormError text={error} />}<ClinicalFieldMonitoringForm draft={editing.draft} options={options} locale={locale} onChange={draft => setEditing({ ...editing, draft })} /></>}
     </Modal>
 
     <Modal isOpen={Boolean(selected)} onClose={closeDetail} title={selected ? `${selected.reference_number} · ${ar ? FORM_TITLES[selected.type].ar : FORM_TITLES[selected.type].en}` : ''} maxWidth="2xl" footer={selected && <DetailFooter record={selected} currentUserId={user?.id || 0} canReview={can('clinical_field_monitoring.review') || can('clinical_field_monitoring.manage')} busy={submitMutation.isPending || reviewMutation.isPending} locale={locale} onEdit={() => openEdit(selected)} onSubmit={() => submitMutation.mutate(selected.id)} onReview={action => reviewMutation.mutate({ id: selected.id, action })} />}>
@@ -143,7 +132,6 @@ function FormRow({ record, locale, currentUserId, onOpen }: { record: FieldFormR
 
 function DetailHeader({ record, locale }: { record:FieldFormRecord; locale:'ar'|'en' }) { const ar=locale==='ar'; const status=STATUS_LABELS[record.status]; return <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4"><Meta label={ar?'الحالة':'Status'} value={ar?status.ar:status.en} /><Meta label={ar?'أعد بواسطة':'Prepared by'} value={record.creator.name} /><Meta label={ar?'مرفوع إلى':'Submitted to'} value={record.recipient.name} /><Meta label={ar?'الإصدار':'Revision'} value={String(record.revision)} /></div>; }
 function Meta({label,value}:{label:string;value:string}) { return <div><p className="text-[10px] font-bold text-slate-400">{label}</p><p className="mt-1 text-xs font-black text-slate-800">{value}</p></div>; }
-function Summary({icon:Icon,label,value,danger}:{icon:any;label:string;value:number;danger?:boolean}) { return <div className="flex min-w-0 items-center gap-2 border-e border-slate-100 p-3 sm:p-4"><span className={`hidden rounded-xl p-2 sm:block ${danger?'bg-rose-50 text-rose-600':'bg-teal-50 text-teal-700'}`}><Icon className="h-4 w-4" /></span><div><p className="text-lg font-black text-slate-900">{value}</p><p className="truncate text-[9px] font-bold text-slate-500 sm:text-[11px]">{label}</p></div></div>; }
 function FormError({text}:{text:string}) { return <div className="mb-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{text}</div>; }
 
 function DetailFooter({ record, currentUserId, canReview, busy, locale, onEdit, onSubmit, onReview }: { record:FieldFormRecord; currentUserId:number; canReview:boolean; busy:boolean; locale:'ar'|'en'; onEdit:()=>void; onSubmit:()=>void; onReview:(action:string)=>void }) {

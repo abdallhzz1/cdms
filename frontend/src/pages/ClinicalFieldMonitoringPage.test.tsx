@@ -27,9 +27,13 @@ it('gives an assistant one focused bilingual form and routes it to the clinical 
 
   renderWithProviders(<ClinicalFieldMonitoringPage />);
   expect(await screen.findByRole('heading', { name: 'المتابعة والزيارات الميدانية' })).toBeVisible();
+  expect(screen.queryByText('وارد يحتاج متابعة')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'نماذجي' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'الوارد إليّ' })).toBeVisible();
   await userEvent.click(screen.getByRole('button', { name: /نموذج جديد/ }));
   expect(screen.getByText('مدير الدائرة السريرية')).toBeVisible();
   expect(screen.getByText('قائمة المتابعة')).toBeVisible();
   expect(screen.getByLabelText(/المستشفى أو موقع التدريب/)).toBeVisible();
+  expect(screen.queryByLabelText(/القسم السريري/)).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /حفظ وإرسال/ })).toBeVisible();
 });

@@ -215,16 +215,27 @@ class ClinicalFieldMonitoringController extends Controller
         ];
         $data = $request->validate($rules);
         $data['type'] = $fixedType ?? $data['type'];
+        $user = $request->user();
+
+        if (empty($data['department_id']) && in_array($data['type'], [
+            ClinicalFieldFormSchema::ASSISTANT_FOLLOW_UP,
+            ClinicalFieldFormSchema::DEPARTMENT_PERIODIC_REPORT,
+        ], true)) {
+            $data['department_id'] = $this->scopedDepartmentIds($user)->first();
+        }
+
         if ($data['type'] === ClinicalFieldFormSchema::ASSISTANT_FOLLOW_UP && (empty($data['training_site_id']) || empty($data['activity_date']))) {
             throw ValidationException::withMessages(['training_site_id' => ['Training site and visit date are required.']]);
         }
-        if ($data['type'] === ClinicalFieldFormSchema::DEPARTMENT_PERIODIC_REPORT && (empty($data['department_id']) || empty($data['period_from']) || empty($data['period_to']))) {
-            throw ValidationException::withMessages(['department_id' => ['Department and reporting period are required.']]);
+        if ($data['type'] === ClinicalFieldFormSchema::DEPARTMENT_PERIODIC_REPORT && empty($data['department_id'])) {
+            throw ValidationException::withMessages(['department_id' => ['No clinical department is assigned to your account.']]);
+        }
+        if ($data['type'] === ClinicalFieldFormSchema::DEPARTMENT_PERIODIC_REPORT && (empty($data['period_from']) || empty($data['period_to']))) {
+            throw ValidationException::withMessages(['period_from' => ['The reporting period is required.']]);
         }
         if ($data['type'] === ClinicalFieldFormSchema::DIRECTOR_SUPERVISORY_VISIT && (empty($data['training_site_id']) || empty($data['activity_date']))) {
             throw ValidationException::withMessages(['training_site_id' => ['Training site and visit date are required.']]);
         }
-        $user = $request->user();
         $scopedRole = $user->hasRole('RTA') || $user->hasRole('DEPARTMENT_HEAD');
         $global = $user->hasRole('CLINICAL_DIRECTOR') || $this->can($user, 'clinical_field_monitoring.manage');
         if (! $global && $scopedRole && ! empty($data['department_id']) && ! $this->scopedDepartmentIds($user)->contains((int) $data['department_id'])) {
