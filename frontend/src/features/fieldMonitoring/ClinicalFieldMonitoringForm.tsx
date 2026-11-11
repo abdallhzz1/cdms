@@ -1,8 +1,10 @@
-import { AlertTriangle, Plus, Trash2 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { AlertTriangle, Loader2, Plus, Trash2 } from 'lucide-react';
+import { useEffect, type ReactNode } from 'react';
+import { apiFetch } from '@/api/client';
 import { Button } from '@/components/ui/Button';
 import { ASSISTANT_ITEMS, DEPARTMENT_ITEMS, OVERALL_ITEMS } from './definitions';
-import type { FieldFormDraft, FieldMonitoringOptions } from './types';
+import type { FieldFormDraft, FieldMonitoringContext, FieldMonitoringOptions, FieldMonitoringScheduleGroup } from './types';
 
 interface Props {
   draft: FieldFormDraft;
@@ -19,7 +21,25 @@ export function ClinicalFieldMonitoringForm({ draft, options, locale, disabled =
   const ar = locale === 'ar';
   const tr = (a: string, e: string) => ar ? a : e;
   const named = (item: { name_ar?: string; name_en?: string | null; name?: string; code?: string }) => ar ? (item.name_ar || item.name || '') : (item.name_en || item.name_ar || item.name || '');
-  const setRoot = (key: keyof FieldFormDraft, value: any) => onChange({ ...draft, [key]: value });
+  const setRoot = (key: keyof FieldFormDraft, value: any) => {
+    let payload = draft.payload;
+    let courseId = draft.course_id;
+    if (!disabled && ['training_site_id', 'activity_date'].includes(key) && draft.type !== 'department_periodic_report') {
+      payload = structuredClone(draft.payload);
+      delete payload.context?.schedule_group_key;
+      delete payload.context?.schedule_context_signature;
+      if (draft.type === 'assistant_follow_up') {
+        courseId = '';
+        for (const field of ['clinical_specialty', 'rotation_name', 'clinical_supervisor', 'student_group', 'scheduled_students']) delete payload.context?.[field];
+        payload.context.students_present = 0;
+        payload.context.students_absent = 0;
+      } else {
+        payload.specialties = [];
+        for (const field of ['scheduled_groups', 'scheduled_students', 'scheduled_supervisors']) delete payload.context?.[field];
+      }
+    }
+    onChange({ ...draft, [key]: value, course_id: courseId, payload });
+  };
   const setPayload = (path: string, value: any) => {
     const payload = structuredClone(draft.payload);
     const parts = path.split('.');
@@ -33,6 +53,95 @@ export function ClinicalFieldMonitoringForm({ draft, options, locale, disabled =
     || draft.payload.specialties?.some((item: any) => item.rating === 'unsatisfactory')
     || draft.payload.overall?.training_environment_safety?.rating === 'poor';
 
+  const contextReady = draft.type === 'department_periodic_report'
+    ? Boolean(draft.period_from && draft.period_to)
+    : Boolean(draft.training_site_id && draft.activity_date);
+  const contextQuery = useQuery({
+    queryKey: ['clinical-field-monitoring-context', draft.type, draft.training_site_id, draft.activity_date, draft.period_from, draft.period_to],
+    enabled: !disabled && contextReady,
+    queryFn: () => {
+      const params = new URLSearchParams({ type: draft.type });
+      if (draft.training_site_id) params.set('training_site_id', String(draft.training_site_id));
+      if (draft.activity_date) params.set('activity_date', draft.activity_date);
+      if (draft.period_from) params.set('period_from', draft.period_from);
+      if (draft.period_to) params.set('period_to', draft.period_to);
+      return apiFetch<FieldMonitoringContext>(`/clinical-field-monitoring/context?${params.toString()}`);
+    },
+  });
+
+  useEffect(() => {
+    if (disabled || !contextQuery.data) return;
+    const signature = [draft.type, draft.training_site_id, draft.activity_date, draft.period_from, draft.period_to].join('|');
+    if (draft.payload.context?.schedule_context_signature === signature) return;
+
+    if (draft.type === 'department_periodic_report' && contextQuery.data.summary) {
+      const summary = contextQuery.data.summary;
+      onChange({
+        ...draft,
+        department_id: contextQuery.data.department_id || draft.department_id,
+        payload: {
+          ...draft.payload,
+          context: {
+            ...draft.payload.context,
+            schedule_context_signature: signature,
+            training_sites: summary.training_sites.map(named).join('، '),
+            courses_rotations: summary.courses.map(item => `${item.code ? `${item.code} · ` : ''}${named(item)}`).join('، '),
+            student_count: summary.student_count,
+            supervisor_count: summary.supervisor_count,
+          },
+        },
+      });
+      return;
+    }
+
+    if (draft.type === 'director_supervisory_visit') {
+      const existing = new Map((draft.payload.specialties || []).map((item: any) => [item.code, item]));
+      const specialties = (contextQuery.data.specialties || []).map(item => ({
+        code: item.code,
+        name: ar ? item.name_ar : item.name_en,
+        name_ar: item.name_ar,
+        name_en: item.name_en,
+        rating: (existing.get(item.code) as any)?.rating || 'not_assessed',
+        basis: (existing.get(item.code) as any)?.basis || '',
+        notes: (existing.get(item.code) as any)?.notes || '',
+      }));
+      onChange({
+        ...draft,
+        payload: {
+          ...draft.payload,
+          specialties,
+          context: {
+            ...draft.payload.context,
+            schedule_context_signature: signature,
+            scheduled_groups: contextQuery.data.totals?.groups || 0,
+            scheduled_students: contextQuery.data.totals?.students || 0,
+            scheduled_supervisors: contextQuery.data.totals?.supervisors || 0,
+          },
+        },
+      });
+    }
+  }, [ar, contextQuery.data, disabled, draft, onChange]);
+
+  const selectScheduleGroup = (key: string) => {
+    const group = contextQuery.data?.groups?.find(item => item.key === key);
+    if (!group) return;
+    const supervisors = group.supervisors.map(person => ar ? (person.name_ar || person.name_en || '') : (person.name_en || person.name_ar || ''));
+    const payload = structuredClone(draft.payload);
+    payload.context = {
+      ...payload.context,
+      schedule_group_key: group.key,
+      clinical_specialty: group.department ? named(group.department) : named(group.course || {}),
+      rotation_name: group.course ? `${group.course.code ? `${group.course.code} · ` : ''}${named(group.course)}` : '',
+      clinical_supervisor: supervisors.join('، '),
+      student_group: `${group.group.name} · ${group.subgroup.name}`,
+      scheduled_students: group.student_count,
+      students_present: group.student_count,
+      students_absent: 0,
+      attendance_source: 'schedule',
+    };
+    onChange({ ...draft, course_id: group.course?.id || '', department_id: group.department?.id || draft.department_id, payload });
+  };
+
   const commonSite = draft.type !== 'department_periodic_report';
   return <div className="overflow-hidden rounded-xl border border-slate-300 bg-white px-4 sm:px-7">
     <Section title={tr('بيانات النموذج', 'Form information')}>
@@ -40,35 +149,29 @@ export function ClinicalFieldMonitoringForm({ draft, options, locale, disabled =
         {commonSite && <SelectField label={tr('المستشفى أو موقع التدريب', 'Hospital or training site')} value={draft.training_site_id} required disabled={disabled} onChange={value => setRoot('training_site_id', Number(value) || '')}>
           <option value="">{tr('اختر الموقع', 'Select site')}</option>{options.training_sites.map(item => <option key={item.id} value={item.id}>{named(item)}</option>)}
         </SelectField>}
-        {draft.type === 'assistant_follow_up' && <SelectField label={tr('المساق', 'Course')} value={draft.course_id} disabled={disabled} onChange={value => setRoot('course_id', Number(value) || '')}>
-          <option value="">{tr('اختياري', 'Optional')}</option>{options.courses.map(item => <option key={item.id} value={item.id}>{item.code} · {named(item)}</option>)}
-        </SelectField>}
         {commonSite && <InputField type="date" label={tr('تاريخ الزيارة', 'Visit date')} value={draft.activity_date} required disabled={disabled} onChange={value => setRoot('activity_date', value)} />}
         {draft.type === 'department_periodic_report' && <><InputField type="date" label={tr('بداية الفترة', 'Period from')} value={draft.period_from} required disabled={disabled} onChange={value => setRoot('period_from', value)} /><InputField type="date" label={tr('نهاية الفترة', 'Period to')} value={draft.period_to} required disabled={disabled} onChange={value => setRoot('period_to', value)} /></>}
         <div className="self-end border-s-2 border-teal-600 px-3 py-1 text-xs"><p className="font-bold text-slate-500">{tr('يرسل إلى', 'Sent to')}</p><p className="mt-1 font-black text-slate-900">{options.recipients[draft.type]?.name || tr('لا يوجد مستلم مفعّل', 'No active recipient')}</p></div>
       </div>
     </Section>
 
-    {draft.type === 'assistant_follow_up' && <AssistantForm draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} />}
+    {draft.type === 'assistant_follow_up' && <AssistantForm draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} groups={contextQuery.data?.groups || []} loading={contextQuery.isLoading} contextError={contextQuery.isError} onSelectGroup={selectScheduleGroup} />}
     {draft.type === 'department_periodic_report' && <DepartmentForm draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} />}
-    {draft.type === 'director_supervisory_visit' && <DirectorForm draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} locale={locale} />}
+    {draft.type === 'director_supervisory_visit' && <DirectorForm draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} locale={locale} loading={contextQuery.isLoading} contextError={contextQuery.isError} />}
 
     <FollowUp draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} />
     <UrgentSection urgent={urgent} draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} />
   </div>;
 }
 
-function AssistantForm({ draft, disabled, tr, setPayload }: SharedProps) {
+function AssistantForm({ draft, disabled, tr, setPayload, groups, loading, contextError, onSelectGroup }: SharedProps & { groups: FieldMonitoringScheduleGroup[]; loading: boolean; contextError: boolean; onSelectGroup: (key: string) => void }) {
   return <>
-    <Section title={tr('معلومات المجموعة والزيارة', 'Group and visit details')}>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <InputField label={tr('التخصص السريري', 'Clinical specialty')} value={draft.payload.context?.clinical_specialty || ''} required disabled={disabled} onChange={v => setPayload('context.clinical_specialty', v)} />
-        <InputField label={tr('المساق أو الدورة السريرية', 'Course or rotation')} value={draft.payload.context?.rotation_name || ''} required disabled={disabled} onChange={v => setPayload('context.rotation_name', v)} />
-        <InputField label={tr('المشرف السريري', 'Clinical supervisor')} value={draft.payload.context?.clinical_supervisor || ''} required disabled={disabled} onChange={v => setPayload('context.clinical_supervisor', v)} />
-        <InputField label={tr('مجموعة الطلبة', 'Student group')} value={draft.payload.context?.student_group || ''} required disabled={disabled} onChange={v => setPayload('context.student_group', v)} />
-        <InputField type="number" min="0" label={tr('عدد الحاضرين', 'Students present')} value={draft.payload.context?.students_present ?? 0} required disabled={disabled} onChange={v => setPayload('context.students_present', Number(v))} />
-        <InputField type="number" min="0" label={tr('عدد الغائبين', 'Students absent')} value={draft.payload.context?.students_absent ?? 0} required disabled={disabled} onChange={v => setPayload('context.students_absent', Number(v))} />
-      </div>
+    <Section title={tr('المجموعة التي تمت زيارتها', 'Visited group')} description={!disabled ? tr('تظهر المجموعات تلقائيًا حسب موقع التدريب وتاريخ الزيارة.', 'Groups are loaded automatically from the training site and visit date.') : undefined}>
+      {!disabled && loading && <InlineLoading label={tr('جاري تحميل جدول هذا اليوم...', 'Loading this day’s schedule...')} />}
+      {!disabled && contextError && <InlineNotice label={tr('تعذر تحميل المجموعات المجدولة. أعد اختيار الموقع أو التاريخ.', 'Could not load scheduled groups. Re-select the site or date.')} danger />}
+      {!disabled && !loading && !contextError && draft.training_site_id && draft.activity_date && groups.length === 0 && <InlineNotice label={tr('لا توجد مجموعات مجدولة في هذا المركز بهذا التاريخ.', 'No groups are scheduled at this site on this date.')} />}
+      {!disabled && draft.training_site_id && draft.activity_date && <SelectField label={tr('اختر المجموعة', 'Select group')} value={draft.payload.context?.schedule_group_key || ''} required disabled={loading || contextError || groups.length === 0} onChange={onSelectGroup}><option value="">{loading ? tr('جاري التحميل...', 'Loading...') : tr('اختر من جدول التدريب', 'Select from the clinical schedule')}</option>{groups.map(group => <option key={group.key} value={group.key}>{group.group.name} · {group.subgroup.name} — {group.course?.code || group.course?.name_ar || ''} — {group.student_count} {tr('طالب','students')}</option>)}</SelectField>}
+      {draft.payload.context?.student_group && <ScheduleSummary draft={draft} tr={tr} />}
     </Section>
     <Section title={tr('قائمة المتابعة', 'Field monitoring checklist')} description={tr('تظهر الملاحظة وتصبح مطلوبة عند اختيار جزئيًا أو لا.', 'A comment is required when Partly or No is selected.')}>
       <ResponseList items={ASSISTANT_ITEMS} root="responses" ratings={[['yes','نعم','Yes'],['partial','جزئيًا','Partly'],['no','لا','No']]} draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} />
@@ -81,8 +184,14 @@ function AssistantForm({ draft, disabled, tr, setPayload }: SharedProps) {
 
 function DepartmentForm({ draft, disabled, tr, setPayload }: SharedProps) {
   return <>
-    <Section title={tr('بيانات التقرير', 'Report information')}>
-      <div className="grid gap-4 sm:grid-cols-2"><InputField label={tr('رئيس القسم', 'Department head')} value={draft.payload.context?.department_head || ''} required disabled={disabled} onChange={v => setPayload('context.department_head', v)} /><InputField label={tr('مواقع التدريب المشمولة', 'Training sites covered')} value={draft.payload.context?.training_sites || ''} disabled={disabled} onChange={v => setPayload('context.training_sites', v)} /><InputField label={tr('المساقات أو الدورات', 'Courses or rotations')} value={draft.payload.context?.courses_rotations || ''} disabled={disabled} onChange={v => setPayload('context.courses_rotations', v)} /><InputField type="number" min="0" label={tr('عدد الطلبة', 'Students')} value={draft.payload.context?.student_count ?? 0} required disabled={disabled} onChange={v => setPayload('context.student_count', Number(v))} /><InputField type="number" min="0" label={tr('عدد المشرفين', 'Supervisors')} value={draft.payload.context?.supervisor_count ?? 0} required disabled={disabled} onChange={v => setPayload('context.supervisor_count', Number(v))} /><SelectField label={tr('حالة إجراءات الفترة السابقة', 'Previous-period actions')} value={draft.payload.previous_period_status || 'none'} disabled={disabled} onChange={v => setPayload('previous_period_status', v)}><option value="none">{tr('لا يوجد', 'None')}</option><option value="completed">{tr('مكتمل', 'Completed')}</option><option value="in_progress">{tr('قيد التنفيذ', 'In progress')}</option><option value="not_implemented">{tr('لم ينفذ', 'Not implemented')}</option></SelectField></div>
+    <Section title={tr('بيانات التقرير', 'Report information')} description={tr('تُحتسب المواقع والمساقات والأعداد تلقائيًا من التوزيع السريري المنشور ضمن الفترة المحددة.', 'Sites, courses and counts are calculated automatically from the published clinical distribution for the selected period.')}>
+      <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+        <ReadOnlyValue label={tr('رئيس القسم', 'Department head')} value={draft.payload.context?.department_head} />
+        <ReadOnlyValue label={tr('مواقع التدريب', 'Training sites')} value={draft.payload.context?.training_sites} />
+        <ReadOnlyValue label={tr('المساقات أو الدورات', 'Courses or rotations')} value={draft.payload.context?.courses_rotations} />
+        <ReadOnlyValue label={tr('الطلبة والمشرفون', 'Students and supervisors')} value={`${draft.payload.context?.student_count ?? 0} / ${draft.payload.context?.supervisor_count ?? 0}`} />
+      </div>
+      <div className="mt-4 max-w-md"><SelectField label={tr('حالة إجراءات الفترة السابقة', 'Previous-period actions')} value={draft.payload.previous_period_status || 'none'} disabled={disabled} onChange={v => setPayload('previous_period_status', v)}><option value="none">{tr('لا يوجد', 'None')}</option><option value="completed">{tr('مكتمل', 'Completed')}</option><option value="in_progress">{tr('قيد التنفيذ', 'In progress')}</option><option value="not_implemented">{tr('لم ينفذ', 'Not implemented')}</option></SelectField></div>
     </Section>
     <Section title={tr('تقييم الفترة', 'Period assessment')} description={tr('خيارات لم يتم التحقق ولا ينطبق متاحة في اللغتين.', 'Not verified and Not applicable are available in both languages.')}>
       <ResponseList items={DEPARTMENT_ITEMS} root="responses" ratings={[['yes','نعم','Yes'],['partial','جزئيًا','Partly'],['no','لا','No'],['not_verified','لم يتم التحقق','Not verified'],['not_applicable','لا ينطبق','Not applicable']]} draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} />
@@ -94,16 +203,19 @@ function DepartmentForm({ draft, disabled, tr, setPayload }: SharedProps) {
   </>;
 }
 
-function DirectorForm({ draft, disabled, tr, setPayload, locale }: SharedProps & { locale: 'ar' | 'en' }) {
+function DirectorForm({ draft, disabled, tr, setPayload, locale, loading, contextError }: SharedProps & { locale: 'ar' | 'en'; loading: boolean; contextError: boolean }) {
   const specialties: any[] = draft.payload.specialties || [];
   const changeSpecialty = (index: number, key: string, value: string) => { const items = structuredClone(specialties); items[index][key] = value; if (key === 'name_ar' || key === 'name_en') items[index].name = value; setPayload('specialties', items); };
   return <>
     <Section title={tr('معلومات الزيارة الإشرافية', 'Supervisory visit information')}>
       <div className="grid gap-3 sm:grid-cols-2"><SelectField label={tr('نوع الزيارة', 'Visit type')} value={draft.payload.context?.visit_type || 'routine'} disabled={disabled} onChange={v => setPayload('context.visit_type', v)}><option value="routine">{tr('دورية', 'Routine')}</option><option value="follow_up">{tr('متابعة', 'Follow-up')}</option><option value="emergency">{tr('طارئة', 'Emergency')}</option></SelectField><InputField label={tr('ممثلو المستشفى', 'Hospital representatives')} value={draft.payload.context?.representatives || ''} disabled={disabled} onChange={v => setPayload('context.representatives', v)} /></div>
+      {loading && <div className="mt-4"><InlineLoading label={tr('جاري قراءة جدول المركز...', 'Reading the site schedule...')} /></div>}
+      {contextError && <div className="mt-4"><InlineNotice label={tr('تعذر قراءة بيانات المركز لهذا التاريخ.', 'Could not read the site data for this date.')} danger /></div>}
+      {draft.payload.context?.schedule_context_signature && <div className="mt-4 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:grid-cols-3"><ReadOnlyValue label={tr('المجموعات الموجودة', 'Scheduled groups')} value={draft.payload.context?.scheduled_groups} /><ReadOnlyValue label={tr('الطلبة المجدولون', 'Scheduled students')} value={draft.payload.context?.scheduled_students} /><ReadOnlyValue label={tr('المشرفون', 'Supervisors')} value={draft.payload.context?.scheduled_supervisors} /></div>}
     </Section>
-    <Section title={tr('تقييم التخصصات السريرية', 'Clinical specialties assessment')} description={tr('استخدم لم يُقيّم عند عدم توفر أدلة كافية.', 'Use Not assessed when evidence is insufficient.')}>
-      <div className="space-y-3">{specialties.map((item, index) => <div key={`${item.code}-${index}`} className="rounded-2xl border border-slate-200 p-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><InputField label={tr('التخصص', 'Specialty')} value={locale === 'ar' ? (item.name_ar || item.name) : (item.name_en || item.name)} disabled={disabled} onChange={v => changeSpecialty(index, locale === 'ar' ? 'name_ar' : 'name_en', v)} /><SelectField label={tr('التقييم', 'Assessment')} value={item.rating} disabled={disabled} onChange={v => changeSpecialty(index, 'rating', v)}><option value="satisfactory">{tr('مُرضٍ', 'Satisfactory')}</option><option value="needs_improvement">{tr('بحاجة لتحسين', 'Needs improvement')}</option><option value="unsatisfactory">{tr('غير مُرضٍ', 'Unsatisfactory')}</option><option value="not_assessed">{tr('لم يُقيّم', 'Not assessed')}</option></SelectField><SelectField label={tr('أساس التقييم', 'Assessment basis')} value={item.basis || ''} disabled={disabled || item.rating === 'not_assessed'} onChange={v => changeSpecialty(index, 'basis', v)}><option value="">—</option><option value="direct">{tr('زيارة مباشرة', 'Direct observation')}</option><option value="reports">{tr('تقارير', 'Reports')}</option></SelectField><div className="flex items-end gap-2"><InputField label={tr('ملاحظات', 'Notes')} value={item.notes || ''} disabled={disabled} onChange={v => changeSpecialty(index, 'notes', v)} />{!disabled && specialties.length > 1 && <button type="button" onClick={() => setPayload('specialties', specialties.filter((_, i) => i !== index))} className="mb-0.5 rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>}</div></div></div>)}</div>
-      {!disabled && <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => setPayload('specialties', [...specialties, { code: `custom_${Date.now()}`, name: '', name_ar: '', name_en: '', rating: 'not_assessed', basis: '', notes: '' }])}><Plus className="me-1 h-4 w-4" />{tr('إضافة تخصص', 'Add specialty')}</Button>}
+    <Section title={tr('تقييم التخصصات السريرية', 'Clinical specialties assessment')} description={tr('تظهر تلقائيًا التخصصات الموجودة فعليًا في المركز يوم الزيارة.', 'Only specialties actually scheduled at the site on the visit date are shown.')}>
+      {!loading && specialties.length === 0 && <InlineNotice label={tr('اختر المركز والتاريخ لعرض التخصصات الموجودة.', 'Select the site and date to show available specialties.')} />}
+      <div className="space-y-3">{specialties.map((item, index) => <div key={`${item.code}-${index}`} className="rounded-xl border border-slate-200 p-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><ReadOnlyValue label={tr('التخصص', 'Specialty')} value={locale === 'ar' ? (item.name_ar || item.name) : (item.name_en || item.name)} /><SelectField label={tr('التقييم', 'Assessment')} value={item.rating} disabled={disabled} onChange={v => changeSpecialty(index, 'rating', v)}><option value="satisfactory">{tr('مُرضٍ', 'Satisfactory')}</option><option value="needs_improvement">{tr('بحاجة لتحسين', 'Needs improvement')}</option><option value="unsatisfactory">{tr('غير مُرضٍ', 'Unsatisfactory')}</option><option value="not_assessed">{tr('لم يُقيّم', 'Not assessed')}</option></SelectField><SelectField label={tr('أساس التقييم', 'Assessment basis')} value={item.basis || ''} disabled={disabled || item.rating === 'not_assessed'} onChange={v => changeSpecialty(index, 'basis', v)}><option value="">—</option><option value="direct">{tr('زيارة مباشرة', 'Direct observation')}</option><option value="reports">{tr('تقارير', 'Reports')}</option></SelectField><InputField label={tr('ملاحظات', 'Notes')} value={item.notes || ''} disabled={disabled} onChange={v => changeSpecialty(index, 'notes', v)} /></div></div>)}</div>
     </Section>
     <Section title={tr('التقييم العام للمستشفى', 'Overall hospital assessment')}><ResponseList items={OVERALL_ITEMS} root="overall" ratings={[['good','جيد','Good'],['acceptable','مقبول','Acceptable'],['poor','ضعيف','Poor']]} draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} /></Section>
     <Section title={tr('النتائج والإجراءات', 'Findings and actions')}><div className="grid gap-4"><TextArea label={tr('الخلاصة', 'Summary')} value={draft.payload.summary || ''} disabled={disabled} onChange={v => setPayload('summary', v)} /><TextArea label={tr('الإجراءات المطلوبة', 'Required actions')} value={draft.payload.required_actions || ''} disabled={disabled} onChange={v => setPayload('required_actions', v)} /><TextArea label={tr('تدخل العميد المطلوب', 'Dean intervention required')} value={draft.payload.dean_intervention || ''} disabled={disabled} onChange={v => setPayload('dean_intervention', v)} /></div><ActionsEditor root="actions" draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} /></Section>
@@ -129,6 +241,28 @@ function UrgentSection({ urgent, draft, disabled, tr, setPayload }: SharedProps 
     <label className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-800"><input type="checkbox" checked={Boolean(draft.payload.urgent?.direct_risk)} disabled={disabled} onChange={event => setPayload('urgent.direct_risk', event.target.checked)} className="mt-0.5 h-4 w-4 accent-rose-600" /><span>{tr('يوجد خطر مباشر أو أمر عاجل يستلزم إشعار الجهة المستلمة فورًا.', 'A direct risk or urgent matter requires immediate notification of the recipient.')}</span></label>
     {urgent && <div className="mt-3 rounded-2xl border border-rose-200 bg-white p-4"><div className="mb-3 flex items-center gap-2 text-xs font-black text-rose-700"><AlertTriangle className="h-4 w-4" />{tr('توثيق الحالة العاجلة إلزامي', 'Urgent-case documentation is required')}</div><div className="grid gap-3 lg:grid-cols-3"><TextArea label={tr('تفاصيل الحالة', 'Case details')} value={draft.payload.urgent?.details || ''} required disabled={disabled} onChange={v => setPayload('urgent.details', v)} /><TextArea label={tr('الإجراء الفوري المتخذ', 'Immediate action taken')} value={draft.payload.urgent?.action_taken || ''} required disabled={disabled} onChange={v => setPayload('urgent.action_taken', v)} /><InputField type="datetime-local" label={tr('تاريخ ووقت التبليغ', 'Notification date and time')} value={draft.payload.urgent?.notified_at || ''} required disabled={disabled} onChange={v => setPayload('urgent.notified_at', v)} /></div></div>}
   </Section>;
+}
+
+function ScheduleSummary({ draft, tr }: { draft: FieldFormDraft; tr: (a:string,e:string)=>string }) {
+  const context = draft.payload.context || {};
+  return <div className="mt-4 grid gap-3 rounded-lg border border-teal-100 bg-teal-50/40 p-4 sm:grid-cols-2">
+    <ReadOnlyValue label={tr('المساق والتخصص', 'Course and specialty')} value={[context.rotation_name, context.clinical_specialty].filter(Boolean).join(' — ')} />
+    <ReadOnlyValue label={tr('المجموعة', 'Group')} value={context.student_group} />
+    <ReadOnlyValue label={tr('المشرف السريري', 'Clinical supervisor')} value={context.clinical_supervisor} />
+    <ReadOnlyValue label={tr('عدد الطلبة المجدولين', 'Scheduled students')} value={context.scheduled_students} />
+  </div>;
+}
+
+function ReadOnlyValue({ label, value }: { label: string; value: ReactNode }) {
+  return <div className="min-w-0"><p className="text-[11px] font-bold text-slate-500">{label}</p><p className="mt-1 break-words text-sm font-black text-slate-800">{value === '' || value === null || value === undefined ? '—' : value}</p></div>;
+}
+
+function InlineLoading({ label }: { label: string }) {
+  return <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-3 text-xs font-bold text-slate-600"><Loader2 className="h-4 w-4 animate-spin text-teal-600" />{label}</div>;
+}
+
+function InlineNotice({ label, danger = false }: { label: string; danger?: boolean }) {
+  return <div className={`rounded-lg px-3 py-3 text-xs font-bold ${danger ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800'}`}>{label}</div>;
 }
 
 interface SharedProps { draft: FieldFormDraft; disabled: boolean; tr: (a:string,e:string)=>string; setPayload: (path:string,value:any)=>void; }

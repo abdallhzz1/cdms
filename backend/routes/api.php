@@ -265,6 +265,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::prefix('clinical-field-monitoring')->middleware('permission:clinical_field_monitoring.view')->group(function () {
             Route::get('/', [ClinicalFieldMonitoringController::class, 'index']);
             Route::get('/options', [ClinicalFieldMonitoringController::class, 'options']);
+            Route::get('/context', [ClinicalFieldMonitoringController::class, 'context']);
             Route::post('/forms', [ClinicalFieldMonitoringController::class, 'store']);
             Route::get('/forms/{clinicalFieldForm}', [ClinicalFieldMonitoringController::class, 'show'])->whereNumber('clinicalFieldForm');
             Route::put('/forms/{clinicalFieldForm}', [ClinicalFieldMonitoringController::class, 'update'])->whereNumber('clinicalFieldForm');

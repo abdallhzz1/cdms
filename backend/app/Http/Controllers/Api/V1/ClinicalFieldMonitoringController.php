@@ -7,10 +7,12 @@ use App\Http\Responses\ApiResponse;
 use App\Models\ClinicalFieldForm;
 use App\Models\Course;
 use App\Models\Department;
+use App\Models\StudentClinicalAssignment;
 use App\Models\TrainingSite;
 use App\Models\User;
 use App\Notifications\LocalSystemNotification;
 use App\Services\ClinicalFieldFormSchema;
+use App\Services\Distribution\ClinicalScheduleQueryService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -25,6 +27,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 class ClinicalFieldMonitoringController extends Controller
 {
+    public function __construct(private readonly ClinicalScheduleQueryService $scheduleQueryService) {}
+
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -99,6 +103,43 @@ class ClinicalFieldMonitoringController extends Controller
             'courses' => Course::query()->where('is_active', true)->orderBy('code')->get(['id', 'code', 'name_ar', 'name_en']),
             'creator' => ['id' => $user->id, 'name' => $user->name],
         ]);
+    }
+
+    public function context(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'type' => ['required', Rule::in(ClinicalFieldFormSchema::TYPES)],
+            'training_site_id' => ['nullable', 'integer', 'exists:training_sites,id'],
+            'activity_date' => ['nullable', 'date_format:Y-m-d'],
+            'period_from' => ['nullable', 'date_format:Y-m-d'],
+            'period_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:period_from'],
+        ]);
+        $user = $request->user();
+        $this->ensurePermission($user, ClinicalFieldFormSchema::createPermission($data['type']));
+
+        if ($data['type'] !== ClinicalFieldFormSchema::DEPARTMENT_PERIODIC_REPORT) {
+            if (empty($data['training_site_id']) || empty($data['activity_date'])) {
+                throw ValidationException::withMessages(['activity_date' => ['Select a training site and visit date first.']]);
+            }
+
+            $groups = $this->dailyContextGroups($data['activity_date'], (int) $data['training_site_id']);
+            $specialties = $this->specialtiesFromGroups($groups);
+
+            return ApiResponse::success([
+                'groups' => $groups,
+                'specialties' => $specialties,
+                'totals' => [
+                    'groups' => $groups->count(),
+                    'students' => $groups->sum('student_count'),
+                    'supervisors' => $groups->pluck('supervisors')->flatten(1)->unique('id')->count(),
+                ],
+            ]);
+        }
+
+        if (empty($data['period_from']) || empty($data['period_to'])) {
+            throw ValidationException::withMessages(['period_from' => ['Select the reporting period first.']]);
+        }
+        return ApiResponse::success($this->departmentPeriodContext($user, $data['period_from'], $data['period_to']));
     }
 
     public function show(Request $request, ClinicalFieldForm $clinicalFieldForm): JsonResponse
@@ -242,7 +283,167 @@ class ClinicalFieldMonitoringController extends Controller
             throw ValidationException::withMessages(['department_id' => ['The selected department is outside your assigned scope.']]);
         }
 
+        $this->hydrateScheduleContext($data, $user);
+
         return $data;
+    }
+
+    /** @return Collection<int, array<string, mixed>> */
+    private function dailyContextGroups(string $date, int $trainingSiteId): Collection
+    {
+        return collect($this->scheduleQueryService->getDailyGroups($date, $trainingSiteId))
+            ->map(function (array $group) {
+                $supervisors = collect($group['supervisors'] ?? [])->map(fn (array $person) => [
+                    'id' => $person['id'],
+                    'name_ar' => $person['full_name_ar'] ?? null,
+                    'name_en' => $person['full_name_en'] ?? null,
+                ])->values()->all();
+
+                return [
+                    'key' => implode(':', [$group['rotation_id'], $group['group']['id'], $group['subgroup']['id']]),
+                    'rotation_id' => $group['rotation_id'],
+                    'course' => $group['course'],
+                    'department' => $group['department'] ?? null,
+                    'group' => $group['group'],
+                    'subgroup' => $group['subgroup'],
+                    'supervisors' => $supervisors,
+                    'student_count' => count($group['students'] ?? []),
+                ];
+            })->values();
+    }
+
+    /** @param Collection<int, array<string, mixed>> $groups */
+    private function specialtiesFromGroups(Collection $groups): Collection
+    {
+        return $groups->map(function (array $group) {
+            $source = $group['department'] ?: $group['course'];
+            if (! $source) return null;
+
+            return [
+                'code' => ($group['department'] ? 'department_' : 'course_').$source['id'],
+                'name_ar' => $source['name_ar'] ?? $source['name'] ?? '',
+                'name_en' => $source['name_en'] ?? $source['name_ar'] ?? $source['name'] ?? '',
+            ];
+        })->filter()->unique('code')->values();
+    }
+
+    /** @return array{department_id:int, summary:array<string, mixed>} */
+    private function departmentPeriodContext(User $user, string $periodFrom, string $periodTo): array
+    {
+        $departmentId = $this->scopedDepartmentIds($user)->first();
+        if (! $departmentId) {
+            throw ValidationException::withMessages(['department_id' => ['No clinical department is assigned to your account.']]);
+        }
+
+        $assignments = app(\App\Services\DepartmentHeadCourseScope::class)
+            ->assignments(StudentClinicalAssignment::query())
+            ->where('student_clinical_assignments.department_id', $departmentId)
+            ->whereHas('distributionVersion', fn (Builder $version) => $version
+                ->where('status', 'published')->where('is_current', true))
+            ->whereHas('rotationBlock.rotation', fn (Builder $rotation) => $rotation
+                ->whereDate('start_date', '<=', $periodTo)
+                ->where(fn (Builder $dates) => $dates->whereNull('end_date')->orWhereDate('end_date', '>=', $periodFrom)))
+            ->with([
+                'trainingSite:id,name_ar,name_en',
+                'rotationBlock.rotation.course:id,code,name_ar,name_en',
+            ])->get();
+
+        $sites = $assignments->pluck('trainingSite')->filter()->unique('id')->values();
+        $courses = $assignments->pluck('rotationBlock.rotation.course')->filter()->unique('id')->values();
+
+        return [
+            'department_id' => (int) $departmentId,
+            'summary' => [
+                'training_sites' => $sites->map(fn ($site) => $site->only('id', 'name_ar', 'name_en'))->values()->all(),
+                'courses' => $courses->map(fn ($course) => $course->only('id', 'code', 'name_ar', 'name_en'))->values()->all(),
+                'student_count' => $assignments->pluck('student_id')->unique()->count(),
+                'supervisor_count' => $assignments->pluck('supervisor_id')->filter()->unique()->count(),
+            ],
+        ];
+    }
+
+    private function hydrateScheduleContext(array &$data, User $user): void
+    {
+        $locale = ($data['locale'] ?? 'ar') === 'en' ? 'en' : 'ar';
+        $payload = $data['payload'];
+
+        if ($data['type'] === ClinicalFieldFormSchema::ASSISTANT_FOLLOW_UP) {
+            $key = (string) ($payload['context']['schedule_group_key'] ?? '');
+            // Keep previously saved/manual drafts editable; every draft created by
+            // the current UI carries a schedule key and is verified below.
+            if ($key === '') {
+                return;
+            }
+            $groups = $this->dailyContextGroups($data['activity_date'], (int) $data['training_site_id']);
+            $group = $groups->firstWhere('key', $key);
+            if (! $group) {
+                throw ValidationException::withMessages(['payload.context.schedule_group_key' => ['Select a group scheduled at this site on the visit date.']]);
+            }
+
+            $named = fn (?array $item) => $item
+                ? ($locale === 'en' ? ($item['name_en'] ?? $item['name_ar'] ?? $item['name'] ?? '') : ($item['name_ar'] ?? $item['name'] ?? ''))
+                : '';
+            $supervisors = collect($group['supervisors'])->map(fn (array $person) => $locale === 'en'
+                ? ($person['name_en'] ?? $person['name_ar'] ?? '')
+                : ($person['name_ar'] ?? $person['name_en'] ?? ''))->filter()->join('، ');
+
+            $data['course_id'] = $group['course']['id'] ?? null;
+            $data['department_id'] = $group['department']['id'] ?? $data['department_id'] ?? null;
+            $payload['context'] = [
+                ...($payload['context'] ?? []),
+                'schedule_group_key' => $group['key'],
+                'clinical_specialty' => $named($group['department'] ?: $group['course']),
+                'rotation_name' => trim(($group['course']['code'] ?? '').' · '.$named($group['course']), ' ·'),
+                'clinical_supervisor' => $supervisors,
+                'student_group' => $group['group']['name'].' · '.$group['subgroup']['name'],
+                'scheduled_students' => $group['student_count'],
+                'students_present' => $group['student_count'],
+                'students_absent' => 0,
+                'attendance_source' => 'schedule',
+            ];
+        } elseif ($data['type'] === ClinicalFieldFormSchema::DEPARTMENT_PERIODIC_REPORT) {
+            $context = $this->departmentPeriodContext($user, $data['period_from'], $data['period_to']);
+            $data['department_id'] = $context['department_id'];
+            $summary = $context['summary'];
+            $payload['context'] = [
+                ...($payload['context'] ?? []),
+                'training_sites' => collect($summary['training_sites'])->map(fn (array $site) => $locale === 'en' ? ($site['name_en'] ?? $site['name_ar']) : $site['name_ar'])->join('، '),
+                'courses_rotations' => collect($summary['courses'])->map(function (array $course) use ($locale) {
+                    $name = $locale === 'en' ? ($course['name_en'] ?? $course['name_ar']) : $course['name_ar'];
+                    return trim(($course['code'] ?? '').' · '.$name, ' ·');
+                })->join('، '),
+                'student_count' => $summary['student_count'],
+                'supervisor_count' => $summary['supervisor_count'],
+            ];
+        } elseif ($data['type'] === ClinicalFieldFormSchema::DIRECTOR_SUPERVISORY_VISIT) {
+            $groups = $this->dailyContextGroups($data['activity_date'], (int) $data['training_site_id']);
+            $specialties = $this->specialtiesFromGroups($groups);
+            if ($specialties->isEmpty()) {
+                // Legacy drafts may predate schedule-backed forms. New forms cannot
+                // reach this state because the UI derives their specialties here.
+                return;
+            }
+            $existing = collect($payload['specialties'] ?? [])->keyBy('code');
+            $payload['specialties'] = $specialties->map(function (array $specialty) use ($existing, $locale) {
+                $saved = $existing->get($specialty['code'], []);
+                return [
+                    ...$saved,
+                    ...$specialty,
+                    'name' => $locale === 'en' ? $specialty['name_en'] : $specialty['name_ar'],
+                    'rating' => $saved['rating'] ?? 'not_assessed',
+                    'basis' => $saved['basis'] ?? '',
+                    'notes' => $saved['notes'] ?? '',
+                ];
+            })->values()->all();
+            $payload['context'] = [
+                ...($payload['context'] ?? []),
+                'scheduled_groups' => $groups->count(),
+                'scheduled_students' => $groups->sum('student_count'),
+                'scheduled_supervisors' => $groups->pluck('supervisors')->flatten(1)->unique('id')->count(),
+            ];
+        }
+
+        $data['payload'] = $payload;
     }
 
     private function scopedDepartmentIds(User $user): Collection

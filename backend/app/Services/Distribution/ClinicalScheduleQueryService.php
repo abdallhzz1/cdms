@@ -46,6 +46,7 @@ class ClinicalScheduleQueryService
                 'rotationBlock.rotation.course:id,code,name_ar,name_en',
                 'rotationBlock.rotation.academicYear:id,code',
                 'trainingSite:id,name_ar,name_en',
+                'department:id,name_ar,name_en',
                 'supervisor.availabilities',
                 'distributionVersion.breaks',
             ]);
@@ -94,6 +95,7 @@ class ClinicalScheduleQueryService
                 'site' => $first->trainingSite->only('id', 'name_ar', 'name_en'),
                 'rotation_id' => $rotation->id,
                 'course' => $rotation->course?->only('id', 'code', 'name_ar', 'name_en'),
+                'department' => $first->department?->only('id', 'name_ar', 'name_en'),
                 'academic_year' => $rotation->academicYear?->only('id', 'code'),
                 'group' => ['id' => $group->id, 'name' => $group->name],
                 'subgroup' => ['id' => $first->studentSubgroup->id, 'name' => $first->studentSubgroup->name],

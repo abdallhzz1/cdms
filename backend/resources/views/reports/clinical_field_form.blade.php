@@ -84,7 +84,11 @@
     <table class="meta">
         <tr><td>{{ $tr('التخصص', 'Specialty') }}</td><td>{{ $value($context['clinical_specialty'] ?? null) }}</td><td>{{ $tr('المساق أو الدورة', 'Course or rotation') }}</td><td>{{ $value($context['rotation_name'] ?? null) }}</td></tr>
         <tr><td>{{ $tr('المشرف السريري', 'Clinical supervisor') }}</td><td>{{ $value($context['clinical_supervisor'] ?? null) }}</td><td>{{ $tr('مجموعة الطلبة', 'Student group') }}</td><td>{{ $value($context['student_group'] ?? null) }}</td></tr>
-        <tr><td>{{ $tr('الحاضرون', 'Present') }}</td><td>{{ $value($context['students_present'] ?? null) }}</td><td>{{ $tr('الغائبون', 'Absent') }}</td><td>{{ $value($context['students_absent'] ?? null) }}</td></tr>
+        @if(($context['attendance_source'] ?? null) === 'schedule')
+            <tr><td>{{ $tr('عدد الطلبة المجدولين', 'Scheduled students') }}</td><td>{{ $value($context['scheduled_students'] ?? null) }}</td><td>{{ $tr('مصدر البيانات', 'Data source') }}</td><td>{{ $tr('جدول التدريب السريري المنشور', 'Published clinical schedule') }}</td></tr>
+        @else
+            <tr><td>{{ $tr('الحاضرون', 'Present') }}</td><td>{{ $value($context['students_present'] ?? null) }}</td><td>{{ $tr('الغائبون', 'Absent') }}</td><td>{{ $value($context['students_absent'] ?? null) }}</td></tr>
+        @endif
     </table>
     <h2>{{ $tr('قائمة التحقق', 'Monitoring checklist') }}</h2>
     <table><tr><th>{{ $tr('البند', 'Item') }}</th><th class="short">{{ $tr('التقييم', 'Assessment') }}</th><th>{{ $tr('الملاحظة', 'Comment') }}</th></tr>
@@ -93,14 +97,16 @@
 @elseif($form->type === 'department_periodic_report')
     <h2>{{ $tr('بيانات الفترة', 'Reporting period') }}</h2>
     <table class="meta"><tr><td>{{ $tr('من', 'From') }}</td><td>{{ optional($form->period_from)->format('Y-m-d') }}</td><td>{{ $tr('إلى', 'To') }}</td><td>{{ optional($form->period_to)->format('Y-m-d') }}</td></tr>
-        <tr><td>{{ $tr('رئيس القسم', 'Department head') }}</td><td>{{ $value($context['department_head'] ?? null) }}</td><td>{{ $tr('الطلبة والمشرفون', 'Students and supervisors') }}</td><td>{{ $value($context['student_count'] ?? null) }} / {{ $value($context['supervisor_count'] ?? null) }}</td></tr></table>
+        <tr><td>{{ $tr('رئيس القسم', 'Department head') }}</td><td>{{ $value($context['department_head'] ?? null) }}</td><td>{{ $tr('الطلبة والمشرفون', 'Students and supervisors') }}</td><td>{{ $value($context['student_count'] ?? null) }} / {{ $value($context['supervisor_count'] ?? null) }}</td></tr>
+        <tr><td>{{ $tr('مواقع التدريب', 'Training sites') }}</td><td>{{ $value($context['training_sites'] ?? null) }}</td><td>{{ $tr('المساقات أو الدورات', 'Courses or rotations') }}</td><td>{{ $value($context['courses_rotations'] ?? null) }}</td></tr></table>
     <h2>{{ $tr('تقييم الفترة', 'Period assessment') }}</h2>
     <table><tr><th>{{ $tr('البند', 'Item') }}</th><th class="short">{{ $tr('التقييم', 'Assessment') }}</th><th>{{ $tr('الملاحظة', 'Comment') }}</th></tr>
     @foreach($departmentItems as $code => $label)<tr><td>{{ $label }}</td><td class="short">{{ $ratingLabels[data_get($payload, "responses.$code.rating")] ?? '—' }}</td><td>{{ $value(data_get($payload, "responses.$code.comment")) }}</td></tr>@endforeach
     </table>
 @else
     <h2>{{ $tr('معلومات الزيارة', 'Visit information') }}</h2>
-    <table class="meta"><tr><td>{{ $tr('نوع الزيارة', 'Visit type') }}</td><td>{{ $value($context['visit_type'] ?? null) }}</td><td>{{ $tr('ممثلو المستشفى', 'Hospital representatives') }}</td><td>{{ $value($context['representatives'] ?? null) }}</td></tr></table>
+    <table class="meta"><tr><td>{{ $tr('نوع الزيارة', 'Visit type') }}</td><td>{{ $value($context['visit_type'] ?? null) }}</td><td>{{ $tr('ممثلو المستشفى', 'Hospital representatives') }}</td><td>{{ $value($context['representatives'] ?? null) }}</td></tr>
+        @if(isset($context['scheduled_groups']))<tr><td>{{ $tr('المجموعات والطلبة', 'Groups and students') }}</td><td>{{ $value($context['scheduled_groups']) }} / {{ $value($context['scheduled_students'] ?? null) }}</td><td>{{ $tr('المشرفون', 'Supervisors') }}</td><td>{{ $value($context['scheduled_supervisors'] ?? null) }}</td></tr>@endif</table>
     <h2>{{ $tr('تقييم التخصصات', 'Clinical specialties') }}</h2>
     <table><tr><th>{{ $tr('التخصص', 'Specialty') }}</th><th>{{ $tr('التقييم', 'Assessment') }}</th><th>{{ $tr('أساس التقييم', 'Basis') }}</th><th>{{ $tr('ملاحظات', 'Notes') }}</th></tr>
     @foreach(($payload['specialties'] ?? []) as $item)<tr><td>{{ $ar ? ($item['name_ar'] ?? $item['name'] ?? '—') : ($item['name_en'] ?? $item['name'] ?? $item['name_ar'] ?? '—') }}</td><td>{{ $ratingLabels[$item['rating'] ?? ''] ?? '—' }}</td><td>{{ $ratingLabels[$item['basis'] ?? ''] ?? '—' }}</td><td>{{ $value($item['notes'] ?? null) }}</td></tr>@endforeach</table>

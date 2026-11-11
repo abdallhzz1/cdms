@@ -49,3 +49,27 @@ export interface FieldFormDraft {
   period_to: string;
   payload: Record<string, any>;
 }
+
+export interface FieldMonitoringScheduleGroup {
+  key: string;
+  rotation_id: number;
+  course: NamedOption | null;
+  department: NamedOption | null;
+  group: { id: number; name: string };
+  subgroup: { id: number; name: string };
+  supervisors: Array<{ id: number; name_ar?: string | null; name_en?: string | null }>;
+  student_count: number;
+}
+
+export interface FieldMonitoringContext {
+  groups?: FieldMonitoringScheduleGroup[];
+  specialties?: Array<{ code: string; name_ar: string; name_en: string }>;
+  totals?: { groups: number; students: number; supervisors: number };
+  department_id?: number;
+  summary?: {
+    training_sites: NamedOption[];
+    courses: NamedOption[];
+    student_count: number;
+    supervisor_count: number;
+  };
+}

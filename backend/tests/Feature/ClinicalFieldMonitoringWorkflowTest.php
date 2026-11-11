@@ -153,6 +153,22 @@ class ClinicalFieldMonitoringWorkflowTest extends TestCase
             ->assertJsonPath('data.recipient.id', $this->director->id);
     }
 
+    public function test_department_report_context_is_derived_without_manual_department_or_counts(): void
+    {
+        $departmentHead = $this->userWithRole('DEPARTMENT_HEAD', $this->department->id);
+
+        $this->actingAs($departmentHead)->getJson('/api/v1/clinical-field-monitoring/context?'.http_build_query([
+            'type' => 'department_periodic_report',
+            'period_from' => '2026-11-01',
+            'period_to' => '2026-11-30',
+        ]))->assertOk()
+            ->assertJsonPath('data.department_id', $this->department->id)
+            ->assertJsonPath('data.summary.student_count', 0)
+            ->assertJsonPath('data.summary.supervisor_count', 0)
+            ->assertJsonPath('data.summary.training_sites', [])
+            ->assertJsonPath('data.summary.courses', []);
+    }
+
     public function test_migration_recovers_an_existing_partial_install_and_adds_the_short_index(): void
     {
         Schema::table('clinical_field_form_events', function (Blueprint $table) {
