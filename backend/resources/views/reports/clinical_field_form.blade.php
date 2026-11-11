@@ -97,8 +97,6 @@
         .footer { margin-top:22px; border-top:1px solid #000; padding-top:5px; font-size:8px; }
         .ltr { direction:ltr; text-align:left; unicode-bidi:embed; }
         .rtl { direction:rtl; text-align:right; unicode-bidi:embed; }
-        .roster-appendix { page-break-before:always; }
-        .roster-names { line-height:1.8; }
     </style>
 </head>
 <body>
@@ -164,32 +162,6 @@
         ['class'=>'','text'=>$label], ['class'=>'short','text'=>$ratingLabels[data_get($payload, "responses.$code.rating")] ?? '-'], ['class'=>'','text'=>$value(data_get($payload, "responses.$code.comment"))],
     ]) as $cell)<td class="{{ $cell['class'] }}">{{ $cell['text'] }}</td>@endforeach</tr>@endforeach
     </table>
-    @php
-        $groupsWithStudents = collect($context['schedule_groups'] ?? [])->filter(fn ($group) => !empty($group['students']))->values();
-    @endphp
-    @if($groupsWithStudents->isNotEmpty())
-        <section class="roster-appendix">
-            <h2>{{ $tr('ملحق أسماء الطلبة حسب المجموعة', 'Appendix: Student names by group') }}</h2>
-            <p>{{ $tr('قائمة مرجعية من الجدول السريري المنشور، مفصولة عن نموذج المتابعة.', 'Reference list from the published clinical schedule, kept separate from the follow-up form.') }}</p>
-            <table>
-                <tr>@foreach($ordered([
-                    ['class'=>'','text'=>$tr('المجموعة', 'Group')],
-                    ['class'=>'','text'=>$tr('أسماء الطلبة', 'Student names')],
-                ]) as $cell)<th class="{{ $cell['class'] }}">{{ $cell['text'] }}</th>@endforeach</tr>
-                @foreach($groupsWithStudents as $group)
-                    @php
-                        $groupStudents = collect($group['students'])->map(function ($student) use ($ar) {
-                            return $student[$ar ? 'name_ar' : 'name_en'] ?? $student['name_ar'] ?? '';
-                        })->filter()->values();
-                    @endphp
-                    <tr>@foreach($ordered([
-                        ['class'=>'','text'=>$value($group['subgroup'] ?? $group['group'] ?? null)],
-                        ['class'=>'roster-names','text'=>$groupStudents->map(fn ($name, $index) => ($index + 1).'. '.$name)->join($ar ? '    ' : '    ')],
-                    ]) as $cell)<td class="{{ $cell['class'] }}">{{ $cell['text'] }}</td>@endforeach</tr>
-                @endforeach
-            </table>
-        </section>
-    @endif
 @elseif($form->type === 'department_periodic_report')
     <h2>{{ $tr('بيانات الفترة', 'Reporting period') }}</h2>
     <table class="meta">

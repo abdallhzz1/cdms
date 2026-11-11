@@ -144,6 +144,10 @@ export function ClinicalFieldMonitoringForm({ draft, options, locale, disabled =
       specialty: group.department ? named(group.department) : named(group.course || {}),
       supervisors: group.supervisors.map(person => ar ? (person.name_ar || person.name_en || '') : (person.name_en || person.name_ar || '')).filter(Boolean),
       student_count: group.student_count,
+      students: (group.students || []).map(student => ({
+        name_ar: student.full_name_ar || '',
+        name_en: student.full_name_en || student.full_name_ar || '',
+      })),
     }));
     payload.context = {
       ...payload.context,
@@ -274,7 +278,16 @@ function UrgentSection({ urgent, draft, disabled, tr, setPayload }: SharedProps 
 function ScheduleSummary({ draft, tr }: { draft: FieldFormDraft; tr: (a:string,e:string)=>string }) {
   const context = draft.payload.context || {};
   const groups: any[] = context.schedule_groups || [];
-  if (groups.length > 0) return <div className="mt-4 space-y-2">{groups.map(group => <div key={group.key} className="grid gap-2 rounded-lg border border-teal-100 bg-teal-50/40 p-3 sm:grid-cols-[5rem_1fr_1fr_5rem]"><ReadOnlyValue label={tr('المجموعة', 'Group')} value={group.subgroup} /><ReadOnlyValue label={tr('المساق', 'Course')} value={group.course} /><ReadOnlyValue label={tr('المشرف', 'Supervisor')} value={(group.supervisors || []).join('، ')} /><ReadOnlyValue label={tr('الطلبة', 'Students')} value={group.student_count} /></div>)}</div>;
+  if (groups.length > 0) return <div className="mt-4 space-y-2">{groups.map(group => {
+    const students: any[] = group.students || [];
+    return <div key={group.key} className="rounded-lg border border-teal-100 bg-teal-50/40 p-3">
+      <div className="grid gap-2 sm:grid-cols-[5rem_1fr_1fr_5rem]"><ReadOnlyValue label={tr('المجموعة', 'Group')} value={group.subgroup} /><ReadOnlyValue label={tr('المساق', 'Course')} value={group.course} /><ReadOnlyValue label={tr('المشرف', 'Supervisor')} value={(group.supervisors || []).join('، ')} /><ReadOnlyValue label={tr('الطلبة', 'Students')} value={group.student_count} /></div>
+      {students.length > 0 && <details className="mt-2 border-t border-teal-100 pt-2">
+        <summary className="cursor-pointer text-xs font-bold text-teal-800">{tr('عرض أسماء الطلبة', 'Show student names')} ({students.length})</summary>
+        <ol className="mt-2 grid list-decimal gap-x-6 gap-y-1 ps-5 text-xs leading-5 text-slate-700 sm:grid-cols-2">{students.map((student, index) => <li key={`${group.key}-${index}`}>{student.name_ar || student.name_en}</li>)}</ol>
+      </details>}
+    </div>;
+  })}</div>;
   return <div className="mt-4 grid gap-3 rounded-lg border border-teal-100 bg-teal-50/40 p-4 sm:grid-cols-2">
     <ReadOnlyValue label={tr('المساق والتخصص', 'Course and specialty')} value={[context.rotation_name, context.clinical_specialty].filter(Boolean).join(' — ')} />
     <ReadOnlyValue label={tr('المجموعة', 'Group')} value={context.student_group} />

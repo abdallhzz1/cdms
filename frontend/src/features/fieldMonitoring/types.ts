@@ -58,6 +58,7 @@ export interface FieldMonitoringScheduleGroup {
   group: { id: number; name: string };
   subgroup: { id: number; name: string };
   supervisors: Array<{ id: number; name_ar?: string | null; name_en?: string | null }>;
+  students: Array<{ id: number; university_number?: string | null; full_name_ar?: string | null; full_name_en?: string | null }>;
   student_count: number;
 }
 
