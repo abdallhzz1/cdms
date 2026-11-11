@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
+use App\Models\AuditLog;
 use App\Models\ClinicalFieldForm;
 use App\Models\Course;
 use App\Models\Department;
@@ -40,7 +41,7 @@ class ClinicalFieldMonitoringController extends Controller
         ]);
         $user = $request->user();
         $mailbox = $validated['mailbox'] ?? 'all';
-        $manage = $this->can($user, 'clinical_field_monitoring.manage');
+        $manage = $this->can($user, 'clinical_field_monitoring.manage') || $this->can($user, 'clinical_field_monitoring.delete');
         $deanReviewer = $user->hasRole('DEAN') || $user->hasRole('VICE_DEAN');
 
         $query = ClinicalFieldForm::query()->with($this->relations())->latest('updated_at');
@@ -160,6 +161,31 @@ class ClinicalFieldMonitoringController extends Controller
         $clinicalFieldForm->load([...$this->relations(), 'events.user:id,name']);
 
         return ApiResponse::success($this->present($clinicalFieldForm, true));
+    }
+
+    public function destroy(Request $request, ClinicalFieldForm $clinicalFieldForm): JsonResponse
+    {
+        $user = $request->user();
+        $this->ensurePermission($user, 'clinical_field_monitoring.delete');
+
+        DB::transaction(function () use ($clinicalFieldForm, $user) {
+            AuditLog::create([
+                'user_id' => $user->id,
+                'action' => 'clinical_field_form.deleted',
+                'entity_type' => ClinicalFieldForm::class,
+                'entity_id' => $clinicalFieldForm->id,
+                'changes' => [
+                    'reference_number' => $clinicalFieldForm->reference_number,
+                    'type' => $clinicalFieldForm->type,
+                    'status' => $clinicalFieldForm->status,
+                    'creator_user_id' => $clinicalFieldForm->creator_user_id,
+                ],
+                'is_override' => false,
+            ]);
+            $clinicalFieldForm->delete();
+        });
+
+        return ApiResponse::success(null, 'Form deleted.');
     }
 
     public function store(Request $request): JsonResponse
@@ -528,7 +554,7 @@ class ClinicalFieldMonitoringController extends Controller
     private function ensureVisible(User $user, ClinicalFieldForm $form): void
     {
         $this->ensurePermission($user, 'clinical_field_monitoring.view');
-        if ($form->creator_user_id !== $user->id && $form->recipient_user_id !== $user->id && ! $this->isDeanReviewer($user, $form) && ! $this->can($user, 'clinical_field_monitoring.manage')) {
+        if ($form->creator_user_id !== $user->id && $form->recipient_user_id !== $user->id && ! $this->isDeanReviewer($user, $form) && ! $this->can($user, 'clinical_field_monitoring.manage') && ! $this->can($user, 'clinical_field_monitoring.delete')) {
             abort(403);
         }
     }

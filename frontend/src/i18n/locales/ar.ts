@@ -342,6 +342,7 @@ const ar: typeof en = {
     clinical_field_monitoring_review: { description: 'مراجعة نماذج المتابعة الواردة واتخاذ الإجراء' },
     clinical_field_monitoring_export: { description: 'تنزيل نماذج المتابعة الميدانية بالعربية أو الإنجليزية' },
     clinical_field_monitoring_manage: { description: 'إدارة جميع نماذج المتابعة والزيارات الميدانية' },
+    clinical_field_monitoring_delete: { description: 'حذف أي نموذج متابعة ميدانية نهائيًا، حتى بعد اكتماله' },
   },
 };
 

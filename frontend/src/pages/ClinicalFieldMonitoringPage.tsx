@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowDownToLine, CheckCircle2, Clock3, Eye, FilePlus2, Search, Send, Undo2 } from 'lucide-react';
+import { AlertTriangle, ArrowDownToLine, CheckCircle2, Clock3, Eye, FilePlus2, Search, Send, Trash2, Undo2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { apiFetch, apiFetchEnvelope, apiUrl, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -9,13 +9,13 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { LoadingState } from '@/components/ui/LoadingState';
-import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog, Modal } from '@/components/ui/Modal';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ClinicalFieldMonitoringForm } from '@/features/fieldMonitoring/ClinicalFieldMonitoringForm';
 import { emptyDraft, FORM_TITLES, STATUS_LABELS } from '@/features/fieldMonitoring/definitions';
 import type { FieldFormDraft, FieldFormRecord, FieldFormType, FieldMonitoringOptions } from '@/features/fieldMonitoring/types';
 
-type Mailbox = 'outgoing' | 'incoming';
+type Mailbox = 'outgoing' | 'incoming' | 'all';
 
 export function ClinicalFieldMonitoringPage() {
   const { locale } = useI18n();
@@ -26,11 +26,15 @@ export function ClinicalFieldMonitoringPage() {
   const [params, setParams] = useSearchParams();
   const canSend = ['clinical_field_monitoring.create_assistant', 'clinical_field_monitoring.create_department_report', 'clinical_field_monitoring.create_supervisory_visit'].some(permission => can(permission));
   const canReceive = can('clinical_field_monitoring.review') || can('clinical_field_monitoring.manage');
-  const availableMailboxes: Mailbox[] = [...(canSend ? ['outgoing' as const] : []), ...(canReceive ? ['incoming' as const] : [])];
-  const [mailbox, setMailbox] = useState<Mailbox>('outgoing');
+  const canDelete = can('clinical_field_monitoring.delete') || can('clinical_field_monitoring.manage');
+  const canExport = can('clinical_field_monitoring.export') || can('clinical_field_monitoring.manage');
+  const availableMailboxes: Mailbox[] = [...(canDelete ? ['all' as const] : []), ...(canSend ? ['outgoing' as const] : []), ...(canReceive ? ['incoming' as const] : [])];
+  const [mailbox, setMailbox] = useState<Mailbox>(canDelete ? 'all' : 'outgoing');
   const [search, setSearch] = useState('');
   const [newType, setNewType] = useState<FieldFormType | ''>('');
   const [selected, setSelected] = useState<FieldFormRecord | null>(null);
+  const [downloadTarget, setDownloadTarget] = useState<FieldFormRecord | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<FieldFormRecord | null>(null);
   const [editing, setEditing] = useState<{ record?: FieldFormRecord; draft: FieldFormDraft } | null>(null);
   const [reviewNote, setReviewNote] = useState('');
   const [notice, setNotice] = useState('');
@@ -81,6 +85,17 @@ export function ClinicalFieldMonitoringPage() {
     onSuccess: async saved => { setSelected(saved); setNotice(tr('تم حفظ قرار المراجعة.', 'Review decision saved.')); setError(''); await refresh(); },
     onError: value => setError(apiMessage(value, tr('تعذر حفظ قرار المراجعة.', 'Unable to save the review decision.'))),
   });
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => { await apiFetch<null>(`/clinical-field-monitoring/forms/${id}`, { method: 'DELETE' }); return id; },
+    onSuccess: async id => {
+      setDeleteTarget(null);
+      setNotice(tr('تم حذف النموذج نهائيًا.', 'The form was permanently deleted.'));
+      setError('');
+      if (selected?.id === id) { setSelected(null); setParams({}); }
+      await queryClient.invalidateQueries({ queryKey: ['clinical-field-monitoring'] });
+    },
+    onError: value => setError(apiMessage(value, tr('تعذر حذف النموذج.', 'Unable to delete the form.'))),
+  });
 
   const rows = listQuery.data?.data ?? [];
   if (optionsQuery.isLoading || listQuery.isLoading) return <LoadingState message={tr('تحميل نماذج المتابعة الميدانية...', 'Loading field monitoring forms...')} />;
@@ -107,14 +122,15 @@ export function ClinicalFieldMonitoringPage() {
     </PageHeader>
 
     {notice && <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800"><CheckCircle2 className="h-4 w-4" />{notice}</div>}
+    {error && <FormError text={error} />}
     <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-slate-100 p-3 sm:flex-row sm:items-center sm:justify-between">
-        {availableMailboxes.length > 1 && <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1 text-[11px] font-black sm:w-fit">
-          {availableMailboxes.map(value => <button key={value} onClick={() => setMailbox(value)} className={`rounded-lg px-5 py-2.5 transition ${mailbox === value ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500'}`}>{value === 'outgoing' ? tr('نماذجي','My forms') : tr('الوارد إليّ','Incoming')}</button>)}
+        {availableMailboxes.length > 1 && <div className="flex flex-wrap rounded-xl bg-slate-100 p-1 text-[11px] font-black sm:w-fit">
+          {availableMailboxes.map(value => <button key={value} onClick={() => setMailbox(value)} className={`rounded-lg px-5 py-2.5 transition ${mailbox === value ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500'}`}>{value === 'outgoing' ? tr('نماذجي','My forms') : value === 'incoming' ? tr('الوارد إليّ','Incoming') : tr('كل النماذج','All forms')}</button>)}
         </div>}
         <label className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 sm:w-72"><Search className="h-4 w-4 text-slate-400" /><input value={search} onChange={event => setSearch(event.target.value)} className="w-full bg-transparent text-xs font-bold outline-none" placeholder={tr('بحث بالرقم أو الاسم...', 'Search reference or name...')} /></label>
       </div>
-      {rows.length === 0 ? <div className="p-10"><EmptyState title={mailbox === 'outgoing' ? tr('لا توجد نماذج بعد', 'No forms yet') : tr('لا يوجد وارد حالياً', 'Nothing received yet')} message={mailbox === 'outgoing' ? tr('ابدأ بنموذج جديد من الزر في أعلى الشاشة.', 'Start a new form using the button above.') : tr('ستظهر هنا النماذج المرسلة إليك للمراجعة.', 'Forms sent to you for review will appear here.')} /></div> : <div className="divide-y divide-slate-100">{rows.map(record => <FormRow key={record.id} record={record} locale={locale} currentUserId={user?.id || 0} onOpen={() => openDetail(record)} />)}</div>}
+      {rows.length === 0 ? <div className="p-10"><EmptyState title={mailbox === 'outgoing' ? tr('لا توجد نماذج بعد', 'No forms yet') : mailbox === 'incoming' ? tr('لا يوجد وارد حالياً', 'Nothing received yet') : tr('لا توجد نماذج', 'No forms found')} message={mailbox === 'outgoing' ? tr('ابدأ بنموذج جديد من الزر في أعلى الشاشة.', 'Start a new form using the button above.') : mailbox === 'incoming' ? tr('ستظهر هنا النماذج المرسلة إليك للمراجعة.', 'Forms sent to you for review will appear here.') : tr('لا توجد نماذج مطابقة للبحث.', 'No forms match your search.')} /></div> : <div className="divide-y divide-slate-100">{rows.map(record => <FormRow key={record.id} record={record} locale={locale} currentUserId={user?.id || 0} canExport={canExport} canDelete={canDelete} onOpen={() => openDetail(record)} onDownload={() => setDownloadTarget(record)} onDelete={() => setDeleteTarget(record)} />)}</div>}
     </section>
 
     <Modal isOpen={Boolean(editing)} onClose={() => !saveMutation.isPending && setEditing(null)} title={editing ? (ar ? FORM_TITLES[editing.draft.type].ar : FORM_TITLES[editing.draft.type].en) : ''} maxWidth="2xl" footer={editing && <><Button variant="ghost" disabled={saveMutation.isPending} onClick={() => setEditing(null)}>{tr('إلغاء','Cancel')}</Button><Button variant="outline" isLoading={saveMutation.isPending} onClick={() => saveMutation.mutate({ ...editing, submit: false })}>{tr('حفظ كمسودة','Save draft')}</Button><Button isLoading={saveMutation.isPending} onClick={() => saveMutation.mutate({ ...editing, submit: true })}><Send className="me-1 h-4 w-4" />{tr('حفظ وإرسال','Save and submit')}</Button></>}>
@@ -124,17 +140,21 @@ export function ClinicalFieldMonitoringPage() {
     <Modal isOpen={Boolean(selected)} onClose={closeDetail} title={selected ? `${selected.reference_number} · ${ar ? FORM_TITLES[selected.type].ar : FORM_TITLES[selected.type].en}` : ''} maxWidth="2xl" footer={selected && <DetailFooter record={selected} currentUserId={user?.id || 0} canReview={can('clinical_field_monitoring.review') || can('clinical_field_monitoring.manage')} busy={submitMutation.isPending || reviewMutation.isPending} locale={locale} onEdit={() => openEdit(selected)} onSubmit={() => submitMutation.mutate(selected.id)} onReview={action => reviewMutation.mutate({ id: selected.id, action })} />}>
       {detailQuery.isPending ? <LoadingState /> : selected && <div className="space-y-5">{error && <FormError text={error} />}<DetailHeader record={selected} locale={locale} /><div className="flex flex-wrap gap-2"><a href={apiUrl(`/clinical-field-monitoring/forms/${selected.id}/pdf?locale=ar`)} className="inline-flex h-9 items-center rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"><ArrowDownToLine className="me-1 h-4 w-4" />PDF عربي</a><a href={apiUrl(`/clinical-field-monitoring/forms/${selected.id}/pdf?locale=en`)} className="inline-flex h-9 items-center rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"><ArrowDownToLine className="me-1 h-4 w-4" />English PDF</a></div>{selected.latest_review_note && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-6 text-amber-900"><strong>{tr('ملاحظة المراجع:','Reviewer note:')}</strong> {selected.latest_review_note}</div>}<ClinicalFieldMonitoringForm draft={{ type:selected.type, locale, department_id:selected.department?.id||'', training_site_id:selected.training_site?.id||'', course_id:selected.course?.id||'', activity_date:selected.activity_date||'', period_from:selected.period_from||'', period_to:selected.period_to||'', payload:selected.payload||{} }} options={options} locale={locale} disabled onChange={() => undefined} />{canReceive && selected.creator.id !== user?.id && ['submitted','acknowledged'].includes(selected.status) && <label className="block text-xs font-black text-slate-700">{tr('ملاحظة المراجعة','Review note')}<textarea value={reviewNote} onChange={event => setReviewNote(event.target.value)} className="mt-2 min-h-24 w-full rounded-xl border border-slate-200 p-3 text-xs font-medium outline-none focus:border-teal-500" placeholder={tr('الملاحظة إلزامية عند الإعادة أو طلب إجراء.','A note is required when returning or requesting action.')} /></label>}<AuditTrail record={selected} locale={locale} /></div>}
     </Modal>
+    <Modal isOpen={Boolean(downloadTarget)} onClose={() => setDownloadTarget(null)} title={tr('تنزيل نسخة PDF', 'Download PDF')} maxWidth="sm">
+      {downloadTarget && <div className="space-y-3"><p className="text-sm text-slate-600">{tr('اختر لغة النموذج للتنزيل.', 'Choose the language for the PDF.')}</p><div className="grid gap-2 sm:grid-cols-2"><a href={apiUrl(`/clinical-field-monitoring/forms/${downloadTarget.id}/pdf?locale=ar`)} onClick={() => setDownloadTarget(null)} className="inline-flex h-11 items-center justify-center rounded-xl bg-teal-700 px-4 text-sm font-black text-white hover:bg-teal-800"><ArrowDownToLine className="me-2 h-4 w-4" />{tr('تنزيل بالعربية', 'Download Arabic')}</a><a href={apiUrl(`/clinical-field-monitoring/forms/${downloadTarget.id}/pdf?locale=en`)} onClick={() => setDownloadTarget(null)} className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50"><ArrowDownToLine className="me-2 h-4 w-4" />{tr('تنزيل بالإنجليزية', 'Download English')}</a></div></div>}
+    </Modal>
+    <ConfirmDialog isOpen={Boolean(deleteTarget)} onClose={() => !deleteMutation.isPending && setDeleteTarget(null)} onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)} title={tr('حذف النموذج نهائيًا؟', 'Permanently delete this form?')} message={tr('سيُحذف النموذج وسجل إجراءاته نهائيًا، بما في ذلك النماذج المكتملة. سيُحفظ سجل تدقيق بعملية الحذف.', 'This permanently removes the form and its workflow history, including completed forms. An audit record of the deletion will be retained.')} confirmLabel={tr('حذف نهائي', 'Delete permanently')} isDanger isConfirming={deleteMutation.isPending} />
   </div>;
 }
 
-function FormRow({ record, locale, currentUserId, onOpen }: { record: FieldFormRecord; locale:'ar'|'en'; currentUserId:number; onOpen:()=>void }) {
+function FormRow({ record, locale, currentUserId, canExport, canDelete, onOpen, onDownload, onDelete }: { record: FieldFormRecord; locale:'ar'|'en'; currentUserId:number; canExport:boolean; canDelete:boolean; onOpen:()=>void; onDownload:()=>void; onDelete:()=>void }) {
   const ar = locale === 'ar'; const status = STATUS_LABELS[record.status]; const outgoing = record.creator.id === currentUserId;
-  return <button type="button" onClick={onOpen} className="grid w-full gap-3 p-4 text-start transition hover:bg-teal-50/30 sm:grid-cols-[minmax(12rem,1.4fr)_minmax(9rem,.8fr)_minmax(9rem,.8fr)_auto] sm:items-center">
+  return <div className="grid w-full gap-3 p-4 text-start transition hover:bg-teal-50/30 sm:grid-cols-[minmax(12rem,1.4fr)_minmax(9rem,.8fr)_minmax(9rem,.8fr)_auto] sm:items-center">
     <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] font-black text-teal-700">{record.reference_number}</span>{record.is_urgent && record.status !== 'completed' && <span className="rounded-full bg-rose-100 px-2 py-1 text-[9px] font-black text-rose-700">{ar?'عاجل':'Urgent'}</span>}</div><p className="mt-1 truncate text-sm font-black text-slate-900">{ar?FORM_TITLES[record.type].ar:FORM_TITLES[record.type].en}</p><p className="mt-1 text-[10px] font-bold text-slate-400">{outgoing ? `${ar?'إلى':'To'}: ${record.recipient.name}` : `${ar?'من':'From'}: ${record.creator.name}`}</p></div>
     <div className="text-[11px] font-bold text-slate-600">{record.training_site ? (ar?record.training_site.name_ar:record.training_site.name_en||record.training_site.name_ar) : record.department ? (ar?record.department.name_ar:record.department.name_en||record.department.name_ar) : '—'}</div>
     <div><span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-black ${status.tone}`}>{ar?status.ar:status.en}</span><p className="mt-1 text-[9px] text-slate-400">{new Intl.DateTimeFormat(ar?'ar-PS':'en-GB',{dateStyle:'medium'}).format(new Date(record.updated_at))}</p></div>
-    <Eye className="h-4 w-4 text-slate-400" />
-  </button>;
+    <div className="flex items-center justify-end gap-1"><button type="button" onClick={onOpen} title={ar?'عرض تفاصيل النموذج':'View form details'} aria-label={ar?'عرض تفاصيل النموذج':'View form details'} className="rounded-lg p-2 text-slate-400 hover:bg-teal-50 hover:text-teal-700"><Eye className="h-4 w-4" /></button>{canExport && <button type="button" onClick={onDownload} title={ar?'تنزيل PDF':'Download PDF'} aria-label={ar?'تنزيل PDF':'Download PDF'} className="rounded-lg p-2 text-slate-400 hover:bg-teal-50 hover:text-teal-700"><ArrowDownToLine className="h-4 w-4" /></button>}{canDelete && <button type="button" onClick={onDelete} title={ar?'حذف النموذج نهائيًا':'Permanently delete form'} aria-label={ar?'حذف النموذج نهائيًا':'Permanently delete form'} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-700"><Trash2 className="h-4 w-4" /></button>}</div>
+  </div>;
 }
 
 function DetailHeader({ record, locale }: { record:FieldFormRecord; locale:'ar'|'en' }) { const ar=locale==='ar'; const status=STATUS_LABELS[record.status]; return <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4"><Meta label={ar?'الحالة':'Status'} value={ar?status.ar:status.en} /><Meta label={ar?'أعد بواسطة':'Prepared by'} value={record.creator.name} /><Meta label={ar?'مرفوع إلى':'Submitted to'} value={record.recipient.name} /><Meta label={ar?'الإصدار':'Revision'} value={String(record.revision)} /></div>; }

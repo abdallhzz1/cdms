@@ -113,6 +113,7 @@ class PermissionSeeder extends Seeder
             ['code' => 'clinical_field_monitoring.review', 'module' => 'Clinical Field Monitoring', 'action' => 'REVIEW', 'description_key' => 'permissions.clinical_field_monitoring_review.description'],
             ['code' => 'clinical_field_monitoring.export', 'module' => 'Clinical Field Monitoring', 'action' => 'EXPORT', 'description_key' => 'permissions.clinical_field_monitoring_export.description'],
             ['code' => 'clinical_field_monitoring.manage', 'module' => 'Clinical Field Monitoring', 'action' => 'MANAGE', 'description_key' => 'permissions.clinical_field_monitoring_manage.description'],
+            ['code' => 'clinical_field_monitoring.delete', 'module' => 'Clinical Field Monitoring', 'action' => 'DELETE', 'description_key' => 'permissions.clinical_field_monitoring_delete.description'],
         ];
 
         foreach ($permissions as $permission) {

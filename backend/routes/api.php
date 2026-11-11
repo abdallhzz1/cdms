@@ -268,6 +268,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('/context', [ClinicalFieldMonitoringController::class, 'context']);
             Route::post('/forms', [ClinicalFieldMonitoringController::class, 'store']);
             Route::get('/forms/{clinicalFieldForm}', [ClinicalFieldMonitoringController::class, 'show'])->whereNumber('clinicalFieldForm');
+            Route::delete('/forms/{clinicalFieldForm}', [ClinicalFieldMonitoringController::class, 'destroy'])->whereNumber('clinicalFieldForm');
             Route::put('/forms/{clinicalFieldForm}', [ClinicalFieldMonitoringController::class, 'update'])->whereNumber('clinicalFieldForm');
             Route::post('/forms/{clinicalFieldForm}/submit', [ClinicalFieldMonitoringController::class, 'submit'])->whereNumber('clinicalFieldForm');
             Route::post('/forms/{clinicalFieldForm}/review', [ClinicalFieldMonitoringController::class, 'review'])->whereNumber('clinicalFieldForm');

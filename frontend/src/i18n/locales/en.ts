@@ -353,6 +353,7 @@ const en = {
     clinical_field_monitoring_review: { description: 'Review incoming field monitoring forms and record decisions' },
     clinical_field_monitoring_export: { description: 'Export field monitoring forms in Arabic or English' },
     clinical_field_monitoring_manage: { description: 'Manage all field monitoring and supervisory visit forms' },
+    clinical_field_monitoring_delete: { description: 'Permanently delete any field monitoring form, including completed forms' },
   },
 };
 
