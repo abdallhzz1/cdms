@@ -304,7 +304,7 @@ describe('clinical supervisor workspace',()=>{
     const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope({...workspace,assignments:[assignment],mini_osce_scores:[]});if(url.includes('/my-supervisor-mini-osce'))return envelope({score:4,max_score:5});if(url.includes('/my-supervisor-assessment-batches'))return envelope({batch_uuid:'period',assessments:[{id:1,status:'submitted'}]});throw new Error(`Unmocked ${url} ${init?.method}`)});
     renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=0'});
     expect(await screen.findByText(/Period assessment ·/)).toBeInTheDocument();
-    expect(screen.getByRole('combobox',{name:'Week and groups'})).toHaveDisplayValue('Period assessment — L (L1)');
+    expect(screen.getByRole('combobox',{name:'Week'})).toHaveDisplayValue('Period assessment');
     await userEvent.type(screen.getByRole('spinbutton',{name:'Score out of 10'}),'8');
     await userEvent.type(screen.getByRole('spinbutton',{name:'Mini OSCE Clinical Student'}),'4');
     await userEvent.click(screen.getByRole('button',{name:'Save'}));
@@ -337,44 +337,46 @@ describe('clinical supervisor workspace',()=>{
     expect(periodSelect).toHaveDisplayValue('Second clinical period');
     expect(within(periodSelect).getAllByRole('option')).toHaveLength(2);
     expect(screen.getByRole('spinbutton',{name:'Score out of 10'})).toBeEnabled();
-    const weekSelect=screen.getByLabelText('Week and groups');
-    expect(weekSelect).toHaveDisplayValue(/Week 1.*L \(L1\)/);
+    const weekSelect=screen.getByLabelText('Week');
+    expect(weekSelect).toHaveDisplayValue(/Week 1/);
     expect(within(weekSelect).getAllByRole('option')).toHaveLength(2);
     expect(within(weekSelect).getByRole('option',{name:/Week 1/})).toHaveTextContent(shift(-3).split('-').reverse().join('/').slice(0,5));
     expect(screen.getByText('Current Student')).toBeVisible();
     await userEvent.selectOptions(periodSelect,within(periodSelect).getByRole('option',{name:'First clinical period'}));
     expect(screen.getByText('Clinical Student')).toBeVisible();
-    expect(screen.getByLabelText('Week and groups')).toHaveDisplayValue(/Week 2.*L \(L1\)/);
+    expect(screen.getByLabelText('Week')).toHaveDisplayValue(/Week 2/);
   });
 
-  it('shows the assigned group beside its only week without a separate group selector', async()=>{
+  it('keeps the assigned group selector hidden when the selected week has only one group', async()=>{
     const shift=(days:number)=>{const date=new Date();date.setDate(date.getDate()+days);return dateValue(date);};
     const assignment={...workspace.assignments[0],session_start_date:shift(-3),session_end_date:shift(3),evaluation_weeks:[{number:5,start_date:shift(-3),end_date:shift(3)}],rotation_block:{...workspace.assignments[0].rotation_block,from_week:5,to_week:5}};
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments:[assignment]}));
     renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments'});
     expect(await screen.findByRole('spinbutton',{name:'Score out of 10'})).toBeEnabled();
-    expect(screen.getByRole('combobox',{name:'Week and groups'})).toHaveDisplayValue(/Week 5.*L \(L1\)/);
+    expect(screen.getByRole('combobox',{name:'Week'})).toHaveDisplayValue(/Week 5/);
+    expect(screen.queryByRole('combobox',{name:'Group'})).not.toBeInTheDocument();
     expect(screen.getByText(/Week 5 ·/)).toBeVisible();
   });
 
-  it('lists all supervisor groups in a week and keeps each group submission separate', async()=>{
+  it('shows only the selected supervisor group for a week', async()=>{
     const first=workspace.assignments[0];
     const second={...first,id:22,student_subgroup_id:9,student_subgroup:{name:'M1',group:{name:'M'}},student:{...first.student,id:8,university_number:'22010002',full_name_en:'Second Student'}};
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments:[first,second]}));
     renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=1'});
-    const weekSelect=await screen.findByRole('combobox',{name:'Week and groups'});
-    expect(weekSelect).toHaveDisplayValue(/Week 1.*L \(L1\), M \(M1\)/);
+    const weekSelect=await screen.findByRole('combobox',{name:'Week'});
+    expect(weekSelect).toHaveDisplayValue(/Week 1/);
     expect(screen.getByRole('heading',{name:'General Surgery — L (L1)'})).toBeVisible();
-    expect(screen.getByRole('heading',{name:'General Surgery — M (M1)'})).toBeVisible();
-    const submissions=screen.getAllByLabelText('Group submission');
-    expect(submissions).toHaveLength(2);
-    expect(submissions[0]).not.toHaveClass('fixed');
-    expect(submissions[1]).not.toHaveClass('fixed');
-    expect(within(submissions[0]).getByRole('button',{name:'Submit group assessment'})).toBeDisabled();
-    expect(within(submissions[1]).getByRole('button',{name:'Submit group assessment'})).toBeDisabled();
+    expect(screen.queryByRole('heading',{name:'General Surgery — M (M1)'})).not.toBeInTheDocument();
+    const groupSelect=screen.getByRole('combobox',{name:'Group'}) as HTMLSelectElement;
+    const secondGroup=[...groupSelect.options].find(option=>option.textContent?.includes('M (M1)'))!;
+    await userEvent.selectOptions(groupSelect,secondGroup.value);
+    expect(await screen.findByRole('heading',{name:'General Surgery — M (M1)'})).toBeVisible();
+    expect(screen.queryByRole('heading',{name:'General Surgery — L (L1)'})).not.toBeInTheDocument();
+    const submission=screen.getByLabelText('Group submission');
+    expect(submission).toHaveClass('fixed');
+    expect(within(submission).getByRole('button',{name:'Submit group assessment'})).toBeDisabled();
     await userEvent.type(screen.getAllByRole('spinbutton',{name:'Score out of 10'})[0],'8');
-    expect(within(submissions[0]).getByRole('button',{name:'Submit group assessment'})).toBeEnabled();
-    expect(within(submissions[1]).getByRole('button',{name:'Submit group assessment'})).toBeDisabled();
+    expect(within(submission).getByRole('button',{name:'Submit group assessment'})).toBeEnabled();
   });
 
   it('keeps a returned old assessment out of 10 after switching the course to direct /15',async()=>{
@@ -440,6 +442,19 @@ describe('clinical supervisor workspace',()=>{
     expect(screen.queryByRole('link',{name:'Enter final course OSCE'})).not.toBeInTheDocument();
   });
 
+  it('shows one selected subgroup at a time for the selected week',async()=>{
+    const secondAssignment={...workspace.assignments[0],id:22,student_subgroup_id:7,student_subgroup:{id:7,name:'L2',group:{id:2,name:'L'}},student:{...workspace.assignments[0].student,id:8,university_number:'22010002',full_name_ar:'طالب المجموعة الثانية',full_name_en:'Second Group Student'}};
+    vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments:[workspace.assignments[0],secondAssignment]}));
+    renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=1'});
+    expect(await screen.findByText('Clinical Student')).toBeVisible();
+    expect(screen.queryByText('Second Group Student')).not.toBeInTheDocument();
+    const groupSelect=screen.getByRole('combobox',{name:'Group'}) as HTMLSelectElement;
+    const secondGroupOption=[...groupSelect.options].find(option=>option.textContent?.includes('L (L2)'))!;
+    await userEvent.selectOptions(groupSelect,secondGroupOption.value);
+    expect(await screen.findByText('Second Group Student')).toBeVisible();
+    expect(screen.queryByText('Clinical Student')).not.toBeInTheDocument();
+  });
+
   it('shows score progress and names the student still missing a score',async()=>{
     const secondAssignment={...workspace.assignments[0],id:22,student:{id:8,university_number:'22010002',full_name_ar:'طالب جديد',full_name_en:'New Student',batch_year:2026}};
     vi.spyOn(window,'fetch').mockImplementation(async input=>String(input).includes('/auth/me')?envelope(user):envelope({...workspace,assignments:[workspace.assignments[0],secondAssignment]}));
@@ -455,13 +470,16 @@ describe('clinical supervisor workspace',()=>{
     expect(submit).toBeEnabled();
   });
 
-  it('shows private supervisor notes without copying them into the official assessment',async()=>{
+  it('keeps private and optional notes out of the focused assessment entry screen',async()=>{
     document.cookie='XSRF-TOKEN=test; path=/';
     const privateText='Needs more practice taking patient history';
     const withNote={...workspace,student_notes:[{id:5,supervisor_person_id:9,student_id:7,student_clinical_assignment_id:21,note_date:'2026-08-27',note:privateText}]};
     const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(url.includes('/auth/me'))return envelope(user);if(url.includes('/my-supervisor-workspace'))return envelope(withNote);if(url.includes('/my-supervisor-assessment-batches'))return envelope({batch_uuid:'note-test',assessments:[{id:6,status:'submitted'}]});throw new Error(`Unmocked ${url} ${init?.method}`)});
     renderWithProviders(<SupervisorAssessmentsPage/>,{route:'/supervisor/assessments?week=1'});
-    expect(await screen.findByText(`Latest private note: ${privateText}`)).toBeVisible();
+    expect(await screen.findByText('Clinical Student')).toBeVisible();
+    expect(screen.queryByText(`Latest private note: ${privateText}`)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'My notes'})).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Assessment note')).not.toBeInTheDocument();
     await userEvent.type(screen.getByRole('spinbutton'),'8');
     await userEvent.click(screen.getByRole('button',{name:'Submit group assessment'}));
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([input])=>String(input).includes('/my-supervisor-assessment-batches'))).toBe(true));
