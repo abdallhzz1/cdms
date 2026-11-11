@@ -28,9 +28,15 @@ it('gives an assistant one focused bilingual form and routes it to the clinical 
         department: { id: 3, name_ar: 'قسم الباطني', name_en: 'Internal Medicine' },
         group: { id: 12, name: 'A' }, subgroup: { id: 21, name: 'A1' },
         supervisors: [{ id: 31, name_ar: 'د. أحمد', name_en: 'Dr Ahmad' }], student_count: 8,
+      }, {
+        key: '7:12:22', rotation_id: 7,
+        course: { id: 8, code: 'MED401', name_ar: 'الباطني', name_en: 'Internal Medicine' },
+        department: { id: 3, name_ar: 'قسم الباطني', name_en: 'Internal Medicine' },
+        group: { id: 12, name: 'A' }, subgroup: { id: 22, name: 'A2' },
+        supervisors: [{ id: 31, name_ar: 'د. أحمد', name_en: 'Dr Ahmad' }], student_count: 7,
       }],
       specialties: [{ code: 'department_3', name_ar: 'قسم الباطني', name_en: 'Internal Medicine' }],
-      totals: { groups: 1, students: 8, supervisors: 1 },
+      totals: { groups: 2, students: 15, supervisors: 1 },
     });
     if (url.includes('/clinical-field-monitoring?')) return ok([], { current_page: 1, last_page: 1, total: 0 });
     throw new Error(url);
@@ -39,8 +45,7 @@ it('gives an assistant one focused bilingual form and routes it to the clinical 
   renderWithProviders(<ClinicalFieldMonitoringPage />);
   expect(await screen.findByRole('heading', { name: 'المتابعة والزيارات الميدانية' })).toBeVisible();
   expect(screen.queryByText('وارد يحتاج متابعة')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'نماذجي' })).toBeVisible();
-  expect(screen.getByRole('button', { name: 'الوارد إليّ' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'الوارد إليّ' })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: /نموذج جديد/ }));
   expect(screen.getByText('مدير الدائرة السريرية')).toBeVisible();
   expect(screen.getByText('قائمة المتابعة')).toBeVisible();
@@ -55,9 +60,14 @@ it('gives an assistant one focused bilingual form and routes it to the clinical 
       && url.includes('training_site_id=4')
       && url.includes('activity_date=2026-11-09');
   })).toBe(true));
-  await userEvent.selectOptions(await screen.findByLabelText(/اختر المجموعة/), '7:12:21');
-  expect(screen.getByText('MED401 · الباطني — قسم الباطني')).toBeVisible();
-  expect(screen.getByText('د. أحمد')).toBeVisible();
-  expect(screen.getByText('8')).toBeVisible();
+  const firstGroup = await screen.findByRole('button', { name: 'A1 — MED401' });
+  const secondGroup = screen.getByRole('button', { name: 'A2 — MED401' });
+  await userEvent.click(firstGroup);
+  await userEvent.click(secondGroup);
+  expect(firstGroup).toHaveAttribute('aria-pressed', 'true');
+  expect(secondGroup).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getAllByText('MED401 · الباطني')).toHaveLength(2);
+  expect(screen.getAllByText('د. أحمد')).toHaveLength(2);
+  expect(screen.getByText('7')).toBeVisible();
   expect(screen.getByRole('button', { name: /حفظ وإرسال/ })).toBeVisible();
 });

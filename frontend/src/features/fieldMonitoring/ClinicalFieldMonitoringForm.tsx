@@ -27,6 +27,8 @@ export function ClinicalFieldMonitoringForm({ draft, options, locale, disabled =
     if (!disabled && ['training_site_id', 'activity_date'].includes(key) && draft.type !== 'department_periodic_report') {
       payload = structuredClone(draft.payload);
       delete payload.context?.schedule_group_key;
+      delete payload.context?.schedule_group_keys;
+      delete payload.context?.schedule_groups;
       delete payload.context?.schedule_context_signature;
       if (draft.type === 'assistant_follow_up') {
         courseId = '';
@@ -122,24 +124,47 @@ export function ClinicalFieldMonitoringForm({ draft, options, locale, disabled =
     }
   }, [ar, contextQuery.data, disabled, draft, onChange]);
 
-  const selectScheduleGroup = (key: string) => {
-    const group = contextQuery.data?.groups?.find(item => item.key === key);
-    if (!group) return;
-    const supervisors = group.supervisors.map(person => ar ? (person.name_ar || person.name_en || '') : (person.name_en || person.name_ar || ''));
+  const toggleScheduleGroup = (key: string) => {
+    const groups = contextQuery.data?.groups || [];
+    const currentKeys: string[] = Array.isArray(draft.payload.context?.schedule_group_keys)
+      ? draft.payload.context.schedule_group_keys
+      : (draft.payload.context?.schedule_group_key ? [draft.payload.context.schedule_group_key] : []);
+    const nextKeys = currentKeys.includes(key) ? currentKeys.filter(item => item !== key) : [...currentKeys, key];
+    const selected = groups.filter(group => nextKeys.includes(group.key));
     const payload = structuredClone(draft.payload);
+    const unique = <T,>(items: T[]) => Array.from(new Set(items.filter(Boolean)));
+    const courses = unique(selected.map(group => group.course?.id)).map(id => selected.find(group => group.course?.id === id)!.course!);
+    const departments = unique(selected.map(group => group.department?.id)).map(id => selected.find(group => group.department?.id === id)!.department!);
+    const supervisors = unique(selected.flatMap(group => group.supervisors.map(person => ar ? (person.name_ar || person.name_en || '') : (person.name_en || person.name_ar || ''))));
+    const scheduleGroups = selected.map(group => ({
+      key: group.key,
+      group: group.group.name,
+      subgroup: group.subgroup.name,
+      course: group.course ? `${group.course.code ? `${group.course.code} · ` : ''}${named(group.course)}` : '',
+      specialty: group.department ? named(group.department) : named(group.course || {}),
+      supervisors: group.supervisors.map(person => ar ? (person.name_ar || person.name_en || '') : (person.name_en || person.name_ar || '')).filter(Boolean),
+      student_count: group.student_count,
+    }));
     payload.context = {
       ...payload.context,
-      schedule_group_key: group.key,
-      clinical_specialty: group.department ? named(group.department) : named(group.course || {}),
-      rotation_name: group.course ? `${group.course.code ? `${group.course.code} · ` : ''}${named(group.course)}` : '',
+      schedule_group_keys: nextKeys,
+      schedule_groups: scheduleGroups,
+      clinical_specialty: unique(selected.map(group => group.department ? named(group.department) : named(group.course || {}))).join('، '),
+      rotation_name: courses.map(course => `${course.code ? `${course.code} · ` : ''}${named(course)}`).join('، '),
       clinical_supervisor: supervisors.join('، '),
-      student_group: `${group.group.name} · ${group.subgroup.name}`,
-      scheduled_students: group.student_count,
-      students_present: group.student_count,
+      student_group: selected.map(group => `${group.group.name} · ${group.subgroup.name}`).join('، '),
+      scheduled_students: selected.reduce((total, group) => total + group.student_count, 0),
+      students_present: selected.reduce((total, group) => total + group.student_count, 0),
       students_absent: 0,
       attendance_source: 'schedule',
     };
-    onChange({ ...draft, course_id: group.course?.id || '', department_id: group.department?.id || draft.department_id, payload });
+    delete payload.context.schedule_group_key;
+    onChange({
+      ...draft,
+      course_id: courses.length === 1 ? courses[0].id : '',
+      department_id: departments.length === 1 ? departments[0].id : draft.department_id,
+      payload,
+    });
   };
 
   const commonSite = draft.type !== 'department_periodic_report';
@@ -155,7 +180,7 @@ export function ClinicalFieldMonitoringForm({ draft, options, locale, disabled =
       </div>
     </Section>
 
-    {draft.type === 'assistant_follow_up' && <AssistantForm draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} groups={contextQuery.data?.groups || []} loading={contextQuery.isLoading} contextError={contextQuery.isError} onSelectGroup={selectScheduleGroup} />}
+    {draft.type === 'assistant_follow_up' && <AssistantForm draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} groups={contextQuery.data?.groups || []} loading={contextQuery.isLoading} contextError={contextQuery.isError} onToggleGroup={toggleScheduleGroup} />}
     {draft.type === 'department_periodic_report' && <DepartmentForm draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} />}
     {draft.type === 'director_supervisory_visit' && <DirectorForm draft={draft} disabled={disabled} tr={tr} setPayload={setPayload} locale={locale} loading={contextQuery.isLoading} contextError={contextQuery.isError} />}
 
@@ -164,13 +189,16 @@ export function ClinicalFieldMonitoringForm({ draft, options, locale, disabled =
   </div>;
 }
 
-function AssistantForm({ draft, disabled, tr, setPayload, groups, loading, contextError, onSelectGroup }: SharedProps & { groups: FieldMonitoringScheduleGroup[]; loading: boolean; contextError: boolean; onSelectGroup: (key: string) => void }) {
+function AssistantForm({ draft, disabled, tr, setPayload, groups, loading, contextError, onToggleGroup }: SharedProps & { groups: FieldMonitoringScheduleGroup[]; loading: boolean; contextError: boolean; onToggleGroup: (key: string) => void }) {
+  const selectedKeys: string[] = Array.isArray(draft.payload.context?.schedule_group_keys)
+    ? draft.payload.context.schedule_group_keys
+    : (draft.payload.context?.schedule_group_key ? [draft.payload.context.schedule_group_key] : []);
   return <>
-    <Section title={tr('المجموعة التي تمت زيارتها', 'Visited group')} description={!disabled ? tr('تظهر المجموعات تلقائيًا حسب موقع التدريب وتاريخ الزيارة.', 'Groups are loaded automatically from the training site and visit date.') : undefined}>
+    <Section title={tr('المجموعات التي تمت زيارتها', 'Visited groups')} description={!disabled ? tr('اختر مجموعة واحدة أو أكثر. اسحب أفقيًا لرؤية بقية المجموعات.', 'Select one or more groups. Scroll horizontally to see the rest.') : undefined}>
       {!disabled && loading && <InlineLoading label={tr('جاري تحميل جدول هذا اليوم...', 'Loading this day’s schedule...')} />}
       {!disabled && contextError && <InlineNotice label={tr('تعذر تحميل المجموعات المجدولة. أعد اختيار الموقع أو التاريخ.', 'Could not load scheduled groups. Re-select the site or date.')} danger />}
       {!disabled && !loading && !contextError && draft.training_site_id && draft.activity_date && groups.length === 0 && <InlineNotice label={tr('لا توجد مجموعات مجدولة في هذا المركز بهذا التاريخ.', 'No groups are scheduled at this site on this date.')} />}
-      {!disabled && draft.training_site_id && draft.activity_date && <SelectField label={tr('اختر المجموعة', 'Select group')} value={draft.payload.context?.schedule_group_key || ''} required disabled={loading || contextError || groups.length === 0} onChange={onSelectGroup}><option value="">{loading ? tr('جاري التحميل...', 'Loading...') : tr('اختر من جدول التدريب', 'Select from the clinical schedule')}</option>{groups.map(group => <option key={group.key} value={group.key}>{group.group.name} · {group.subgroup.name} — {group.course?.code || group.course?.name_ar || ''} — {group.student_count} {tr('طالب','students')}</option>)}</SelectField>}
+      {!disabled && groups.length > 0 && <div><div className="mb-2 flex items-center justify-between text-[11px] font-bold text-slate-500"><span>{tr('المجموعات المتاحة', 'Available groups')}</span><span>{selectedKeys.length} {tr('محدد', 'selected')}</span></div><div className="flex snap-x gap-2 overflow-x-auto pb-3" role="group" aria-label={tr('اختيار المجموعات', 'Select groups')}>{groups.map(group => { const selected = selectedKeys.includes(group.key); const shortName = group.subgroup.name.match(/[A-Za-z]+\d+/g)?.at(-1) || group.subgroup.name; return <button key={group.key} type="button" aria-pressed={selected} aria-label={`${group.subgroup.name} — ${group.course?.code || ''}`} title={`${group.group.name} · ${group.subgroup.name}`} onClick={() => onToggleGroup(group.key)} className={`flex h-14 w-14 flex-none snap-start items-center justify-center rounded-full border-2 text-xs font-black transition ${selected ? 'border-teal-700 bg-teal-700 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:bg-teal-50'}`}>{shortName}</button>; })}</div></div>}
       {draft.payload.context?.student_group && <ScheduleSummary draft={draft} tr={tr} />}
     </Section>
     <Section title={tr('قائمة المتابعة', 'Field monitoring checklist')} description={tr('تظهر الملاحظة وتصبح مطلوبة عند اختيار جزئيًا أو لا.', 'A comment is required when Partly or No is selected.')}>
@@ -245,6 +273,8 @@ function UrgentSection({ urgent, draft, disabled, tr, setPayload }: SharedProps 
 
 function ScheduleSummary({ draft, tr }: { draft: FieldFormDraft; tr: (a:string,e:string)=>string }) {
   const context = draft.payload.context || {};
+  const groups: any[] = context.schedule_groups || [];
+  if (groups.length > 0) return <div className="mt-4 space-y-2">{groups.map(group => <div key={group.key} className="grid gap-2 rounded-lg border border-teal-100 bg-teal-50/40 p-3 sm:grid-cols-[5rem_1fr_1fr_5rem]"><ReadOnlyValue label={tr('المجموعة', 'Group')} value={group.subgroup} /><ReadOnlyValue label={tr('المساق', 'Course')} value={group.course} /><ReadOnlyValue label={tr('المشرف', 'Supervisor')} value={(group.supervisors || []).join('، ')} /><ReadOnlyValue label={tr('الطلبة', 'Students')} value={group.student_count} /></div>)}</div>;
   return <div className="mt-4 grid gap-3 rounded-lg border border-teal-100 bg-teal-50/40 p-4 sm:grid-cols-2">
     <ReadOnlyValue label={tr('المساق والتخصص', 'Course and specialty')} value={[context.rotation_name, context.clinical_specialty].filter(Boolean).join(' — ')} />
     <ReadOnlyValue label={tr('المجموعة', 'Group')} value={context.student_group} />

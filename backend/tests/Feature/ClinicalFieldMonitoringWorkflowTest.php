@@ -113,6 +113,7 @@ class ClinicalFieldMonitoringWorkflowTest extends TestCase
 
     public function test_director_visit_is_routed_to_dean(): void
     {
+        $viceDean = $this->userWithRole('VICE_DEAN');
         $payload = [
             'context' => ['visit_type' => 'routine', 'representatives' => 'Hospital administration'],
             'specialties' => [['code' => 'internal', 'name' => 'Internal Medicine', 'rating' => 'not_assessed', 'basis' => '', 'notes' => '']],
@@ -122,10 +123,20 @@ class ClinicalFieldMonitoringWorkflowTest extends TestCase
             'follow_up' => ['required' => false, 'date' => ''],
             'urgent' => ['direct_risk' => false, 'details' => '', 'action_taken' => '', 'notified_at' => ''],
         ];
-        $this->actingAs($this->director)->postJson('/api/v1/clinical-field-monitoring/forms', [
+        $created = $this->actingAs($this->director)->postJson('/api/v1/clinical-field-monitoring/forms', [
             'type' => 'director_supervisory_visit', 'locale' => 'en',
             'training_site_id' => $this->site->id, 'activity_date' => '2026-11-08', 'payload' => $payload,
         ])->assertCreated()->assertJsonPath('data.recipient.id', $this->dean->id);
+
+        $id = $created->json('data.id');
+        $this->actingAs($this->director)->postJson("/api/v1/clinical-field-monitoring/forms/$id/submit")->assertOk();
+        $this->assertDatabaseHas('notifications', ['notifiable_id' => $viceDean->id]);
+        $this->actingAs($viceDean)->getJson('/api/v1/clinical-field-monitoring?mailbox=incoming')
+            ->assertOk()->assertJsonPath('data.0.id', $id);
+        $this->actingAs($viceDean)->getJson("/api/v1/clinical-field-monitoring/forms/$id")->assertOk();
+        $this->actingAs($viceDean)->postJson("/api/v1/clinical-field-monitoring/forms/$id/review", [
+            'action' => 'complete',
+        ])->assertOk()->assertJsonPath('data.status', 'completed');
     }
 
     public function test_department_head_periodic_report_is_routed_to_clinical_director(): void

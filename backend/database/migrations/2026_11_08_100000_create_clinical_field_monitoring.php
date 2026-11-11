@@ -85,6 +85,7 @@ return new class extends Migration
             'DEPARTMENT_HEAD' => ['clinical_field_monitoring.view', 'clinical_field_monitoring.create_department_report', 'clinical_field_monitoring.export'],
             'CLINICAL_DIRECTOR' => ['clinical_field_monitoring.view', 'clinical_field_monitoring.create_supervisory_visit', 'clinical_field_monitoring.review', 'clinical_field_monitoring.export'],
             'DEAN' => ['clinical_field_monitoring.view', 'clinical_field_monitoring.review', 'clinical_field_monitoring.export'],
+            'VICE_DEAN' => ['clinical_field_monitoring.view', 'clinical_field_monitoring.review', 'clinical_field_monitoring.export'],
             'SYS_ADMIN' => ['clinical_field_monitoring.view', 'clinical_field_monitoring.export', 'clinical_field_monitoring.manage'],
         ];
 

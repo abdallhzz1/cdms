@@ -41,16 +41,22 @@ class ClinicalFieldMonitoringController extends Controller
         $user = $request->user();
         $mailbox = $validated['mailbox'] ?? 'all';
         $manage = $this->can($user, 'clinical_field_monitoring.manage');
+        $deanReviewer = $user->hasRole('DEAN') || $user->hasRole('VICE_DEAN');
 
         $query = ClinicalFieldForm::query()->with($this->relations())->latest('updated_at');
         if (! $manage || $mailbox !== 'all') {
-            $query->where(function (Builder $scope) use ($mailbox, $user) {
+            $query->where(function (Builder $scope) use ($mailbox, $user, $deanReviewer) {
                 if ($mailbox === 'outgoing') {
                     $scope->where('creator_user_id', $user->id);
                 } elseif ($mailbox === 'incoming') {
-                    $scope->where('recipient_user_id', $user->id);
+                    $deanReviewer
+                        ? $scope->where('type', ClinicalFieldFormSchema::DIRECTOR_SUPERVISORY_VISIT)
+                        : $scope->where('recipient_user_id', $user->id);
                 } else {
                     $scope->where('creator_user_id', $user->id)->orWhere('recipient_user_id', $user->id);
+                    if ($deanReviewer) {
+                        $scope->orWhere('type', ClinicalFieldFormSchema::DIRECTOR_SUPERVISORY_VISIT);
+                    }
                 }
             });
         }
@@ -91,8 +97,14 @@ class ClinicalFieldMonitoringController extends Controller
 
         $recipients = $types->mapWithKeys(function (string $type) {
             $recipient = $this->resolveRecipient($type, false);
+            if (! $recipient) {
+                return [$type => null];
+            }
+            $name = $type === ClinicalFieldFormSchema::DIRECTOR_SUPERVISORY_VISIT
+                ? User::query()->where('is_active', true)->whereHas('roles', fn (Builder $query) => $query->whereIn('code', ['DEAN', 'VICE_DEAN']))->orderBy('id')->pluck('name')->join(' و ')
+                : $recipient->name;
 
-            return [$type => $recipient ? ['id' => $recipient->id, 'name' => $recipient->name] : null];
+            return [$type => ['id' => $recipient->id, 'name' => $name ?: $recipient->name]];
         });
 
         return ApiResponse::success([
@@ -193,7 +205,7 @@ class ClinicalFieldMonitoringController extends Controller
         $revision = $clinicalFieldForm->submitted_at ? $clinicalFieldForm->revision + 1 : $clinicalFieldForm->revision;
         $clinicalFieldForm->update(['status' => 'submitted', 'submitted_at' => now(), 'revision' => $revision, 'latest_review_note' => null]);
         $this->event($clinicalFieldForm, $request->user(), 'submitted', $from, 'submitted');
-        $this->notify($clinicalFieldForm->recipient, $clinicalFieldForm, 'submitted');
+        $this->notifyReviewers($clinicalFieldForm, 'submitted');
 
         return ApiResponse::success($this->present($clinicalFieldForm->fresh()->load($this->relations()), true), 'Form submitted.');
     }
@@ -368,39 +380,58 @@ class ClinicalFieldMonitoringController extends Controller
         $payload = $data['payload'];
 
         if ($data['type'] === ClinicalFieldFormSchema::ASSISTANT_FOLLOW_UP) {
-            $key = (string) ($payload['context']['schedule_group_key'] ?? '');
+            $keys = collect($payload['context']['schedule_group_keys'] ?? [])
+                ->whenEmpty(fn (Collection $items) => ! empty($payload['context']['schedule_group_key'])
+                    ? $items->push((string) $payload['context']['schedule_group_key'])
+                    : $items)
+                ->map(fn ($key) => (string) $key)->filter()->unique()->values();
             // Keep previously saved/manual drafts editable; every draft created by
-            // the current UI carries a schedule key and is verified below.
-            if ($key === '') {
+            // the current UI carries schedule keys and is verified below.
+            if ($keys->isEmpty()) {
                 return;
             }
             $groups = $this->dailyContextGroups($data['activity_date'], (int) $data['training_site_id']);
-            $group = $groups->firstWhere('key', $key);
-            if (! $group) {
-                throw ValidationException::withMessages(['payload.context.schedule_group_key' => ['Select a group scheduled at this site on the visit date.']]);
+            $selectedGroups = $groups->whereIn('key', $keys)->values();
+            if ($selectedGroups->count() !== $keys->count()) {
+                throw ValidationException::withMessages(['payload.context.schedule_group_keys' => ['One or more selected groups are not scheduled at this site on the visit date.']]);
             }
 
             $named = fn (?array $item) => $item
                 ? ($locale === 'en' ? ($item['name_en'] ?? $item['name_ar'] ?? $item['name'] ?? '') : ($item['name_ar'] ?? $item['name'] ?? ''))
                 : '';
-            $supervisors = collect($group['supervisors'])->map(fn (array $person) => $locale === 'en'
-                ? ($person['name_en'] ?? $person['name_ar'] ?? '')
-                : ($person['name_ar'] ?? $person['name_en'] ?? ''))->filter()->join('، ');
+            $courseIds = $selectedGroups->pluck('course.id')->filter()->unique()->values();
+            $departmentIds = $selectedGroups->pluck('department.id')->filter()->unique()->values();
+            $supervisors = $selectedGroups->pluck('supervisors')->flatten(1)->unique('id');
+            $scheduleGroups = $selectedGroups->map(fn (array $group) => [
+                'key' => $group['key'],
+                'group' => $group['group']['name'],
+                'subgroup' => $group['subgroup']['name'],
+                'course' => $group['course'] ? trim(($group['course']['code'] ?? '').' · '.$named($group['course']), ' ·') : '',
+                'specialty' => $named($group['department'] ?: $group['course']),
+                'supervisors' => collect($group['supervisors'])->map(fn (array $person) => $locale === 'en'
+                    ? ($person['name_en'] ?? $person['name_ar'] ?? '')
+                    : ($person['name_ar'] ?? $person['name_en'] ?? ''))->filter()->values()->all(),
+                'student_count' => $group['student_count'],
+            ])->values()->all();
 
-            $data['course_id'] = $group['course']['id'] ?? null;
-            $data['department_id'] = $group['department']['id'] ?? $data['department_id'] ?? null;
+            $data['course_id'] = $courseIds->count() === 1 ? $courseIds->first() : null;
+            $data['department_id'] = $departmentIds->count() === 1 ? $departmentIds->first() : ($data['department_id'] ?? null);
             $payload['context'] = [
                 ...($payload['context'] ?? []),
-                'schedule_group_key' => $group['key'],
-                'clinical_specialty' => $named($group['department'] ?: $group['course']),
-                'rotation_name' => trim(($group['course']['code'] ?? '').' · '.$named($group['course']), ' ·'),
-                'clinical_supervisor' => $supervisors,
-                'student_group' => $group['group']['name'].' · '.$group['subgroup']['name'],
-                'scheduled_students' => $group['student_count'],
-                'students_present' => $group['student_count'],
+                'schedule_group_keys' => $keys->all(),
+                'schedule_groups' => $scheduleGroups,
+                'clinical_specialty' => $selectedGroups->map(fn (array $group) => $named($group['department'] ?: $group['course']))->filter()->unique()->join('، '),
+                'rotation_name' => $selectedGroups->pluck('course')->filter()->unique('id')->map(fn (array $course) => trim(($course['code'] ?? '').' · '.$named($course), ' ·'))->join('، '),
+                'clinical_supervisor' => $supervisors->map(fn (array $person) => $locale === 'en'
+                    ? ($person['name_en'] ?? $person['name_ar'] ?? '')
+                    : ($person['name_ar'] ?? $person['name_en'] ?? ''))->filter()->join('، '),
+                'student_group' => $selectedGroups->map(fn (array $group) => $group['group']['name'].' · '.$group['subgroup']['name'])->join('، '),
+                'scheduled_students' => $selectedGroups->sum('student_count'),
+                'students_present' => $selectedGroups->sum('student_count'),
                 'students_absent' => 0,
                 'attendance_source' => 'schedule',
             ];
+            unset($payload['context']['schedule_group_key']);
         } elseif ($data['type'] === ClinicalFieldFormSchema::DEPARTMENT_PERIODIC_REPORT) {
             $context = $this->departmentPeriodContext($user, $data['period_from'], $data['period_to']);
             $data['department_id'] = $context['department_id'];
@@ -468,8 +499,10 @@ class ClinicalFieldMonitoringController extends Controller
 
     private function resolveRecipient(string $type, bool $fail = true): ?User
     {
-        $role = ClinicalFieldFormSchema::recipientRole($type);
-        $recipient = User::query()->where('is_active', true)->whereHas('roles', fn (Builder $q) => $q->where('code', $role))->orderBy('id')->first();
+        $roles = $type === ClinicalFieldFormSchema::DIRECTOR_SUPERVISORY_VISIT
+            ? ['DEAN', 'VICE_DEAN']
+            : [ClinicalFieldFormSchema::recipientRole($type)];
+        $recipient = User::query()->where('is_active', true)->whereHas('roles', fn (Builder $q) => $q->whereIn('code', $roles))->orderBy('id')->first();
         if (! $recipient && $fail) {
             throw ValidationException::withMessages(['recipient' => ['No active recipient is configured for this form.']]);
         }
@@ -480,7 +513,7 @@ class ClinicalFieldMonitoringController extends Controller
     private function ensureVisible(User $user, ClinicalFieldForm $form): void
     {
         $this->ensurePermission($user, 'clinical_field_monitoring.view');
-        if ($form->creator_user_id !== $user->id && $form->recipient_user_id !== $user->id && ! $this->can($user, 'clinical_field_monitoring.manage')) {
+        if ($form->creator_user_id !== $user->id && $form->recipient_user_id !== $user->id && ! $this->isDeanReviewer($user, $form) && ! $this->can($user, 'clinical_field_monitoring.manage')) {
             abort(403);
         }
     }
@@ -499,9 +532,15 @@ class ClinicalFieldMonitoringController extends Controller
     private function ensureReviewer(User $user, ClinicalFieldForm $form): void
     {
         $this->ensurePermission($user, 'clinical_field_monitoring.review');
-        if ($form->recipient_user_id !== $user->id && ! $this->can($user, 'clinical_field_monitoring.manage')) {
+        if ($form->recipient_user_id !== $user->id && ! $this->isDeanReviewer($user, $form) && ! $this->can($user, 'clinical_field_monitoring.manage')) {
             abort(403);
         }
+    }
+
+    private function isDeanReviewer(User $user, ClinicalFieldForm $form): bool
+    {
+        return $form->type === ClinicalFieldFormSchema::DIRECTOR_SUPERVISORY_VISIT
+            && ($user->hasRole('DEAN') || $user->hasRole('VICE_DEAN'));
     }
 
     private function ensurePermission(User $user, string $permission): void
@@ -535,6 +574,18 @@ class ClinicalFieldMonitoringController extends Controller
             'action_url' => '/clinical-field-monitoring?form='.$form->id,
             'entity_type' => 'clinical_field_form', 'entity_id' => $form->id,
         ]));
+    }
+
+    private function notifyReviewers(ClinicalFieldForm $form, string $action): void
+    {
+        if ($form->type !== ClinicalFieldFormSchema::DIRECTOR_SUPERVISORY_VISIT) {
+            $this->notify($form->recipient, $form, $action);
+            return;
+        }
+
+        User::query()->where('is_active', true)
+            ->whereHas('roles', fn (Builder $query) => $query->whereIn('code', ['DEAN', 'VICE_DEAN']))
+            ->get()->each(fn (User $reviewer) => $this->notify($reviewer, $form, $action));
     }
 
     private function relations(): array

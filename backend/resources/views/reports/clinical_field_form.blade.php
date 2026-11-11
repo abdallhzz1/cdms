@@ -73,7 +73,7 @@
 <p class="sub">{{ $form->reference_number }} · {{ $tr('الإصدار', 'Revision') }} {{ $form->revision }}</p>
 
 <table class="meta">
-    <tr><td>{{ $tr('أعد بواسطة', 'Prepared by') }}</td><td>{{ $form->creator?->name }}</td><td>{{ $tr('مرفوع إلى', 'Submitted to') }}</td><td>{{ $form->recipient?->name }}</td></tr>
+    <tr><td>{{ $tr('أعد بواسطة', 'Prepared by') }}</td><td>{{ $form->creator?->name }}</td><td>{{ $tr('مرفوع إلى', 'Submitted to') }}</td><td>{{ $form->type === 'director_supervisory_visit' ? $tr('عمادة كلية الطب — العميد ونائب العميد', 'Faculty of Medicine Deanship — Dean and Vice Dean') : $form->recipient?->name }}</td></tr>
     <tr><td>{{ $tr('الحالة', 'Status') }}</td><td>{{ $form->status }}</td><td>{{ $tr('التاريخ', 'Date') }}</td><td>{{ optional($form->activity_date)->format('Y-m-d') ?: optional($form->created_at)->format('Y-m-d') }}</td></tr>
     <tr><td>{{ $tr('المستشفى', 'Hospital') }}</td><td>{{ $ar ? $form->trainingSite?->name_ar : ($form->trainingSite?->name_en ?: $form->trainingSite?->name_ar) }}</td><td>{{ $tr('القسم', 'Department') }}</td><td>{{ $ar ? $form->department?->name_ar : ($form->department?->name_en ?: $form->department?->name_ar) }}</td></tr>
 </table>
@@ -90,6 +90,11 @@
             <tr><td>{{ $tr('الحاضرون', 'Present') }}</td><td>{{ $value($context['students_present'] ?? null) }}</td><td>{{ $tr('الغائبون', 'Absent') }}</td><td>{{ $value($context['students_absent'] ?? null) }}</td></tr>
         @endif
     </table>
+    @if(!empty($context['schedule_groups']))
+        <h2>{{ $tr('المجموعات التي تمت زيارتها', 'Visited groups') }}</h2>
+        <table><tr><th>{{ $tr('المجموعة', 'Group') }}</th><th>{{ $tr('المساق', 'Course') }}</th><th>{{ $tr('المشرف', 'Supervisor') }}</th><th class="short">{{ $tr('الطلبة', 'Students') }}</th></tr>
+        @foreach($context['schedule_groups'] as $group)<tr><td>{{ $value($group['subgroup'] ?? $group['group'] ?? null) }}</td><td>{{ $value($group['course'] ?? null) }}</td><td>{{ $value(implode('، ', $group['supervisors'] ?? [])) }}</td><td class="short">{{ $value($group['student_count'] ?? null) }}</td></tr>@endforeach</table>
+    @endif
     <h2>{{ $tr('قائمة التحقق', 'Monitoring checklist') }}</h2>
     <table><tr><th>{{ $tr('البند', 'Item') }}</th><th class="short">{{ $tr('التقييم', 'Assessment') }}</th><th>{{ $tr('الملاحظة', 'Comment') }}</th></tr>
     @foreach($assistantItems as $code => $label)<tr><td>{{ $label }}</td><td class="short">{{ $ratingLabels[data_get($payload, "responses.$code.rating")] ?? '—' }}</td><td>{{ $value(data_get($payload, "responses.$code.comment")) }}</td></tr>@endforeach
