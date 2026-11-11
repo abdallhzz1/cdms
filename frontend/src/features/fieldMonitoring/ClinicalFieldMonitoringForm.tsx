@@ -145,8 +145,9 @@ export function ClinicalFieldMonitoringForm({ draft, options, locale, disabled =
       supervisors: group.supervisors.map(person => ar ? (person.name_ar || person.name_en || '') : (person.name_en || person.name_ar || '')).filter(Boolean),
       student_count: group.student_count,
       students: (group.students || []).map(student => ({
-        name_ar: student.full_name_ar || '',
-        name_en: student.full_name_en || student.full_name_ar || '',
+        // The daily schedule API already returns localized name_ar/name_en keys.
+        name_ar: student.name_ar || student.full_name_ar || '',
+        name_en: student.name_en || student.full_name_en || student.name_ar || student.full_name_ar || '',
       })),
     }));
     payload.context = {
