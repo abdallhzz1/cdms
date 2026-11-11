@@ -128,7 +128,7 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
-      <div className="flex h-16 items-center justify-between px-3 sm:px-5 lg:px-7">
+      <div className="flex h-14 items-center justify-between px-3 sm:h-16 sm:px-5 lg:px-7">
         
         {/* ========================================================================= */}
         {/* START SIDE: Mobile Menu Button & University Branding */}
@@ -137,8 +137,8 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
           <button 
             type="button" 
             onClick={onToggleMobileNav} 
-            className="rounded-xl p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-teal-700 md:hidden"
-            aria-label="Open Navigation Menu"
+            className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-600 transition-colors hover:bg-slate-100 hover:text-teal-700 focus-visible:ring-2 focus-visible:ring-teal-600 md:hidden"
+            aria-label={locale === 'ar' ? 'فتح القائمة' : 'Open navigation'}
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -162,7 +162,9 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
             <button 
               type="button"
               onClick={() => setIsNotifOpen(!isNotifOpen)}
-              className={`relative rounded-xl p-2 transition-colors ${
+              aria-label={locale === 'ar' ? 'الإشعارات والتنبيهات' : 'Notifications'}
+              aria-expanded={isNotifOpen}
+              className={`relative flex h-11 w-11 items-center justify-center rounded-xl p-2 transition-colors ${
                 isNotifOpen 
                   ? 'bg-teal-50 text-teal-700' 
                   : 'text-slate-500 hover:text-teal-600 hover:bg-slate-100'

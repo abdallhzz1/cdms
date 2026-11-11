@@ -3,47 +3,46 @@
 @theme {
   --font-sans: "Tajawal", "Rubik", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   
-  /* Chakra UI Soft Dashboard Signature Teal Palette */
-  --color-primary-50: #e6fffa;
-  --color-primary-100: #b2f5ea;
-  --color-primary-200: #81e6d9;
-  --color-primary-300: #4fd1c5;
-  --color-primary-400: #38b2ac;
-  --color-primary-500: #319795;
-  --color-primary-600: #2c7a7b;
-  --color-primary-700: #285e61;
+  /* CDMS clinical teal: restrained surfaces with accessible text/action colors. */
+  --color-primary-50: #f0fdfa;
+  --color-primary-100: #ccfbf1;
+  --color-primary-200: #99f6e4;
+  --color-primary-300: #5eead4;
+  --color-primary-400: #2dd4bf;
+  --color-primary-500: #0f766e;
+  --color-primary-600: #115e59;
+  --color-primary-700: #134e4a;
 
-  /* Aliasing indigo to Chakra Teal */
-  --color-indigo-50: #e6fffa;
-  --color-indigo-100: #b2f5ea;
-  --color-indigo-200: #81e6d9;
-  --color-indigo-300: #4fd1c5;
-  --color-indigo-400: #38b2ac;
-  --color-indigo-500: #319795;
-  --color-indigo-600: #2c7a7b;
-  --color-indigo-700: #285e61;
+  /* Legacy indigo utilities stay aligned with the approved teal action color. */
+  --color-indigo-50: #f0fdfa;
+  --color-indigo-100: #ccfbf1;
+  --color-indigo-200: #99f6e4;
+  --color-indigo-300: #5eead4;
+  --color-indigo-400: #2dd4bf;
+  --color-indigo-500: #0f766e;
+  --color-indigo-600: #115e59;
+  --color-indigo-700: #134e4a;
 
-  /* Chakra Teal Direct Aliases */
-  --color-teal-50: #e6fffa;
-  --color-teal-100: #b2f5ea;
-  --color-teal-200: #81e6d9;
-  --color-teal-300: #4fd1c5;
-  --color-teal-400: #38b2ac;
-  --color-teal-500: #319795;
-  --color-teal-600: #2c7a7b;
-  --color-teal-700: #285e61;
+  --color-teal-50: #f0fdfa;
+  --color-teal-100: #ccfbf1;
+  --color-teal-200: #99f6e4;
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #0f766e;
+  --color-teal-600: #115e59;
+  --color-teal-700: #134e4a;
 
-  /* Soft Slate Grays */
-  --color-slate-50: #f8f9fa;
+  /* Neutral surfaces and readable text hierarchy. */
+  --color-slate-50: #f7f9fa;
   --color-slate-100: #f1f5f9;
   --color-slate-200: #e2e8f0;
   --color-slate-300: #cbd5e1;
-  --color-slate-400: #a0aec0;
-  --color-slate-500: #718096;
-  --color-slate-600: #4a5568;
-  --color-slate-700: #2d3748;
-  --color-slate-800: #1a202c;
-  --color-slate-900: #171923;
+  --color-slate-400: #64748b;
+  --color-slate-500: #475569;
+  --color-slate-600: #334155;
+  --color-slate-700: #1e293b;
+  --color-slate-800: #172033;
+  --color-slate-900: #0f172a;
 
   /* Chakra Soft Pillowy Shadows */
   --shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.02);
@@ -59,13 +58,27 @@ html, body, #root {
 
 body {
   font-family: var(--font-sans);
-  background-color: #f8f9fa; /* Chakra Soft UI background */
-  color: #2d3748;
+  background-color: #f7f9fa;
+  color: #1e293b;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-size: 1rem; /* 16px comfortable, clear size */
+  font-size: 1rem;
   line-height: 1.6;
+}
+
+:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Custom scrollbars */

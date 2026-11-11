@@ -27,12 +27,13 @@ export function Modal({ isOpen, onClose, title, children, footer, maxWidth = 'md
   }, [isOpen]);
 
   useEffect(() => {
+    if (!isOpen) return;
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [onClose]);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -45,7 +46,7 @@ export function Modal({ isOpen, onClose, title, children, footer, maxWidth = 'md
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-2 sm:items-center sm:p-4">
       {/* Backdrop */}
       <div 
         className={`fixed inset-0 backdrop-blur-sm transition-opacity ${backdropTone === 'light' ? 'bg-white/85' : 'bg-slate-900/50'}`}
@@ -55,16 +56,16 @@ export function Modal({ isOpen, onClose, title, children, footer, maxWidth = 'md
       
       {/* Dialog */}
       <div 
-        className={`relative w-full ${maxWidthClasses[maxWidth]} bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col`}
+        className={`relative max-h-[calc(100dvh-1rem)] w-full ${maxWidthClasses[maxWidth]} overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl flex flex-col sm:max-h-[calc(100dvh-2rem)]`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-          <h2 id="modal-title" className="text-lg font-semibold text-slate-900">{title}</h2>
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-6 sm:py-4">
+          <h2 id="modal-title" className="min-w-0 text-base font-bold text-slate-900 sm:text-lg">{title}</h2>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded-md transition-colors"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-teal-600"
             aria-label={t('common.close', 'إغلاق')}
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -73,12 +74,12 @@ export function Modal({ isOpen, onClose, title, children, footer, maxWidth = 'md
           </button>
         </div>
         
-        <div className="px-6 py-4 max-h-[70vh] overflow-y-auto">
+        <div className="max-h-[calc(100dvh-9rem)] overflow-y-auto px-4 py-4 sm:max-h-[70vh] sm:px-6">
           {children}
         </div>
         
         {footer && (
-          <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 bg-slate-50 px-4 py-3 sm:gap-3 sm:px-6 sm:py-4">
             {footer}
           </div>
         )}

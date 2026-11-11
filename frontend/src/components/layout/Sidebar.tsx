@@ -189,7 +189,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
       )}
       {/* Sidebar Content */}
       <aside
-        className={`fixed inset-y-0 z-40 flex max-w-[90vw] flex-col border-e border-slate-200 bg-white transition-all duration-200 ease-in-out md:sticky md:top-0 md:h-screen md:translate-x-0 ${isCollapsed ? 'md:w-20' : 'md:w-80'} w-80 ${
+        className={`fixed inset-y-0 z-40 flex max-w-[90vw] flex-col border-e border-slate-200 bg-white transition-all duration-200 ease-in-out md:sticky md:top-0 md:h-dvh md:translate-x-0 ${isCollapsed ? 'md:w-[4.5rem]' : 'md:w-72'} w-80 ${
           isOpenMobile
             ? 'translate-x-0 shadow-2xl'
             : locale === 'ar' ? 'translate-x-full md:translate-x-0' : '-translate-x-full md:translate-x-0'
@@ -200,7 +200,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
             <img src={hebronLogo} alt="" className="h-10 w-10 shrink-0 object-contain" />
             {!isCollapsed && <span className="min-w-0"><strong className="block truncate text-sm font-black text-slate-900">{locale === 'ar' ? 'جامعة الخليل' : 'Hebron University'}</strong><span className="mt-0.5 block truncate text-[11px] font-bold text-teal-700">{isBasicOnly ? locale === 'ar' ? 'الدائرة الأساسية' : 'Basic Sciences' : locale === 'ar' ? 'إدارة الدائرة السريرية' : 'Clinical Department'}</span></span>}
           </NavLink>
-          <button onClick={onCloseMobile} aria-label={locale === 'ar' ? 'إغلاق القائمة' : 'Close navigation'} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 md:hidden">
+          <button onClick={onCloseMobile} aria-label={locale === 'ar' ? 'إغلاق القائمة' : 'Close navigation'} className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-800 md:hidden">
             <X className="h-5 w-5" />
           </button>
           <button onClick={onToggleCollapsed} className="hidden rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-teal-700 md:block" title={isCollapsed ? (locale === 'ar' ? 'توسيع القائمة' : 'Expand navigation') : (locale === 'ar' ? 'تصغير القائمة' : 'Collapse navigation')}>
@@ -228,7 +228,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
                         onClick={onCloseMobile}
                         title={isCollapsed ? item.label : undefined}
                         className={
-                          `relative flex h-11 items-center rounded-xl text-sm font-bold transition-colors ${isCollapsed ? 'md:justify-center md:px-0 px-3 gap-3' : 'gap-3.5 px-3'} ${
+                          `relative flex min-h-11 items-center rounded-xl text-sm font-bold transition-colors ${isCollapsed ? 'md:justify-center md:px-0 px-3 gap-3' : 'gap-3 px-3'} ${
                             isSelected
                               ? 'bg-teal-50 text-teal-800'
                               : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'

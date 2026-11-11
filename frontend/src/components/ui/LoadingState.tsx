@@ -7,8 +7,8 @@ interface LoadingStateProps {
 export function LoadingState({ message }: LoadingStateProps) {
   const { t } = useI18n();
   return (
-    <div className="flex min-h-[200px] flex-col items-center justify-center p-8 text-center bg-white rounded-lg border border-slate-200">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600 mb-4"></div>
+    <div role="status" aria-live="polite" className="flex min-h-40 flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 text-center sm:p-8">
+      <div aria-hidden="true" className="mb-4 h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-teal-600"></div>
       <p className="text-sm font-medium text-slate-500">{message || t('common.loading')}</p>
     </div>
   );

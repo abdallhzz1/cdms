@@ -2,14 +2,14 @@ import type { HTMLAttributes, ThHTMLAttributes, TdHTMLAttributes } from 'react';
 
 export function Table({ className = '', ...props }: HTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="w-full overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-xs">
+    <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
       <table className={`w-full text-xs sm:text-sm text-start ${className}`} {...props} />
     </div>
   );
 }
 
 export function TableHeader({ className = '', ...props }: HTMLAttributes<HTMLTableSectionElement>) {
-  return <thead className={`border-b border-slate-200/80 bg-slate-50/80 ${className}`} {...props} />;
+  return <thead className={`border-b border-slate-200 bg-slate-50 ${className}`} {...props} />;
 }
 
 export function TableBody({ className = '', ...props }: HTMLAttributes<HTMLTableSectionElement>) {
@@ -23,12 +23,12 @@ export function TableRow({ className = '', ...props }: HTMLAttributes<HTMLTableR
 export function TableHead({ className = '', ...props }: ThHTMLAttributes<HTMLTableCellElement>) {
   return (
     <th
-      className={`px-4 py-3 text-start text-[11px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap ${className}`}
+      className={`whitespace-nowrap px-4 py-3 text-start text-xs font-bold text-slate-600 ${className}`}
       {...props}
     />
   );
 }
 
 export function TableCell({ className = '', ...props }: TdHTMLAttributes<HTMLTableCellElement>) {
-  return <td className={`whitespace-nowrap px-4 py-3 text-slate-800 font-medium ${className}`} {...props} />;
+  return <td className={`whitespace-nowrap px-4 py-3 text-sm font-medium text-slate-800 ${className}`} {...props} />;
 }

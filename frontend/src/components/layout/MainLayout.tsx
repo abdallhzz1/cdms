@@ -15,7 +15,7 @@ export function MainLayout({ children }: { children: ReactNode }) {
   });
 
   return (
-    <div className="flex min-h-screen bg-slate-50 text-slate-900">
+    <div className="flex min-h-dvh bg-slate-50 text-slate-900">
       <Sidebar
         isOpenMobile={isMobileNavOpen}
         onCloseMobile={() => setIsMobileNavOpen(false)}
@@ -24,7 +24,7 @@ export function MainLayout({ children }: { children: ReactNode }) {
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header onToggleMobileNav={() => setIsMobileNavOpen(prev => !prev)} />
-        <main className="w-full min-w-0 flex-1 p-3 sm:p-5 lg:p-7">
+        <main className="w-full min-w-0 flex-1 p-3 sm:p-5 lg:p-6">
           <div className={`mx-auto w-full min-w-0 ${isAssessmentMatrix ? '' : 'max-w-7xl'}`}>
             {children}
           </div>
