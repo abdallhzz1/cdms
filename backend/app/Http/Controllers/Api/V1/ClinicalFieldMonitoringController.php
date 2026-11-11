@@ -249,6 +249,31 @@ class ClinicalFieldMonitoringController extends Controller
         $this->ensurePermission($request->user(), 'clinical_field_monitoring.export');
         $locale = $request->query('locale') === 'en' ? 'en' : 'ar';
         $clinicalFieldForm->load([...$this->relations(), 'events.user:id,name']);
+        if ($clinicalFieldForm->type === ClinicalFieldFormSchema::ASSISTANT_FOLLOW_UP) {
+            $payload = $clinicalFieldForm->payload ?? [];
+            $context = $payload['context'] ?? [];
+            $keys = collect($context['schedule_group_keys'] ?? [])->map(fn ($key) => (string) $key)->filter()->values();
+            if ($keys->isNotEmpty() && collect($context['schedule_groups'] ?? [])->contains(fn ($group) => !array_key_exists('students', $group))) {
+                $scheduledGroups = $this->dailyContextGroups(
+                    optional($clinicalFieldForm->activity_date)->format('Y-m-d'),
+                    (int) $clinicalFieldForm->training_site_id,
+                )->whereIn('key', $keys)->keyBy('key');
+                $context['schedule_groups'] = collect($context['schedule_groups'] ?? [])->map(function (array $group) use ($scheduledGroups) {
+                    $scheduled = $scheduledGroups->get($group['key'] ?? '');
+                    if (!$scheduled) return $group;
+
+                    return [
+                        ...$group,
+                        'students' => collect($scheduled['students'])->map(fn (array $student) => [
+                            'name_ar' => $student['name_ar'],
+                            'name_en' => $student['name_en'] ?: $student['name_ar'],
+                        ])->values()->all(),
+                    ];
+                })->all();
+                $payload['context'] = $context;
+                $clinicalFieldForm->setAttribute('payload', $payload);
+            }
+        }
 
         return Pdf::loadView('reports.clinical_field_form', ['form' => $clinicalFieldForm, 'locale' => $locale])
             ->setOption('defaultFont', 'Amiri')
@@ -329,6 +354,12 @@ class ClinicalFieldMonitoringController extends Controller
                     'subgroup' => $group['subgroup'],
                     'supervisors' => $supervisors,
                     'student_count' => count($group['students'] ?? []),
+                    'students' => collect($group['students'] ?? [])->map(fn (array $student) => [
+                        'id' => $student['id'] ?? null,
+                        'name_ar' => $student['full_name_ar'] ?? null,
+                        'name_en' => $student['full_name_en'] ?? $student['full_name_ar'] ?? null,
+                        'university_number' => $student['university_number'] ?? null,
+                    ])->values()->all(),
                 ];
             })->values();
     }
@@ -421,6 +452,7 @@ class ClinicalFieldMonitoringController extends Controller
                     ? ($person['name_en'] ?? $person['name_ar'] ?? '')
                     : ($person['name_ar'] ?? $person['name_en'] ?? ''))->filter()->values()->all(),
                 'student_count' => $group['student_count'],
+                'students' => $group['students'],
             ])->values()->all();
 
             $data['course_id'] = $courseIds->count() === 1 ? $courseIds->first() : null;
