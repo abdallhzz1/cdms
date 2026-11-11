@@ -9,6 +9,7 @@
 /public/storage
 /storage/*.key
 /storage/pail
+/storage/fonts/
 /storage/app/private/*
 !/storage/app/private/.gitkeep
 /storage/app/public/*
