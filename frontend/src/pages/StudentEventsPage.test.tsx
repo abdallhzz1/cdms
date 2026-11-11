@@ -1,8 +1,11 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import QRCode from 'qrcode';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { StudentEventsPage } from './StudentEventsPage';
+
+vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,event-qr') } }));
 
 const envelope = (data: unknown) => new Response(JSON.stringify({ success: true, data, message: null, meta: {} }),
   { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -137,7 +140,35 @@ it('opens and closes check-in manually and exposes permanent deletion for publis
   await userEvent.type(screen.getByLabelText('Administrative reason (at least 10 characters)'), 'Administrative correction');
   await userEvent.click(screen.getByRole('button', { name: 'Delete event and register permanently' }));
   await waitFor(() => expect(requests.some(row => row.method === 'DELETE' && row.body?.confirmation === 'Medical Seminar')).toBe(true));
-});
+}, 15_000);
+
+it('opens the event attendance QR in a full-screen view and closes it with Escape', async () => {
+  window.localStorage.setItem('cdms.locale', 'en');
+  vi.mocked(QRCode.toDataURL).mockImplementation((() => Promise.resolve('data:image/png;base64,event-qr')) as never);
+  const event = { id: 11, public_id: 'event-11', type: 'lecture', title_ar: 'محاضرة', title_en: 'Full Screen Lecture',
+    description_ar: null, description_en: null, location_ar: 'القاعة', location_en: 'Hall',
+    starts_at: '2026-10-21T08:00:00Z', ends_at: '2026-10-21T10:00:00Z', eligible_levels: ['fourth'],
+    status: 'published', check_in_enabled: true, attendance_count: 0, presenters: [], poster_url: null };
+  vi.spyOn(window, 'fetch').mockImplementation(async input => {
+    const url = String(input);
+    if (url.includes('/auth/me')) return envelope({ id: 1, roles: ['SYS_ADMIN'], permissions: [
+      { code: 'student_events.view', scope: 'global' }, { code: 'student_events.attendance.manage', scope: 'global' }] });
+    if (url.includes('/student-events/11/qr')) return envelope({ token: 'event-qr-token', expires_at: '2026-10-21T10:00:00Z' });
+    if (url.includes('/student-events/11/attendance')) return envelope({ data: [], current_page: 1, last_page: 1, total: 0 });
+    if (url.includes('/student-events?')) return envelope({ data: [event], current_page: 1, last_page: 1, total: 1 });
+    throw new Error(`Unmocked ${url}`);
+  });
+  renderWithProviders(<StudentEventsPage />, { route: '/events' });
+  await screen.findByRole('heading', { name: 'Full Screen Lecture' });
+  await userEvent.click(screen.getByRole('button', { name: 'Check-in QR' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Show QR full screen' }));
+  const expandedQr = screen.getByRole('dialog', { name: 'Full-screen check-in QR' });
+  expect(expandedQr).toBeVisible();
+  expect(await within(expandedQr).findByRole('img', { name: 'Enlarged event check-in QR' })).toBeVisible();
+  await userEvent.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog', { name: 'Full-screen check-in QR' })).not.toBeInTheDocument();
+  expect(screen.getByRole('dialog', { name: 'Full Screen Lecture' })).toBeVisible();
+}, 10_000);
 
 it('updates the open event register when a student checks in without reloading the page', async () => {
   window.localStorage.setItem('cdms.locale', 'en');

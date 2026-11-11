@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import QRCode from 'qrcode';
-import { CalendarDays, CheckCircle2, ClipboardList, MapPin, Pencil, Plus, QrCode, Search, Trash2, X } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ClipboardList, Expand, MapPin, Pencil, Plus, QrCode, Search, Trash2, X } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useI18n } from '@/i18n/I18nContext';
@@ -42,12 +42,22 @@ export function StudentEventsPage() {
   const [deleteReason, setDeleteReason] = useState('');
   const [rosterPage, setRosterPage] = useState(1);
   const [showQr, setShowQr] = useState(false); const [qrImage, setQrImage] = useState('');
+  const [qrExpanded, setQrExpanded] = useState(false);
   const [showPoster, setShowPoster] = useState(false);
   const [posterPreviewUrl, setPosterPreviewUrl] = useState<string | null>(null);
   const [publishTarget, setPublishTarget] = useState<StudentEvent | null>(null);
   const [qrError, setQrError] = useState(''); const [qrExpiry, setQrExpiry] = useState('');
   const [manualNumber, setManualNumber] = useState(''); const [reason, setReason] = useState('');
   const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!qrExpanded) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.stopImmediatePropagation(); setQrExpanded(false); }
+    };
+    window.addEventListener('keydown', closeOnEscape, true);
+    return () => window.removeEventListener('keydown', closeOnEscape, true);
+  }, [qrExpanded]);
+  useEffect(() => { if (!showQr || !selected?.check_in_enabled) setQrExpanded(false); }, [showQr, selected?.id, selected?.check_in_enabled]);
   const date = (value: string) => new Intl.DateTimeFormat(ar ? 'ar-PS' : 'en-GB',
     { timeZone: 'Asia/Hebron', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
   const title = (event: StudentEvent) => ar ? event.title_ar : event.title_en;
@@ -177,7 +187,7 @@ export function StudentEventsPage() {
       try {
         const result = await apiFetch<{ token: string; expires_at: string }>(`/student-events/${selected.id}/qr`);
         const link = `${window.location.origin}/event-check-in?qr=${encodeURIComponent(result.token)}`;
-        const image = await QRCode.toDataURL(link, { width: 440, margin: 2, color: { dark: '#164e53', light: '#ffffff' } });
+        const image = await QRCode.toDataURL(link, { width: 880, margin: 2, color: { dark: '#164e53', light: '#ffffff' } });
         if (!stopped) { setQrImage(image); setQrExpiry(result.expires_at); setQrError(''); }
       } catch (exception) {
         if (stopped) return;
@@ -260,7 +270,7 @@ export function StudentEventsPage() {
       </form>
     </Modal>
 
-    <Modal isOpen={Boolean(selected)} onClose={() => { setSelected(null); setShowQr(false); setShowPoster(false); }} title={selected ? title(selected) : ''} maxWidth="2xl">
+    <Modal isOpen={Boolean(selected)} onClose={() => { setSelected(null); setShowQr(false); setShowPoster(false); setQrExpanded(false); }} title={selected ? title(selected) : ''} maxWidth="2xl">
       {selected && <div className="space-y-5 text-sm"><div className="flex flex-wrap items-center gap-2 text-xs text-slate-600"><span>{date(selected.starts_at)}</span><span>·</span><span>{location(selected)}</span><span>·</span><span>{selected.eligible_levels.map(levelLabel).join(ar ? '، ' : ', ')}</span></div>
         {Boolean(selected.presenters?.length) && <section className="rounded-xl bg-slate-50 p-3"><h3 className="mb-2 text-xs font-bold text-slate-600">{tr('المحاضرون والمقدّمون','Speakers & presenters')}</h3><div className="flex flex-wrap gap-2">{selected.presenters!.map((person, index) => <div key={index} className="rounded-lg border border-slate-200 bg-white px-3 py-2"><b className="block text-sm">{ar ? person.name_ar : person.name_en}</b>{(ar ? person.role_ar : person.role_en) && <small className="text-slate-500">{ar ? person.role_ar : person.role_en}</small>}</div>)}</div></section>}
         <div className="flex flex-wrap gap-2"><button onClick={() => { setShowQr(false); setShowPoster(false); }} className={`${pill} ${!showQr && !showPoster ? 'border-teal-500 bg-teal-50 text-teal-800' : ''}`}>{tr('كشف الحضور','Attendance register')}</button>
@@ -274,6 +284,7 @@ export function StudentEventsPage() {
           {can('student_events.attendance.manage') && <button type="button" disabled={busy} onClick={() => void toggleCheckIn(selected)} className={`mt-4 min-h-11 rounded-xl px-5 py-2.5 font-bold text-white disabled:opacity-50 ${selected.check_in_enabled ? 'bg-rose-700 hover:bg-rose-800' : 'bg-teal-700 hover:bg-teal-800'}`}>{selected.check_in_enabled ? tr('إغلاق الحضور وإيقاف الباركود','Close check-in and disable QR') : tr('فتح الحضور وإظهار الباركود','Open check-in and show QR')}</button>}
           {selected.check_in_enabled ? <><p className="mt-5 font-bold text-teal-900">{tr('امسح الرمز لتسجيل حضور هذه الفعالية','Scan to check in to this event')}</p>
             {qrImage ? <img src={qrImage} alt={tr('رمز الحضور المتجدد','Rotating check-in QR code')} className="mx-auto my-4 w-56 rounded-2xl bg-white p-3 shadow-sm sm:w-72"/> : <p className="my-8 text-rose-700">{qrError || tr('جارٍ تجهيز الرمز…','Preparing QR code…')}</p>}
+            <button type="button" onClick={() => setQrExpanded(true)} className="mx-auto mb-4 inline-flex min-h-10 items-center gap-2 rounded-xl border border-teal-200 bg-white px-4 py-2 text-xs font-bold text-teal-800 shadow-sm hover:bg-teal-50"><Expand className="h-4 w-4"/>{tr('تكبير الرمز بملء الشاشة','Show QR full screen')}</button>
             <p aria-live="polite" className="mb-3 text-sm font-bold text-teal-900">{tr('المسجلون الآن', 'Checked in')}: {roster.data?.total ?? selected.attendance_count}</p>
             <p className="text-xs text-teal-800">{tr('يتجدد الرمز تلقائيًا. لا تشارك صورته أو رابطه.','The code refreshes automatically. Do not share its image or link.')}</p><small className="mt-2 block text-teal-700">{qrExpiry ? tr('تنتهي صلاحية الرمز', 'Code expires') + ': ' + new Date(qrExpiry).toLocaleTimeString(ar ? 'ar-PS' : 'en-GB') : ''}</small></> :
             <p className="mt-4 text-xs text-slate-600">{tr('النشر لا يفتح الحضور تلقائيًا. اضغط فتح الحضور عند جاهزيتك؛ لا يقيّده وقت الفعالية.', 'Publishing does not open check-in. Open it when you are ready; the event schedule does not restrict it.')}</p>}</div> : <>
@@ -290,6 +301,16 @@ export function StudentEventsPage() {
         {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-rose-700">{error}</p>}{notice && <p role="status" className="flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-emerald-800"><CheckCircle2 className="h-4 w-4"/>{notice}</p>}
       </div>}
     </Modal>
+    {qrExpanded && selected?.check_in_enabled && showQr && <div role="dialog" aria-modal="true" aria-label={tr('رمز الحضور بملء الشاشة','Full-screen check-in QR')} onClick={() => setQrExpanded(false)} className="fixed inset-0 z-[80] flex min-h-[100dvh] flex-col items-center justify-center bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(4rem,env(safe-area-inset-top))] text-center">
+      <button type="button" autoFocus onClick={() => setQrExpanded(false)} aria-label={tr('إغلاق الرمز المكبر','Close enlarged QR')} className="absolute end-4 top-[max(1rem,env(safe-area-inset-top))] grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"><X className="h-5 w-5"/></button>
+      <h2 className="max-w-full break-words text-base font-black text-slate-900 sm:text-lg">{tr('رمز حضور الفعالية','Event check-in QR')}</h2>
+      <p className="mt-1 max-w-full break-words text-sm text-slate-600">{title(selected)}</p>
+      <div onClick={event => event.stopPropagation()} className="mt-5 grid aspect-square w-[min(86vw,68dvh,620px)] place-items-center rounded-3xl border border-teal-100 bg-white p-3 shadow-sm sm:p-5">
+        {qrImage ? <img src={qrImage} alt={tr('رمز حضور الفعالية المكبر','Enlarged event check-in QR')} className="h-full w-full object-contain"/> : <p className="px-5 text-sm font-bold text-slate-500">{qrError || tr('جارٍ تجهيز الرمز…','Preparing QR code…')}</p>}
+      </div>
+      <p className="mt-4 text-xs font-semibold text-teal-800">{tr('يتجدد الرمز تلقائيًا. اعرضه للطلبة لمسح الحضور.','The QR refreshes automatically. Show it to students to check in.')}</p>
+      {qrExpiry && <p className="mt-1 text-[11px] text-slate-500">{tr('انتهاء الرمز الحالي:', 'Current code expires:')} {new Date(qrExpiry).toLocaleTimeString(ar ? 'ar-PS' : 'en-GB')}</p>}
+    </div>}
     <Modal isOpen={Boolean(publishTarget)} onClose={() => setPublishTarget(null)} title={tr('نشر الفعالية','Publish event')} maxWidth="lg">
       {publishTarget && <div className="space-y-4 text-sm"><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><b className="block text-base">{title(publishTarget)}</b><p className="mt-2 text-slate-600">{date(publishTarget.starts_at)} · {location(publishTarget)}</p></div>
         <p className="leading-6 text-slate-700">{tr('ستصبح الفعالية وبوسترها ظاهرين للطلاب. تسجيل الحضور سيبقى مغلقًا حتى تفتحه يدويًا من زر رمز الحضور.', 'The event and its poster will become visible to students. Check-in will remain closed until you open it manually from the QR control.')}</p>
