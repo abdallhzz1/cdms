@@ -251,7 +251,10 @@ class ClinicalFieldMonitoringController extends Controller
         $clinicalFieldForm->load([...$this->relations(), 'events.user:id,name']);
 
         return Pdf::loadView('reports.clinical_field_form', ['form' => $clinicalFieldForm, 'locale' => $locale])
-            ->setPaper('a4')->download($clinicalFieldForm->reference_number.'-'.$locale.'.pdf');
+            ->setOption('defaultFont', 'DejaVu Sans')
+            ->setOption('isHtml5ParserEnabled', true)
+            ->setPaper('a4')
+            ->download($clinicalFieldForm->reference_number.'-'.$locale.'.pdf');
     }
 
     private function validatedForm(Request $request, ?string $fixedType = null): array

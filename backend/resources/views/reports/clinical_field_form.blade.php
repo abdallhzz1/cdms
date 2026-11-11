@@ -1,6 +1,14 @@
 @php
     $ar = $locale === 'ar';
-    $tr = fn ($a, $e) => $ar ? $a : $e;
+    $arabic = $ar ? new \ArPHP\I18N\Arabic() : null;
+    $shape = function ($text) use ($ar, $arabic) {
+        $text = (string) $text;
+
+        return $ar && preg_match('/\p{Arabic}/u', $text)
+            ? $arabic->utf8Glyphs($text, 10000, false, false)
+            : $text;
+    };
+    $tr = fn ($a, $e) => $ar ? $shape($a) : $e;
     $payload = $form->payload ?? [];
     $context = $payload['context'] ?? [];
     $titles = [
@@ -45,37 +53,55 @@
         'good' => $tr('جيد', 'Good'), 'acceptable' => $tr('مقبول', 'Acceptable'), 'poor' => $tr('ضعيف', 'Poor'),
         'direct' => $tr('زيارة مباشرة', 'Direct observation'), 'reports' => $tr('تقارير', 'Reports'),
     ];
-    $value = fn ($v) => is_bool($v) ? ($v ? $tr('نعم', 'Yes') : $tr('لا', 'No')) : ($v ?: '—');
+    $value = function ($v) use ($tr, $shape) {
+        if (is_bool($v)) {
+            return $v ? $tr('نعم', 'Yes') : $tr('لا', 'No');
+        }
+        if (is_array($v)) {
+            $v = collect($v)->flatten()->filter(fn ($item) => is_scalar($item) && trim((string) $item) !== '')->join('، ');
+        }
+
+        return $v === null || trim((string) $v) === '' ? '-' : $shape((string) $v);
+    };
+    $statusLabels = [
+        'draft' => $tr('مسودة', 'Draft'), 'submitted' => $tr('مرسل', 'Submitted'),
+        'acknowledged' => $tr('تم الاستلام', 'Acknowledged'), 'action_required' => $tr('يتطلب إجراء', 'Action required'),
+        'returned_for_revision' => $tr('معاد للتعديل', 'Returned for revision'), 'completed' => $tr('مكتمل', 'Completed'),
+    ];
 @endphp
 <!doctype html>
 <html lang="{{ $locale }}" dir="{{ $ar ? 'rtl' : 'ltr' }}">
 <head>
     <meta charset="utf-8">
     <style>
-        @page { margin: 26px 30px; }
-        body { font-family: DejaVu Sans, sans-serif; color:#172033; font-size:10px; line-height:1.55; direction:{{ $ar ? 'rtl' : 'ltr' }}; }
-        h1 { text-align:center; font-size:16px; margin:0 0 4px; }
-        h2 { font-size:12px; color:#0f766e; margin:17px 0 7px; }
-        p { margin:3px 0; }
-        .sub { text-align:center; color:#526176; margin-bottom:14px; }
-        .urgent { color:#b91c1c; font-weight:bold; }
-        table { width:100%; border-collapse:collapse; margin:7px 0 12px; }
-        th, td { border:1px solid #d9d9d9; padding:6px; vertical-align:middle; text-align:{{ $ar ? 'right' : 'left' }}; }
-        th { background:#dff5f2; color:#134e4a; font-weight:bold; }
+        @page { margin: 22mm 16mm 18mm; }
+        html, body { font-family: "DejaVu Sans", sans-serif; }
+        body { color:#000; font-size:10px; line-height:1.65; direction:{{ $ar ? 'rtl' : 'ltr' }}; }
+        h1 { text-align:center; font-size:15px; margin:0 0 5px; font-weight:bold; }
+        h2 { font-size:11px; margin:16px 0 6px; padding-bottom:3px; border-bottom:1px solid #000; page-break-after:avoid; }
+        p { margin:4px 0; }
+        .sub { text-align:center; margin:0 0 14px; font-size:9px; }
+        .urgent { font-weight:bold; border:1px solid #000; padding:6px; }
+        table { width:100%; border-collapse:collapse; margin:6px 0 12px; }
+        tr { page-break-inside:avoid; }
+        th, td { border:1px solid #000; padding:5px 6px; vertical-align:top; text-align:{{ $ar ? 'right' : 'left' }}; }
+        th { font-weight:bold; background:#eee; }
         .short { width:18%; text-align:center; }
-        .meta td:first-child, .meta td:nth-child(3) { font-weight:bold; background:#f5f7f9; width:18%; }
-        .footer { margin-top:25px; border-top:1px solid #94a3b8; padding-top:6px; color:#64748b; font-size:8px; }
+        .meta td:first-child, .meta td:nth-child(3) { font-weight:bold; width:18%; background:#f5f5f5; }
+        .footer { margin-top:22px; border-top:1px solid #000; padding-top:5px; font-size:8px; }
+        .ltr { direction:ltr; text-align:left; unicode-bidi:embed; }
+        .rtl { direction:rtl; text-align:right; unicode-bidi:embed; }
     </style>
 </head>
 <body>
 <h1>{{ $tr('جامعة الخليل كلية الطب البشري', 'Hebron University Faculty of Medicine') }}</h1>
-<h1>{{ $titles[$form->type] }}</h1>
-<p class="sub">{{ $form->reference_number }} · {{ $tr('الإصدار', 'Revision') }} {{ $form->revision }}</p>
+<h1>{{ $titles[$form->type] ?? $tr('نموذج متابعة سريرية', 'Clinical Monitoring Form') }}</h1>
+<p class="sub ltr">{{ $form->reference_number }} | R{{ $form->revision }}</p>
 
 <table class="meta">
-    <tr><td>{{ $tr('أعد بواسطة', 'Prepared by') }}</td><td>{{ $form->creator?->name }}</td><td>{{ $tr('مرفوع إلى', 'Submitted to') }}</td><td>{{ $form->type === 'director_supervisory_visit' ? $tr('عمادة كلية الطب — العميد ونائب العميد', 'Faculty of Medicine Deanship — Dean and Vice Dean') : $form->recipient?->name }}</td></tr>
-    <tr><td>{{ $tr('الحالة', 'Status') }}</td><td>{{ $form->status }}</td><td>{{ $tr('التاريخ', 'Date') }}</td><td>{{ optional($form->activity_date)->format('Y-m-d') ?: optional($form->created_at)->format('Y-m-d') }}</td></tr>
-    <tr><td>{{ $tr('المستشفى', 'Hospital') }}</td><td>{{ $ar ? $form->trainingSite?->name_ar : ($form->trainingSite?->name_en ?: $form->trainingSite?->name_ar) }}</td><td>{{ $tr('القسم', 'Department') }}</td><td>{{ $ar ? $form->department?->name_ar : ($form->department?->name_en ?: $form->department?->name_ar) }}</td></tr>
+    <tr><td>{{ $tr('أعد بواسطة', 'Prepared by') }}</td><td>{{ $value($form->creator?->name) }}</td><td>{{ $tr('مرفوع إلى', 'Submitted to') }}</td><td>{{ $form->type === 'director_supervisory_visit' ? $tr('عمادة كلية الطب - العميد ونائب العميد', 'Faculty of Medicine Deanship - Dean and Vice Dean') : $value($form->recipient?->name) }}</td></tr>
+    <tr><td>{{ $tr('الحالة', 'Status') }}</td><td>{{ $statusLabels[$form->status] ?? $form->status }}</td><td>{{ $tr('التاريخ', 'Date') }}</td><td class="ltr">{{ optional($form->activity_date)->format('Y-m-d') ?: optional($form->created_at)->format('Y-m-d') }}</td></tr>
+    <tr><td>{{ $tr('المستشفى', 'Hospital') }}</td><td>{{ $value($ar ? $form->trainingSite?->name_ar : ($form->trainingSite?->name_en ?: $form->trainingSite?->name_ar)) }}</td><td>{{ $tr('القسم', 'Department') }}</td><td>{{ $value($ar ? $form->department?->name_ar : ($form->department?->name_en ?: $form->department?->name_ar)) }}</td></tr>
 </table>
 @if($form->is_urgent)<p class="urgent">{{ $tr('هذا النموذج يتضمن حالة عاجلة تستلزم المتابعة.', 'This form contains an urgent matter requiring follow-up.') }}</p>@endif
 
@@ -93,7 +119,7 @@
     @if(!empty($context['schedule_groups']))
         <h2>{{ $tr('المجموعات التي تمت زيارتها', 'Visited groups') }}</h2>
         <table><tr><th>{{ $tr('المجموعة', 'Group') }}</th><th>{{ $tr('المساق', 'Course') }}</th><th>{{ $tr('المشرف', 'Supervisor') }}</th><th class="short">{{ $tr('الطلبة', 'Students') }}</th></tr>
-        @foreach($context['schedule_groups'] as $group)<tr><td>{{ $value($group['subgroup'] ?? $group['group'] ?? null) }}</td><td>{{ $value($group['course'] ?? null) }}</td><td>{{ $value(implode('، ', $group['supervisors'] ?? [])) }}</td><td class="short">{{ $value($group['student_count'] ?? null) }}</td></tr>@endforeach</table>
+        @foreach($context['schedule_groups'] as $group)<tr><td>{{ $value($group['subgroup'] ?? $group['group'] ?? null) }}</td><td>{{ $value($group['course'] ?? null) }}</td><td>{{ $value($group['supervisors'] ?? []) }}</td><td class="short">{{ $value($group['student_count'] ?? null) }}</td></tr>@endforeach</table>
     @endif
     <h2>{{ $tr('قائمة التحقق', 'Monitoring checklist') }}</h2>
     <table><tr><th>{{ $tr('البند', 'Item') }}</th><th class="short">{{ $tr('التقييم', 'Assessment') }}</th><th>{{ $tr('الملاحظة', 'Comment') }}</th></tr>
@@ -114,7 +140,7 @@
         @if(isset($context['scheduled_groups']))<tr><td>{{ $tr('المجموعات والطلبة', 'Groups and students') }}</td><td>{{ $value($context['scheduled_groups']) }} / {{ $value($context['scheduled_students'] ?? null) }}</td><td>{{ $tr('المشرفون', 'Supervisors') }}</td><td>{{ $value($context['scheduled_supervisors'] ?? null) }}</td></tr>@endif</table>
     <h2>{{ $tr('تقييم التخصصات', 'Clinical specialties') }}</h2>
     <table><tr><th>{{ $tr('التخصص', 'Specialty') }}</th><th>{{ $tr('التقييم', 'Assessment') }}</th><th>{{ $tr('أساس التقييم', 'Basis') }}</th><th>{{ $tr('ملاحظات', 'Notes') }}</th></tr>
-    @foreach(($payload['specialties'] ?? []) as $item)<tr><td>{{ $ar ? ($item['name_ar'] ?? $item['name'] ?? '—') : ($item['name_en'] ?? $item['name'] ?? $item['name_ar'] ?? '—') }}</td><td>{{ $ratingLabels[$item['rating'] ?? ''] ?? '—' }}</td><td>{{ $ratingLabels[$item['basis'] ?? ''] ?? '—' }}</td><td>{{ $value($item['notes'] ?? null) }}</td></tr>@endforeach</table>
+    @foreach(($payload['specialties'] ?? []) as $item)<tr><td>{{ $value($ar ? ($item['name_ar'] ?? $item['name'] ?? '-') : ($item['name_en'] ?? $item['name'] ?? $item['name_ar'] ?? '-')) }}</td><td>{{ $ratingLabels[$item['rating'] ?? ''] ?? '-' }}</td><td>{{ $ratingLabels[$item['basis'] ?? ''] ?? '-' }}</td><td>{{ $value($item['notes'] ?? null) }}</td></tr>@endforeach</table>
     <h2>{{ $tr('التقييم العام للمستشفى', 'Overall hospital assessment') }}</h2>
     <table><tr><th>{{ $tr('البند', 'Item') }}</th><th class="short">{{ $tr('التقييم', 'Assessment') }}</th><th>{{ $tr('الملاحظة', 'Comment') }}</th></tr>
     @foreach($overallItems as $code => $label)<tr><td>{{ $label }}</td><td class="short">{{ $ratingLabels[data_get($payload, "overall.$code.rating")] ?? '—' }}</td><td>{{ $value(data_get($payload, "overall.$code.comment")) }}</td></tr>@endforeach</table>
@@ -122,20 +148,23 @@
 
 <h2>{{ $tr('الخلاصة والإجراءات', 'Summary and actions') }}</h2>
 @foreach(['observations' => $tr('الملاحظات', 'Observations'), 'strengths' => $tr('نقاط القوة', 'Strengths'), 'challenges' => $tr('التحديات', 'Challenges'), 'summary' => $tr('الخلاصة', 'Summary'), 'proposed_action' => $tr('الإجراء المقترح', 'Proposed action'), 'support_requested' => $tr('الدعم أو القرار المطلوب', 'Support or decision requested'), 'required_actions' => $tr('الإجراءات المطلوبة', 'Required actions'), 'dean_intervention' => $tr('تدخل العميد المطلوب', 'Dean intervention required')] as $key => $label)
-    @if(!empty($payload[$key]))<p><strong>{{ $label }}:</strong> {{ $payload[$key] }}</p>@endif
+    @if(!empty($payload[$key]))<p><strong>{{ $label }}:</strong> {{ $value($payload[$key]) }}</p>@endif
 @endforeach
 
-@php $actions = $payload['improvements'] ?? $payload['actions'] ?? []; @endphp
-@if(count($actions))
+@php
+    $actionSource = $payload['actions'] ?? $payload['improvements'] ?? [];
+    $actions = collect(is_array($actionSource) ? $actionSource : [])->filter(fn ($item) => is_array($item));
+@endphp
+@if($actions->isNotEmpty())
 <table><tr><th>{{ $tr('المجال', 'Area') }}</th><th>{{ $tr('التحسين', 'Improvement') }}</th><th>{{ $tr('الإجراء', 'Action') }}</th><th>{{ $tr('المسؤول والموعد', 'Responsible and deadline') }}</th><th>{{ $tr('الأولوية', 'Priority') }}</th></tr>
-@foreach($actions as $action)<tr><td>{{ $action['area'] ?? '—' }}</td><td>{{ $action['improvement'] ?? '—' }}</td><td>{{ $action['action'] ?? '—' }}</td><td>{{ ($action['responsible'] ?? '—').' · '.($action['deadline'] ?? '—') }}</td><td>{{ $action['priority'] ?? '—' }}</td></tr>@endforeach</table>
+@foreach($actions as $action)<tr><td>{{ $value($action['area'] ?? null) }}</td><td>{{ $value($action['improvement'] ?? null) }}</td><td>{{ $value($action['action'] ?? null) }}</td><td>{{ $value(($action['responsible'] ?? '-').' | '.($action['deadline'] ?? '-')) }}</td><td>{{ $value($action['priority'] ?? null) }}</td></tr>@endforeach</table>
 @endif
 
 @if($form->is_urgent)
 <h2 class="urgent">{{ $tr('توثيق الحالة العاجلة', 'Urgent case record') }}</h2>
-<p><strong>{{ $tr('التفاصيل', 'Details') }}:</strong> {{ data_get($payload, 'urgent.details', '—') }}</p>
-<p><strong>{{ $tr('الإجراء الفوري', 'Immediate action') }}:</strong> {{ data_get($payload, 'urgent.action_taken', '—') }}</p>
-<p><strong>{{ $tr('وقت التبليغ', 'Notification time') }}:</strong> {{ data_get($payload, 'urgent.notified_at', '—') }}</p>
+<p><strong>{{ $tr('التفاصيل', 'Details') }}:</strong> {{ $value(data_get($payload, 'urgent.details')) }}</p>
+<p><strong>{{ $tr('الإجراء الفوري', 'Immediate action') }}:</strong> {{ $value(data_get($payload, 'urgent.action_taken')) }}</p>
+<p><strong>{{ $tr('وقت التبليغ', 'Notification time') }}:</strong> {{ $value(data_get($payload, 'urgent.notified_at')) }}</p>
 @endif
 
 <div class="footer">{{ $tr('سجل إلكتروني صادر عن نظام إدارة الدائرة السريرية', 'Electronic record generated by the Clinical Department Management System') }} · {{ now()->format('Y-m-d H:i') }}</div>
