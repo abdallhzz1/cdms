@@ -289,13 +289,19 @@ class ClinicalFieldMonitoringController extends Controller
         if ($data['type'] === ClinicalFieldFormSchema::DIRECTOR_SUPERVISORY_VISIT && (empty($data['training_site_id']) || empty($data['activity_date']))) {
             throw ValidationException::withMessages(['training_site_id' => ['Training site and visit date are required.']]);
         }
+
+        // Schedule-backed assistant forms may legitimately include groups from
+        // several clinical departments. Resolve those groups first and never
+        // treat their department as a manual user selection.
+        $this->hydrateScheduleContext($data, $user);
+
         $scopedRole = $user->hasRole('RTA') || $user->hasRole('DEPARTMENT_HEAD');
         $global = $user->hasRole('CLINICAL_DIRECTOR') || $this->can($user, 'clinical_field_monitoring.manage');
-        if (! $global && $scopedRole && ! empty($data['department_id']) && ! $this->scopedDepartmentIds($user)->contains((int) $data['department_id'])) {
+        $scheduleBackedAssistant = $data['type'] === ClinicalFieldFormSchema::ASSISTANT_FOLLOW_UP
+            && ! empty($data['payload']['context']['schedule_group_keys']);
+        if (! $global && $scopedRole && ! $scheduleBackedAssistant && ! empty($data['department_id']) && ! $this->scopedDepartmentIds($user)->contains((int) $data['department_id'])) {
             throw ValidationException::withMessages(['department_id' => ['The selected department is outside your assigned scope.']]);
         }
-
-        $this->hydrateScheduleContext($data, $user);
 
         return $data;
     }
@@ -415,7 +421,7 @@ class ClinicalFieldMonitoringController extends Controller
             ])->values()->all();
 
             $data['course_id'] = $courseIds->count() === 1 ? $courseIds->first() : null;
-            $data['department_id'] = $departmentIds->count() === 1 ? $departmentIds->first() : ($data['department_id'] ?? null);
+            $data['department_id'] = $departmentIds->count() === 1 ? $departmentIds->first() : null;
             $payload['context'] = [
                 ...($payload['context'] ?? []),
                 'schedule_group_keys' => $keys->all(),

@@ -3,10 +3,12 @@
 namespace Tests\Feature;
 
 use App\Models\ClinicalFieldForm;
+use App\Models\Course;
 use App\Models\Department;
 use App\Models\Role;
 use App\Models\TrainingSite;
 use App\Models\User;
+use App\Services\Distribution\ClinicalScheduleQueryService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -87,6 +89,33 @@ class ClinicalFieldMonitoringWorkflowTest extends TestCase
         $request['department_id'] = $otherDepartment->id;
         $this->actingAs($this->assistant)->postJson('/api/v1/clinical-field-monitoring/forms', $request)
             ->assertUnprocessable()->assertJsonValidationErrors(['department_id']);
+    }
+
+    public function test_schedule_backed_assistant_form_accepts_groups_across_clinical_departments(): void
+    {
+        $otherDepartment = Department::factory()->create();
+        $course = Course::factory()->create();
+        $this->mock(ClinicalScheduleQueryService::class, function ($mock) use ($course, $otherDepartment) {
+            $mock->shouldReceive('getDailyGroups')->once()->andReturn([[
+                'rotation_id' => 7,
+                'course' => $course->only('id', 'code', 'name_ar', 'name_en'),
+                'department' => $otherDepartment->only('id', 'name_ar', 'name_en'),
+                'group' => ['id' => 12, 'name' => 'Q'],
+                'subgroup' => ['id' => 21, 'name' => 'Q1'],
+                'supervisors' => [['id' => 31, 'full_name_ar' => 'د. أحمد', 'full_name_en' => 'Dr Ahmad']],
+                'students' => [['id' => 41], ['id' => 42]],
+            ]]);
+        });
+
+        $request = $this->assistantRequest();
+        $request['payload']['context']['schedule_group_keys'] = ['7:12:21'];
+
+        $this->actingAs($this->assistant)->postJson('/api/v1/clinical-field-monitoring/forms', $request)
+            ->assertCreated()
+            ->assertJsonPath('data.department.id', $otherDepartment->id)
+            ->assertJsonPath('data.course.id', $course->id)
+            ->assertJsonPath('data.payload.context.schedule_group_keys.0', '7:12:21')
+            ->assertJsonPath('data.payload.context.scheduled_students', 2);
     }
 
     public function test_form_list_accepts_the_empty_filter_values_sent_by_older_frontends(): void

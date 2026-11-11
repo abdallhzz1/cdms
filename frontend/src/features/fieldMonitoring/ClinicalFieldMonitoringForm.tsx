@@ -162,7 +162,7 @@ export function ClinicalFieldMonitoringForm({ draft, options, locale, disabled =
     onChange({
       ...draft,
       course_id: courses.length === 1 ? courses[0].id : '',
-      department_id: departments.length === 1 ? departments[0].id : draft.department_id,
+      department_id: departments.length === 1 ? departments[0].id : '',
       payload,
     });
   };
