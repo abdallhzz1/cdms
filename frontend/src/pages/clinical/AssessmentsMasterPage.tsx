@@ -83,16 +83,18 @@ export function AssessmentsMasterPage() {
           {groups.map(group => <option key={group.key} value={group.key}>{tr('المجموعة', 'Group')} {group.group_name} · {levelName(group.academic_level, ar)} · {group.academic_year?.code || '—'}</option>)}
         </select>
       </section>
-      {reviewMode === 'assessments' && periods.length > 0 && <section className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white py-2.5 sm:justify-end">
-        <label htmlFor="clinical-review-period" className="shrink-0 text-xs font-bold text-slate-600">{tr('الفترة السريرية', 'Clinical period')}</label>
-        <select id="clinical-review-period" aria-label={tr('الفترة السريرية', 'Clinical period')} value={selectedPeriod?.key ?? ''} onChange={event => setPeriodChoice(event.target.value)} className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-teal-500 sm:max-w-sm">
-          {periods.map(period => <option key={period.key} value={period.key}>{period.period ? courseName(period.period, ar) : tr('جدول سنوي', 'Annual schedule')}</option>)}
-        </select>
-      </section>}
-      <div role="group" aria-label={tr('نوع المراجعة', 'Review type')} className="inline-flex w-full gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:w-auto">
-        {([['assessments', tr('تقييمات المشرف', 'Supervisor assessments')], ['osce', tr('OSCE النهائي', 'Final OSCE')], ['mini', tr('الميني أوسكي', 'Mini OSCE')]] as const).map(([mode, title]) =>
-          <button key={mode} type="button" aria-pressed={reviewMode === mode} onClick={() => setReviewMode(mode)} className={`min-h-10 flex-1 rounded-lg px-3 text-xs font-bold transition sm:flex-none ${reviewMode === mode ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>{title}</button>
-        )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div role="group" aria-label={tr('نوع المراجعة', 'Review type')} className="inline-flex w-full gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:w-auto">
+          {([['assessments', tr('تقييمات المشرف', 'Supervisor assessments')], ['osce', tr('OSCE النهائي', 'Final OSCE')], ['mini', tr('الميني أوسكي', 'Mini OSCE')]] as const).map(([mode, title]) =>
+            <button key={mode} type="button" aria-pressed={reviewMode === mode} onClick={() => setReviewMode(mode)} className={`min-h-10 flex-1 rounded-lg px-3 text-xs font-bold transition sm:flex-none ${reviewMode === mode ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>{title}</button>
+          )}
+        </div>
+        {reviewMode === 'assessments' && periods.length > 0 && <section className="flex min-w-0 flex-1 items-center justify-end gap-2">
+          <label htmlFor="clinical-review-period" className="shrink-0 text-xs font-bold text-slate-600">{tr('الفترة السريرية', 'Clinical period')}</label>
+          <select id="clinical-review-period" aria-label={tr('الفترة السريرية', 'Clinical period')} value={selectedPeriod?.key ?? ''} onChange={event => setPeriodChoice(event.target.value)} className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-teal-500 sm:max-w-sm">
+            {periods.map(period => <option key={period.key} value={period.key}>{period.period ? courseName(period.period, ar) : tr('جدول سنوي', 'Annual schedule')}</option>)}
+          </select>
+        </section>}
       </div>
       {reviewMode === 'assessments' && <p className="text-[11px] text-slate-500">{t('assessments.matrix.hint')}</p>}
       {reviewMode === 'osce' && <p className="text-[11px] text-slate-500">{tr('علامة OSCE النهائي مرة واحدة لكل مساق وسنة أكاديمية. حالة الكشف لا تعني اعتماد علامة الأوسكي بشكل منفصل.', 'Final OSCE is recorded once per course and academic year. The grade-sheet status is not a separate OSCE approval.')}</p>}
