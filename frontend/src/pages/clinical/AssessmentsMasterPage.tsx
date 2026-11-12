@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Settings2 } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -51,6 +51,22 @@ export function AssessmentsMasterPage() {
   });
   const groups = groupsQuery.data?.groups ?? [];
   const selectedGroup = groups.find(group => group.key === groupKey) ?? groups[0] ?? null;
+  const subgroupPeriodQueries = useQueries({ queries: (selectedGroup?.subgroups ?? []).map(subgroup => ({
+    queryKey: ['clinical-assessment-review-subgroup', subgroup.id],
+    queryFn: () => apiFetch<ReviewDetail>(`/clinical-assessments/review-subgroup?subgroup_id=${subgroup.id}`),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  })) });
+  const periods = [...new Map(subgroupPeriodQueries.flatMap(query => (query.data?.rotations ?? [])
+    .filter(rotation => rotation.weeks.length > 0)
+    .map(rotation => {
+      const period = rotation.clinical_period;
+      const key = period ? `period:${period.id}` : 'period:none';
+      const startDate = rotation.weeks.map(week => week.start_date).filter((date): date is string => Boolean(date)).sort()[0] ?? '';
+      return [key, { key, period, startDate }] as const;
+    }))).values()].sort((a, b) => (a.period?.sequence ?? Number.MAX_SAFE_INTEGER) - (b.period?.sequence ?? Number.MAX_SAFE_INTEGER) || a.startDate.localeCompare(b.startDate));
+  const [periodChoice, setPeriodChoice] = useState('');
+  const selectedPeriod = periods.find(period => period.key === periodChoice) ?? periods[0] ?? null;
 
   if (!allowed) return <ErrorState title={tr('لا تملك صلاحية مراجعة التقييمات', 'You do not have permission to review assessments')} />;
   if (groupsQuery.isLoading) return <LoadingState />;
@@ -67,6 +83,12 @@ export function AssessmentsMasterPage() {
           {groups.map(group => <option key={group.key} value={group.key}>{tr('المجموعة', 'Group')} {group.group_name} · {levelName(group.academic_level, ar)} · {group.academic_year?.code || '—'}</option>)}
         </select>
       </section>
+      {reviewMode === 'assessments' && periods.length > 0 && <section className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white py-2.5 sm:justify-end">
+        <label htmlFor="clinical-review-period" className="shrink-0 text-xs font-bold text-slate-600">{tr('الفترة السريرية', 'Clinical period')}</label>
+        <select id="clinical-review-period" aria-label={tr('الفترة السريرية', 'Clinical period')} value={selectedPeriod?.key ?? ''} onChange={event => setPeriodChoice(event.target.value)} className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-teal-500 sm:max-w-sm">
+          {periods.map(period => <option key={period.key} value={period.key}>{period.period ? courseName(period.period, ar) : tr('جدول سنوي', 'Annual schedule')}</option>)}
+        </select>
+      </section>}
       <div role="group" aria-label={tr('نوع المراجعة', 'Review type')} className="inline-flex w-full gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:w-auto">
         {([['assessments', tr('تقييمات المشرف', 'Supervisor assessments')], ['osce', tr('OSCE النهائي', 'Final OSCE')], ['mini', tr('الميني أوسكي', 'Mini OSCE')]] as const).map(([mode, title]) =>
           <button key={mode} type="button" aria-pressed={reviewMode === mode} onClick={() => setReviewMode(mode)} className={`min-h-10 flex-1 rounded-lg px-3 text-xs font-bold transition sm:flex-none ${reviewMode === mode ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>{title}</button>
@@ -76,13 +98,13 @@ export function AssessmentsMasterPage() {
       {reviewMode === 'osce' && <p className="text-[11px] text-slate-500">{tr('علامة OSCE النهائي مرة واحدة لكل مساق وسنة أكاديمية. حالة الكشف لا تعني اعتماد علامة الأوسكي بشكل منفصل.', 'Final OSCE is recorded once per course and academic year. The grade-sheet status is not a separate OSCE approval.')}</p>}
       {reviewMode === 'mini' && <p className="text-[11px] text-slate-500">{tr('علامات الميني أوسكي منفصلة عن الأوسكي النهائي، وتُعرض حسب طريقة حسابها في خطة المساق.', 'Mini OSCE scores are separate from the final OSCE and are shown by their course-plan calculation method.')}</p>}
       <section aria-label={tr('المجموعات الفرعية', 'Subgroups')} className="space-y-6">
-        {selectedGroup?.subgroups.map(subgroup => <SubgroupSection key={subgroup.id} subgroup={subgroup} ar={ar} mode={reviewMode} />)}
+        {selectedGroup?.subgroups.map(subgroup => <SubgroupSection key={subgroup.id} subgroup={subgroup} ar={ar} mode={reviewMode} periodKey={selectedPeriod?.key ?? null} />)}
       </section>
     </>}
   </div>;
 }
 
-function SubgroupSection({ subgroup, ar, mode }: { subgroup: ReviewSubgroup; ar: boolean; mode: 'assessments' | 'osce' | 'mini' }) {
+function SubgroupSection({ subgroup, ar, mode, periodKey }: { subgroup: ReviewSubgroup; ar: boolean; mode: 'assessments' | 'osce' | 'mini'; periodKey: string | null }) {
   const tr = (arabic: string, english: string) => ar ? arabic : english;
   const detailQuery = useQuery({
     queryKey: ['clinical-assessment-review-subgroup', subgroup.id],
@@ -115,7 +137,7 @@ function SubgroupSection({ subgroup, ar, mode }: { subgroup: ReviewSubgroup; ar:
       {detailQuery.isLoading ? <LoadingState /> : detailQuery.isError ? <ErrorState onRetry={() => detailQuery.refetch()} /> : <>
         {mode === 'assessments' ? <>
           {!detail?.rotations.length && <p className="px-3 py-3 text-xs text-slate-500">{tr('لا توجد أسابيع تكليف منشورة لهذه المجموعة بعد.', 'No published assignment weeks for this subgroup yet.')}</p>}
-          <AssessmentWeekTable students={subgroup.students} rotations={rotations} ar={ar} label={subgroup.name} />
+          <AssessmentWeekTable students={subgroup.students} rotations={rotations} ar={ar} label={subgroup.name} periodKey={periodKey} />
         </> : mode === 'osce' ? <FinalOsceReview courses={detail?.final_osce ?? []} ar={ar} /> : <>{directMini.length > 0 && <div><h3 className="px-4 pt-4 text-sm font-bold">{tr('الميني أوسكي — حصة مستقلة', 'Mini OSCE — separate component')}</h3><FinalOsceReview courses={directMini} ar={ar} /></div>}{!directMini.length && <p className="px-4 py-5 text-xs text-slate-500">{tr('لا توجد علامات ميني أوسكي مستقلة لهذه المجموعة الفرعية.', 'No separate Mini OSCE scores exist for this subgroup.')}</p>}</>}
       </>}
     </div>
@@ -150,14 +172,13 @@ function FinalOsceReview({ courses, ar }: { courses: FinalOsceCourse[]; ar: bool
   </div>;
 }
 
-function AssessmentWeekTable({ students, rotations, ar, label }: { students: Student[]; rotations: ReviewRotation[]; ar: boolean; label: string }) {
+function AssessmentWeekTable({ students, rotations, ar, label, periodKey }: { students: Student[]; rotations: ReviewRotation[]; ar: boolean; label: string; periodKey: string | null }) {
   const { t } = useI18n();
   const { can } = useAuth();
   const queryClient = useQueryClient();
   const matrixRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(() => Math.max(240, window.innerWidth - 24));
   const [startIndex, setStartIndex] = useState(0);
-  const [periodChoice, setPeriodChoice] = useState('');
   const [selection, setSelection] = useState<{ row: ReviewStudent; week: ReviewWeek; rotation: ReviewRotation } | null>(null);
   const saveAssessment = useMutation({
     mutationFn: (payload: { assignment_id: number; student_id: number; evaluation_week?: number; score: number }) =>
@@ -188,13 +209,9 @@ function AssessmentWeekTable({ students, rotations, ar, label }: { students: Stu
     };
   }, []);
 
-  const periods = [...new Map(rotations.filter(rotation => rotation.weeks.length > 0).map(rotation => {
-    const period = rotation.clinical_period;
-    const key = period ? `period:${period.id}` : 'period:none';
-    return [key, { key, period, startDate: rotation.weeks.map(week => week.start_date).filter((date): date is string => Boolean(date)).sort()[0] ?? '' }] as const;
-  })).values()].sort((a, b) => (a.period?.sequence ?? Number.MAX_SAFE_INTEGER) - (b.period?.sequence ?? Number.MAX_SAFE_INTEGER) || a.startDate.localeCompare(b.startDate));
-  const selectedPeriod = periods.find(period => period.key === periodChoice) ?? periods[0] ?? null;
-  const assignedRotations = rotations.filter(rotation => rotation.weeks.length > 0 && (rotation.clinical_period ? `period:${rotation.clinical_period.id}` : 'period:none') === selectedPeriod?.key);
+  useEffect(() => { setStartIndex(0); setSelection(null); }, [periodKey]);
+
+  const assignedRotations = rotations.filter(rotation => rotation.weeks.length > 0 && (rotation.clinical_period ? `period:${rotation.clinical_period.id}` : 'period:none') === periodKey);
   const columns = assignedRotations.flatMap(rotation => [...rotation.weeks].sort((a, b) => a.number - b.number).map(week => ({ rotation, week })));
   const roster = [...new Map([...students, ...columns.flatMap(({ week }) => week.students.map(row => row.student))].map(student => [student.id, student])).values()];
   const studentWidth = width < 640 ? Math.min(176, Math.round(width * 0.46)) : 216;
@@ -210,7 +227,6 @@ function AssessmentWeekTable({ students, rotations, ar, label }: { students: Stu
 
   return <>
     <div ref={matrixRef} className="min-w-0">
-      {periods.some(item => item.period) && <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2.5 sm:justify-end"><label htmlFor={`clinical-period-${label}`} className="shrink-0 text-[11px] font-bold text-slate-600">{ar ? 'الفترة السريرية' : 'Clinical period'}</label><select id={`clinical-period-${label}`} aria-label={ar ? 'الفترة السريرية' : 'Clinical period'} value={selectedPeriod?.key ?? ''} onChange={event => { setPeriodChoice(event.target.value); setStartIndex(0); }} className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-teal-500 sm:max-w-sm">{periods.map(item => <option key={item.key} value={item.key}>{item.period ? courseName(item.period, ar) : ar ? 'جدول سنوي' : 'Annual schedule'}</option>)}</select></div>}
       {paged && <div role="group" aria-label={t('assessments.matrix.weekNavigation')} className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-2 py-2 sm:px-3">
         <button type="button" disabled={pageStart === 0} onClick={() => setStartIndex(pageStart - capacity)} aria-label={t('assessments.matrix.previousWeeks')} title={t('assessments.matrix.previousWeeks')} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-teal-800 hover:bg-teal-50 disabled:cursor-default disabled:opacity-30"><PreviousIcon aria-hidden="true" className="h-4 w-4" /></button>
         <p aria-live="polite" className="min-w-0 text-center text-[11px] font-medium text-slate-600">{t('assessments.matrix.visibleColumns')} <span dir="ltr" className="inline-block font-bold tabular-nums text-slate-800">{pageStart + 1}–{pageStart + visibleColumns.length} / {columns.length}</span></p>

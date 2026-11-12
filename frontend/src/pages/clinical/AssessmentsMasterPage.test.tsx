@@ -235,6 +235,41 @@ describe('AssessmentsMasterPage review', () => {
     expect(screen.queryByRole('button', { name: 'Weeks' })).not.toBeInTheDocument();
   });
 
+  it('changes the clinical period once for every subgroup matrix in the selected main group', async () => {
+    const makePeriodDetail = (subgroupId: number, studentId: number) => {
+      const base = detail(11).rotations[0];
+      const baseWeek = base.weeks[0];
+      const row = studentId === 1 ? baseWeek.students[0] : {
+        student: student(studentId), supervisors: [], ready: true,
+        assessments: [{ ...baseWeek.students[0].assessments[0], id: studentId, score: '8.00' }],
+      };
+      return { subgroup_id: subgroupId, final_osce: [], rotations: [
+        { ...base, id: subgroupId * 10 + 1, clinical_period: { id: 101, code: 'P1', name_ar: 'الفترة السريرية الأولى', name_en: 'First clinical period', sequence: 1 }, weeks: [{ ...baseWeek, number: 1, students: [row] }] },
+        { ...base, id: subgroupId * 10 + 2, clinical_period: { id: 102, code: 'P2', name_ar: 'الفترة السريرية الثانية', name_en: 'Second clinical period', sequence: 2 }, weeks: [{ ...baseWeek, number: 12, students: [row] }] },
+      ] };
+    };
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return envelope(reviewer);
+      if (url.includes('/review-groups')) return envelope(groups);
+      if (url.includes('subgroup_id=11')) return envelope(makePeriodDetail(11, 1));
+      if (url.includes('subgroup_id=12')) return envelope(makePeriodDetail(12, 3));
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    renderWithProviders(<AssessmentsMasterPage />, { route: '/assessments' });
+    const periodSelect = await screen.findByRole('combobox', { name: 'Clinical period' });
+    expect(screen.getAllByRole('combobox', { name: 'Clinical period' })).toHaveLength(1);
+    const q1 = await screen.findByRole('table', { name: 'Q1' });
+    const q2 = await screen.findByRole('table', { name: 'Q2' });
+    expect(within(q1).getByText('Week 1')).toBeVisible();
+    expect(within(q2).getByText('Week 1')).toBeVisible();
+    await userEvent.selectOptions(periodSelect, 'period:102');
+    expect(within(q1).getByText('Week 12')).toBeVisible();
+    expect(within(q2).getByText('Week 12')).toBeVisible();
+    expect(within(q1).queryByText('Week 1')).not.toBeInTheDocument();
+    expect(within(q2).queryByText('Week 1')).not.toBeInTheDocument();
+  });
+
   it('fits twelve compact weeks at desktop width without week navigation', async () => {
     mockMatrixWidth(1000);
     const response = detail(11);
