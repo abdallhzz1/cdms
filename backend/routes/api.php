@@ -1028,8 +1028,6 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 ->middleware('permission:rotations.create')->name('schedules.store');
             Route::put('versions/{version}/cell', [CourseDistributionController::class, 'assignCell'])
                 ->middleware('permission:distribution.update')->name('cells.update');
-            Route::post('versions/{version}/cells/bulk', [CourseDistributionController::class, 'assignCellsBulk'])
-                ->middleware('permission:distribution.update')->name('cells.bulk');
             Route::post('versions/{version}/copy-period', [CourseDistributionController::class, 'copyPeriodDistribution'])
                 ->middleware('permission:distribution.update')->name('period.copy');
             Route::delete('versions/{version}/cell', [CourseDistributionController::class, 'clearCell'])

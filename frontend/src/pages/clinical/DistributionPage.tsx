@@ -336,8 +336,6 @@ export function DistributionPage() {
     main_group_codes: [],
   });
   const [rowModal, setRowModal] = useState(false);
-  const [bulkModalOpen, setBulkModalOpen] = useState(false);
-  const [bulkForm, setBulkForm] = useState({ rowId: "", blockIds: [] as number[], subgroupIds: [] as number[] });
   const [copyModalOpen, setCopyModalOpen] = useState(false);
   const [sourcePeriodId, setSourcePeriodId] = useState("");
   const [workDetailsRow, setWorkDetailsRow] = useState<ScheduleRow | null>(null);
@@ -452,7 +450,7 @@ export function DistributionPage() {
     staleTime: 30_000,
   })) : [] });
   const copySourceChoices = sourcePeriods.map((period, index) => ({ period, query: sourceScheduleQueries[index] }))
-    .filter((item) => item.query?.data?.version && (item.query.data.cells?.length ?? 0) > 0);
+    .filter((item) => item.query?.data?.version && (item.query.data.rows?.length ?? 0) > 0);
   const selectedCopySource = copySourceChoices.find((item) => String(item.period.id) === sourcePeriodId);
   const publishedVersion =
     schedule?.version?.status === "published"
@@ -734,28 +732,8 @@ export function DistributionPage() {
         ),
       }),
   });
-  const bulkAssign = useMutation({
-    mutationFn: () => apiFetch<{ created_cells: number; skipped_existing: number; skipped_non_clinical: number }>(
-      `/course-distribution/versions/${schedule!.version!.id}/cells/bulk`,
-      { method: "POST", body: {
-        course_schedule_row_id: Number(bulkForm.rowId),
-        rotation_block_ids: bulkForm.blockIds,
-        subgroup_ids: bulkForm.subgroupIds,
-        training_site_id: Number(schedule!.rows.find((row) => String(row.id) === bulkForm.rowId)?.training_site_id),
-      } },
-    ),
-    onSuccess: async (data) => {
-      setBulkModalOpen(false);
-      await refresh();
-      setNotice({ type: "success", text: tr(
-        `تم توزيع ${data.created_cells} خلية. تُركت ${data.skipped_existing} خلية موزعة كما هي، وتُخطّي ${data.skipped_non_clinical} اختيارًا في أسابيع غير سريرية.`,
-        `Assigned ${data.created_cells} cells. Kept ${data.skipped_existing} existing placements unchanged and skipped ${data.skipped_non_clinical} selections in non-clinical weeks.`,
-      ) });
-    },
-    onError: (error) => setNotice({ type: "error", text: message(error, { ar: "تعذر تطبيق التوزيع الجماعي. لم تُحفظ التغييرات.", en: "Could not apply bulk distribution. No changes were saved." }, locale) }),
-  });
   const copyPeriod = useMutation({
-    mutationFn: () => apiFetch<{ created_cells: number; created_rows: number; skipped_existing: number; skipped_missing_week: number; skipped_non_clinical: number }>(
+    mutationFn: () => apiFetch<{ created_rows: number; skipped_existing_rows: number; copied_cells: 0 }>(
       `/course-distribution/versions/${schedule!.version!.id}/copy-period`,
       { method: "POST", body: { source_version_id: Number(selectedCopySource?.query?.data?.version?.id) } },
     ),
@@ -763,8 +741,8 @@ export function DistributionPage() {
       setCopyModalOpen(false);
       await refresh();
       setNotice({ type: "success", text: tr(
-        `نُسخت ${data.created_cells} خلية وأُضيف ${data.created_rows} صف مشرف. تُركت ${data.skipped_existing} خلية موجودة، وتُخطّي ${data.skipped_missing_week} أسبوعًا غير مطابق و${data.skipped_non_clinical} اختيارًا غير سريري.`,
-        `Copied ${data.created_cells} cells and added ${data.created_rows} supervisor rows. Kept ${data.skipped_existing} existing cells, skipped ${data.skipped_missing_week} unmatched weeks and ${data.skipped_non_clinical} non-clinical selections.`,
+        `أُضيف ${data.created_rows} صف مشرف، وتُرك ${data.skipped_existing_rows} صف مطابق موجود كما هو. لم تُنسخ أي خلايا أو تكليفات.`,
+        `Added ${data.created_rows} supervisor rows and kept ${data.skipped_existing_rows} matching rows unchanged. No cells or placements were copied.`,
       ) });
     },
     onError: (error) => setNotice({ type: "error", text: message(error, { ar: "تعذر نسخ الفترة. لم تُحفظ التغييرات.", en: "Could not copy the period. No changes were saved." }, locale) }),
@@ -1393,16 +1371,6 @@ export function DistributionPage() {
               </p>
             </div>
             <div className="grid w-full grid-cols-1 gap-2 min-[380px]:grid-cols-2 sm:flex sm:w-auto sm:flex-wrap [&>button]:h-auto [&>button]:min-h-10 [&>button]:min-w-0 [&>button]:whitespace-normal [&>button]:px-2 [&>button]:py-2 [&>button]:text-xs">
-              {can("distribution.update") && isEditable && (
-                <Button variant="outline" onClick={() => {
-                  const firstRow = schedule.rows.find((row) => row.row_type === "doctor") ?? schedule.rows[0];
-                  setBulkForm({ rowId: firstRow ? String(firstRow.id) : "", blockIds: [], subgroupIds: [] });
-                  setBulkModalOpen(true);
-                }}>
-                  <Users className="me-1 h-4 w-4" />
-                  {tr("تعبئة جماعية", "Bulk fill")}
-                </Button>
-              )}
               {can("distribution.update") && isEditable && periodId !== "annual" && sourcePeriods.length > 0 && (
                 <Button variant="outline" onClick={() => {
                   const previous = [...sourcePeriods].filter((period) => (period.sequence ?? 0) < (selectedPeriod?.sequence ?? Infinity)).sort((a, b) => b.sequence - a.sequence)[0]
@@ -1411,7 +1379,7 @@ export function DistributionPage() {
                   setCopyModalOpen(true);
                 }}>
                   <Copy className="me-1 h-4 w-4" />
-                  {tr("نسخ فترة سابقة", "Copy previous period")}
+                  {tr("نسخ صفوف فترة سابقة", "Copy rows from a previous period")}
                 </Button>
               )}
               {can("distribution.schedule_rows.manage") && isEditable && (
@@ -2137,67 +2105,13 @@ export function DistributionPage() {
       </Modal>
 
       <Modal
-        isOpen={bulkModalOpen}
-        onClose={() => setBulkModalOpen(false)}
-        title={tr("تعبئة توزيع لعدة أسابيع ومجموعات", "Bulk fill weeks and groups")}
-        footer={<>
-          <Button variant="outline" onClick={() => setBulkModalOpen(false)}>{tr("إلغاء", "Cancel")}</Button>
-          <Button onClick={() => bulkAssign.mutate()} isLoading={bulkAssign.isPending} disabled={!bulkForm.rowId || !bulkForm.blockIds.length || !bulkForm.subgroupIds.length}>
-            {tr("تطبيق التوزيع", "Apply distribution")}
-          </Button>
-        </>}
-      >
-        <div className="space-y-4">
-          <label className="block">
-            <span className="mb-1.5 block text-xs font-black text-slate-700">{tr("المشرف أو الصف", "Supervisor or row")}</span>
-            <select className={inputClass} value={bulkForm.rowId} onChange={(event) => setBulkForm({ ...bulkForm, rowId: event.target.value })}>
-              <option value="">{tr("اختر صفًا", "Select a row")}</option>
-              {schedule?.rows.map((row) => <option key={row.id} value={row.id}>{row.row_type === "vacancy" ? row.label || tr("شاغر", "Vacancy") : rowSupervisorName(row)} · {ar ? row.training_site?.name_ar : row.training_site?.name_en || row.training_site?.name_ar}</option>)}
-            </select>
-          </label>
-          <section className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-xs font-black text-slate-700">{tr("الأسابيع", "Weeks")}</h3>
-              <button type="button" className="text-[11px] font-bold text-teal-800" onClick={() => setBulkForm({ ...bulkForm, blockIds: bulkForm.blockIds.length === (schedule?.blocks.length ?? 0) ? [] : (schedule?.blocks.map((block) => block.id) ?? []) })}>
-                {bulkForm.blockIds.length === (schedule?.blocks.length ?? 0) && schedule?.blocks.length ? tr("إلغاء تحديد الكل", "Clear all") : tr("تحديد كل الأسابيع", "Select all weeks")}
-              </button>
-            </div>
-            <div className="grid max-h-40 grid-cols-3 gap-2 overflow-y-auto rounded-xl border border-slate-200 p-2 sm:grid-cols-4">
-              {schedule?.blocks.map((block) => <label key={block.id} className={`flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border px-2 text-xs font-bold ${bulkForm.blockIds.includes(block.id) ? "border-teal-400 bg-teal-50 text-teal-900" : "border-slate-200 text-slate-700"}`}>
-                <input type="checkbox" checked={bulkForm.blockIds.includes(block.id)} onChange={(event) => setBulkForm({ ...bulkForm, blockIds: event.target.checked ? [...bulkForm.blockIds, block.id] : bulkForm.blockIds.filter((id) => id !== block.id) })} className="h-4 w-4 accent-teal-700" />
-                {tr("الأسبوع", "Week")} {block.from_week}
-              </label>)}
-            </div>
-          </section>
-          <section className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-xs font-black text-slate-700">{tr("المجموعات الفرعية", "Subgroups")}</h3>
-              <button type="button" className="text-[11px] font-bold text-teal-800" onClick={() => setBulkForm({ ...bulkForm, subgroupIds: bulkForm.subgroupIds.length === (schedule?.subgroups.length ?? 0) ? [] : (schedule?.subgroups.map((subgroup) => subgroup.id) ?? []) })}>
-                {bulkForm.subgroupIds.length === (schedule?.subgroups.length ?? 0) && schedule?.subgroups.length ? tr("إلغاء تحديد الكل", "Clear all") : tr("تحديد كل المجموعات", "Select all groups")}
-              </button>
-            </div>
-            <div className="grid max-h-48 grid-cols-2 gap-2 overflow-y-auto rounded-xl border border-slate-200 p-2 sm:grid-cols-3">
-              {schedule?.subgroups.map((subgroup) => <label key={subgroup.id} className={`flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border px-2 text-xs font-bold ${bulkForm.subgroupIds.includes(subgroup.id) ? "border-teal-400 bg-teal-50 text-teal-900" : "border-slate-200 text-slate-700"}`}>
-                <input type="checkbox" checked={bulkForm.subgroupIds.includes(subgroup.id)} onChange={(event) => setBulkForm({ ...bulkForm, subgroupIds: event.target.checked ? [...bulkForm.subgroupIds, subgroup.id] : bulkForm.subgroupIds.filter((id) => id !== subgroup.id) })} className="h-4 w-4 accent-teal-700" />
-                <span dir="ltr">{subgroup.name}</span><span className="text-[10px] text-slate-500">({subgroup.students_count})</span>
-              </label>)}
-            </div>
-          </section>
-          <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] font-bold leading-5 text-amber-900">
-            {tr("سيتم إضافة التوزيعات غير الموجودة فقط. الخلايا الموزعة مسبقًا أو الأسابيع غير السريرية ستبقى كما هي، وإذا تعارض دوام المشرف فلن يُحفظ أي تغيير.", "Only missing placements will be added. Existing placements and non-clinical weeks stay unchanged. If the supervisor is unavailable for a selected week, nothing will be saved.")}
-            <span className="mt-1 block">{tr("المحدد:", "Selected:")} {bulkForm.blockIds.length} {tr("أسبوع ×", "weeks ×")} {bulkForm.subgroupIds.length} {tr("مجموعة فرعية", "subgroups")}</span>
-          </p>
-        </div>
-      </Modal>
-
-      <Modal
         isOpen={copyModalOpen}
         onClose={() => setCopyModalOpen(false)}
-        title={tr("نسخ توزيع من فترة سريرية أخرى", "Copy from another clinical period")}
+        title={tr("نسخ صفوف المشرفين من فترة سابقة", "Copy supervisor rows from a previous period")}
         footer={<>
           <Button variant="outline" onClick={() => setCopyModalOpen(false)}>{tr("إلغاء", "Cancel")}</Button>
           <Button onClick={() => copyPeriod.mutate()} isLoading={copyPeriod.isPending} disabled={!selectedCopySource || !selectedCopySource.query?.data?.version}>
-            {tr("نسخ التوزيعات المتاحة", "Copy available placements")}
+            {tr("نسخ الصفوف دون توزيع", "Copy rows without placements")}
           </Button>
         </>}
       >
@@ -2208,16 +2122,15 @@ export function DistributionPage() {
               <option value="">{tr("اختر الفترة", "Select a period")}</option>
               {sourcePeriods.map((period, index) => {
                 const source = sourceScheduleQueries[index]?.data;
-                return <option key={period.id} value={period.id} disabled={!source?.version || !source.cells?.length}>{ar ? period.name_ar : period.name_en || period.name_ar}{source?.version ? ` · ${source.cells.length} ${tr("توزيع", "placements")}` : ` · ${tr("لا يوجد جدول", "No schedule")}`}</option>;
+                return <option key={period.id} value={period.id} disabled={!source?.version || !source.rows?.length}>{ar ? period.name_ar : period.name_en || period.name_ar}{source?.version ? ` · ${source.rows.length} ${tr("صف", "rows")}` : ` · ${tr("لا يوجد جدول", "No schedule")}`}</option>;
               })}
             </select>
           </label>
           {sourceScheduleQueries.some((query) => query.isLoading) && <p className="text-xs text-slate-500">{tr("جارٍ تحميل جداول الفترات المتاحة…", "Loading available period schedules…")}</p>}
-          {!sourceScheduleQueries.some((query) => query.isLoading) && !copySourceChoices.length && <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">{tr("لا توجد فترة أخرى تحتوي على توزيعات قابلة للنسخ.", "No other period contains placements to copy.")}</p>}
+          {!sourceScheduleQueries.some((query) => query.isLoading) && !copySourceChoices.length && <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">{tr("لا توجد فترة أخرى تحتوي على صفوف مشرفين قابلة للنسخ.", "No other period contains supervisor rows to copy.")}</p>}
           {selectedCopySource?.query?.data && <div className="space-y-2 rounded-xl border border-teal-100 bg-teal-50 p-3 text-xs leading-5 text-teal-900">
-            <p>{tr("معاينة:", "Preview:")} {selectedCopySource.query.data.cells.length} {tr("توزيعًا في المصدر، و", "source placements; ")}{schedule?.cells.length ?? 0} {tr("توزيعًا حاليًا في الفترة المستهدفة.", "existing placements in the target period.")}</p>
-            {selectedCopySource.query.data.blocks.length !== schedule?.blocks.length && <p className="font-bold">{tr("عدد الأسابيع مختلف؛ ستُنسخ الأسابيع التي لها رقم مطابق فقط.", "Week counts differ; only matching week numbers will be copied.")}</p>}
-            <p className="font-bold">{tr("لن تُستبدل أي خلية موجودة؛ سيضيف النظام الخلايا الفارغة فقط ويتحقق من دوام المشرفين قبل الحفظ.", "Existing cells will not be replaced. Only empty cells will be filled, after checking supervisor availability.")}</p>
+            <p>{tr("معاينة:", "Preview:")} {selectedCopySource.query.data.rows.length} {tr("صفوف في المصدر، و", "source rows; ")}{schedule?.rows.length ?? 0} {tr("صفوف حاليًا في الفترة المستهدفة.", "rows currently in the target period.")}</p>
+            <p className="font-bold">{tr("سيضيف النظام صفوف المشرفين الناقصة فقط، ولن ينسخ أو يفرّغ أي خلية أو تكليف موجود.", "Only missing supervisor rows will be added. No existing cells or placements will be copied or cleared.")}</p>
           </div>}
         </div>
       </Modal>
