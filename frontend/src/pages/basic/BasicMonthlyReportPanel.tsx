@@ -3,32 +3,32 @@ import { ChevronDown, Search } from 'lucide-react';
 import { basicText as bt } from '@/i18n/basicAttendance';
 
 export type WarningThreshold = 2 | 3;
-export type MonthlyStudent = {
+export type AttendanceStudent = {
   id: number; name: string; university_number: string; email: string; photo_url?: string | null;
   sessions: number; present: number; absent: number;
   total_absent: number; is_enrolled: boolean; notifications: Record<string, string>;
 };
-export type MonthlySummary = { month: string; finalized_sessions: number; students: MonthlyStudent[] };
+export type SemesterSummary = { academic_year: string; semester: string; finalized_sessions: number; students: AttendanceStudent[] };
 
 const PAGE_SIZE = 12;
 
-export function warningTier(student: MonthlyStudent): WarningThreshold | null {
+export function warningTier(student: AttendanceStudent): WarningThreshold | null {
   if (student.total_absent >= 3) return 3;
   if (student.total_absent === 2) return 2;
   return null;
 }
 
-export function eligibleForWarning(student: MonthlyStudent, threshold: WarningThreshold): boolean {
+export function eligibleForWarning(student: AttendanceStudent, threshold: WarningThreshold): boolean {
   return student.is_enrolled && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(student.email?.trim() ?? '')
     && warningTier(student) === threshold && !student.notifications?.[String(threshold)];
 }
 
-export function BasicMonthlyReportPanel({ summary, busy, canNotify, onWarn, onBulk }: {
-  summary: MonthlySummary;
+export function BasicSemesterReportPanel({ summary, busy, canNotify, onWarn, onBulk }: {
+  summary: SemesterSummary;
   busy: boolean;
   canNotify: boolean;
-  onWarn: (student: MonthlyStudent, threshold: WarningThreshold) => void;
-  onBulk: (threshold: WarningThreshold, students: MonthlyStudent[]) => void;
+  onWarn: (student: AttendanceStudent, threshold: WarningThreshold) => void;
+  onBulk: (threshold: WarningThreshold, students: AttendanceStudent[]) => void;
 }) {
   const [search, setSearch] = useState('');
   const [pendingOnly, setPendingOnly] = useState(false);
@@ -44,7 +44,7 @@ export function BasicMonthlyReportPanel({ summary, busy, canNotify, onWarn, onBu
   const page = Math.min(requestedPage, pages);
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const followUp = (student: MonthlyStudent) => {
+  const followUp = (student: AttendanceStudent) => {
     const tier = warningTier(student);
     if (!student.is_enrolled) return <span className="text-xs text-slate-500">{bt('workFormerStudent')}</span>;
     if (!tier) return <span className="text-slate-400">—</span>;

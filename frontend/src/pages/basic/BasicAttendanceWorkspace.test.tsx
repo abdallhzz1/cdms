@@ -26,7 +26,7 @@ function mock(account: typeof admin) {
     if (path === '/basic-attendance/sections/4/sessions') return envelope([]);
     if (path === '/basic-attendance/sections/3/report') return envelope({ sessions: [], students: [], records: [], pagination: { offset: 0, total: 0, per_page: 7 } });
     if (path === '/basic-attendance/sections/4/report') return envelope({ sessions: [], students: [], records: [], pagination: { offset: 0, total: 0, per_page: 7 } });
-    if (path.endsWith('/monthly-summary')) return envelope({ month: '2026-09', finalized_sessions: 0, students: [] });
+    if (path.endsWith('/summary')) return envelope({ academic_year: '2026/2027', semester: 'first', finalized_sessions: 0, students: [] });
     throw new Error(path);
   });
 }
@@ -80,7 +80,7 @@ describe('Basic attendance course → section workflow', () => {
     expect(await screen.findByRole('combobox', { name: 'Course' })).toHaveValue('1');
     expect(screen.getByRole('combobox', { name: 'Section' })).toHaveValue('3');
     expect(screen.getByRole('heading', { name: 'Attendance Reports' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Export monthly summary' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export semester summary' })).toBeInTheDocument();
   });
 
   it('keeps the selected course and section when switching screens via the sidebar', async () => {

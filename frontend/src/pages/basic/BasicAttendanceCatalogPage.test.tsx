@@ -30,7 +30,7 @@ beforeEach(() => {
     if (path === '/basic-attendance/sections/3/roster') return envelope([{ id: 1, name: 'Student One', university_number: '2600001', email: 'one@example.edu' }]);
     if (path === '/basic-attendance/sections/3/sessions') return envelope([]);
     if (path === '/basic-attendance/sections/3/report') return envelope({ sessions: [], students: [], records: [], pagination: { offset: 0, total: 0, per_page: 7 } });
-    if (path === '/basic-attendance/sections/3/monthly-summary') return envelope({ month: '2026-09', finalized_sessions: 2, students: [{ id: 1, name: 'Student One', university_number: '2600001', email: 'one@example.edu', present: 0, absent: 2, total_absent: 2, is_enrolled: true, notifications: {} }] });
+    if (path === '/basic-attendance/sections/3/summary') return envelope({ academic_year: '2026/2027', semester: 'first', finalized_sessions: 2, students: [{ id: 1, name: 'Student One', university_number: '2600001', email: 'one@example.edu', present: 0, absent: 2, total_absent: 2, is_enrolled: true, notifications: {} }] });
     if (path === '/basic-attendance/sections/3/students/1/absence-warning') return envelope(null);
     throw new Error(path);
   });
@@ -90,7 +90,7 @@ it('sends the two-absence warning to all eligible students in safe batches', asy
   const originalFetch = vi.mocked(window.fetch).getMockImplementation()!;
   vi.mocked(window.fetch).mockImplementation((input, init) => {
     const path = new URL(String(input), window.location.origin).pathname.replace('/api/v1', '');
-    if (path === '/basic-attendance/sections/3/monthly-summary') return Promise.resolve(envelope({ month: '2026-10', finalized_sessions: 2, students: Array.from({ length: 13 }, (_, index) => ({ id: index + 1, name: `Student ${index + 1}`, university_number: `260000${index + 1}`, email: `student${index + 1}@example.edu`, present: 0, absent: 2, total_absent: 2, is_enrolled: true, notifications: {} })) }));
+    if (path === '/basic-attendance/sections/3/summary') return Promise.resolve(envelope({ academic_year: '2026/2027', semester: 'first', finalized_sessions: 2, students: Array.from({ length: 13 }, (_, index) => ({ id: index + 1, name: `Student ${index + 1}`, university_number: `260000${index + 1}`, email: `student${index + 1}@example.edu`, present: 0, absent: 2, total_absent: 2, is_enrolled: true, notifications: {} })) }));
     if (path === '/basic-attendance/sections/3/absence-warnings/bulk' && init?.method === 'POST') return Promise.resolve(envelope({ sent: (JSON.parse(String(init.body)) as { student_ids: number[] }).student_ids, already_sent: [], not_eligible: [], missing_email: [], failed: [] }));
     return originalFetch(input, init);
   });
@@ -108,7 +108,7 @@ it('asks students with three absences to meet only the Basic Sciences director',
   const originalFetch = vi.mocked(window.fetch).getMockImplementation()!;
   vi.mocked(window.fetch).mockImplementation((input, init) => {
     const path = new URL(String(input), window.location.origin).pathname.replace('/api/v1', '');
-    if (path === '/basic-attendance/sections/3/monthly-summary') return Promise.resolve(envelope({ month: '2026-10', finalized_sessions: 3, students: [{ id: 1, name: 'Student One', university_number: '2600001', email: 'one@example.edu', present: 0, absent: 3, total_absent: 3, is_enrolled: true, notifications: {} }] }));
+    if (path === '/basic-attendance/sections/3/summary') return Promise.resolve(envelope({ academic_year: '2026/2027', semester: 'first', finalized_sessions: 3, students: [{ id: 1, name: 'Student One', university_number: '2600001', email: 'one@example.edu', present: 0, absent: 3, total_absent: 3, is_enrolled: true, notifications: {} }] }));
     if (path === '/basic-attendance/sections/3/absence-warnings/bulk' && init?.method === 'POST') return Promise.resolve(envelope({ sent: [1], already_sent: [], not_eligible: [], missing_email: [], failed: [] }));
     return originalFetch(input, init);
   });

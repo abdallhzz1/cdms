@@ -204,7 +204,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('sections/{section}/roster', [$controller, 'roster'])->whereNumber('section');
             Route::get('sections/{section}/sessions', [$controller, 'sessions'])->whereNumber('section');
             Route::get('sections/{section}/report', [$controller, 'report'])->whereNumber('section');
-            Route::get('sections/{section}/monthly-summary', [$controller, 'monthlySummary'])->whereNumber('section');
+            Route::get('sections/{section}/summary', [$controller, 'semesterSummary'])->whereNumber('section');
+            Route::get('sections/{section}/monthly-summary', [$controller, 'semesterSummary'])->whereNumber('section');
             Route::post('sections/{section}/students/{student}/absence-warning', [$controller, 'sendAbsenceWarning'])->whereNumber(['section', 'student'])->middleware(['permission.any:basic_attendance.manage,basic_attendance.record', 'throttle:attendance-notification']);
             Route::post('sections/{section}/absence-warnings/bulk', [$controller, 'sendBulkAbsenceWarnings'])->whereNumber('section')->middleware(['permission.any:basic_attendance.manage,basic_attendance.record', 'throttle:basic-attendance-bulk-notification']);
             Route::get('sections/{section}/export', [$controller, 'export'])->whereNumber('section')->middleware(['permission:basic_attendance.export', 'throttle:export']);
@@ -217,7 +218,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::put('sessions/{session}/records/{student}', [$controller, 'correct'])->whereNumber(['session', 'student'])->middleware('permission:basic_attendance.record');
             Route::get('options', [$controller, 'options'])->middleware('permission:basic_attendance.manage');
             Route::get('archived', [$controller, 'archived'])->middleware('permission:basic_attendance.delete');
-            Route::get('monthly-overview', [$controller, 'monthlyOverview'])->middleware('permission:basic_attendance.manage');
+            Route::get('overview', [$controller, 'semesterOverview'])->middleware('permission:basic_attendance.manage');
+            Route::get('monthly-overview', [$controller, 'semesterOverview'])->middleware('permission:basic_attendance.manage');
             Route::post('courses', [$controller, 'storeCourse'])->middleware('permission:basic_attendance.manage');
             Route::delete('courses/{course}', [$controller, 'archiveCourse'])->whereNumber('course')->middleware('permission:basic_attendance.delete');
             Route::post('sections', [$controller, 'saveSection'])->middleware('permission:basic_attendance.manage');

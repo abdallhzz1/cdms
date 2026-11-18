@@ -311,28 +311,22 @@ class BasicAttendanceController extends Controller
         return ApiResponse::success(['section' => $this->service->section($r->user(), $section), 'sessions' => $sessions, 'students' => $records->unique('student_id')->map(fn ($st) => ['id' => $st->student_id, 'name' => $st->name, 'university_number' => $st->university_number, 'photo_url' => $st->photo_url])->sortBy('name')->values(), 'records' => $records, 'pagination' => ['offset' => $offset, 'total' => $total, 'per_page' => 7]]);
     }
 
-    public function monthlySummary(Request $r, int $section)
+    public function semesterSummary(Request $r, int $section)
     {
-        $this->service->section($r->user(), $section);
+        $sectionData = $this->service->section($r->user(), $section);
         $this->service->finalizeExpiredForSection($section);
-        $data = $r->validate(['month' => ['nullable', 'date_format:Y-m']]);
-        $month = $data['month'] ?? now()->format('Y-m');
-        return ApiResponse::success($this->monthlySummaryData($section, $month));
+        return ApiResponse::success($this->semesterSummaryData($sectionData, $section));
     }
 
-    public function monthlyOverview(Request $r)
+    public function semesterOverview(Request $r)
     {
         $this->service->finalizeExpired();
-        $data = $r->validate(['month' => ['nullable', 'date_format:Y-m']]);
-        $month = $data['month'] ?? now()->format('Y-m');
-        $start = \Carbon\Carbon::createFromFormat('!Y-m', $month)->startOfMonth();
-        $end = $start->copy()->addMonth();
-        $sections = $this->service->sections($r->user())->select('s.id', 's.number', 's.academic_year', 's.course_id', 'c.code as course_code', 'c.name as course_name')->orderBy('c.name')->orderBy('s.number')->get();
+        $sections = $this->service->sections($r->user())->select('s.id', 's.number', 's.academic_year', 's.semester', 's.course_id', 'c.code as course_code', 'c.name as course_name')->orderBy('s.academic_year')->orderBy('s.semester')->orderBy('c.name')->orderBy('s.number')->get();
         $ids = $sections->pluck('id');
         $assigned = DB::table('basic_section_lecturers as lecturer')->join('users as person', 'person.id', '=', 'lecturer.user_id')->whereIn('lecturer.section_id', $ids)->select('lecturer.section_id', 'person.id', 'person.name')->get()->groupBy('section_id');
         $counts = DB::table('basic_enrollments')->whereIn('section_id', $ids)->where('is_active', true)->selectRaw('section_id, COUNT(*) as total')->groupBy('section_id')->pluck('total', 'section_id');
         $lectures = DB::table('basic_lecture_sessions as lecture')->leftJoin('basic_lecture_records as record', 'record.session_id', '=', 'lecture.id')->leftJoin('users as lecturer', 'lecturer.id', '=', DB::raw('COALESCE(lecture.lecturer_id, lecture.created_by)'))
-            ->whereIn('lecture.section_id', $ids)->whereNull('lecture.archived_at')->where('lecture.state', 'finalized')->where('lecture.opened_at', '>=', $start)->where('lecture.opened_at', '<', $end)
+            ->whereIn('lecture.section_id', $ids)->whereNull('lecture.archived_at')->where('lecture.state', 'finalized')
             // An incomplete double-check still proves attendance: the student
             // checked in but missed check-out. Excused records are historical
             // and are intentionally excluded from the current present/absent totals.
@@ -347,18 +341,15 @@ class BasicAttendanceController extends Controller
             })->values();
             return $section;
         });
-        return ApiResponse::success(['month' => $month, 'sections' => $rows]);
+        return ApiResponse::success(['sections' => $rows]);
     }
 
-    private function monthlySummaryData(int $section, string $month): array
+    private function semesterSummaryData(object $sectionData, int $section): array
     {
-        $start = \Carbon\Carbon::createFromFormat('!Y-m', $month)->startOfMonth();
-        $end = $start->copy()->addMonth();
-
         $sessions = DB::table('basic_lecture_sessions')->where('section_id', $section)->whereNull('archived_at')->where('state', 'finalized')
-            ->where('opened_at', '>=', $start)->where('opened_at', '<', $end)->count();
-        $monthly = DB::table('basic_lecture_records as r')->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
-            ->where('s.section_id', $section)->whereNull('s.archived_at')->where('s.state', 'finalized')->where('s.opened_at', '>=', $start)->where('s.opened_at', '<', $end)
+            ->count();
+        $semesterTotals = DB::table('basic_lecture_records as r')->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
+            ->where('s.section_id', $section)->whereNull('s.archived_at')->where('s.state', 'finalized')
             ->selectRaw("r.student_id, SUM(CASE WHEN r.status IN ('present', 'absent', 'incomplete') THEN 1 ELSE 0 END) AS sessions, SUM(CASE WHEN r.status IN ('present', 'incomplete') THEN 1 ELSE 0 END) AS present, SUM(CASE WHEN r.status = 'absent' THEN 1 ELSE 0 END) AS absent")
             ->groupBy('r.student_id')->get()->keyBy('student_id');
         $allAbsences = DB::table('basic_lecture_records as r')->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
@@ -371,8 +362,8 @@ class BasicAttendanceController extends Controller
         $sent = DB::table('basic_absence_notifications')->where('section_id', $section)->whereIn('student_id', $studentIds)
             ->get(['student_id', 'threshold', 'sent_at'])->groupBy('student_id');
         $students = DB::table('basic_students')->whereIn('id', $studentIds)->orderBy('name')->get(['id', 'name', 'university_number', 'email', 'photo_url', 'is_active'])
-            ->map(function ($student) use ($monthly, $allAbsences, $sent, $currentIds) {
-                $row = $monthly[$student->id] ?? null;
+            ->map(function ($student) use ($semesterTotals, $allAbsences, $sent, $currentIds) {
+                $row = $semesterTotals[$student->id] ?? null;
                 foreach (['sessions', 'present', 'absent'] as $field) $student->$field = (int) ($row->$field ?? 0);
                 $student->total_absent = (int) ($allAbsences[$student->id] ?? 0);
                 $student->is_enrolled = (bool) $student->is_active && $currentIds->contains($student->id);
@@ -382,7 +373,7 @@ class BasicAttendanceController extends Controller
                 if ($student->notifications->has('6') && ! $student->notifications->has('3')) $student->notifications->put('3', $student->notifications->get('6'));
                 return $student;
             });
-        return ['month' => $month, 'finalized_sessions' => $sessions, 'students' => $students];
+        return ['academic_year' => $sectionData->academic_year, 'semester' => $sectionData->semester, 'finalized_sessions' => $sessions, 'students' => $students];
     }
 
     public function sendAbsenceWarning(Request $r, int $section, int $student)
@@ -449,13 +440,14 @@ class BasicAttendanceController extends Controller
     public function export(Request $r, int $section)
     {
         $sectionData = $this->service->section($r->user(), $section);
-        $data = $r->validate(['month' => ['nullable', 'date_format:Y-m']]);
+        $data = $r->validate(['detail' => ['sometimes', 'boolean']]);
         $code = preg_replace('/[^A-Za-z0-9_-]+/', '-', (string) $sectionData->course_code) ?: 'course';
-        if (isset($data['month'])) {
-            $summary = $this->monthlySummaryData($section, $data['month']);
+        if (! ($data['detail'] ?? false)) {
+            $summary = $this->semesterSummaryData($sectionData, $section);
+            $term = preg_replace('/[^A-Za-z0-9_-]+/', '-', $sectionData->academic_year.'-'.$sectionData->semester) ?: 'semester';
             return Excel::download(
                 new BasicAttendanceMonthlyExport($sectionData, $summary),
-                'basic-attendance-'.$code.'-section-'.$section.'-'.$data['month'].'.xlsx',
+                'basic-attendance-'.$code.'-section-'.$section.'-'.$term.'.xlsx',
                 \Maatwebsite\Excel\Excel::XLSX,
             );
         }

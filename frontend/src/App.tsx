@@ -136,6 +136,7 @@ export function App() {
                 {/* Academic Affairs & Plans */}
                 <Route path="/courses" element={<CoursesPage />} />
                 <Route path="/basic-attendance" element={<BasicAttendanceCatalogPage />} />
+                 <Route path="/basic-attendance/semester-report" element={<BasicAttendanceOverviewPage />} />
                  <Route path="/basic-attendance/monthly-report" element={<BasicAttendanceOverviewPage />} />
                 <Route path="/basic-attendance/courses/:courseId" element={<BasicAttendanceCatalogPage />} />
                 <Route path="/basic-attendance/students" element={<Navigate to="/basic-attendance" replace />} />

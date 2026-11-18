@@ -10,7 +10,7 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { basicLocale, basicText as bt } from '@/i18n/basicAttendance';
 import { parseRoster, rosterTemplate, type RosterStudent } from './rosterFile';
 import { BasicArchiveDialog } from './BasicArchiveDialog';
-import { BasicMonthlyReportPanel, type MonthlyStudent, type MonthlySummary, type WarningThreshold } from './BasicMonthlyReportPanel';
+import { BasicSemesterReportPanel, type AttendanceStudent, type SemesterSummary, type WarningThreshold } from './BasicMonthlyReportPanel';
 
 type Course = { id: number; code: string; name: string; academic_level: string };
 type Section = { id: number; course_id: number; course_name: string; course_code: string; number: string; academic_year: string; semester: string; is_active: boolean; students_count: number; lecturers: { id: number; name: string }[]; active_session: Session | null };
@@ -20,6 +20,7 @@ type RecordRow = { student_id: number; session_id: number; status: string; is_la
 type Report = { sessions: Session[]; students: Student[]; records: RecordRow[]; pagination: { offset: number; total: number; per_page: number } };
 const direction = () => basicLocale() === 'ar' ? 'rtl' : 'ltr';
 const displayDate = (value: string) => new Date(value.includes('T') ? value : value.replace(' ', 'T')).toLocaleDateString(basicLocale());
+const semesterLabel = (semester: string) => ({ first: bt('semester_first'), second: bt('semester_second'), summer: bt('semester_summer') }[semester] ?? semester);
 const attendanceStatus = (row?: RecordRow) => row ? `${({ present: bt('text005'), absent: bt('text006'), incomplete: bt('text007'), excused: bt('text008'), pending: bt('text009') } as Record<string, string>)[row.status] ?? row.status}${row.is_late ? ` · ${bt('text112')}` : ''}` : '—';
 const surface = 'rounded-2xl border border-slate-200 bg-white';
 const catalog = 'overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_16px_48px_-40px_rgba(15,23,42,0.5)]';
@@ -172,8 +173,7 @@ export function BasicAttendanceSection({ section: selectedSection, current: sele
   const roster = useQuery({ queryKey: ['basic-roster', sectionId], queryFn: () => apiFetch<Student[]>(`/basic-attendance/sections/${sectionId}/roster`), enabled: !!section && current === 'roster' });
   const [offset, setOffset] = useState(0);
   const [mobileSessionId, setMobileSessionId] = useState(0);
-  const [month, setMonth] = useState(() => { const today = new Date(); return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`; });
-  const summary = useQuery({ queryKey: ['basic-monthly-summary', sectionId, month], queryFn: () => apiFetch<MonthlySummary>(`/basic-attendance/sections/${sectionId}/monthly-summary?month=${month}`), enabled: !!section && current === 'report' });
+  const summary = useQuery({ queryKey: ['basic-semester-summary', sectionId], queryFn: () => apiFetch<SemesterSummary>(`/basic-attendance/sections/${sectionId}/summary`), enabled: !!section && current === 'report' });
   const report = useQuery({ queryKey: ['basic-report', sectionId, offset], queryFn: () => apiFetch<Report>(`/basic-attendance/sections/${sectionId}/report?offset=${offset}`), enabled: !!section && current === 'report' });
   const reportRecords = useMemo(() => new Map((report.data?.records ?? []).map(r => [`${r.student_id}:${r.session_id}`, r])), [report.data]);
   const mobileSession = report.data?.sessions.find(item => item.id === mobileSessionId) ?? report.data?.sessions.at(-1);
@@ -185,31 +185,32 @@ export function BasicAttendanceSection({ section: selectedSection, current: sele
   const [preview, setPreview] = useState<RosterStudent[]>([]); const [fileErrors, setFileErrors] = useState<string[]>([]); const [fileName, setFileName] = useState('');
   const [search, setSearch] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [bulkProgress, setBulkProgress] = useState('');
   const filteredRoster = roster.data?.filter(student => `${student.name} ${student.university_number}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) ?? [];
-  async function run(action: () => Promise<void>): Promise<boolean> { setBusy(true); setError(''); setNotice(''); try { await action(); await Promise.all([qc.invalidateQueries({ queryKey: ['basic-sections'] }), qc.invalidateQueries({ queryKey: ['basic-roster', sectionId] }), qc.invalidateQueries({ queryKey: ['basic-sessions', sectionId] }), qc.invalidateQueries({ queryKey: ['basic-session'] }), qc.invalidateQueries({ queryKey: ['basic-report', sectionId] }), qc.invalidateQueries({ queryKey: ['basic-monthly-summary', sectionId] }), qc.invalidateQueries({ queryKey: ['basic-monthly-overview'] })]); return true; } catch (e) { setError((e as Error).message); return false; } finally { setBusy(false); } }
+  async function run(action: () => Promise<void>): Promise<boolean> { setBusy(true); setError(''); setNotice(''); try { await action(); await Promise.all([qc.invalidateQueries({ queryKey: ['basic-sections'] }), qc.invalidateQueries({ queryKey: ['basic-roster', sectionId] }), qc.invalidateQueries({ queryKey: ['basic-sessions', sectionId] }), qc.invalidateQueries({ queryKey: ['basic-session'] }), qc.invalidateQueries({ queryKey: ['basic-report', sectionId] }), qc.invalidateQueries({ queryKey: ['basic-semester-summary', sectionId] }), qc.invalidateQueries({ queryKey: ['basic-semester-overview'] })]); return true; } catch (e) { setError((e as Error).message); return false; } finally { setBusy(false); } }
   async function downloadReport(detail = false) {
     setBusy(true); setError('');
     try {
-      const response = await fetch(apiUrl(`/basic-attendance/sections/${sectionId}/export${detail ? '' : `?month=${month}`}`), { credentials: 'include', headers: { Accept: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Accept-Language': basicLocale() } });
+      const response = await fetch(apiUrl(`/basic-attendance/sections/${sectionId}/export${detail ? '?detail=1' : ''}`), { credentials: 'include', headers: { Accept: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Accept-Language': basicLocale() } });
       if (!response.ok) {
         const data = await response.json().catch(() => null) as { message?: string } | null;
         throw new Error(data?.message || bt('workExportFailed'));
       }
       const url = URL.createObjectURL(await response.blob());
       const courseCode = section?.course_code.replace(/[^A-Za-z0-9_-]/g, '-') || 'course';
-      const anchor = document.createElement('a'); anchor.href = url; anchor.download = `basic-attendance-${courseCode}-section-${sectionId}${detail ? '-detail' : `-${month}`}.xlsx`; anchor.click();
+      const term = `${section?.academic_year.replace(/[^A-Za-z0-9_-]+/g, '-')}-${section?.semester}`;
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = `basic-attendance-${courseCode}-section-${sectionId}${detail ? '-detail' : `-${term}`}.xlsx`; anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) { setError((e as Error).message || bt('workExportFailed')); }
     finally { setBusy(false); }
   }
-  async function sendWarning(student: MonthlyStudent, threshold: WarningThreshold) {
+  async function sendWarning(student: AttendanceStudent, threshold: WarningThreshold) {
     if (!window.confirm(bt(threshold === 3 ? 'workWarningThreeConfirm' : 'workWarningTwoConfirm', { name: student.name, count: student.total_absent, email: student.email }))) return;
     await run(async () => {
       await apiFetch(`/basic-attendance/sections/${sectionId}/students/${student.id}/absence-warning`, { method: 'POST', body: { threshold } });
-      await qc.invalidateQueries({ queryKey: ['basic-monthly-summary', sectionId] });
+      await qc.invalidateQueries({ queryKey: ['basic-semester-summary', sectionId] });
       setNotice(bt('workWarningSent'));
     });
   }
-  async function sendBulkWarnings(threshold: WarningThreshold, students: MonthlyStudent[]) {
+  async function sendBulkWarnings(threshold: WarningThreshold, students: AttendanceStudent[]) {
     if (!students.length || !window.confirm(bt(threshold === 3 ? 'workBulkConfirmThree' : 'workBulkConfirmTwo', { count: students.length }))) return;
     setBusy(true); setError(''); setNotice('');
     let sent = 0; let skipped = 0; let failed = 0;
@@ -226,7 +227,7 @@ export function BasicAttendanceSection({ section: selectedSection, current: sele
       setError(bt('workBulkInterrupted', { sent, error: (e as Error).message }));
     } finally {
       setBulkProgress(''); setBusy(false);
-      await qc.invalidateQueries({ queryKey: ['basic-monthly-summary', sectionId] });
+      await qc.invalidateQueries({ queryKey: ['basic-semester-summary', sectionId] });
     }
   }
   async function downloadTemplate() { try { const xlsx = await import('xlsx'); const blob = rosterTemplate(xlsx, basicLocale()); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'basic-attendance-students-template.xlsx'; anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); } catch (e) { setError((e as Error).message); } }
@@ -239,7 +240,7 @@ export function BasicAttendanceSection({ section: selectedSection, current: sele
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-5"><div>{!selectedSection && <h2 className="text-lg font-extrabold text-slate-900">{bt('workSectionNumber', { number: section.number })}</h2>}<p className="text-xs leading-5 text-slate-500">{section.lecturers.map(lecturer => lecturer.name).join(bt('text026'))}</p></div>
       {current === 'lectures' && can('basic_attendance.record') && section.is_active && !section.active_session && <Button disabled={!section.students_count} onClick={() => { setError(''); setShowLectureForm(true); }}><Plus className="me-2 h-4 w-4" aria-hidden="true" />{bt('workStartLecture')}</Button>}
       {current === 'roster' && can('basic_attendance.manage') && <div className="flex flex-wrap gap-2"><Button onClick={() => { setError(''); setManualStudent({ university_number: '', name: '', email: '' }); setShowManual(true); }}><Plus className="me-2 h-4 w-4" aria-hidden="true" />{bt('workAddStudent')}</Button><Button variant="outline" onClick={() => { setError(''); setShowImport(true); }}><FileSpreadsheet className="me-2 h-4 w-4" aria-hidden="true" />{bt('workImport')}</Button></div>}
-      {current === 'report' && can('basic_attendance.export') && <Button disabled={busy} onClick={() => void downloadReport()}><FileSpreadsheet className="me-2 h-4 w-4" aria-hidden="true" />{bt('workExportMonth')}</Button>}
+      {current === 'report' && can('basic_attendance.export') && <Button disabled={busy} onClick={() => void downloadReport()}><FileSpreadsheet className="me-2 h-4 w-4" aria-hidden="true" />{bt('workExportSemester')}</Button>}
     </div>
     {!(showLectureForm || showImport || showManual) && error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}{bulkProgress && <Notice>{bulkProgress}</Notice>}
     {current === 'lectures' && <div className="space-y-4">
@@ -273,10 +274,10 @@ export function BasicAttendanceSection({ section: selectedSection, current: sele
       </div></WorkspaceDialog>}
     </div>}
     {current === 'report' && <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3"><div><h3 className="text-lg font-extrabold text-slate-900">{bt('workMonthlyReport')}</h3><p className="mt-1 text-xs leading-5 text-slate-500">{bt('workMonthlyNote')}</p></div><Field label={bt('workReportMonth')}><input className="input w-44" type="month" value={month} onChange={event => setMonth(event.target.value)} /></Field></div>
+      <div className="flex flex-wrap items-end justify-between gap-3"><div><h3 className="text-lg font-extrabold text-slate-900">{bt('workSemesterReport')}</h3><p className="mt-1 text-xs leading-5 text-slate-500">{bt('workSemesterNote', { year: section.academic_year, semester: semesterLabel(section.semester) })}</p></div></div>
       {summary.isLoading ? <LoadingState /> : summary.isError ? <ErrorState onRetry={() => summary.refetch()} /> : summary.data && <>
-        <BasicMonthlyReportPanel key={month} summary={summary.data} busy={busy} canNotify={can('basic_attendance.record') || can('basic_attendance.manage')} onWarn={(student, threshold) => void sendWarning(student, threshold)} onBulk={(threshold, students) => void sendBulkWarnings(threshold, students)} />
-        {can('basic_attendance.export') && <p className="text-xs text-slate-500">{bt('workExportMonthHint')}</p>}
+        <BasicSemesterReportPanel summary={summary.data} busy={busy} canNotify={can('basic_attendance.record') || can('basic_attendance.manage')} onWarn={(student, threshold) => void sendWarning(student, threshold)} onBulk={(threshold, students) => void sendBulkWarnings(threshold, students)} />
+        {can('basic_attendance.export') && <p className="text-xs text-slate-500">{bt('workExportSemesterHint')}</p>}
       </>}
       <details className="rounded-xl border border-slate-200 bg-white"><summary className="cursor-pointer px-4 py-3 text-sm font-bold text-slate-700">{bt('workLectureDetails')}</summary><div className="space-y-4 border-t border-slate-100 p-4">
       <p className="text-xs leading-6 text-slate-500">{bt('text070')}</p>
@@ -289,7 +290,7 @@ export function BasicAttendanceSection({ section: selectedSection, current: sele
       {can('basic_attendance.export') && <Button variant="outline" disabled={busy} onClick={() => void downloadReport(true)}><FileSpreadsheet className="me-2 h-4 w-4" aria-hidden="true" />{bt('workExportDetail')}</Button>}
       </div></details>
     </div>}
-    {archiveSession && <BasicArchiveDialog key={archiveSession.id} label={archiveSession.title} confirmation={archiveSession.title} busy={busy} error={error} onClose={() => setArchiveSession(null)} onConfirm={reason => void run(() => apiFetch(`/basic-attendance/sessions/${archiveSession.id}`, { method: 'DELETE', body: { confirm: archiveSession.title, reason } })).then(success => { if (success) { setArchiveSession(null); setNotice(bt('archiveDone')); void qc.invalidateQueries({ queryKey: ['basic-monthly-summary', sectionId] }); void qc.invalidateQueries({ queryKey: ['basic-report', sectionId] }); } })} />}
+    {archiveSession && <BasicArchiveDialog key={archiveSession.id} label={archiveSession.title} confirmation={archiveSession.title} busy={busy} error={error} onClose={() => setArchiveSession(null)} onConfirm={reason => void run(() => apiFetch(`/basic-attendance/sessions/${archiveSession.id}`, { method: 'DELETE', body: { confirm: archiveSession.title, reason } })).then(success => { if (success) { setArchiveSession(null); setNotice(bt('archiveDone')); void qc.invalidateQueries({ queryKey: ['basic-semester-summary', sectionId] }); void qc.invalidateQueries({ queryKey: ['basic-report', sectionId] }); } })} />}
     {removeStudent && <BasicArchiveDialog key={`student-${removeStudent.id}`} permanent="student" label={removeStudent.name} confirmation={removeStudent.university_number} busy={busy} error={error} onClose={() => setRemoveStudent(null)} onConfirm={reason => void run(() => apiFetch(`/basic-attendance/sections/${sectionId}/roster/${removeStudent.id}`, { method: 'DELETE', body: { confirm: removeStudent.university_number, reason } })).then(success => { if (success) { setRemoveStudent(null); setNotice(bt('permanentDone')); } })} />}
   </div>;
 }

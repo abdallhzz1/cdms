@@ -27,11 +27,11 @@ class BasicAttendanceMonthlyExport extends DefaultValueBinder implements FromCol
     public function headings(): array
     {
         return [
-            [__('basic_attendance.report_monthly_title')],
+            [__('basic_attendance.report_semester_title')],
             [__('basic_attendance.report_college')],
             [__('basic_attendance.report_course').': '.$this->section->course_name.' ('.$this->section->course_code.')'],
-            [__('basic_attendance.report_section').': '.$this->section->number.' · '.$this->section->academic_year.' · '.$this->summary['month']],
-            [__('basic_attendance.report_finalized_sessions').': '.$this->summary['finalized_sessions']],
+            [__('basic_attendance.report_section').': '.$this->section->number.' · '.$this->summary['academic_year'].' · '.__('basic_attendance.semester_'.$this->summary['semester'])],
+            [__('basic_attendance.report_semester_sessions').': '.$this->summary['finalized_sessions']],
             [''],
             [__('basic_attendance.message15'), __('basic_attendance.message16'), __('basic_attendance.report_month_sessions'), __('basic_attendance.status_present'), __('basic_attendance.status_absent'), __('basic_attendance.report_total_absent')],
         ];
