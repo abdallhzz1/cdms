@@ -438,6 +438,264 @@ class CourseDistributionController extends Controller
         return ApiResponse::success(null, 'تم تفريغ خلية الجدول.');
     }
 
+    public function assignCellsBulk(Request $request, DistributionVersion $version): JsonResponse
+    {
+        $this->ensureVersionInUserScope($version);
+        $this->ensureEditableVersion($version);
+        $data = $request->validate([
+            'course_schedule_row_id' => ['required', 'integer', 'exists:course_schedule_rows,id'],
+            'rotation_block_ids' => ['required', 'array', 'min:1', 'max:52'],
+            'rotation_block_ids.*' => ['required', 'integer', 'distinct', 'exists:rotation_blocks,id'],
+            'subgroup_ids' => ['required', 'array', 'min:1', 'max:150'],
+            'subgroup_ids.*' => ['required', 'integer', 'distinct', 'exists:student_subgroups,id'],
+            'training_site_id' => ['required', 'integer', 'exists:training_sites,id'],
+        ]);
+        $version->loadMissing('rotation', 'breaks');
+        $row = CourseScheduleRow::where('distribution_version_id', $version->id)
+            ->with('supervisorLinks.person')->findOrFail($data['course_schedule_row_id']);
+        $siteId = (int) $data['training_site_id'];
+        if (! TrainingSite::query()->active()->whereKey($siteId)->exists()) {
+            throw ValidationException::withMessages(['training_site_id' => ['المركز التدريبي المحدد غير نشط.']]);
+        }
+        $blocks = RotationBlock::where('rotation_id', $version->rotation_id)
+            ->whereIn('id', $data['rotation_block_ids'])->orderBy('from_week')->get();
+        if ($blocks->count() !== count($data['rotation_block_ids'])) {
+            throw ValidationException::withMessages(['rotation_block_ids' => ['إحدى الأسابيع لا تتبع جدول التوزيع الحالي.']]);
+        }
+        $subgroupIds = collect($data['subgroup_ids'])->map(fn ($id) => (int) $id)->unique()->values();
+        $subgroups = StudentSubgroup::with('group')->whereIn('id', $subgroupIds)->get();
+        $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+        abort_if($scope->departmentIds() !== null && $scope->subgroups(StudentSubgroup::query())->whereIn('id', $subgroupIds)->count() !== $subgroupIds->count(), 403);
+        foreach ($subgroups as $subgroup) {
+            if (! $subgroup->is_active || ! $subgroup->group
+                || (int) $subgroup->group->academic_year_id !== (int) $version->rotation->academic_year_id
+                || $subgroup->group->academic_level !== $version->rotation->academic_level) {
+                throw ValidationException::withMessages(['subgroup_ids' => ['إحدى المجموعات لا تتبع الدفعة والعام المحددين.']]);
+            }
+        }
+
+        $rowSupervisors = $row->supervisorLinks->isNotEmpty()
+            ? $row->supervisorLinks
+            : collect($row->person ? [(object) ['person' => $row->person, 'weekdays' => null]] : []);
+        foreach ($rowSupervisors as $link) {
+            $doctor = $link->person;
+            if (! $doctor || ! Person::active()->whereKey($doctor->id)->exists()
+                || (! $doctor->trainingSites()->whereKey($siteId)->exists() && (int) $doctor->primary_site_id !== $siteId)) {
+                throw ValidationException::withMessages(['training_site_id' => ['المشرف غير مرتبط بالمركز التدريبي المحدد.']]);
+            }
+        }
+
+        $created = 0;
+        $skippedExisting = 0;
+        $skippedNonClinical = 0;
+        $planned = [];
+        foreach ($blocks as $block) {
+            foreach ($subgroups as $subgroup) {
+                if ($this->blockExcludesGroup($version, $block, $subgroup->group->name)) {
+                    $skippedNonClinical++;
+                    continue;
+                }
+                $existing = CourseScheduleCell::query()
+                    ->where('distribution_version_id', $version->id)
+                    ->where('rotation_block_id', $block->id)
+                    ->where('student_subgroup_id', $subgroup->id)
+                    ->first();
+                if ($existing) {
+                    // Existing placements are intentionally left untouched by bulk fill.
+                    $skippedExisting++;
+                    continue;
+                }
+                $planned[] = [$block, $subgroup];
+            }
+        }
+
+        foreach ($blocks as $block) {
+            if (! collect($planned)->contains(fn ($pair) => $pair[0]->id === $block->id)) continue;
+            foreach ($rowSupervisors as $link) {
+                $doctor = $link->person;
+                $workingDays = $this->workSchedules->workingDays($doctor, $siteId, $this->blockStartDate($version, $block), $this->blockEndDate($version, $block));
+                $configuredDays = $link->weekdays ?: $workingDays;
+                if (! array_intersect($workingDays, $configuredDays)) {
+                    throw ValidationException::withMessages(['rotation_block_ids' => ["لا يوجد يوم دوام متوافق للمشرف {$doctor->full_name_ar} في الأسبوع {$block->from_week}. لم يُحفظ أي تغيير."]]);
+                }
+                $this->ensureNoCrossSiteScheduleConflict($doctor, $row, $version, $block, $siteId, $link->weekdays);
+            }
+        }
+
+        DB::transaction(function () use ($planned, $version, $row, $siteId, &$created) {
+            foreach ($planned as [$block, $subgroup]) {
+                CourseScheduleCell::create([
+                    'distribution_version_id' => $version->id,
+                    'course_schedule_row_id' => $row->id,
+                    'rotation_block_id' => $block->id,
+                    'student_subgroup_id' => $subgroup->id,
+                    'training_site_id' => $siteId,
+                ]);
+                $this->syncStudentAssignmentsForCell($version, $row, $block, $subgroup, $siteId);
+                $created++;
+            }
+        });
+
+        if ($created > 0) {
+            $this->recordCellChange($request, $version, 'course_schedule.cells_bulk_assigned', [
+                'course_schedule_row_id' => $row->id,
+                'rotation_block_ids' => $blocks->pluck('id')->all(),
+                'subgroup_ids' => $subgroupIds->all(),
+                'created_cells' => $created,
+                'skipped_existing' => $skippedExisting,
+                'skipped_non_clinical' => $skippedNonClinical,
+            ]);
+        }
+
+        return ApiResponse::success([
+            'created_cells' => $created,
+            'skipped_existing' => $skippedExisting,
+            'skipped_non_clinical' => $skippedNonClinical,
+        ], 'تم تطبيق التوزيع الجماعي دون استبدال التوزيعات الموجودة.');
+    }
+
+    public function copyPeriodDistribution(Request $request, DistributionVersion $version): JsonResponse
+    {
+        $this->ensureVersionInUserScope($version);
+        $this->ensureEditableVersion($version);
+        $data = $request->validate(['source_version_id' => ['required', 'integer', 'exists:distribution_versions,id']]);
+        $version->loadMissing('rotation', 'breaks');
+        $source = DistributionVersion::with(['rotation.blocks', 'courseScheduleRows.supervisorLinks.person', 'courseScheduleCells.rotationBlock', 'courseScheduleCells.studentSubgroup.group'])
+            ->findOrFail($data['source_version_id']);
+        $this->ensureVersionInUserScope($source);
+        $source->loadMissing('rotation');
+        if ((int) $source->rotation->academic_year_id !== (int) $version->rotation->academic_year_id
+            || $source->rotation->academic_level !== $version->rotation->academic_level
+            || (int) $source->rotation->course_id !== (int) $version->rotation->course_id
+            || (int) $source->rotation->id === (int) $version->rotation->id) {
+            throw ValidationException::withMessages(['source_version_id' => ['اختر توزيعًا لمساق ودفعة وعام مطابقين ومن فترة مختلفة.']]);
+        }
+        $sourceSubgroupIds = $source->courseScheduleCells->pluck('student_subgroup_id')->unique()->values();
+        $scope = app(\App\Services\DepartmentHeadCourseScope::class);
+        abort_if($scope->departmentIds() !== null
+            && $scope->subgroups(StudentSubgroup::query())->whereIn('id', $sourceSubgroupIds)->count() !== $sourceSubgroupIds->count(), 403);
+
+        $targetBlocks = RotationBlock::where('rotation_id', $version->rotation_id)->orderBy('from_week')->get()->keyBy('from_week');
+        $targetRows = CourseScheduleRow::where('distribution_version_id', $version->id)->with(['person', 'supervisorLinks.person'])->get();
+        $rowSupervisorIds = fn (CourseScheduleRow $row): array => $row->supervisorLinks->pluck('person_id')->map(fn ($id) => (int) $id)->sort()->values()->all()
+            ?: ($row->person_id ? [(int) $row->person_id] : []);
+        $rowSignature = function (CourseScheduleRow $row): string {
+            $supervisors = $row->supervisorLinks->pluck('person_id')->map(fn ($id) => (int) $id)->sort()->values()->all();
+            if (! $supervisors && $row->person_id) $supervisors = [(int) $row->person_id];
+            return implode('|', [$row->row_type, (int) $row->training_site_id, $row->row_type === 'vacancy' ? (string) $row->label : implode(',', $supervisors)]);
+        };
+        $targetRowsBySignature = $targetRows->keyBy($rowSignature);
+        $rowMap = [];
+        $planned = [];
+        $skippedExisting = 0;
+        $skippedMissingWeek = 0;
+        $skippedNonClinical = 0;
+        foreach ($source->courseScheduleCells as $sourceCell) {
+            $sourceBlock = $sourceCell->rotationBlock;
+            $targetBlock = $targetBlocks->get($sourceBlock?->from_week);
+            if (! $targetBlock) {
+                $skippedMissingWeek++;
+                continue;
+            }
+            $subgroup = $sourceCell->studentSubgroup;
+            if (! $subgroup || ! $subgroup->is_active || !$subgroup->group
+                || (int) $subgroup->group->academic_year_id !== (int) $version->rotation->academic_year_id
+                || $subgroup->group->academic_level !== $version->rotation->academic_level) {
+                throw ValidationException::withMessages(['source_version_id' => ['تحتوي الفترة المصدر على مجموعة لا تطابق الدفعة أو العام المستهدف.']]);
+            }
+            if ($this->blockExcludesGroup($version, $targetBlock, $subgroup->group->name)) {
+                $skippedNonClinical++;
+                continue;
+            }
+            $existing = CourseScheduleCell::query()->where('distribution_version_id', $version->id)
+                ->where('rotation_block_id', $targetBlock->id)->where('student_subgroup_id', $subgroup->id)->exists();
+            if ($existing) {
+                $skippedExisting++;
+                continue;
+            }
+            $sourceRow = $source->courseScheduleRows->firstWhere('id', $sourceCell->course_schedule_row_id);
+            if (! $sourceRow) throw ValidationException::withMessages(['source_version_id' => ['تعذر مطابقة أحد صفوف المشرفين في التوزيع المصدر.']]);
+            $signature = $rowSignature($sourceRow);
+            if ($sourceRow->row_type === 'doctor' && ! $targetRowsBySignature->has($signature)) {
+                $sourceDoctorIds = $rowSupervisorIds($sourceRow);
+                $overlappingRow = $targetRowsBySignature->first(fn (CourseScheduleRow $candidate) => $candidate->row_type === 'doctor'
+                    && (int) $candidate->training_site_id === (int) $sourceRow->training_site_id
+                    && count(array_intersect($rowSupervisorIds($candidate), $sourceDoctorIds)) > 0);
+                if ($overlappingRow) {
+                    throw ValidationException::withMessages(['source_version_id' => ['يوجد في الفترة المستهدفة صف للمشرفين بتركيبة مختلفة. وحّد صفوف المشرفين قبل النسخ؛ لم يُحفظ أي تغيير.']]);
+                }
+            }
+            $rowMap[$sourceRow->id] = $targetRowsBySignature->get($signature);
+            $planned[] = [$sourceCell, $targetBlock, $subgroup, $sourceRow, $signature];
+        }
+
+        $created = 0;
+        $createdRows = 0;
+        DB::transaction(function () use ($source, $version, $planned, $targetRowsBySignature, &$rowMap, &$created, &$createdRows) {
+            foreach ($planned as [$sourceCell, $targetBlock, $subgroup, $sourceRow, $signature]) {
+                $targetRow = $rowMap[$sourceRow->id] ?? $targetRowsBySignature->get($signature);
+                if (! $targetRow) {
+                    $targetRow = $sourceRow->replicate();
+                    $targetRow->distribution_version_id = $version->id;
+                    $targetRow->save();
+                    foreach ($sourceRow->supervisorLinks as $link) {
+                        $targetRow->supervisorLinks()->create(['person_id' => $link->person_id, 'weekdays' => $link->weekdays]);
+                    }
+                    $targetRowsBySignature->put($signature, $targetRow);
+                    $rowMap[$sourceRow->id] = $targetRow;
+                    $createdRows++;
+                }
+                $siteId = (int) ($sourceCell->training_site_id ?: $targetRow->training_site_id);
+                if (! TrainingSite::query()->active()->whereKey($siteId)->exists()) {
+                    throw ValidationException::withMessages(['source_version_id' => ['أحد المراكز التدريبية في الفترة المصدر غير نشط. لم يُحفظ أي تغيير.']]);
+                }
+                $supervisors = $targetRow->supervisorLinks->isNotEmpty()
+                    ? $targetRow->supervisorLinks
+                    : collect($targetRow->person ? [(object) ['person' => $targetRow->person, 'weekdays' => null]] : []);
+                foreach ($supervisors as $link) {
+                    $doctor = $link->person;
+                    if (! $doctor || ! Person::active()->whereKey($doctor->id)->exists()
+                        || (! $doctor->trainingSites()->whereKey($siteId)->exists() && (int) $doctor->primary_site_id !== $siteId)) {
+                        throw ValidationException::withMessages(['source_version_id' => ['أحد المشرفين في التوزيع المصدر غير مرتبط بمركزه التدريبي الحالي. لم يُحفظ أي تغيير.']]);
+                    }
+                    $workingDays = $this->workSchedules->workingDays($doctor, $siteId, $this->blockStartDate($version, $targetBlock), $this->blockEndDate($version, $targetBlock));
+                    if (! array_intersect($workingDays, $link->weekdays ?: $workingDays)) {
+                        throw ValidationException::withMessages(['source_version_id' => ["لا يتوافق دوام {$doctor->full_name_ar} مع الأسبوع {$targetBlock->from_week} في الفترة الجديدة. لم يُحفظ أي تغيير."]]);
+                    }
+                    $this->ensureNoCrossSiteScheduleConflict($doctor, $targetRow, $version, $targetBlock, $siteId, $link->weekdays);
+                }
+                CourseScheduleCell::create([
+                    'distribution_version_id' => $version->id,
+                    'course_schedule_row_id' => $targetRow->id,
+                    'rotation_block_id' => $targetBlock->id,
+                    'student_subgroup_id' => $subgroup->id,
+                    'training_site_id' => $siteId,
+                ]);
+                $this->syncStudentAssignmentsForCell($version, $targetRow, $targetBlock, $subgroup, $siteId);
+                $created++;
+            }
+        });
+
+        if ($created > 0) {
+            $this->recordCellChange($request, $version, 'course_schedule.period_copied', [
+                'source_version_id' => $source->id,
+                'created_cells' => $created,
+                'created_rows' => $createdRows,
+                'skipped_existing' => $skippedExisting,
+                'skipped_missing_week' => $skippedMissingWeek,
+                'skipped_non_clinical' => $skippedNonClinical,
+            ]);
+        }
+
+        return ApiResponse::success([
+            'created_cells' => $created,
+            'created_rows' => $createdRows,
+            'skipped_existing' => $skippedExisting,
+            'skipped_missing_week' => $skippedMissingWeek,
+            'skipped_non_clinical' => $skippedNonClinical,
+        ], 'تم نسخ الخلايا المتاحة مع الحفاظ على التوزيعات الموجودة.');
+    }
+
     public function updateBlockActivity(Request $request, DistributionVersion $version, RotationBlock $block): JsonResponse
     {
         $this->ensureVersionInUserScope($version);
@@ -1050,6 +1308,38 @@ class CourseDistributionController extends Controller
     {
         $levelScope = $this->getEffectiveAcademicLevelScope();
         abort_if($levelScope !== null && ! in_array($academicLevel, $levelScope, true), 404);
+    }
+
+    private function syncStudentAssignmentsForCell(DistributionVersion $version, CourseScheduleRow $row, RotationBlock $block, StudentSubgroup $subgroup, int $siteId): void
+    {
+        StudentClinicalAssignment::query()
+            ->where('distribution_version_id', $version->id)
+            ->where('rotation_block_id', $block->id)
+            ->where('student_subgroup_id', $subgroup->id)
+            ->delete();
+
+        $memberships = StudentGroupAssignment::query()
+            ->where('student_subgroup_id', $subgroup->id)
+            ->where('academic_year_id', $version->rotation->academic_year_id)
+            ->current()
+            ->whereHas('student', fn ($query) => $query->where('registration_status', 'active'))
+            ->get();
+        if ($memberships->isEmpty()) return;
+
+        $doctor = $row->person;
+        $now = now();
+        StudentClinicalAssignment::insert($memberships->map(fn ($membership) => [
+            'distribution_version_id' => $version->id,
+            'course_schedule_row_id' => $row->id,
+            'student_id' => $membership->student_id,
+            'student_subgroup_id' => $subgroup->id,
+            'rotation_block_id' => $block->id,
+            'training_site_id' => $siteId,
+            'department_id' => $doctor?->department_id,
+            'supervisor_id' => $doctor?->id,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ])->all());
     }
 
     private function doctorDirectory()
