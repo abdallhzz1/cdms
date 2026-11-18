@@ -333,13 +333,16 @@ class BasicAttendanceController extends Controller
         $counts = DB::table('basic_enrollments')->whereIn('section_id', $ids)->where('is_active', true)->selectRaw('section_id, COUNT(*) as total')->groupBy('section_id')->pluck('total', 'section_id');
         $lectures = DB::table('basic_lecture_sessions as lecture')->leftJoin('basic_lecture_records as record', 'record.session_id', '=', 'lecture.id')->leftJoin('users as lecturer', 'lecturer.id', '=', DB::raw('COALESCE(lecture.lecturer_id, lecture.created_by)'))
             ->whereIn('lecture.section_id', $ids)->whereNull('lecture.archived_at')->where('lecture.state', 'finalized')->where('lecture.opened_at', '>=', $start)->where('lecture.opened_at', '<', $end)
-            ->selectRaw("lecture.section_id, COALESCE(lecture.lecturer_id, lecture.created_by) as lecturer_id, lecturer.name as lecturer_name, COUNT(DISTINCT lecture.id) as lectures, SUM(CASE WHEN record.status = 'present' THEN 1 ELSE 0 END) as present, SUM(CASE WHEN record.status = 'absent' THEN 1 ELSE 0 END) as absent, SUM(CASE WHEN record.status = 'excused' THEN 1 ELSE 0 END) as excused, SUM(CASE WHEN record.is_late = 1 THEN 1 ELSE 0 END) as late")
+            // An incomplete double-check still proves attendance: the student
+            // checked in but missed check-out. Excused records are historical
+            // and are intentionally excluded from the current present/absent totals.
+            ->selectRaw("lecture.section_id, COALESCE(lecture.lecturer_id, lecture.created_by) as lecturer_id, lecturer.name as lecturer_name, COUNT(DISTINCT lecture.id) as lectures, SUM(CASE WHEN record.status IN ('present', 'incomplete') THEN 1 ELSE 0 END) as present, SUM(CASE WHEN record.status = 'absent' THEN 1 ELSE 0 END) as absent")
             ->groupBy('lecture.section_id', DB::raw('COALESCE(lecture.lecturer_id, lecture.created_by)'), 'lecturer.name')->get()->groupBy('section_id');
         $rows = $sections->map(function ($section) use ($assigned, $counts, $lectures) {
             $section->students_count = (int) ($counts[$section->id] ?? 0);
             $section->assigned_lecturers = ($assigned[$section->id] ?? collect())->map(fn ($person) => ['id' => $person->id, 'name' => $person->name])->values();
             $section->lecturers = ($lectures[$section->id] ?? collect())->map(function ($item) {
-                foreach (['lectures', 'present', 'absent', 'excused', 'late'] as $field) $item->$field = (int) $item->$field;
+                foreach (['lectures', 'present', 'absent'] as $field) $item->$field = (int) $item->$field;
                 return $item;
             })->values();
             return $section;
@@ -356,7 +359,7 @@ class BasicAttendanceController extends Controller
             ->where('opened_at', '>=', $start)->where('opened_at', '<', $end)->count();
         $monthly = DB::table('basic_lecture_records as r')->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
             ->where('s.section_id', $section)->whereNull('s.archived_at')->where('s.state', 'finalized')->where('s.opened_at', '>=', $start)->where('s.opened_at', '<', $end)
-            ->selectRaw("r.student_id, COUNT(*) AS sessions, SUM(CASE WHEN r.status = 'present' THEN 1 ELSE 0 END) AS present, SUM(CASE WHEN r.status = 'absent' THEN 1 ELSE 0 END) AS absent, SUM(CASE WHEN r.status = 'excused' THEN 1 ELSE 0 END) AS excused, SUM(CASE WHEN r.status = 'incomplete' THEN 1 ELSE 0 END) AS incomplete, SUM(CASE WHEN r.is_late = 1 THEN 1 ELSE 0 END) AS late")
+            ->selectRaw("r.student_id, SUM(CASE WHEN r.status IN ('present', 'absent', 'incomplete') THEN 1 ELSE 0 END) AS sessions, SUM(CASE WHEN r.status IN ('present', 'incomplete') THEN 1 ELSE 0 END) AS present, SUM(CASE WHEN r.status = 'absent' THEN 1 ELSE 0 END) AS absent")
             ->groupBy('r.student_id')->get()->keyBy('student_id');
         $allAbsences = DB::table('basic_lecture_records as r')->join('basic_lecture_sessions as s', 's.id', '=', 'r.session_id')
             ->where('s.section_id', $section)->whereNull('s.archived_at')->where('s.state', 'finalized')->where('r.status', 'absent')
@@ -370,7 +373,7 @@ class BasicAttendanceController extends Controller
         $students = DB::table('basic_students')->whereIn('id', $studentIds)->orderBy('name')->get(['id', 'name', 'university_number', 'email', 'photo_url', 'is_active'])
             ->map(function ($student) use ($monthly, $allAbsences, $sent, $currentIds) {
                 $row = $monthly[$student->id] ?? null;
-                foreach (['sessions', 'present', 'absent', 'excused', 'incomplete', 'late'] as $field) $student->$field = (int) ($row->$field ?? 0);
+                foreach (['sessions', 'present', 'absent'] as $field) $student->$field = (int) ($row->$field ?? 0);
                 $student->total_absent = (int) ($allAbsences[$student->id] ?? 0);
                 $student->is_enrolled = (bool) $student->is_active && $currentIds->contains($student->id);
                 $student->notifications = ($sent[$student->id] ?? collect())->mapWithKeys(fn ($notice) => [(string) $notice->threshold => $notice->sent_at]);

@@ -39,7 +39,7 @@ class BasicAttendanceReportExport extends DefaultValueBinder implements FromQuer
             [__('basic_attendance.report_section').': '.$this->section->number.'  ·  '.$this->section->academic_year.'  ·  '.__('basic_attendance.semester_'.$this->section->semester)],
             [__('basic_attendance.report_exported_at').': '.now()->format('Y-m-d H:i')],
             [''],
-            array_map(fn (int $key) => __('basic_attendance.message'.$key), range(15, 25)),
+            array_map(fn (int $key) => __('basic_attendance.message'.$key), [15, 16, 17, 18, 19, 20, 21, 22, 24, 25]),
         ];
     }
 
@@ -57,7 +57,6 @@ class BasicAttendanceReportExport extends DefaultValueBinder implements FromQuer
             $labels('status', $row->status),
             $date($row->check_in_at),
             $date($row->check_out_at),
-            $row->is_late ? __('basic_attendance.yes') : __('basic_attendance.no'),
             $labels('source', $row->source),
             (string) ($row->reason ?? ''),
         ];
@@ -85,9 +84,9 @@ class BasicAttendanceReportExport extends DefaultValueBinder implements FromQuer
                 $sheet->setShowGridlines(false);
                 $sheet->setTitle($rtl ? 'الحضور' : 'Attendance');
 
-                foreach (range(1, 5) as $row) $sheet->mergeCells("A{$row}:K{$row}");
+                foreach (range(1, 5) as $row) $sheet->mergeCells("A{$row}:J{$row}");
 
-                $sheet->getStyle('A1:K'.$lastRow)->getFont()->setName('Arial')->setSize(10)->getColor()->setRGB('1E293B');
+                $sheet->getStyle('A1:J'.$lastRow)->getFont()->setName('Arial')->setSize(10)->getColor()->setRGB('1E293B');
                 $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(15)->getColor()->setRGB('134E4A');
                 $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(11)->getColor()->setRGB('0F766E');
                 $sheet->getStyle('A3:A5')->getFont()->setSize(10)->getColor()->setRGB('475569');
@@ -100,19 +99,19 @@ class BasicAttendanceReportExport extends DefaultValueBinder implements FromQuer
                 $sheet->getRowDimension(7)->setRowHeight(28);
                 $sheet->getDefaultRowDimension()->setRowHeight(21);
 
-                $sheet->getStyle('A7:K7')->getFill()->setFillType('solid')->getStartColor()->setRGB('0F766E');
-                $sheet->getStyle('A7:K7')->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
-                $sheet->getStyle('A7:K7')->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
+                $sheet->getStyle('A7:J7')->getFill()->setFillType('solid')->getStartColor()->setRGB('0F766E');
+                $sheet->getStyle('A7:J7')->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+                $sheet->getStyle('A7:J7')->getAlignment()->setHorizontal('center')->setVertical('center')->setWrapText(true);
                 if ($this->rowCount > 0) {
-                    $sheet->getStyle("A8:K{$lastRow}")->getAlignment()->setVertical('center');
-                    $sheet->getStyle("A8:K{$lastRow}")->getBorders()->getHorizontal()->setBorderStyle(Border::BORDER_HAIR)->getColor()->setRGB('E2E8F0');
+                    $sheet->getStyle("A8:J{$lastRow}")->getAlignment()->setVertical('center');
+                    $sheet->getStyle("A8:J{$lastRow}")->getBorders()->getHorizontal()->setBorderStyle(Border::BORDER_HAIR)->getColor()->setRGB('E2E8F0');
                     $sheet->getStyle("D8:D{$lastRow}")->getNumberFormat()->setFormatCode('yyyy-mm-dd hh:mm');
                     $sheet->getStyle("G8:H{$lastRow}")->getNumberFormat()->setFormatCode('yyyy-mm-dd hh:mm');
                     $sheet->getStyle("A8:A{$lastRow}")->getNumberFormat()->setFormatCode('@');
-                    $sheet->setAutoFilter("A7:K{$lastRow}");
+                    $sheet->setAutoFilter("A7:J{$lastRow}");
                 }
 
-                foreach (['A' => 19, 'B' => 29, 'C' => 32, 'D' => 21, 'E' => 18, 'F' => 19, 'G' => 21, 'H' => 21, 'I' => 14, 'J' => 19, 'K' => 42] as $column => $width) {
+                foreach (['A' => 19, 'B' => 29, 'C' => 32, 'D' => 21, 'E' => 18, 'F' => 19, 'G' => 21, 'H' => 21, 'I' => 19, 'J' => 42] as $column => $width) {
                     $sheet->getColumnDimension($column)->setWidth($width);
                 }
 

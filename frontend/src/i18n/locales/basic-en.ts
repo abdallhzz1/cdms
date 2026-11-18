@@ -234,7 +234,7 @@ export const basicAttendanceUi = {
   "workBulkInterrupted": "Sending stopped after {sent} successful messages: {error}. Refresh the report and retry; recorded messages will not be duplicated.",
   "workMonthlySearch": "Search name or university number",
   "workPendingOnly": "Needs follow-up only",
-  "workMonthBreakdown": "This month: present {present} · absent {absent} · excused {excused} · late {late}",
+  "workMonthBreakdown": "This month: present {present} · absent {absent}",
   "workMonthlyNoMatches": "No matching students.",
   "workMonthlyPages": "Report student pages",
   "workPreviousPage": "Previous",

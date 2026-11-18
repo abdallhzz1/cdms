@@ -234,7 +234,7 @@ export const basicAttendanceUi = {
   "workBulkInterrupted": "توقف الإرسال بعد نجاح {sent} رسالة: {error}. حدّث التقرير وأعد المحاولة؛ لن تُكرر الرسائل المسجلة.",
   "workMonthlySearch": "ابحث عن طالب أو رقم جامعي",
   "workPendingOnly": "المحتاجون للمتابعة فقط",
-  "workMonthBreakdown": "خلال الشهر: حضور {present} · غياب {absent} · عذر {excused} · تأخر {late}",
+  "workMonthBreakdown": "خلال الشهر: حضور {present} · غياب {absent}",
   "workMonthlyNoMatches": "لا يوجد طلاب يطابقون البحث.",
   "workMonthlyPages": "صفحات طلبة التقرير",
   "workPreviousPage": "السابق",

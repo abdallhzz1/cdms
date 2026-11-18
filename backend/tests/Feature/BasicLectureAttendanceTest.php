@@ -589,7 +589,7 @@ class BasicLectureAttendanceTest extends TestCase
         $this->assertSame(__('basic_attendance.report_monthly_title'), $sheet->getCell('A1')->getValue());
         $this->assertSame('2600001', $sheet->getCell('A8')->getValue());
         $this->assertSame('s', $sheet->getCell('A8')->getDataType());
-        $this->assertSame(3, $sheet->getCell('I8')->getValue());
+        $this->assertSame(3, $sheet->getCell('F8')->getValue());
         $this->assertSame('C8', $sheet->getFreezePane());
         $book->disconnectWorksheets();
     }
@@ -676,6 +676,33 @@ class BasicLectureAttendanceTest extends TestCase
         $this->assertSame(1, $section['lecturers'][0]['lectures']);
         $this->assertSame(3, $section['lecturers'][0]['absent']);
         $this->assertSame([], $rows->firstWhere('id', $this->otherSection)['lecturers']);
+    }
+
+    public function test_monthly_reports_count_incomplete_as_present_and_exclude_legacy_excused_records(): void
+    {
+        $id = $this->start('double');
+        $this->transition($id, 'close');
+        $this->transition($id, 'open_exit');
+        $this->transition($id, 'finalize');
+        DB::table('basic_lecture_records')->where('session_id', $id)->where('student_id', $this->students[0])->update(['status' => 'incomplete']);
+        DB::table('basic_lecture_records')->where('session_id', $id)->where('student_id', $this->students[1])->update(['status' => 'excused']);
+
+        $overview = $this->actingAs($this->manager)->getJson('/api/v1/basic-attendance/monthly-overview?month=2026-09')->assertOk();
+        $lecturer = collect($overview->json('data.sections'))->firstWhere('id', $this->section)['lecturers'][0];
+        $this->assertSame(1, $lecturer['present']);
+        $this->assertSame(1, $lecturer['absent']);
+        $this->assertArrayNotHasKey('excused', $lecturer);
+        $this->assertArrayNotHasKey('late', $lecturer);
+
+        $summary = $this->getJson('/api/v1/basic-attendance/sections/'.$this->section.'/monthly-summary?month=2026-09')->assertOk();
+        $student = collect($summary->json('data.students'))->firstWhere('id', $this->students[0]);
+        $this->assertSame(1, $student['present']);
+        $this->assertSame(0, $student['absent']);
+        $this->assertSame(1, $student['sessions']);
+        $legacyExcused = collect($summary->json('data.students'))->firstWhere('id', $this->students[1]);
+        $this->assertSame(0, $legacyExcused['sessions']);
+        $this->assertArrayNotHasKey('excused', $legacyExcused);
+        $this->assertArrayNotHasKey('late', $legacyExcused);
     }
 
     public function test_manager_must_choose_assigned_lecturer_when_section_has_multiple(): void

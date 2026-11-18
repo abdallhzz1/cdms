@@ -31,6 +31,8 @@ The current sidebar has one Basic Sciences entry. The route hierarchy is Courses
 
 The catalog's Add course and each course's New section action now open their forms **in place**; no intermediate setup page is required. The course code sits immediately under the course name. The Basic Attendance Administrator has a separate overall monthly report at `/basic-attendance/monthly-report`, grouped by course and section, then by the assigned lecturer of each finalized lecture. When a manager opens a lecture in a section with multiple assigned lecturers, they must select the responsible lecturer; a lecturer opening their own section is attributed to them automatically. Older lectures without a lecturer ID fall back to the account that opened them. Filters cover month, course, and lecturer; each section links to its student-level report. A section's assigned lecturers remain visible even if none held a lecture that month.
 
+Monthly present/absence reports count finalized `present` and `incomplete` records as attendance, since `incomplete` means the student checked in but missed the second check. Only finalized `absent` records count as absences; old `excused` records remain preserved but are excluded from the present/absence totals. Lateness and excuse columns are omitted from these reports.
+
 The dedicated `basic_attendance.delete` permission is seeded for Basic Attendance Administrator and System Administrator, not Basic Lecturer. Finalized **lecture** removal remains archival. Course, section and student removal changed on 2026-10-14 to permanent deletion (see below). Every deletion requires exact identifier confirmation and a written reason; an active lecture blocks deletion.
 
 ### Finalized register correction and permanent deletion — 2026-10-14

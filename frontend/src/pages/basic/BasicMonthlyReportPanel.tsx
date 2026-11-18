@@ -5,7 +5,7 @@ import { basicText as bt } from '@/i18n/basicAttendance';
 export type WarningThreshold = 2 | 3;
 export type MonthlyStudent = {
   id: number; name: string; university_number: string; email: string; photo_url?: string | null;
-  sessions: number; present: number; absent: number; excused: number; incomplete: number; late: number;
+  sessions: number; present: number; absent: number;
   total_absent: number; is_enrolled: boolean; notifications: Record<string, string>;
 };
 export type MonthlySummary = { month: string; finalized_sessions: number; students: MonthlyStudent[] };
@@ -78,14 +78,14 @@ export function BasicMonthlyReportPanel({ summary, busy, canNotify, onWarn, onBu
           <ChevronDown size={15} className="shrink-0 text-slate-400 transition group-open:rotate-180" aria-hidden="true" />
         </summary>
         <div className="space-y-2 border-t border-slate-100 bg-slate-50/70 px-3 py-3">
-          <p className="text-xs leading-5 text-slate-600">{bt('workMonthBreakdown', { present: student.present, absent: student.absent, excused: student.excused, late: student.late })}</p>
+          <p className="text-xs leading-5 text-slate-600">{bt('workMonthBreakdown', { present: student.present, absent: student.absent })}</p>
           {followUp(student)}
         </div>
       </details>; })}
       {!visible.length && <p className="p-6 text-center text-sm text-slate-500">{bt('workMonthlyNoMatches')}</p>}
     </div>
 
-    <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 md:block"><table className="w-full min-w-[700px] text-sm"><thead className="bg-slate-50 text-slate-600"><tr><th className="p-3 text-start">{bt('workStudentName')}</th><th className="p-3 text-center">{bt('workPresentCount')}</th><th className="p-3 text-center">{bt('workAbsentCount')}</th><th className="p-3 text-center">{bt('workExcusedCount')}</th><th className="p-3 text-center">{bt('workAllAbsences')}</th><th className="p-3 text-start">{bt('workFollowUp')}</th></tr></thead><tbody>{visible.map(student => { const tier = warningTier(student); return <tr key={student.id} className="border-t border-slate-100"><td className="p-3"><span className="font-bold text-slate-900">{student.name}</span><span dir="ltr" className="block text-start text-xs text-slate-500">{student.university_number}</span></td><td className="p-3 text-center">{student.present}</td><td className="p-3 text-center">{student.absent}</td><td className="p-3 text-center">{student.excused}</td><td className={`p-3 text-center font-bold ${tier === 3 ? 'text-rose-700' : tier === 2 ? 'text-amber-700' : 'text-slate-800'}`}>{student.total_absent}</td><td className="p-3">{followUp(student)}</td></tr>; })}</tbody></table>{!visible.length && <p className="p-6 text-center text-sm text-slate-500">{bt('workMonthlyNoMatches')}</p>}</div>
+    <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 md:block"><table className="w-full min-w-[620px] text-sm"><thead className="bg-slate-50 text-slate-600"><tr><th className="p-3 text-start">{bt('workStudentName')}</th><th className="p-3 text-center">{bt('workPresentCount')}</th><th className="p-3 text-center">{bt('workAbsentCount')}</th><th className="p-3 text-center">{bt('workAllAbsences')}</th><th className="p-3 text-start">{bt('workFollowUp')}</th></tr></thead><tbody>{visible.map(student => { const tier = warningTier(student); return <tr key={student.id} className="border-t border-slate-100"><td className="p-3"><span className="font-bold text-slate-900">{student.name}</span><span dir="ltr" className="block text-start text-xs text-slate-500">{student.university_number}</span></td><td className="p-3 text-center">{student.present}</td><td className="p-3 text-center">{student.absent}</td><td className={`p-3 text-center font-bold ${tier === 3 ? 'text-rose-700' : tier === 2 ? 'text-amber-700' : 'text-slate-800'}`}>{student.total_absent}</td><td className="p-3">{followUp(student)}</td></tr>; })}</tbody></table>{!visible.length && <p className="p-6 text-center text-sm text-slate-500">{bt('workMonthlyNoMatches')}</p>}</div>
 
     {pages > 1 && <nav aria-label={bt('workMonthlyPages')} className="flex items-center justify-between gap-2"><button type="button" disabled={page <= 1} onClick={() => setRequestedPage(page - 1)} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-bold disabled:opacity-40">{bt('workPreviousPage')}</button><span className="text-xs text-slate-500">{bt('workPageOf', { page, pages })}</span><button type="button" disabled={page >= pages} onClick={() => setRequestedPage(page + 1)} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-bold disabled:opacity-40">{bt('workNextPage')}</button></nav>}
   </div>;

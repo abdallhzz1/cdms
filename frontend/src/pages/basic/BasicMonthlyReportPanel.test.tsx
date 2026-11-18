@@ -6,7 +6,7 @@ import { BasicMonthlyReportPanel, eligibleForWarning, warningTier, type MonthlyS
 const student = (id: number, absences = 0): MonthlyStudent => ({
   id, name: `Student ${id}`, university_number: `2600${String(id).padStart(3, '0')}`,
   email: `student${id}@example.edu`, photo_url: null, sessions: 3, present: 3 - absences,
-  absent: absences, excused: 0, incomplete: 0, late: 0, total_absent: absences,
+  absent: absences, total_absent: absences,
   is_enrolled: true, notifications: {},
 });
 
@@ -38,6 +38,7 @@ it('separates two-absence and three-absence actions and excludes sent or invalid
   const rows = view.container.querySelectorAll('.md\\:hidden details');
   await userEvent.click(within(rows[1] as HTMLElement).getByText('Student 2'));
   expect(within(rows[1] as HTMLElement).getByRole('button', { name: 'Email director review request' })).toBeInTheDocument();
+  expect(within(rows[1] as HTMLElement).queryByText(/excused|late/i)).not.toBeInTheDocument();
   localStorage.setItem('cdms.locale', 'ar');
   view.rerender(<BasicMonthlyReportPanel summary={{ month: '2026-10', finalized_sessions: 4, students }} busy={false} canNotify onWarn={vi.fn()} onBulk={onBulk} />);
   expect(within(rows[1] as HTMLElement).getByRole('button', { name: 'إرسال طلب مراجعة مدير الدائرة' })).toBeInTheDocument();
