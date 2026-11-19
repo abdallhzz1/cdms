@@ -338,6 +338,9 @@ export function DistributionPage() {
   const [rowModal, setRowModal] = useState(false);
   const [copyModalOpen, setCopyModalOpen] = useState(false);
   const [sourcePeriodId, setSourcePeriodId] = useState("");
+  const [copyGroupDistribution, setCopyGroupDistribution] = useState(false);
+  const [copySourceGroupId, setCopySourceGroupId] = useState("");
+  const [copyTargetGroupId, setCopyTargetGroupId] = useState("");
   const [workDetailsRow, setWorkDetailsRow] = useState<ScheduleRow | null>(null);
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
   const [rowForm, setRowForm] = useState({
@@ -452,6 +455,37 @@ export function DistributionPage() {
   const copySourceChoices = sourcePeriods.map((period, index) => ({ period, query: sourceScheduleQueries[index] }))
     .filter((item) => item.query?.data?.version && (item.query.data.rows?.length ?? 0) > 0);
   const selectedCopySource = copySourceChoices.find((item) => String(item.period.id) === sourcePeriodId);
+  const copySourceGroups = useMemo(() => {
+    const data = selectedCopySource?.query?.data;
+    if (!data) return [];
+    const assignedGroupNames = new Set(data.cells.map((cell) => cell.main_group_name).filter(Boolean));
+    return [...new Map(data.subgroups
+      .filter((subgroup) => subgroup.group && assignedGroupNames.has(subgroup.group.name))
+      .map((subgroup) => [subgroup.group!.id, subgroup.group!])).values()];
+  }, [selectedCopySource?.query?.data]);
+  const copyTargetGroups = useMemo(() => [...new Map((schedule?.subgroups ?? [])
+    .filter((subgroup) => subgroup.group)
+    .map((subgroup) => [subgroup.group!.id, subgroup.group!])).values()], [schedule?.subgroups]);
+  const selectedCopySourceGroup = copySourceGroups.find((group) => String(group.id) === copySourceGroupId);
+  const copySubgroupSuffixes = useMemo(() => {
+    const data = selectedCopySource?.query?.data;
+    if (!data || !selectedCopySourceGroup) return [];
+    const assignedIds = new Set(data.cells.filter((cell) => cell.main_group_name === selectedCopySourceGroup.name).map((cell) => cell.subgroup_id));
+    return [...new Set(data.subgroups.filter((subgroup) => assignedIds.has(subgroup.id) && subgroup.name.startsWith(selectedCopySourceGroup.name))
+      .map((subgroup) => subgroup.name.slice(selectedCopySourceGroup.name.length)))];
+  }, [selectedCopySource?.query?.data, selectedCopySourceGroup]);
+  const availableCopyTargetGroups = useMemo(() => copyTargetGroups.filter((group) =>
+    String(group.id) !== copySourceGroupId && copySubgroupSuffixes.length > 0 && copySubgroupSuffixes.every((suffix) =>
+      schedule?.subgroups.some((subgroup) => subgroup.group?.id === group.id && subgroup.name === `${group.name}${suffix}`))),
+  [copyTargetGroups, copySourceGroupId, copySubgroupSuffixes, schedule?.subgroups]);
+  useEffect(() => {
+    if (!copySourceGroups.some((group) => String(group.id) === copySourceGroupId)) {
+      setCopySourceGroupId(copySourceGroups[0] ? String(copySourceGroups[0].id) : "");
+    }
+    if (!availableCopyTargetGroups.some((group) => String(group.id) === copyTargetGroupId)) {
+      setCopyTargetGroupId(availableCopyTargetGroups[0] ? String(availableCopyTargetGroups[0].id) : "");
+    }
+  }, [copySourceGroups, availableCopyTargetGroups, copySourceGroupId, copyTargetGroupId]);
   const publishedVersion =
     schedule?.version?.status === "published"
       ? schedule.version
@@ -733,16 +767,26 @@ export function DistributionPage() {
       }),
   });
   const copyPeriod = useMutation({
-    mutationFn: () => apiFetch<{ created_rows: number; skipped_existing_rows: number; copied_cells: 0 }>(
+    mutationFn: () => apiFetch<{ created_rows: number; skipped_existing_rows: number; copied_cells: number; skipped_existing_cells: number }>(
       `/course-distribution/versions/${schedule!.version!.id}/copy-period`,
-      { method: "POST", body: { source_version_id: Number(selectedCopySource?.query?.data?.version?.id) } },
+      { method: "POST", body: {
+        source_version_id: Number(selectedCopySource?.query?.data?.version?.id),
+        copy_group_distribution: copyGroupDistribution,
+        ...(copyGroupDistribution ? {
+          source_student_group_id: Number(copySourceGroupId),
+          target_student_group_id: Number(copyTargetGroupId),
+        } : {}),
+      } },
     ),
     onSuccess: async (data) => {
       setCopyModalOpen(false);
       await refresh();
-      setNotice({ type: "success", text: tr(
-        `أُضيف ${data.created_rows} صف مشرف، وتُرك ${data.skipped_existing_rows} صف مطابق موجود كما هو. لم تُنسخ أي خلايا أو تكليفات.`,
-        `Added ${data.created_rows} supervisor rows and kept ${data.skipped_existing_rows} matching rows unchanged. No cells or placements were copied.`,
+      setNotice({ type: "success", text: copyGroupDistribution ? tr(
+        `أُضيف ${data.created_rows} صف مشرف، وتُرك ${data.skipped_existing_rows} صف مطابق كما هو. نُسخت ${data.copied_cells} خلية توزيع، وتُركت ${data.skipped_existing_cells} خلية مطابقة موجودة كما هي.`,
+        `Added ${data.created_rows} supervisor rows and kept ${data.skipped_existing_rows} matching rows unchanged. Copied ${data.copied_cells} placement cells and kept ${data.skipped_existing_cells} matching cells unchanged.`,
+      ) : tr(
+        `أُضيف ${data.created_rows} صف مشرف، وتُرك ${data.skipped_existing_rows} صف مطابق كما هو. لم تُنسخ خلايا التوزيع.`,
+        `Added ${data.created_rows} supervisor rows and kept ${data.skipped_existing_rows} matching rows unchanged. Placement cells were not copied.`,
       ) });
     },
     onError: (error) => setNotice({ type: "error", text: message(error, { ar: "تعذر نسخ الفترة. لم تُحفظ التغييرات.", en: "Could not copy the period. No changes were saved." }, locale) }),
@@ -1376,6 +1420,9 @@ export function DistributionPage() {
                   const previous = [...sourcePeriods].filter((period) => (period.sequence ?? 0) < (selectedPeriod?.sequence ?? Infinity)).sort((a, b) => b.sequence - a.sequence)[0]
                     ?? [...sourcePeriods].sort((a, b) => a.sequence - b.sequence)[0];
                   setSourcePeriodId(previous ? String(previous.id) : "");
+                  setCopyGroupDistribution(false);
+                  setCopySourceGroupId("");
+                  setCopyTargetGroupId("");
                   setCopyModalOpen(true);
                 }}>
                   <Copy className="me-1 h-4 w-4" />
@@ -2110,8 +2157,8 @@ export function DistributionPage() {
         title={tr("نسخ صفوف المشرفين من فترة سابقة", "Copy supervisor rows from a previous period")}
         footer={<>
           <Button variant="outline" onClick={() => setCopyModalOpen(false)}>{tr("إلغاء", "Cancel")}</Button>
-          <Button onClick={() => copyPeriod.mutate()} isLoading={copyPeriod.isPending} disabled={!selectedCopySource || !selectedCopySource.query?.data?.version}>
-            {tr("نسخ الصفوف دون توزيع", "Copy rows without placements")}
+          <Button onClick={() => copyPeriod.mutate()} isLoading={copyPeriod.isPending} disabled={!selectedCopySource || !selectedCopySource.query?.data?.version || (copyGroupDistribution && (!copySourceGroupId || !availableCopyTargetGroups.some((group) => String(group.id) === copyTargetGroupId)))}>
+            {copyGroupDistribution ? tr("نسخ الصفوف والتوزيع", "Copy rows and placements") : tr("نسخ الصفوف دون توزيع", "Copy rows without placements")}
           </Button>
         </>}
       >
@@ -2126,11 +2173,37 @@ export function DistributionPage() {
               })}
             </select>
           </label>
+          <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${copyGroupDistribution ? "border-teal-300 bg-teal-50" : "border-slate-200 bg-white"}`}>
+            <input type="checkbox" className="mt-0.5 h-4 w-4 accent-teal-700" checked={copyGroupDistribution} disabled={!copySourceGroups.length} onChange={(event) => setCopyGroupDistribution(event.target.checked)} />
+            <span>
+              <span className="block text-xs font-black text-slate-800">{tr("نسخ نمط التوزيع لمجموعة رئيسية أخرى (اختياري)", "Copy the placement pattern to another main group (optional)")}</span>
+              <span className="mt-1 block text-[11px] leading-5 text-slate-500">{tr("تُطابق المجموعات الفرعية حسب رقمها، مثل A1 إلى B1، وتُنشأ تكليفات الطلبة المسجلين في المجموعة الهدف.", "Subgroups are matched by their suffix, such as A1 to B1, and assignments are created for students enrolled in the target group.")}</span>
+            </span>
+          </label>
+          {copyGroupDistribution && <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-black text-slate-700">{tr("المجموعة الرئيسية في المصدر", "Source main group")}</span>
+              <select className={inputClass} value={copySourceGroupId} onChange={(event) => setCopySourceGroupId(event.target.value)}>
+                <option value="">{tr("اختر المجموعة", "Select a group")}</option>
+                {copySourceGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-black text-slate-700">{tr("المجموعة الرئيسية الهدف", "Target main group")}</span>
+              <select className={inputClass} value={copyTargetGroupId} onChange={(event) => setCopyTargetGroupId(event.target.value)}>
+                <option value="">{tr("اختر المجموعة", "Select a group")}</option>
+                {availableCopyTargetGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+              </select>
+            </label>
+          </div>}
+          {copyGroupDistribution && copySourceGroupId && !availableCopyTargetGroups.length && <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">{tr("لا توجد مجموعة رئيسية أخرى تحتوي على المجموعات الفرعية المطابقة. لن يتم تغيير أي شيء.", "No other main group has the matching subgroups. Nothing will be changed.")}</p>}
           {sourceScheduleQueries.some((query) => query.isLoading) && <p className="text-xs text-slate-500">{tr("جارٍ تحميل جداول الفترات المتاحة…", "Loading available period schedules…")}</p>}
           {!sourceScheduleQueries.some((query) => query.isLoading) && !copySourceChoices.length && <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">{tr("لا توجد فترة أخرى تحتوي على صفوف مشرفين قابلة للنسخ.", "No other period contains supervisor rows to copy.")}</p>}
           {selectedCopySource?.query?.data && <div className="space-y-2 rounded-xl border border-teal-100 bg-teal-50 p-3 text-xs leading-5 text-teal-900">
             <p>{tr("معاينة:", "Preview:")} {selectedCopySource.query.data.rows.length} {tr("صفوف في المصدر، و", "source rows; ")}{schedule?.rows.length ?? 0} {tr("صفوف حاليًا في الفترة المستهدفة.", "rows currently in the target period.")}</p>
-            <p className="font-bold">{tr("سيضيف النظام صفوف المشرفين الناقصة فقط، ولن ينسخ أو يفرّغ أي خلية أو تكليف موجود.", "Only missing supervisor rows will be added. No existing cells or placements will be copied or cleared.")}</p>
+            <p className="font-bold">{copyGroupDistribution
+              ? tr("سيضيف الصفوف الناقصة وينسخ الخلايا المطابقة للمجموعة الهدف فقط. لن يُستبدل أي توزيع موجود، وستُلغى العملية كاملة إذا تعذر تطابق مجموعة فرعية أو أسبوع.", "Missing rows will be added and only matching cells for the target group will be copied. Existing placements will not be replaced; the entire operation is canceled if a subgroup or week cannot be matched.")
+              : tr("سيضيف النظام صفوف المشرفين الناقصة فقط، ولن ينسخ أو يفرّغ أي خلية أو تكليف موجود.", "Only missing supervisor rows will be added. No existing cells or placements will be copied or cleared.")}</p>
           </div>}
         </div>
       </Modal>

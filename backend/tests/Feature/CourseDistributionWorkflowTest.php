@@ -12,6 +12,7 @@ use App\Models\Permission;
 use App\Models\Person;
 use App\Models\Role;
 use App\Models\Rotation;
+use App\Models\RotationBlock;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroup;
@@ -547,6 +548,92 @@ class CourseDistributionWorkflowTest extends TestCase
             $this->assertArrayHasKey('student_subgroup_id', $exception->errors());
         }
         $this->assertSame($assignment->id, $mark->fresh()->student_clinical_assignment_id);
+    }
+
+    public function test_copying_period_can_map_a_main_group_distribution_to_another_groups_matching_subgroups(): void
+    {
+        $sourceGroup = StudentGroup::findOrFail($this->subgroup->student_group_id);
+        $sourceSubgroupTwo = StudentSubgroup::factory()->create(['student_group_id' => $sourceGroup->id, 'name' => 'L2', 'is_active' => true]);
+        $targetGroup = StudentGroup::factory()->create(['academic_year_id' => $this->year->id, 'academic_level' => 'fourth', 'name' => 'M']);
+        $targetSubgroupOne = StudentSubgroup::factory()->create(['student_group_id' => $targetGroup->id, 'name' => 'M1', 'is_active' => true]);
+        $targetSubgroupTwo = StudentSubgroup::factory()->create(['student_group_id' => $targetGroup->id, 'name' => 'M2', 'is_active' => true]);
+        $targetStudent = Student::factory()->create(['academic_year_id' => $this->year->id, 'academic_level' => 'fourth', 'registration_status' => 'active']);
+        StudentGroupAssignment::factory()->create(['student_id' => $targetStudent->id, 'academic_year_id' => $this->year->id, 'student_group_id' => $targetGroup->id, 'student_subgroup_id' => $targetSubgroupOne->id, 'valid_until' => null]);
+
+        $makePeriodVersion = function (int $sequence, string $code, string $name, string $start): array {
+            $period = ClinicalPeriod::create([
+                'academic_year_id' => $this->year->id, 'code' => $code, 'name_ar' => $name, 'name_en' => $name,
+                'sequence' => $sequence, 'start_date' => $start, 'end_date' => date('Y-m-d', strtotime($start.' + 13 days')),
+                'weeks_count' => 2, 'status' => 'active',
+            ]);
+            $rotation = Rotation::create([
+                'academic_year_id' => $this->year->id, 'course_id' => $this->course->id, 'clinical_period_id' => $period->id,
+                'schedule_scope' => 'period', 'code' => 'COPY'.$sequence, 'name' => $name, 'academic_level' => 'fourth',
+                'duration_weeks' => 2, 'start_date' => $start, 'end_date' => date('Y-m-d', strtotime($start.' + 13 days')), 'status' => 'draft',
+            ]);
+            $version = DistributionVersion::create(['rotation_id' => $rotation->id, 'name' => $name, 'status' => 'manual', 'is_current' => true]);
+            $blocks = collect([1, 2])->map(fn ($week) => RotationBlock::create([
+                'rotation_id' => $rotation->id, 'block_code' => 'W'.$week, 'from_week' => $week, 'to_week' => $week,
+            ]));
+            return [$version, $blocks];
+        };
+
+        [$sourceVersion, $sourceBlocks] = $makePeriodVersion(1, 'CP1', 'Source', '2026-09-01');
+        [$targetVersion, $targetBlocks] = $makePeriodVersion(2, 'CP2', 'Target', '2026-09-15');
+        $sourceRow = CourseScheduleRow::create([
+            'distribution_version_id' => $sourceVersion->id, 'row_type' => 'doctor', 'person_id' => $this->doctor->id,
+            'training_site_id' => $this->doctor->primary_site_id, 'sort_order' => 1,
+        ]);
+        foreach ([[$sourceBlocks[0], $this->subgroup], [$sourceBlocks[1], $sourceSubgroupTwo]] as [$block, $subgroup]) {
+            CourseScheduleCell::create([
+                'distribution_version_id' => $sourceVersion->id, 'course_schedule_row_id' => $sourceRow->id,
+                'rotation_block_id' => $block->id, 'student_subgroup_id' => $subgroup->id,
+                'training_site_id' => $this->doctor->primary_site_id,
+            ]);
+        }
+
+        $this->actingAs($this->user)->postJson('/api/v1/course-distribution/versions/'.$targetVersion->id.'/copy-period', [
+            'source_version_id' => $sourceVersion->id,
+        ])->assertOk()->assertJsonPath('data.created_rows', 1)->assertJsonPath('data.copied_cells', 0);
+        $this->assertSame(0, CourseScheduleCell::where('distribution_version_id', $targetVersion->id)->count());
+
+        $copyPayload = [
+            'source_version_id' => $sourceVersion->id,
+            'copy_group_distribution' => true,
+            'source_student_group_id' => $sourceGroup->id,
+            'target_student_group_id' => $targetGroup->id,
+        ];
+        $response = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/versions/'.$targetVersion->id.'/copy-period', $copyPayload)
+            ->assertOk()->assertJsonPath('data.created_rows', 0)->assertJsonPath('data.copied_cells', 2);
+        $this->actingAs($this->user)->postJson('/api/v1/course-distribution/versions/'.$targetVersion->id.'/copy-period', $copyPayload)
+            ->assertOk()->assertJsonPath('data.copied_cells', 0)->assertJsonPath('data.skipped_existing_cells', 2);
+
+        $targetRow = CourseScheduleRow::where('distribution_version_id', $targetVersion->id)->firstOrFail();
+        $this->assertDatabaseHas('course_schedule_cells', [
+            'distribution_version_id' => $targetVersion->id, 'course_schedule_row_id' => $targetRow->id,
+            'rotation_block_id' => $targetBlocks[0]->id, 'student_subgroup_id' => $targetSubgroupOne->id,
+        ]);
+        $this->assertDatabaseHas('course_schedule_cells', [
+            'distribution_version_id' => $targetVersion->id, 'course_schedule_row_id' => $targetRow->id,
+            'rotation_block_id' => $targetBlocks[1]->id, 'student_subgroup_id' => $targetSubgroupTwo->id,
+        ]);
+        $this->assertDatabaseHas('student_clinical_assignments', [
+            'distribution_version_id' => $targetVersion->id, 'course_schedule_row_id' => $targetRow->id,
+            'rotation_block_id' => $targetBlocks[0]->id, 'student_id' => $targetStudent->id,
+            'student_subgroup_id' => $targetSubgroupOne->id, 'supervisor_id' => $this->doctor->id,
+        ]);
+        $this->assertSame(2, $response->json('data.copied_cells'));
+
+        $incompleteGroup = StudentGroup::factory()->create(['academic_year_id' => $this->year->id, 'academic_level' => 'fourth', 'name' => 'N']);
+        StudentSubgroup::factory()->create(['student_group_id' => $incompleteGroup->id, 'name' => 'N1', 'is_active' => true]);
+        $this->actingAs($this->user)->postJson('/api/v1/course-distribution/versions/'.$targetVersion->id.'/copy-period', [
+            'source_version_id' => $sourceVersion->id,
+            'copy_group_distribution' => true,
+            'source_student_group_id' => $sourceGroup->id,
+            'target_student_group_id' => $incompleteGroup->id,
+        ])->assertUnprocessable()->assertJsonValidationErrors('target_student_group_id');
+        $this->assertSame(2, CourseScheduleCell::where('distribution_version_id', $targetVersion->id)->count());
+        $this->assertDatabaseHas('course_schedule_rows', ['distribution_version_id' => $targetVersion->id, 'id' => $targetRow->id]);
     }
 
     public function test_adding_doctor_creates_linked_clinical_supervisor_account(): void
