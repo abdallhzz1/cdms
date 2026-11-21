@@ -21,7 +21,7 @@ use App\Models\Rotation;
 use App\Models\RotationBlock;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroup;
-use App\Models\StudentGroupAssignment;
+use App\Services\Distribution\ClinicalPeriodGroupMembershipService;
 use App\Models\StudentSubgroup;
 use App\Models\TrainingSite;
 use App\Models\User;
@@ -373,12 +373,8 @@ class CourseDistributionController extends Controller
                 'course_schedule_row_id' => $row->id,
             ])->delete();
 
-            $memberships = StudentGroupAssignment::query()
-                ->whereIn('student_subgroup_id', $subgroupIds)
-                ->where('academic_year_id', $version->rotation->academic_year_id)
-                ->current()
-                ->whereHas('student', fn ($query) => $query->where('registration_status', 'active'))
-                ->get();
+            $memberships = app(ClinicalPeriodGroupMembershipService::class)
+                ->membershipsForRotation($version->rotation, $subgroupIds->all());
             StudentClinicalAssignment::query()
                 ->where('distribution_version_id', $version->id)
                 ->where('rotation_block_id', $block->id)
@@ -643,9 +639,8 @@ class CourseDistributionController extends Controller
                     }
                 }
 
-                $memberships = StudentGroupAssignment::query()->where('student_subgroup_id', $targetSubgroup->id)
-                    ->where('academic_year_id', $version->rotation->academic_year_id)->current()
-                    ->whereHas('student', fn ($query) => $query->where('registration_status', 'active'))->get();
+                $memberships = app(ClinicalPeriodGroupMembershipService::class)
+                    ->membershipsForRotation($version->rotation, [$targetSubgroup->id]);
                 $existingStudentAssignment = StudentClinicalAssignment::query()
                     ->where('distribution_version_id', $version->id)->where('rotation_block_id', $targetBlock->id)
                     ->whereIn('student_id', $memberships->pluck('student_id'))->first();
@@ -1338,12 +1333,8 @@ class CourseDistributionController extends Controller
             ->where('student_subgroup_id', $subgroup->id)
             ->delete();
 
-        $memberships = StudentGroupAssignment::query()
-            ->where('student_subgroup_id', $subgroup->id)
-            ->where('academic_year_id', $version->rotation->academic_year_id)
-            ->current()
-            ->whereHas('student', fn ($query) => $query->where('registration_status', 'active'))
-            ->get();
+        $memberships = app(ClinicalPeriodGroupMembershipService::class)
+            ->membershipsForRotation($version->rotation, [$subgroup->id]);
         if ($memberships->isEmpty()) return;
 
         $doctor = $row->person;

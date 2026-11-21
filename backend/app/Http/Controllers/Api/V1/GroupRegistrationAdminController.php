@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Traits\ScopesByDepartmentAndLevel;
 use App\Models\AuditLog;
+use App\Models\ClinicalPeriod;
 use App\Models\GroupRegistrationCycle;
 use App\Models\Student;
 use App\Models\StudentGroup;
@@ -443,6 +444,7 @@ class GroupRegistrationAdminController extends Controller
         $this->ensureCycleInUserScope($cycle);
         $data = $request->validate([
             'student_subgroup_id' => ['nullable', 'integer', 'exists:student_subgroups,id'],
+            'effective_clinical_period_id' => ['nullable', 'integer', 'exists:clinical_periods,id'],
             'reason' => ['required', 'string', 'min:3', 'max:500'],
             'allow_over_capacity' => ['sometimes', 'boolean'],
         ]);
@@ -475,6 +477,33 @@ class GroupRegistrationAdminController extends Controller
                 ->lockForUpdate()
                 ->get();
 
+            $effectivePeriod = null;
+            $effectiveDate = null;
+            if (! empty($data['effective_clinical_period_id'])) {
+                $effectivePeriod = ClinicalPeriod::query()
+                    ->with('levelDates')
+                    ->where('academic_year_id', $cycle->academic_year_id)
+                    ->lockForUpdate()
+                    ->findOrFail($data['effective_clinical_period_id']);
+                $levelDates = $effectivePeriod->datesForLevel($cycle->academic_level);
+                $effectiveDate = $levelDates?->start_date ?? $effectivePeriod->start_date;
+                $effectiveEndDate = $levelDates?->end_date ?? $effectivePeriod->end_date;
+                if (! $effectiveDate) {
+                    throw ValidationException::withMessages([
+                        'effective_clinical_period_id' => ['يجب اعتماد تاريخ بداية الفترة لهذه السنة الدراسية قبل نقل الطالب.'],
+                    ]);
+                }
+                if ($effectiveEndDate?->isBefore(today())) {
+                    throw ValidationException::withMessages([
+                        'effective_clinical_period_id' => ['لا يمكن تنفيذ نقل جديد بأثر رجعي على فترة سريرية منتهية. اختر الفترة الحالية أو القادمة.'],
+                    ]);
+                }
+            } elseif ($currentAssignments->isNotEmpty() && ClinicalPeriod::where('academic_year_id', $cycle->academic_year_id)->exists()) {
+                throw ValidationException::withMessages([
+                    'effective_clinical_period_id' => ['حدد الفترة السريرية التي يبدأ منها النقل حتى تبقى تكليفات الفترات السابقة محفوظة.'],
+                ]);
+            }
+
             if ($subgroup && $currentAssignments->count() === 1 && (int) $currentAssignments->first()->student_subgroup_id === (int) $subgroup->id) {
                 $this->scheduleSync->syncStudent($student->id, $cycle->academic_year_id);
                 return $currentAssignments->first();
@@ -492,13 +521,22 @@ class GroupRegistrationAdminController extends Controller
             }
 
             foreach ($currentAssignments as $current) {
+                if ($effectivePeriod && $current->effective_from_clinical_period_id) {
+                    $currentFromSequence = (int) ClinicalPeriod::whereKey($current->effective_from_clinical_period_id)->value('sequence');
+                    if ($currentFromSequence > (int) $effectivePeriod->sequence) {
+                        throw ValidationException::withMessages([
+                            'effective_clinical_period_id' => ['لا يمكن إنشاء نقل بأثر رجعي قبل بداية العضوية الحالية للطالب.'],
+                        ]);
+                    }
+                }
                 $current->update([
-                    'valid_until' => now()->toDateString(),
+                    'valid_until' => $effectiveDate?->copy()->subDay()->toDateString() ?? now()->toDateString(),
+                    'effective_until_clinical_period_id' => $effectivePeriod?->id,
                     'change_reason' => 'administrative_override: '.$data['reason'],
                 ]);
             }
             if (! $subgroup) {
-                $this->scheduleSync->syncStudent($student->id, $cycle->academic_year_id);
+                $this->scheduleSync->syncStudent($student->id, $cycle->academic_year_id, $effectivePeriod?->id);
                 return null;
             }
 
@@ -507,12 +545,13 @@ class GroupRegistrationAdminController extends Controller
                 'academic_year_id' => $cycle->academic_year_id,
                 'student_group_id' => $roster->student_group_id,
                 'student_subgroup_id' => $subgroup->id,
-                'valid_from' => now()->toDateString(),
+                'valid_from' => $effectiveDate?->toDateString() ?? now()->toDateString(),
+                'effective_from_clinical_period_id' => $effectivePeriod?->id,
                 'change_reason' => 'administrative_override: '.$data['reason'],
                 'approved_by' => $approvedBy,
                 'data_source' => 'administrative_override',
             ]);
-            $this->scheduleSync->syncStudent($student->id, $cycle->academic_year_id);
+            $this->scheduleSync->syncStudent($student->id, $cycle->academic_year_id, $effectivePeriod?->id);
             return $assignment;
         });
 
@@ -522,7 +561,10 @@ class GroupRegistrationAdminController extends Controller
             'entity_type' => 'group_registration',
             'entity_id' => $cycle->id,
             'student_id' => $student->id,
-            'changes' => ['student_subgroup_id' => $assignment?->student_subgroup_id],
+            'changes' => [
+                'student_subgroup_id' => $assignment?->student_subgroup_id,
+                'effective_clinical_period_id' => $data['effective_clinical_period_id'] ?? null,
+            ],
             'is_override' => true,
             'override_reason' => $data['reason'],
         ]);
@@ -638,6 +680,26 @@ class GroupRegistrationAdminController extends Controller
                 'student_subgroup' => $assignment?->subgroup?->name,
             ];
         })->values();
+        $clinicalPeriods = ClinicalPeriod::query()
+            ->with(['levelDates' => fn ($query) => $query->where('academic_level', $cycle->academic_level)])
+            ->where('academic_year_id', $cycle->academic_year_id)
+            ->orderBy('sequence')
+            ->get()
+            ->map(function (ClinicalPeriod $period) use ($cycle) {
+                $dates = $period->datesForLevel($cycle->academic_level);
+                return [
+                    'id' => $period->id,
+                    'code' => $period->code,
+                    'name_ar' => $period->name_ar,
+                    'name_en' => $period->name_en,
+                    'sequence' => $period->sequence,
+                    'start_date' => $dates?->start_date?->toDateString() ?? $period->start_date?->toDateString(),
+                    'end_date' => $dates?->end_date?->toDateString() ?? $period->end_date?->toDateString(),
+                    'status' => $period->status,
+                    'is_transferable' => ! (($dates?->end_date ?? $period->end_date)?->isBefore(today()) ?? false),
+                ];
+            })->values();
+
         return [
             'id'=>$cycle->id, 'public_id'=>$cycle->public_id, 'academic_year_id'=>$cycle->academic_year_id,
             'academic_year'=>$cycle->academicYear, 'academic_level'=>$cycle->academic_level, 'status'=>$cycle->status,
@@ -645,6 +707,7 @@ class GroupRegistrationAdminController extends Controller
             'rosters_count'=>app(\App\Services\DepartmentHeadCourseScope::class)->rosters($cycle->rosters())->whereHas('student', fn($q)=>$q->where('academic_level',$cycle->academic_level))->count(),
             'registered_rosters_count'=>app(\App\Services\DepartmentHeadCourseScope::class)->rosters($cycle->rosters())->whereHas('student', fn($q)=>$q->where('academic_level',$cycle->academic_level)->where('academic_registration_status','registered'))->count(),
             'public_url'=>'/student-registration/'.$cycle->public_id, 'groups'=>$groups, 'roster_students'=>$rosterStudents,
+            'clinical_periods'=>$clinicalPeriods,
         ];
     }
 

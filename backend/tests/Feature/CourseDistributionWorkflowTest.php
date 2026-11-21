@@ -550,6 +550,116 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->assertSame($assignment->id, $mark->fresh()->student_clinical_assignment_id);
     }
 
+    public function test_period_effective_transfer_preserves_old_assessments_and_moves_only_future_periods(): void
+    {
+        $oldMembership = StudentGroupAssignment::query()
+            ->where('student_subgroup_id', $this->subgroup->id)
+            ->firstOrFail();
+        $newSubgroup = StudentSubgroup::factory()->create([
+            'student_group_id' => $this->subgroup->student_group_id,
+            'name' => 'L2',
+            'is_active' => true,
+        ]);
+        $periodOne = ClinicalPeriod::create([
+            'academic_year_id' => $this->year->id, 'code' => 'P1', 'name_ar' => 'الفترة الأولى',
+            'name_en' => 'First period', 'sequence' => 1, 'start_date' => '2026-09-01',
+            'end_date' => '2026-11-23', 'weeks_count' => 12, 'status' => 'closed',
+        ]);
+        $periodTwo = ClinicalPeriod::create([
+            'academic_year_id' => $this->year->id, 'code' => 'P2', 'name_ar' => 'الفترة الثانية',
+            'name_en' => 'Second period', 'sequence' => 2, 'start_date' => '2026-11-24',
+            'end_date' => '2027-02-15', 'weeks_count' => 12, 'status' => 'active',
+        ]);
+
+        $makeScheduledPeriod = function (ClinicalPeriod $period, StudentSubgroup $subgroup): DistributionVersion {
+            $rotation = Rotation::factory()->create([
+                'academic_year_id' => $this->year->id,
+                'academic_level' => 'fourth',
+                'course_id' => $this->course->id,
+                'clinical_period_id' => $period->id,
+                'schedule_scope' => 'period',
+                'start_date' => $period->start_date,
+                'end_date' => $period->end_date,
+            ]);
+            $version = DistributionVersion::create([
+                'rotation_id' => $rotation->id,
+                'name' => $period->code,
+                'status' => 'published',
+                'is_current' => true,
+            ]);
+            $block = RotationBlock::factory()->create(['rotation_id' => $rotation->id, 'from_week' => 1, 'to_week' => 1]);
+            $row = CourseScheduleRow::create([
+                'distribution_version_id' => $version->id,
+                'row_type' => 'doctor',
+                'person_id' => $this->doctor->id,
+                'training_site_id' => $this->doctor->primary_site_id,
+            ]);
+            CourseScheduleCell::create([
+                'distribution_version_id' => $version->id,
+                'course_schedule_row_id' => $row->id,
+                'rotation_block_id' => $block->id,
+                'student_subgroup_id' => $subgroup->id,
+                'training_site_id' => $this->doctor->primary_site_id,
+            ]);
+
+            return $version;
+        };
+
+        $periodOneVersion = $makeScheduledPeriod($periodOne, $this->subgroup);
+        $periodTwoOldVersion = $makeScheduledPeriod($periodTwo, $this->subgroup);
+        $periodTwoNewVersion = $makeScheduledPeriod($periodTwo, $newSubgroup);
+        app(CourseScheduleMembershipSyncService::class)->syncStudent($oldMembership->student_id, $this->year->id);
+
+        $oldClinicalAssignment = StudentClinicalAssignment::query()
+            ->where('student_id', $oldMembership->student_id)
+            ->where('distribution_version_id', $periodOneVersion->id)
+            ->firstOrFail();
+        $mark = \App\Models\ClinicalAssessment::create([
+            'student_id' => $oldMembership->student_id,
+            'evaluator_person_id' => $this->doctor->id,
+            'student_clinical_assignment_id' => $oldClinicalAssignment->id,
+            'evaluation_week' => 1,
+            'assessment_kind' => 'weekly',
+            'score' => 8,
+            'max_score' => 10,
+            'status' => 'submitted',
+        ]);
+        $periodOneVersion->update(['status' => 'withdrawn', 'is_current' => false]);
+
+        DB::transaction(function () use ($oldMembership, $newSubgroup, $periodTwo) {
+            $oldMembership->update([
+                'valid_until' => '2026-11-23',
+                'effective_until_clinical_period_id' => $periodTwo->id,
+            ]);
+            StudentGroupAssignment::create([
+                'student_id' => $oldMembership->student_id,
+                'academic_year_id' => $this->year->id,
+                'student_group_id' => $newSubgroup->student_group_id,
+                'student_subgroup_id' => $newSubgroup->id,
+                'valid_from' => '2026-11-24',
+                'effective_from_clinical_period_id' => $periodTwo->id,
+                'data_source' => 'administrative_override',
+            ]);
+            app(CourseScheduleMembershipSyncService::class)->syncStudent($oldMembership->student_id, $this->year->id, $periodTwo->id);
+        });
+
+        $this->assertDatabaseHas('student_clinical_assignments', [
+            'id' => $oldClinicalAssignment->id,
+            'student_subgroup_id' => $this->subgroup->id,
+            'distribution_version_id' => $periodOneVersion->id,
+        ]);
+        $this->assertSame($oldClinicalAssignment->id, $mark->fresh()->student_clinical_assignment_id);
+        $this->assertDatabaseMissing('student_clinical_assignments', [
+            'student_id' => $oldMembership->student_id,
+            'distribution_version_id' => $periodTwoOldVersion->id,
+        ]);
+        $this->assertDatabaseHas('student_clinical_assignments', [
+            'student_id' => $oldMembership->student_id,
+            'distribution_version_id' => $periodTwoNewVersion->id,
+            'student_subgroup_id' => $newSubgroup->id,
+        ]);
+    }
+
     public function test_copying_period_can_map_a_main_group_distribution_to_another_groups_matching_subgroups(): void
     {
         $sourceGroup = StudentGroup::findOrFail($this->subgroup->student_group_id);

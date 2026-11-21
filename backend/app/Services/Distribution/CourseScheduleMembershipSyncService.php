@@ -4,6 +4,7 @@ namespace App\Services\Distribution;
 
 use App\Models\CourseScheduleCell;
 use App\Models\ClinicalAssessment;
+use App\Models\ClinicalPeriod;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
 use App\Models\StudentGroupAssignment;
@@ -12,32 +13,61 @@ use Illuminate\Validation\ValidationException;
 
 class CourseScheduleMembershipSyncService
 {
-    public function syncStudent(int $studentId, int $academicYearId): void
+    public function __construct(private readonly ClinicalPeriodGroupMembershipService $membershipResolver) {}
+
+    public function syncStudent(int $studentId, int $academicYearId, ?int $fromClinicalPeriodId = null): void
     {
-        DB::transaction(function () use ($studentId, $academicYearId) {
+        DB::transaction(function () use ($studentId, $academicYearId, $fromClinicalPeriodId) {
             Student::query()->whereKey($studentId)->lockForUpdate()->firstOrFail();
-            $existing = StudentClinicalAssignment::query()
+            $fromSequence = $fromClinicalPeriodId
+                ? ClinicalPeriod::query()->where('academic_year_id', $academicYearId)->whereKey($fromClinicalPeriodId)->value('sequence')
+                : null;
+            if ($fromClinicalPeriodId && $fromSequence === null) {
+                throw ValidationException::withMessages([
+                    'effective_clinical_period_id' => ['الفترة السريرية المحددة لا تتبع السنة الأكاديمية للطالب.'],
+                ]);
+            }
+
+            $existingQuery = StudentClinicalAssignment::query()
                 ->where('student_id', $studentId)
                 ->whereNotNull('course_schedule_row_id')
-                ->whereHas('distributionVersion.rotation', fn ($query) => $query->where('academic_year_id', $academicYearId))
-                ->lockForUpdate()->get()->keyBy(fn (StudentClinicalAssignment $item) =>
+                ->whereHas('distributionVersion.rotation', function ($query) use ($academicYearId, $fromSequence) {
+                    $query->where('academic_year_id', $academicYearId);
+                    if ($fromSequence !== null) {
+                        $query->whereHas('clinicalPeriod', fn ($period) => $period->where('sequence', '>=', $fromSequence));
+                    }
+                });
+            $existing = $existingQuery->lockForUpdate()->get()->keyBy(fn (StudentClinicalAssignment $item) =>
                     $item->distribution_version_id.':'.$item->rotation_block_id);
 
-            $subgroupIds = StudentGroupAssignment::query()
+            $memberships = StudentGroupAssignment::query()
                 ->where('student_id', $studentId)
                 ->where('academic_year_id', $academicYearId)
-                ->current()
-                ->pluck('student_subgroup_id')
-                ->filter();
+                ->whereNotNull('student_subgroup_id')
+                ->with(['effectiveFromPeriod:id,sequence', 'effectiveUntilPeriod:id,sequence'])
+                ->get();
+            $subgroupIds = $memberships->pluck('student_subgroup_id')->filter()->unique();
 
             $cells = CourseScheduleCell::query()
-                ->with(['distributionVersion.rotation', 'courseScheduleRow.person'])
+                ->with(['distributionVersion.rotation.clinicalPeriod:id,sequence', 'courseScheduleRow.person'])
                 ->whereIn('student_subgroup_id', $subgroupIds->all() ?: [-1])
-                ->whereHas('distributionVersion.rotation', fn ($query) => $query->where('academic_year_id', $academicYearId))
+                ->whereHas('distributionVersion.rotation', function ($query) use ($academicYearId, $fromSequence) {
+                    $query->where('academic_year_id', $academicYearId);
+                    if ($fromSequence !== null) {
+                        $query->whereHas('clinicalPeriod', fn ($period) => $period->where('sequence', '>=', $fromSequence));
+                    }
+                })
                 ->whereHas('distributionVersion', fn ($query) => $query->where('status', '!=', 'withdrawn'))
                 ->get();
             $desired = collect();
             foreach ($cells as $cell) {
+                $rotation = $cell->distributionVersion?->rotation;
+                $membership = $rotation
+                    ? $this->membershipResolver->membershipForRotation($memberships, $rotation)
+                    : null;
+                if (! $membership || (int) $membership->student_subgroup_id !== (int) $cell->student_subgroup_id) {
+                    continue;
+                }
                 $row = $cell->courseScheduleRow;
                 $key = $cell->distribution_version_id.':'.$cell->rotation_block_id;
                 if ($desired->has($key)) {

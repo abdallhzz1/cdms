@@ -16,6 +16,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $student_subgroup_id
  * @property \Carbon\Carbon|null $valid_from
  * @property \Carbon\Carbon|null $valid_until
+ * @property int|null $effective_from_clinical_period_id
+ * @property int|null $effective_until_clinical_period_id
  * @property string|null $rotation
  * @property string|null $change_reason
  * @property string|null $approved_by
@@ -35,6 +37,8 @@ class StudentGroupAssignment extends Model
         'student_subgroup_id',
         'valid_from',
         'valid_until',
+        'effective_from_clinical_period_id',
+        'effective_until_clinical_period_id',
         'rotation',
         'change_reason',
         'approved_by',
@@ -78,9 +82,20 @@ class StudentGroupAssignment extends Model
         return $this->belongsTo(StudentSubgroup::class, 'student_subgroup_id');
     }
 
+    public function effectiveFromPeriod(): BelongsTo
+    {
+        return $this->belongsTo(ClinicalPeriod::class, 'effective_from_clinical_period_id');
+    }
+
+    public function effectiveUntilPeriod(): BelongsTo
+    {
+        return $this->belongsTo(ClinicalPeriod::class, 'effective_until_clinical_period_id');
+    }
+
     /**
-     * Only the membership that is currently authoritative. Closed rows are
-     * history and must never be used by distribution or capacity calculations.
+     * The membership used by the live roster and capacity counters. Historical
+     * rows are only resolved explicitly for a clinical period by the
+     * distribution membership service.
      */
     public function scopeCurrent(Builder $query): Builder
     {
