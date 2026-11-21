@@ -25,6 +25,8 @@ type ScheduleItem = {
     type: "lectures" | "break" | "exam";
     label: string | null;
   } | null;
+  group?: { name: string } | null;
+  subgroup?: { name: string } | null;
   course: {
     code: string | null;
     name_ar: string | null;
@@ -94,6 +96,17 @@ type StudentSchedule = {
     name_en: string | null;
     photo_url?: string | null;
     is_current_student: boolean;
+  }[];
+  period_groups?: {
+    clinical_period_id: number;
+    group: { name: string } | null;
+    subgroup: { name: string } | null;
+    members: {
+      name: string;
+      name_en: string | null;
+      photo_url?: string | null;
+      is_current_student: boolean;
+    }[];
   }[];
   schedule: ScheduleItem[];
 };
@@ -173,6 +186,19 @@ export function PublicClinicalSchedulePage() {
         : (data?.schedule ?? []),
     [data, periodId],
   );
+  const displayedGroup = useMemo(() => {
+    const periodGroup = data?.period_groups?.find(
+      (item) => String(item.clinical_period_id) === periodId,
+    );
+    const scheduledPlacement = displayedSchedule.find(
+      (item) => item.item_type !== "activity" && (item.group || item.subgroup),
+    );
+    return {
+      group: periodGroup?.group ?? scheduledPlacement?.group ?? data?.group ?? null,
+      subgroup: periodGroup?.subgroup ?? scheduledPlacement?.subgroup ?? data?.subgroup ?? null,
+      members: periodGroup?.members ?? data?.members ?? [],
+    };
+  }, [data, displayedSchedule, periodId]);
 
   useEffect(() => {
     if (!challenge || accessToken || otpSeconds <= 0) return;
@@ -474,7 +500,7 @@ export function PublicClinicalSchedulePage() {
                       data.student.academic_level}{" "}
                     · {tr("المجموعة", "Group")}{" "}
                     <b className="text-teal-700">
-                      {data.group?.name || "—"} / {data.subgroup?.name || "—"}
+                      {displayedGroup.group?.name || "—"} / {displayedGroup.subgroup?.name || "—"}
                     </b>
                   </p>
                 </div>
@@ -658,12 +684,12 @@ export function PublicClinicalSchedulePage() {
                 <UsersRound className="h-4 w-4 text-teal-600" />
                 {tr("مجموعتي وزملائي", "My group members")}
                 <span className="ms-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
-                  {data.members.length}
+                  {displayedGroup.members.length}
                 </span>
               </summary>
               <div className="border-t border-slate-100 p-3">
                 <div className="grid gap-1.5 sm:grid-cols-2">
-                  {data.members.map((member, index) => (
+                  {displayedGroup.members.map((member, index) => (
                     <div
                       key={`${member.name}-${index}`}
                       className={`flex items-center gap-2 rounded-lg px-2.5 py-2 text-[11px] font-bold ${member.is_current_student ? "bg-teal-50 text-teal-800" : "bg-slate-50 text-slate-600"}`}

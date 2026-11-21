@@ -95,4 +95,41 @@ describe('clinical schedule profile photos', () => {
     const dialog = screen.getByRole('dialog', { name: 'Dr Supervisor' });
     expect(within(dialog).getByRole('img', { name: 'Dr Supervisor' })).toBeVisible();
   });
+
+  it('changes the displayed subgroup and members when the student selects another clinical period', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    const periodTwoItem = {
+      ...item,
+      group: { name: 'L' },
+      subgroup: { name: 'L2' },
+      clinical_period: { id: 6, code: 'P2', name_ar: 'الفترة الثانية', name_en: 'Period 2', sequence: 2 },
+      block: { ...item.block, id: 9, block_code: 'W13', from_week: 13, to_week: 13, start_date: '2026-11-24', end_date: '2026-11-30' },
+    };
+    vi.spyOn(window, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return envelope(null);
+      if (url.includes('/sanctum/csrf-cookie')) return new Response(null, { status: 204 });
+      if (url.endsWith('/public/student-schedule')) return envelope({
+        student: { name: 'طالب سريري', name_en: 'Clinical Student', university_number: '22310001', academic_level: 'fourth', photo_url: null },
+        group: { name: 'L' }, subgroup: { name: 'L2' }, members: [],
+        period_groups: [
+          { clinical_period_id: 5, group: { name: 'L' }, subgroup: { name: 'L1' }, members: [{ name: 'زميل أول', name_en: 'First Teammate', is_current_student: false }] },
+          { clinical_period_id: 6, group: { name: 'L' }, subgroup: { name: 'L2' }, members: [{ name: 'زميل ثان', name_en: 'Second Teammate', is_current_student: false }] },
+        ],
+        schedule: [{ ...item, group: { name: 'L' }, subgroup: { name: 'L1' } }, periodTwoItem],
+      });
+      throw new Error(`Unmocked request: ${url}`);
+    });
+
+    renderWithProviders(<PublicClinicalSchedulePage />, { route: '/portal/student-lookup' });
+    await userEvent.click(await screen.findByText('My group members'));
+    expect(await screen.findByText('First Teammate')).toBeVisible();
+    expect(screen.queryByText('Second Teammate')).not.toBeInTheDocument();
+    expect(screen.getByText('L / L1')).toBeVisible();
+
+    await userEvent.selectOptions(screen.getByLabelText('Select clinical period'), '6');
+    expect(await screen.findByText('Second Teammate')).toBeVisible();
+    expect(screen.queryByText('First Teammate')).not.toBeInTheDocument();
+    expect(screen.getByText('L / L2')).toBeVisible();
+  });
 });

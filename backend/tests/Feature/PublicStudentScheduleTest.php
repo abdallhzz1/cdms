@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AcademicYear;
 use App\Models\Course;
+use App\Models\ClinicalPeriod;
 use App\Models\Department;
 use App\Models\DistributionVersion;
 use App\Models\Person;
@@ -258,6 +259,83 @@ class PublicStudentScheduleTest extends TestCase
         $this->postJson('/api/v1/public/student-schedule', ['access_token' => Str::random(80)])
             ->assertUnauthorized()
             ->assertJsonMissing(['schedule', 'members']);
+    }
+
+    public function test_schedule_returns_the_students_group_separately_for_each_clinical_period(): void
+    {
+        $year = $this->student->academicYear;
+        $oldMembership = StudentGroupAssignment::query()->where('student_id', $this->student->id)->firstOrFail();
+        $oldSubgroup = $oldMembership->subgroup;
+        $newSubgroup = $oldMembership->group->subgroups()->create(['name' => 'L2', 'is_active' => true, 'capacity' => 6]);
+        $periodOne = ClinicalPeriod::create([
+            'academic_year_id' => $year->id, 'code' => 'P1', 'name_ar' => 'الفترة الأولى',
+            'name_en' => 'First period', 'sequence' => 1, 'start_date' => '2026-09-01',
+            'end_date' => '2026-11-23', 'weeks_count' => 12, 'status' => 'closed',
+        ]);
+        $periodTwo = ClinicalPeriod::create([
+            'academic_year_id' => $year->id, 'code' => 'P2', 'name_ar' => 'الفترة الثانية',
+            'name_en' => 'Second period', 'sequence' => 2, 'start_date' => '2026-11-24',
+            'end_date' => '2027-02-15', 'weeks_count' => 12, 'status' => 'active',
+        ]);
+        $periodOneAssignment = StudentClinicalAssignment::query()->where('student_id', $this->student->id)->firstOrFail();
+        $periodOneAssignment->rotationBlock->rotation->update(['clinical_period_id' => $periodOne->id]);
+
+        $oldMembership->update([
+            'valid_until' => '2026-11-23',
+            'effective_until_clinical_period_id' => $periodTwo->id,
+        ]);
+        StudentGroupAssignment::create([
+            'student_id' => $this->student->id,
+            'academic_year_id' => $year->id,
+            'student_group_id' => $oldMembership->student_group_id,
+            'student_subgroup_id' => $newSubgroup->id,
+            'valid_from' => '2026-11-24',
+            'effective_from_clinical_period_id' => $periodTwo->id,
+        ]);
+
+        $periodTwoRotation = Rotation::factory()->create([
+            'academic_year_id' => $year->id,
+            'course_id' => $periodOneAssignment->rotationBlock->rotation->course_id,
+            'academic_level' => 'fourth',
+            'clinical_period_id' => $periodTwo->id,
+            'start_date' => '2026-11-24',
+            'end_date' => '2027-02-15',
+        ]);
+        $periodTwoBlock = RotationBlock::factory()->create(['rotation_id' => $periodTwoRotation->id, 'from_week' => 1, 'to_week' => 1]);
+        $periodTwoVersion = DistributionVersion::create([
+            'rotation_id' => $periodTwoRotation->id,
+            'status' => 'published',
+            'is_current' => true,
+        ]);
+        StudentClinicalAssignment::create([
+            'distribution_version_id' => $periodTwoVersion->id,
+            'student_id' => $this->student->id,
+            'student_subgroup_id' => $newSubgroup->id,
+            'rotation_block_id' => $periodTwoBlock->id,
+            'training_site_id' => $periodOneAssignment->training_site_id,
+            'supervisor_id' => $periodOneAssignment->supervisor_id,
+        ]);
+
+        $token = Str::random(80);
+        StudentScheduleOtpChallenge::create([
+            'student_id' => $this->student->id,
+            'challenge_token_hash' => hash('sha256', Str::random(64)),
+            'otp_hash' => Hash::make('123456'),
+            'expires_at' => now()->addMinutes(10),
+            'verified_at' => now(),
+            'consumed_at' => now(),
+            'access_token_hash' => hash('sha256', $token),
+            'access_expires_at' => now()->addMinutes(20),
+        ]);
+
+        $this->postJson('/api/v1/public/student-schedule', ['access_token' => $token])
+            ->assertOk()
+            ->assertJsonPath('data.period_groups.0.clinical_period_id', $periodOne->id)
+            ->assertJsonPath('data.period_groups.0.subgroup.name', $oldSubgroup->name)
+            ->assertJsonPath('data.period_groups.1.clinical_period_id', $periodTwo->id)
+            ->assertJsonPath('data.period_groups.1.subgroup.name', $newSubgroup->name)
+            ->assertJsonPath('data.schedule.0.subgroup.name', $oldSubgroup->name)
+            ->assertJsonPath('data.schedule.1.subgroup.name', $newSubgroup->name);
     }
 
     public function test_verified_student_can_remember_this_browser_and_revoke_it(): void

@@ -14,6 +14,7 @@ use App\Models\StudentScheduleOtpChallenge;
 use App\Models\StudentSchedulePortalSetting;
 use App\Models\StudentScheduleTrustedDevice;
 use App\Services\Distribution\ClinicalScheduleDateCalculator;
+use App\Services\Distribution\ClinicalPeriodGroupMembershipService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -235,10 +236,14 @@ class PublicStudentScheduleController extends Controller
         $schedule = $assignments->map(function (StudentClinicalAssignment $assignment): array {
             $item = ClinicalScheduleItemDTO::fromAssignment($assignment, $this->dateCalculator);
             $course = $assignment->rotationBlock?->rotation?->course;
+            $assignmentSubgroup = $assignment->studentSubgroup;
+            $assignmentGroup = $assignmentSubgroup?->group;
 
             return [
                 'item_type' => 'clinical',
                 'activity' => null,
+                'group' => $assignmentGroup ? ['name' => $assignmentGroup->name] : null,
+                'subgroup' => $assignmentSubgroup ? ['name' => $assignmentSubgroup->name] : null,
                 'course' => $course ? [
                     'code' => $course->code,
                     'name_ar' => $course->name_ar,
@@ -270,6 +275,41 @@ class PublicStudentScheduleController extends Controller
             ];
         });
 
+        $periodGroups = $assignments
+            ->filter(fn (StudentClinicalAssignment $assignment) =>
+                $assignment->rotationBlock?->rotation?->clinical_period_id
+                && $assignment->studentSubgroup?->group)
+            ->groupBy(fn (StudentClinicalAssignment $assignment) =>
+                (int) $assignment->rotationBlock->rotation->clinical_period_id)
+            ->map(function ($periodAssignments, int $periodId) use ($student) {
+                /** @var StudentClinicalAssignment $first */
+                $first = $periodAssignments->first();
+                $periodSubgroup = $first->studentSubgroup;
+                $periodGroup = $periodSubgroup?->group;
+                if (! $periodSubgroup || ! $periodGroup) return null;
+
+                $memberIds = app(ClinicalPeriodGroupMembershipService::class)
+                    ->membershipsForRotation($first->rotationBlock->rotation, [$periodSubgroup->id])
+                    ->pluck('student_id');
+                $periodMembers = Student::query()
+                    ->whereIn('id', $memberIds)
+                    ->get(['id', 'full_name_ar', 'full_name_en', 'photo_url'])
+                    ->sortBy('full_name_ar')
+                    ->values();
+
+                return [
+                    'clinical_period_id' => $periodId,
+                    'group' => ['name' => $periodGroup->name],
+                    'subgroup' => ['name' => $periodSubgroup->name],
+                    'members' => $periodMembers->map(fn (Student $member) => [
+                        'name' => $member->full_name_ar,
+                        'name_en' => $member->full_name_en,
+                        'photo_url' => $member->photo_url,
+                        'is_current_student' => $member->id === $student->id,
+                    ])->values(),
+                ];
+            })->filter()->values();
+
         if ($group) {
             $activities = CourseScheduleBlockActivity::query()
                 ->where('activity_type', '!=', 'clinical')
@@ -300,6 +340,8 @@ class PublicStudentScheduleController extends Controller
                             'type' => $activity->activity_type,
                             'label' => $activity->activity_label,
                         ],
+                        'group' => null,
+                        'subgroup' => null,
                         'course' => $course ? [
                             'code' => $course->code,
                             'name_ar' => $course->name_ar,
@@ -356,6 +398,7 @@ class PublicStudentScheduleController extends Controller
                 'photo_url' => $member->photo_url,
                 'is_current_student' => $member->id === $student->id,
             ]),
+            'period_groups' => $periodGroups,
             'schedule' => $schedule,
         ]);
     }
