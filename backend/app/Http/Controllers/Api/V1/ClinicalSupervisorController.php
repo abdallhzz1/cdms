@@ -7,12 +7,13 @@ use App\Models\ClinicalSupervisorProfile;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\UserProfile;
-use App\Services\ProfileAuthorizationService;
+use App\Services\ClinicalSupervisorAccess;
 use App\Services\SecureFileUploadService;
 use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -20,24 +21,17 @@ class ClinicalSupervisorController extends Controller
 {
     use ScopesByDepartmentAndLevel;
 
-    public function __construct(private readonly ProfileAuthorizationService $profileAuthorization) {}
+    public function __construct(private readonly ClinicalSupervisorAccess $access) {}
 
     public function index(Request $request): JsonResponse
     {
         $supervisorRole = Role::where('code', 'CLINICAL_SUPERVISOR')->first();
 
-        $query = User::with(['roles', 'person.department', 'clinicalSupervisorProfile.department', 'userProfile']);
+        $query = $this->access->users()->with(['roles', 'person.department', 'clinicalSupervisorProfile.department', 'userProfile']);
 
         if ($supervisorRole) {
             $query->whereHas('roles', function ($q) use ($supervisorRole) {
                 $q->where('roles.id', $supervisorRole->id);
-            });
-        }
-
-        $userDeptId = $this->getUserDepartmentId();
-        if ($userDeptId) {
-            $query->whereHas('person', function ($q) use ($userDeptId) {
-                $q->where('department_id', $userDeptId);
             });
         }
 
@@ -88,7 +82,7 @@ class ClinicalSupervisorController extends Controller
     {
         $userId = $this->resolveUserId($request, $id);
         $this->ensureClinicalSupervisor($userId);
-        $this->profileAuthorization->authorizeView($request->user(), $userId);
+        $this->access->authorize($request->user(), $userId);
 
         $u = User::with(['roles', 'person.department', 'clinicalSupervisorProfile.department', 'userProfile'])->find($userId);
 
@@ -126,8 +120,9 @@ class ClinicalSupervisorController extends Controller
                 'cv_summary' => $shared?->bio ?: $profile->cv_summary ?: '',
                 'publications' => $shared?->publications ?: $profile->publications ?: [],
                 'conferences' => $shared?->conferences ?: $profile->conferences ?: [],
-                'documents' => $request->user()?->id === $userId || Gate::forUser($request->user())->allows('permission', ['people.manage'])
-                    ? ($shared?->documents ?: $profile->documents ?: []) : [],
+                'capabilities' => $this->access->capabilities($request->user(), $userId),
+                'documents' => $this->access->capabilities($request->user(), $userId)['documents_view']
+                    ? $this->presentDocuments($userId, $this->documentsFor($u)) : [],
             ],
         ]);
     }
@@ -136,7 +131,7 @@ class ClinicalSupervisorController extends Controller
     {
         $userId = $this->resolveUserId($request, $id);
         $this->ensureClinicalSupervisor($userId);
-        $this->profileAuthorization->authorizeEdit($request->user(), $userId);
+        $this->access->authorize($request->user(), $userId, 'edit');
         $profile = ClinicalSupervisorProfile::firstOrCreate(['user_id' => $userId]);
         $payload = $request->validate([
             'title' => ['sometimes', 'nullable', 'string', 'max:255'],
@@ -149,50 +144,58 @@ class ClinicalSupervisorController extends Controller
             'publications' => ['sometimes', 'array', 'max:100'],
             'conferences' => ['sometimes', 'array', 'max:100'],
         ]);
-        $canManagePeople = Gate::forUser($request->user())->allows('permission', ['people.manage']);
-
-        $profile->update([
-            'academic_title' => $canManagePeople ? ($payload['title'] ?? $payload['academic_title'] ?? $profile->academic_title) : $profile->academic_title,
-            'specialty' => $canManagePeople ? ($payload['specialty'] ?? $profile->specialty) : $profile->specialty,
-            'contract_type' => $canManagePeople ? ($payload['contract_type'] ?? $profile->contract_type) : $profile->contract_type,
-            'appointment_date' => $canManagePeople ? ($payload['appointment_date'] ?? $profile->appointment_date) : $profile->appointment_date,
-            'phone' => $payload['phone'] ?? $profile->phone,
-            'cv_summary' => $payload['cv_summary'] ?? $profile->cv_summary,
-            'publications' => isset($payload['publications']) ? $payload['publications'] : $profile->publications,
-            'conferences' => isset($payload['conferences']) ? $payload['conferences'] : $profile->conferences,
-        ]);
-
-        $user = User::with('person')->find($userId);
-        if ($user?->person) {
-            $user->person->update([
-                'phone' => $payload['phone'] ?? $user->person->phone,
-                'specialty' => $canManagePeople ? ($payload['specialty'] ?? $user->person->specialty) : $user->person->specialty,
-                'academic_degree' => $canManagePeople ? ($payload['title'] ?? $payload['academic_title'] ?? $user->person->academic_degree) : $user->person->academic_degree,
+        $canManagePeople = $this->access->capabilities($request->user(), $userId)['edit_official'];
+        DB::transaction(function () use ($profile, $payload, $canManagePeople, $userId, $request) {
+            User::whereKey($userId)->lockForUpdate()->firstOrFail();
+            $profile->refresh();
+            $value = fn (string $key, $fallback) => array_key_exists($key, $payload) ? $payload[$key] : $fallback;
+            $titleKey = array_key_exists('title', $payload) ? 'title' : 'academic_title';
+            $profile->update([
+                'academic_title' => $canManagePeople ? $value($titleKey, $profile->academic_title) : $profile->academic_title,
+                'specialty' => $canManagePeople ? $value('specialty', $profile->specialty) : $profile->specialty,
+                'contract_type' => $canManagePeople ? $value('contract_type', $profile->contract_type) : $profile->contract_type,
+                'appointment_date' => $canManagePeople && array_key_exists('appointment_date', $payload) ? $payload['appointment_date'] : $profile->appointment_date,
+                'phone' => $value('phone', $profile->phone),
+                'cv_summary' => $value('cv_summary', $profile->cv_summary),
+                'publications' => isset($payload['publications']) ? $payload['publications'] : $profile->publications,
+                'conferences' => isset($payload['conferences']) ? $payload['conferences'] : $profile->conferences,
             ]);
-        }
-        $shared = UserProfile::firstOrCreate(['user_id' => $userId]);
-        $sharedUpdates = [];
-        if (array_key_exists('phone', $payload)) {
-            $sharedUpdates['phone'] = $payload['phone'];
-        }
-        if ($canManagePeople && array_key_exists('specialty', $payload)) {
-            $sharedUpdates['specialty'] = $payload['specialty'];
-        }
-        if ($canManagePeople && (array_key_exists('title', $payload) || array_key_exists('academic_title', $payload))) {
-            $sharedUpdates['academic_degree'] = $payload['title'] ?? $payload['academic_title'];
-        }
-        if (array_key_exists('cv_summary', $payload)) {
-            $sharedUpdates['bio'] = $payload['cv_summary'];
-        }
-        if (array_key_exists('publications', $payload)) {
-            $sharedUpdates['publications'] = array_values($payload['publications']);
-        }
-        if (array_key_exists('conferences', $payload)) {
-            $sharedUpdates['conferences'] = array_values($payload['conferences']);
-        }
-        if ($sharedUpdates !== []) {
-            $shared->update($sharedUpdates);
-        }
+
+            $user = User::with('person')->find($userId);
+            if ($user?->person) {
+                $user->person->update([
+                    'phone' => $value('phone', $user->person->phone),
+                    'specialty' => $canManagePeople ? $value('specialty', $user->person->specialty) : $user->person->specialty,
+                    'academic_degree' => $canManagePeople ? $value($titleKey, $user->person->academic_degree) : $user->person->academic_degree,
+                    'contract_type' => $canManagePeople ? $value('contract_type', $user->person->contract_type) : $user->person->contract_type,
+                ]);
+            }
+            $shared = UserProfile::firstOrCreate(['user_id' => $userId]);
+            $sharedUpdates = [];
+            if (array_key_exists('phone', $payload)) {
+                $sharedUpdates['phone'] = $payload['phone'];
+            }
+            if ($canManagePeople && array_key_exists('specialty', $payload)) {
+                $sharedUpdates['specialty'] = $payload['specialty'];
+            }
+            if ($canManagePeople && (array_key_exists('title', $payload) || array_key_exists('academic_title', $payload))) {
+                $sharedUpdates['academic_degree'] = $payload['title'] ?? $payload['academic_title'] ?? null;
+            }
+            if (array_key_exists('cv_summary', $payload)) {
+                $sharedUpdates['bio'] = $payload['cv_summary'];
+            }
+            if (array_key_exists('publications', $payload)) {
+                $sharedUpdates['publications'] = array_values($payload['publications']);
+            }
+            if (array_key_exists('conferences', $payload)) {
+                $sharedUpdates['conferences'] = array_values($payload['conferences']);
+            }
+            if ($sharedUpdates !== []) {
+                $shared->update($sharedUpdates);
+            }
+            \App\Models\AuditLog::create(['user_id' => $request->user()->id, 'action' => 'clinical_supervisor.profile_updated',
+                'entity_type' => User::class, 'entity_id' => $userId, 'changes' => ['fields' => array_keys($payload)], 'is_override' => false]);
+        });
 
         return $this->show($request, (string) $userId);
     }
@@ -201,7 +204,7 @@ class ClinicalSupervisorController extends Controller
     {
         $userId = $this->resolveUserId($request, $id);
         $this->ensureClinicalSupervisor($userId);
-        $this->profileAuthorization->authorizeEvaluation($request->user());
+        abort_unless($this->access->can($request->user(), 'performance.view'), 403);
         $profile = ClinicalSupervisorProfile::firstOrCreate(['user_id' => $userId]);
         $eval = $request->input('evaluation', $request->all());
 
@@ -223,7 +226,7 @@ class ClinicalSupervisorController extends Controller
     {
         $userId = $this->resolveUserId($request, $id);
         $this->ensureClinicalSupervisor($userId);
-        $this->profileAuthorization->authorizeEdit($request->user(), $userId);
+        $this->access->authorize($request->user(), $userId, 'edit');
         $profile = ClinicalSupervisorProfile::firstOrCreate(['user_id' => $userId]);
 
         $source = $request->file('avatar') ?: $request->input('avatar_base64');
@@ -251,10 +254,10 @@ class ClinicalSupervisorController extends Controller
     {
         $userId = $this->resolveUserId($request, $id);
         $this->ensureClinicalSupervisor($userId);
-        $this->profileAuthorization->authorizeEdit($request->user(), $userId);
-        $profile = ClinicalSupervisorProfile::firstOrCreate(['user_id' => $userId]);
-        $docName = $request->input('name', 'وثيقة رسمية');
-        $docCategory = $request->input('category', 'أخرى');
+        $this->access->authorize($request->user(), $userId, 'documents_upload');
+        $data = $request->validate(['name' => ['required', 'string', 'max:255'], 'category' => ['required', 'string', 'max:80']]);
+        $docName = $data['name'];
+        $docCategory = $data['category'];
         $source = $request->file('file') ?: $request->input('file_base64');
         if (! $source) {
             return response()->json(['success' => false], 400);
@@ -267,51 +270,53 @@ class ClinicalSupervisorController extends Controller
             'id' => $docId,
             'name' => $docName,
             'category' => $docCategory,
-            'file_url' => url("/api/v1/clinical-supervisors/{$userId}/documents/{$docId}/download"),
             'storage_path' => $stored['storage_path'],
             'mime_type' => $stored['mime_type'],
             'file_type' => $stored['file_type'],
             'file_size' => round($stored['size_bytes'] / (1024 * 1024), 2).' MB',
             'created_at' => date('Y-m-d'),
+            'uploaded_by' => $request->user()->id,
         ];
 
-        $currentDocs = is_array($profile->documents) ? $profile->documents : [];
-        $currentDocs[] = $newDoc;
-        $profile->update(['documents' => $currentDocs]);
-        UserProfile::updateOrCreate(['user_id' => $userId], ['documents' => $currentDocs]);
-
-        return response()->json(['success' => true, 'data' => $newDoc, 'documents' => $currentDocs]);
+        try {
+            DB::transaction(function () use ($userId, $newDoc, $request) {
+                $user = User::whereKey($userId)->lockForUpdate()->firstOrFail();
+                $documents = $this->documentsFor($user);
+                $documents[] = $newDoc;
+                $this->saveDocuments($user, $documents);
+                $this->auditDocument($request, $userId, 'uploaded', $newDoc['id']);
+            });
+        } catch (\Throwable $error) {
+            Storage::disk('local')->delete($stored['storage_path']);
+            throw $error;
+        }
+        return \App\Http\Responses\ApiResponse::success($this->presentDocuments($userId, [$newDoc])[0], __('supervisor_followup.document_saved'), [], 201);
     }
 
     public function deleteDocument(Request $request, string $id, string $docId): JsonResponse
     {
         $userId = $this->resolveUserId($request, $id);
         $this->ensureClinicalSupervisor($userId);
-        $this->profileAuthorization->authorizeEdit($request->user(), $userId);
-        $profile = ClinicalSupervisorProfile::firstOrCreate(['user_id' => $userId]);
-        $currentDocs = is_array($profile->documents) ? $profile->documents : [];
-
-        $deleted = collect($currentDocs)->first(fn ($doc) => (string) ($doc['id'] ?? '') === (string) $docId);
-        if (! empty($deleted['storage_path'])) {
-            Storage::disk('local')->delete($deleted['storage_path']);
-        }
-
-        $filtered = array_values(array_filter($currentDocs, fn ($doc) => isset($doc['id']) ? (string) $doc['id'] !== (string) $docId : true
-        ));
-
-        $profile->update(['documents' => $filtered]);
-        UserProfile::updateOrCreate(['user_id' => $userId], ['documents' => $filtered]);
-
-        return response()->json(['success' => true, 'documents' => $filtered]);
+        $this->access->authorize($request->user(), $userId, 'documents_delete');
+        $deleted = DB::transaction(function () use ($userId, $docId, $request) {
+            $user = User::whereKey($userId)->lockForUpdate()->firstOrFail();
+            $documents = collect($this->documentsFor($user));
+            $document = $documents->first(fn ($doc) => (string) ($doc['id'] ?? '') === $docId);
+            abort_unless($document, 404);
+            $this->saveDocuments($user, $documents->reject(fn ($doc) => (string) ($doc['id'] ?? '') === $docId)->values()->all());
+            $this->auditDocument($request, $userId, 'deleted', $docId);
+            return $document;
+        });
+        if (!empty($deleted['storage_path'])) Storage::disk('local')->delete($deleted['storage_path']);
+        return \App\Http\Responses\ApiResponse::success(null, __('supervisor_followup.document_deleted'));
     }
 
     public function downloadDocument(Request $request, string $id, string $docId)
     {
         $userId = $this->resolveUserId($request, $id);
         $this->ensureClinicalSupervisor($userId);
-        $this->profileAuthorization->authorizeView($request->user(), $userId);
-        $profile = ClinicalSupervisorProfile::where('user_id', $userId)->firstOrFail();
-        $document = collect($profile->documents ?: [])->first(
+        $this->access->authorize($request->user(), $userId, 'documents_view');
+        $document = collect($this->documentsFor(User::findOrFail($userId)))->first(
             fn ($doc) => (string) ($doc['id'] ?? '') === (string) $docId
         );
 
@@ -326,6 +331,36 @@ class ClinicalSupervisorController extends Controller
             'Content-Type' => $document['mime_type'] ?? 'application/octet-stream',
             'X-Content-Type-Options' => 'nosniff',
         ]);
+    }
+
+    private function documentsFor(User $user): array
+    {
+        $user->loadMissing(['userProfile', 'clinicalSupervisorProfile']);
+        return is_array($user->userProfile?->documents) ? $user->userProfile->documents : ($user->clinicalSupervisorProfile?->documents ?: []);
+    }
+
+    private function presentDocuments(int $userId, array $documents): array
+    {
+        return array_values(array_map(function ($document) use ($userId) {
+            unset($document['storage_path']);
+            $document['file_url'] = '/api/v1/clinical-supervisors/'.$userId.'/documents/'.($document['id'] ?? '').'/download';
+            return $document;
+        }, $documents));
+    }
+
+    private function saveDocuments(User $user, array $documents): void
+    {
+        UserProfile::updateOrCreate(['user_id' => $user->id], ['documents' => $documents]);
+        ClinicalSupervisorProfile::updateOrCreate(['user_id' => $user->id], ['documents' => $documents]);
+        if ($user->hasRole('DEPARTMENT_HEAD') || $user->departmentHeadProfile()->exists()) {
+            $user->departmentHeadProfile()->updateOrCreate(['user_id' => $user->id], ['documents' => $documents]);
+        }
+    }
+
+    private function auditDocument(Request $request, int $userId, string $action, string $documentId): void
+    {
+        \App\Models\AuditLog::create(['user_id' => $request->user()->id, 'action' => 'supervisor_document.'.$action,
+            'entity_type' => User::class, 'entity_id' => $userId, 'changes' => ['document_id' => $documentId], 'is_override' => false]);
     }
 
     private function resolveDeptName(User $u, ClinicalSupervisorProfile $profile): string

@@ -18,6 +18,7 @@ import { apiFetch, ApiError } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { SupervisorFollowupPanel } from "@/features/supervisors/SupervisorFollowupPanel";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -144,6 +145,7 @@ export function ClinicalSupervisorsDirectoryPage() {
       tuesday: tr("الثلاثاء", "Tuesday"), wednesday: tr("الأربعاء", "Wednesday"), thursday: tr("الخميس", "Thursday"), friday: tr("الجمعة", "Friday"),
     })[day] ?? day;
   const canManageSites = can("training_sites.manage") || can("people.manage");
+  const canFollowup = ['view', 'create', 'review', 'delete'].some(action => can(`supervisor_records.${action}`));
   const doctorName = (doctor: Doctor) =>
     ar ? doctor.full_name_ar : doctor.full_name_en || doctor.full_name_ar;
   const hospitalName = (hospital: Hospital) =>
@@ -158,7 +160,7 @@ export function ClinicalSupervisorsDirectoryPage() {
       online: tr("أونلاين", "Online"),
       other: tr("أخرى", "Other"),
     })[type] ?? type;
-  const [tab, setTab] = useState<"doctors" | "hospitals">("doctors");
+  const [tab, setTab] = useState<"doctors" | "hospitals" | "followup">("doctors");
   const [search, setSearch] = useState("");
   const [hospitalFilter, setHospitalFilter] = useState("all");
   const [notice, setNotice] = useState<{
@@ -209,7 +211,7 @@ export function ClinicalSupervisorsDirectoryPage() {
         Array.isArray(response) ? response : (response?.data ?? [])
       ) as Profile[];
     },
-    enabled: can("people.view"),
+    enabled: ['people.view', 'people.manage', 'clinical_supervisors.view', 'clinical_supervisors.update', 'supervisor_documents.view', 'supervisor_documents.upload', 'supervisor_documents.delete', 'supervisor_records.view', 'supervisor_records.create', 'supervisor_records.review', 'supervisor_records.delete'].some(can),
   });
   const workforce = workforceQuery.data;
   const hospitals = workforce?.hospitals ?? [];
@@ -556,7 +558,7 @@ export function ClinicalSupervisorsDirectoryPage() {
       )}
       <section className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-50 p-1">
+          <div className={`grid ${canFollowup ? 'grid-cols-3' : 'grid-cols-2'} gap-1 rounded-2xl bg-slate-50 p-1`}>
             <button
               type="button"
               onClick={() => setTab("doctors")}
@@ -573,6 +575,7 @@ export function ClinicalSupervisorsDirectoryPage() {
               <Building2 className="me-1 inline h-4 w-4" />
               {tr("المواقع التدريبية", "Training sites")}
             </button>
+            {canFollowup && <button type="button" onClick={() => setTab('followup')} className={`rounded-xl px-3 py-2.5 text-xs font-black ${tab === 'followup' ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-500'}`}>{tr('المتابعة والأعذار', 'Follow-up & excuses')}</button>}
           </div>
           <div className="flex flex-wrap gap-2">
             {canManageSites && (
@@ -591,7 +594,7 @@ export function ClinicalSupervisorsDirectoryPage() {
         </div>
       </section>
 
-      {tab === "doctors" ? (
+      {tab === 'followup' ? <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6"><SupervisorFollowupPanel /></div> : tab === "doctors" ? (
         <>
           <section className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_15rem_auto]">
             <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3">

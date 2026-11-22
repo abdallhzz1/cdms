@@ -1,7 +1,10 @@
 import { useState, useEffect, type ChangeEvent } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "@/api/client";
+import { apiFetch, downloadApiFile, ApiError } from "@/api/client";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { SupervisorFollowupPanel } from "@/features/supervisors/SupervisorFollowupPanel";
+import { PrivateDocumentPreview } from "@/features/supervisors/PrivateDocumentPreview";
 import { useAuth } from "@/auth/AuthContext";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { Modal } from "@/components/ui/Modal";
@@ -23,6 +26,7 @@ interface SupervisorProfileData {
   contract_type: string; appointment_date: string; cv_summary: string;
   publications: PublicationItem[]; conferences: ConferenceItem[];
   documents?: DocumentItem[];
+  capabilities?: { edit: boolean; edit_official: boolean; documents_view: boolean; documents_upload: boolean; documents_delete: boolean };
 }
 
 const getCategoryLabel = (cat: string, locale: "ar" | "en") => {
@@ -35,13 +39,17 @@ const getCategoryLabel = (cat: string, locale: "ar" | "en") => {
 
 export function ClinicalSupervisorProfilePage() {
   const { id: paramId } = useParams<{ id: string }>();
-  const { user, refreshUser } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { user, refreshUser, can } = useAuth();
   const { locale } = useI18n();
   const ar = locale === "ar";
   const tr = (arabic: string, english: string) => ar ? arabic : english;
   const queryClient     = useQueryClient();
 
-  const [activeTab, setActiveTab] = useState<"cv"|"research"|"conferences"|"documents">("cv");
+  const [activeTab, setActiveTab] = useState<"cv"|"research"|"conferences"|"documents"|"followup">(searchParams.get('tab') === 'followup' ? 'followup' : 'cv');
+  const [actionError, setActionError] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const showError = (error: unknown) => setActionError(error instanceof ApiError ? (Object.values(error.errors).flat().find(item => typeof item === 'string') as string || error.message) : error instanceof Error ? error.message : tr('تعذر إكمال الإجراء.', 'Could not complete the action.'));
   const [isEditMode, setIsEditMode]           = useState(false);
   const [isDocModalOpen, setIsDocModalOpen]   = useState(false);
   const [previewDoc, setPreviewDoc]           = useState<DocumentItem | null>(null);
@@ -52,7 +60,7 @@ export function ClinicalSupervisorProfilePage() {
   const [selectedDocFile, setSelectedDocFile] = useState<File | null>(null);
   const [newPubTitle, setNewPubTitle]     = useState("");
   const [newPubJournal, setNewPubJournal] = useState("");
-  const [newPubYear, setNewPubYear]       = useState("2024");
+  const [newPubYear, setNewPubYear]       = useState(String(new Date().getFullYear()));
   const [newPubDoi, setNewPubDoi]         = useState("");
   const [newConfName, setNewConfName]     = useState("");
   const [newConfLocation, setNewConfLocation] = useState("");
@@ -60,7 +68,8 @@ export function ClinicalSupervisorProfilePage() {
   const [newConfRole, setNewConfRole]     = useState("");
 
   const targetId = !paramId || paramId === "me" ? "me" : paramId;
-  const { data: rawProfile, isLoading } = useQuery({
+  useEffect(() => { setActiveTab(searchParams.get('tab') === 'followup' ? 'followup' : 'cv'); setIsEditMode(false); setActionError(''); }, [targetId, searchParams]);
+  const { data: rawProfile, isLoading, isError, refetch } = useQuery({
     queryKey: ["clinical-supervisor-profile-v1", targetId, user?.id],
     queryFn: async () => {
       const res = await apiFetch<any>(`/clinical-supervisors/${targetId}`);
@@ -73,7 +82,10 @@ export function ClinicalSupervisorProfilePage() {
   const isOwnProfile = paramId === "me" ||
     String(targetId) === String(user?.id) ||
     (user?.email && rawProfile?.email && user.email.toLowerCase() === rawProfile.email.toLowerCase());
-  const canEdit = isOwnProfile;
+  const canEdit = rawProfile?.capabilities?.edit ?? isOwnProfile;
+  const canEditOfficial = Boolean(rawProfile?.capabilities?.edit_official);
+  const canUploadDocs = Boolean(rawProfile?.capabilities?.documents_upload);
+  const canDeleteDocs = Boolean(rawProfile?.capabilities?.documents_delete);
 
   useEffect(() => {
     if (!rawProfile) return;
@@ -95,6 +107,7 @@ export function ClinicalSupervisorProfilePage() {
       publications: rawProfile.publications || [],
       conferences: rawProfile.conferences || [],
       documents: apiDocs,
+      capabilities: rawProfile.capabilities,
     });
   }, [rawProfile, targetId]);
 
@@ -108,13 +121,13 @@ export function ClinicalSupervisorProfilePage() {
     if (!file || !file.type.startsWith("image/")) { alert(tr("يرجى اختيار صورة صالحة", "Please select a valid image.")); return; }
     setIsUploadingAvatar(true);
     const reader = new FileReader();
+    reader.onerror = () => { setIsUploadingAvatar(false); setActionError(tr('تعذرت قراءة الصورة.', 'Unable to read the image.')); };
     reader.onload = async () => {
       const b64 = reader.result as string;
-      if (profileData) setProfileData({ ...profileData, avatar_url: b64 });
       try {
         await apiFetch(`/clinical-supervisors/${targetId}/avatar`, { method:"POST", body:{ avatar_base64: b64 } });
         refreshAll(); await refreshUser(); alert(tr("تم رفع الصورة بنجاح ✓", "Photo uploaded successfully ✓"));
-      } catch { } finally { setIsUploadingAvatar(false); }
+      } catch (error) { showError(error); } finally { setIsUploadingAvatar(false); }
     };
     reader.readAsDataURL(file);
   };
@@ -124,12 +137,12 @@ export function ClinicalSupervisorProfilePage() {
     try {
       await apiFetch(`/clinical-supervisors/${targetId}`, { method:"PUT", body: profileData });
       refreshAll(); setIsEditMode(false); alert(tr("تم حفظ التعديلات بنجاح ✓", "Changes saved successfully ✓"));
-    } catch { setIsEditMode(false); alert(tr("حدث خطأ أثناء الحفظ", "An error occurred while saving.")); }
+    } catch (error) { showError(error); }
   };
 
   const handleAddPub = async () => {
     if (!newPubTitle.trim() || !profileData) return;
-    const updated = { ...profileData, publications: [...profileData.publications, { title:newPubTitle.trim(), journal:newPubJournal.trim()||tr("مجلة علمية محكمة", "Peer-reviewed journal"), year:newPubYear, doi:newPubDoi.trim()||undefined }] };
+    const updated = { ...profileData, publications: [...profileData.publications, { title:newPubTitle.trim(), journal:newPubJournal.trim(), year:newPubYear, doi:newPubDoi.trim()||undefined }] };
     await apiFetch(`/clinical-supervisors/${targetId}`, { method:"PUT", body: updated });
     refreshAll(); setNewPubTitle(""); setNewPubJournal(""); setNewPubDoi("");
   };
@@ -141,7 +154,7 @@ export function ClinicalSupervisorProfilePage() {
   };
   const handleAddConf = async () => {
     if (!newConfName.trim() || !profileData) return;
-    const updated = { ...profileData, conferences: [...profileData.conferences, { name:newConfName.trim(), location:newConfLocation.trim()||tr("جامعة الخليل", "Hebron University"), date:newConfDate||String(new Date().getFullYear()), role:newConfRole || tr("متحدث ورئيس جلسة", "Speaker and session chair") }] };
+    const updated = { ...profileData, conferences: [...profileData.conferences, { name:newConfName.trim(), location:newConfLocation.trim(), date:newConfDate, role:newConfRole }] };
     await apiFetch(`/clinical-supervisors/${targetId}`, { method:"PUT", body: updated });
     refreshAll(); setNewConfName(""); setNewConfLocation(""); setNewConfDate("");
   };
@@ -157,23 +170,25 @@ export function ClinicalSupervisorProfilePage() {
     setIsUploadingDoc(true);
     try {
       if (!selectedDocFile) return;
+      if (selectedDocFile.size > 10 * 1024 * 1024) throw new Error(tr('حجم الملف يجب ألا يتجاوز 10MB.', 'The file must not exceed 10MB.'));
       const fd = new FormData();
       fd.append("file", selectedDocFile); fd.append("name", newDocTitle.trim()); fd.append("category", newDocCategory);
-      const res = await apiFetch<any>(`/clinical-supervisors/${targetId}/documents`, { method:"POST", body: fd });
-      const docs = res?.documents || [...(profileData.documents||[]), res?.data];
-      setProfileData({ ...profileData, documents: docs });
+      await apiFetch<DocumentItem>(`/clinical-supervisors/${targetId}/documents`, { method:"POST", body: fd });
       setIsDocModalOpen(false); setNewDocTitle(""); setSelectedDocFile(null);
-    } catch { alert(tr("حدث خطأ أثناء رفع الوثيقة", "An error occurred while uploading the document.")); }
+    } catch (error) { showError(error); }
     finally { setIsUploadingDoc(false); refreshAll(); }
   };
   const handleDeleteDoc = async (docId: string, idx: number) => {
     if (!profileData || !window.confirm(tr("هل أنت متأكد من حذف هذا المستند؟", "Are you sure you want to delete this document?"))) return;
-    const updated = (profileData.documents||[]).filter((d,i)=> d.id ? d.id!==docId : i!==idx);
-    setProfileData({ ...profileData, documents: updated });
-    try { await apiFetch(`/clinical-supervisors/${targetId}/documents/${docId||idx}`, { method:"DELETE" }); } catch {}
+    try { await apiFetch(`/clinical-supervisors/${targetId}/documents/${docId||idx}`, { method:"DELETE" }); } catch (error) { showError(error); }
     finally { refreshAll(); }
   };
 
+  const downloadDocument = async (doc: DocumentItem) => {
+    setActionError(''); setDownloading(true);
+    try { await downloadApiFile(doc.file_url, `${doc.name}.${doc.file_type}`); } catch (error) { showError(error); } finally { setDownloading(false); }
+  };
+  if (isError) return <ErrorState onRetry={() => refetch()} />;
   if (isLoading || !profileData) return <LoadingState />;
 
   const deptLabel = ar && !profileData.department_name.startsWith("قسم") ? `قسم ${profileData.department_name}` : profileData.department_name;
@@ -183,13 +198,15 @@ export function ClinicalSupervisorProfilePage() {
     { id:"research",    label:tr("الأبحاث", "Research"),          icon:BookOpen },
     { id:"conferences", label:tr("المؤتمرات", "Conferences"),        icon:Award },
     { id:"documents",   label:tr("الوثائق", "Documents"),          icon:FolderOpen },
+    { id:"followup", label:tr("المتابعة والأعذار", "Follow-up and excuses"), icon:ShieldCheck },
   ] as const;
 
   return (
     <div className="space-y-5 pb-20 max-w-6xl mx-auto">
+      {actionError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{actionError}</p>}
 
       <div className="flex items-center gap-2">
-        <Link to="/clinical-supervisors" className="w-9 h-9 rounded-full bg-white border border-slate-200 shadow-2xs text-slate-600 hover:bg-slate-50 flex items-center justify-center transition-all">
+        <Link to={isOwnProfile ? '/profile' : '/clinical-supervisors'} className="w-9 h-9 rounded-full bg-white border border-slate-200 shadow-2xs text-slate-600 hover:bg-slate-50 flex items-center justify-center transition-all">
           <ChevronRight className="w-5 h-5" />
         </Link>
         <span className="text-xs text-slate-400 font-medium">
@@ -247,7 +264,7 @@ export function ClinicalSupervisorProfilePage() {
 
       <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="flex items-center gap-0.5 p-2 border-b border-slate-100 overflow-x-auto">
-          {TABS.map(({ id, label, icon: Icon }) => (
+          {TABS.filter(tab => (tab.id !== 'followup' || isOwnProfile || ['view', 'create', 'review', 'delete'].some(action => can(`supervisor_records.${action}`))) && (tab.id !== 'documents' || profileData.capabilities?.documents_view)).map(({ id, label, icon: Icon }) => (
             <button key={id} type="button" onClick={() => setActiveTab(id)}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${activeTab===id ? "bg-teal-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}>
               <Icon className="w-3.5 h-3.5" />{label}
@@ -269,8 +286,8 @@ export function ClinicalSupervisorProfilePage() {
                 {([[tr("اللقب الأكاديمي", "Academic title"),"title"],[tr("التخصص", "Specialty"),"specialty"],[tr("نوع العقد", "Contract type"),"contract_type"],[tr("تاريخ التكليف", "Appointment date"),"appointment_date"],[tr("رقم الهاتف", "Phone number"),"phone"]] as [string,keyof SupervisorProfileData][]).map(([label,key])=>(
                   <div key={key} className="space-y-1">
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</label>
-                    {isEditMode
-                      ? <input type="text" value={(profileData as any)[key]||""} onChange={e=>setProfileData({...profileData,[key]:e.target.value})} className="w-full text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-300" />
+                    {isEditMode && (key === 'phone' || canEditOfficial)
+                      ? <input type={key === 'appointment_date' ? 'date' : 'text'} value={(profileData as any)[key]||""} onChange={e=>setProfileData({...profileData,[key]:e.target.value})} className="w-full text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-300" />
                       : <p className="text-sm font-semibold text-slate-800 bg-slate-50 rounded-xl px-3 py-2">{(profileData as any)[key]||<span className="text-slate-400">—</span>}</p>
                     }
                   </div>
@@ -290,7 +307,7 @@ export function ClinicalSupervisorProfilePage() {
                       <input key={i} type="text" placeholder={ph} value={val} onChange={e=>fn(e.target.value)} className="text-xs font-medium bg-white border border-teal-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-teal-300 w-full" />
                     ))}
                   </div>
-                  <button type="button" onClick={handleAddPub} disabled={!newPubTitle.trim()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white text-xs font-bold transition-colors">
+                  <button type="button" onClick={() => { void handleAddPub().catch(showError); }} disabled={!newPubTitle.trim()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white text-xs font-bold transition-colors">
                     <Plus className="w-3.5 h-3.5" /> {tr("إضافة البحث", "Add research")}
                   </button>
                 </div>
@@ -304,7 +321,7 @@ export function ClinicalSupervisorProfilePage() {
                         <p className="text-xs text-slate-500 font-medium">{pub.journal} · {pub.year}</p>
                         {pub.doi && <a href={pub.doi.startsWith("http")?pub.doi:`https://doi.org/${pub.doi}`} target="_blank" rel="noopener noreferrer" className="text-[11px] text-teal-600 font-mono hover:underline">{pub.doi}</a>}
                       </div>
-                      {canEdit && <button type="button" onClick={()=>handleDeletePub(idx)} className="text-rose-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors shrink-0"><Trash2 className="w-4 h-4" /></button>}
+                      {canEdit && <button type="button" onClick={()=>{ void handleDeletePub(idx).catch(showError); }} className="text-rose-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors shrink-0"><Trash2 className="w-4 h-4" /></button>}
                     </div>
                   ))}
                 </div>
@@ -323,7 +340,7 @@ export function ClinicalSupervisorProfilePage() {
                       <input key={i} type="text" placeholder={ph} value={val} onChange={e=>fn(e.target.value)} className="text-xs font-medium bg-white border border-emerald-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-300 w-full" />
                     ))}
                   </div>
-                  <button type="button" onClick={handleAddConf} disabled={!newConfName.trim()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold transition-colors">
+                  <button type="button" onClick={() => { void handleAddConf().catch(showError); }} disabled={!newConfName.trim()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold transition-colors">
                     <Plus className="w-3.5 h-3.5" /> {tr("إضافة المؤتمر", "Add conference")}
                   </button>
                 </div>
@@ -337,7 +354,7 @@ export function ClinicalSupervisorProfilePage() {
                         <p className="text-xs text-slate-500 font-medium">{conf.location} · {conf.date}</p>
                         <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-0.5 inline-block mt-1">{conf.role}</span>
                       </div>
-                      {canEdit && <button type="button" onClick={()=>handleDeleteConf(idx)} className="text-rose-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors shrink-0"><Trash2 className="w-4 h-4" /></button>}
+                      {canEdit && <button type="button" onClick={()=>{ void handleDeleteConf(idx).catch(showError); }} className="text-rose-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors shrink-0"><Trash2 className="w-4 h-4" /></button>}
                     </div>
                   ))}
                 </div>
@@ -345,11 +362,12 @@ export function ClinicalSupervisorProfilePage() {
             </div>
           )}
 
+          {activeTab === "followup" && <SupervisorFollowupPanel key={profileData.user_id} supervisorId={Number(profileData.user_id)} />}
           {activeTab === "documents" && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-black text-slate-800 flex items-center gap-2"><FolderOpen className="w-4 h-4 text-amber-500" />{tr(`الوثائق الرسمية (${(profileData.documents||[]).length})`, `Official documents (${(profileData.documents||[]).length})`)}</h3>
-                {canEdit && <button type="button" onClick={()=>setIsDocModalOpen(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm transition-colors"><Upload className="w-3.5 h-3.5" /> {tr("رفع وثيقة", "Upload document")}</button>}
+                {canUploadDocs && <button type="button" onClick={()=>{setActionError('');setIsDocModalOpen(true);}} className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm transition-colors"><Upload className="w-3.5 h-3.5" /> {tr("رفع وثيقة", "Upload document")}</button>}
               </div>
               {(profileData.documents||[]).length === 0 ? <p className="text-sm text-slate-400 text-center py-8">{tr("لم تُرفع وثائق بعد.", "No documents have been uploaded yet.")}</p> : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -363,7 +381,7 @@ export function ClinicalSupervisorProfilePage() {
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         {doc.file_url && <button type="button" onClick={()=>setPreviewDoc(doc)} className="w-7 h-7 rounded-lg text-slate-500 hover:text-teal-600 hover:bg-teal-50 flex items-center justify-center transition-colors"><Eye className="w-3.5 h-3.5" /></button>}
-                        {canEdit && <button type="button" onClick={()=>handleDeleteDoc(doc.id||"",idx)} className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
+                        {canDeleteDocs && <button type="button" onClick={()=>handleDeleteDoc(doc.id||"",idx)} className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
                       </div>
                     </div>
                   ))}
@@ -377,6 +395,7 @@ export function ClinicalSupervisorProfilePage() {
 
       <Modal isOpen={isDocModalOpen} onClose={()=>setIsDocModalOpen(false)} title={tr("رفع وثيقة رسمية", "Upload official document")} maxWidth="md">
         <form onSubmit={handleDocUpload} className="space-y-4">
+          {actionError && <p role="alert" className="text-sm text-red-700">{actionError}</p>}
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-700">{tr("عنوان الوثيقة *", "Document title *")}</label>
             <input type="text" value={newDocTitle} onChange={e=>setNewDocTitle(e.target.value)} required className="w-full text-sm bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-300" placeholder={tr("مثال: شهادة البورد في الجراحة", "Example: surgery board certificate")} />
@@ -392,11 +411,11 @@ export function ClinicalSupervisorProfilePage() {
             <label className="flex flex-col items-center gap-2 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-6 cursor-pointer hover:border-amber-400 transition-colors">
               <Upload className="w-6 h-6 text-slate-400" />
               <span className="text-xs text-slate-500 font-medium">{selectedDocFile ? selectedDocFile.name : tr("اضغط لاختيار ملف", "Click to select a file")}</span>
-              <input type="file" accept=".pdf,image/*" className="hidden" onChange={e=>setSelectedDocFile(e.target.files?.[0]||null)} />
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.zip" className="hidden" onChange={e=>setSelectedDocFile(e.target.files?.[0]||null)} />
             </label>
           </div>
           <div className="flex gap-3">
-            <button type="submit" disabled={!newDocTitle.trim()||isUploadingDoc} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white font-bold text-sm transition-colors"><Upload className="w-4 h-4" />{isUploadingDoc?tr("جارٍ الرفع...", "Uploading..."):tr("رفع الوثيقة", "Upload document")}</button>
+            <button type="submit" disabled={!newDocTitle.trim()||!selectedDocFile||isUploadingDoc} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white font-bold text-sm transition-colors"><Upload className="w-4 h-4" />{isUploadingDoc?tr("جارٍ الرفع...", "Uploading..."):tr("رفع الوثيقة", "Upload document")}</button>
             <button type="button" onClick={()=>setIsDocModalOpen(false)} className="px-5 py-2.5 rounded-2xl border border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 transition-colors">{tr("إلغاء", "Cancel")}</button>
           </div>
         </form>
@@ -405,16 +424,12 @@ export function ClinicalSupervisorProfilePage() {
       <Modal isOpen={!!previewDoc} onClose={()=>setPreviewDoc(null)} title={previewDoc?.name||tr("معاينة الوثيقة", "Document preview")} maxWidth="lg">
         {previewDoc && (
           <div className="space-y-3">
-            {previewDoc.file_url.startsWith("data:image") || /\.(jpg|jpeg|png|webp)$/i.test(previewDoc.file_url)
-              ? <img src={previewDoc.file_url} alt={previewDoc.name} className="w-full rounded-2xl max-h-[60vh] object-contain bg-slate-50" />
-              : previewDoc.file_url.startsWith("data:application/pdf") || /\.pdf$/i.test(previewDoc.file_url)
-                ? <iframe src={previewDoc.file_url} className="w-full h-[60vh] rounded-2xl border border-slate-200" title={previewDoc.name} />
-                : <p className="text-sm text-slate-500 text-center py-10">{tr("لا يمكن معاينة هذا النوع هنا.", "This file type cannot be previewed here.")}</p>
-            }
-            {previewDoc.file_url && !previewDoc.file_url.startsWith("data:") && (
-              <a href={previewDoc.file_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-teal-600 text-white font-bold text-sm hover:bg-teal-700 transition-colors">
+            <PrivateDocumentPreview path={previewDoc.file_url} name={previewDoc.name} />
+            {actionError && <p role="alert" className="text-sm text-red-700">{actionError}</p>}
+            {previewDoc.file_url && (
+              <button type="button" disabled={downloading} onClick={() => downloadDocument(previewDoc)} className="flex w-full items-center justify-center gap-2 py-2.5 rounded-2xl bg-teal-600 text-white font-bold text-sm hover:bg-teal-700 disabled:opacity-40 transition-colors">
                 <Download className="w-4 h-4" /> {tr("فتح / تنزيل الوثيقة", "Open / download document")}
-              </a>
+              </button>
             )}
           </div>
         )}

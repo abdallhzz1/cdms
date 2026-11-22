@@ -72,6 +72,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
           title: locale === 'ar' ? 'الملف الشخصي والمراسلات' : 'Profile & Messages',
           items: [
             { path: '/profile', label: locale === 'ar' ? 'ملفي الشخصي' : 'My Profile', icon: UserRound },
+            { path: '/clinical-supervisors/me?tab=followup', label: locale === 'ar' ? 'أعذاري ومتابعتي' : 'My Excuses & Follow-up', icon: ClipboardCheck },
             { path: '/inbox', label: locale === 'ar' ? 'المراسلات' : 'Mail', icon: MessagesSquare, permission: 'correspondence.view' },
             { path: '/tasks', label: locale === 'ar' ? 'المهام' : 'Tasks', icon: FolderGit2, permission: 'tasks.view' },
           ]
@@ -103,6 +104,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
         title: locale === 'ar' ? 'مساحة المشرف السريري' : 'Clinical Supervisor Workspace',
         items: [
           { path: '/supervisor/portal', label: locale === 'ar' ? 'لوحة المشرف السريري' : 'Supervisor Dashboard', icon: LayoutDashboard, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') },
+          { path: '/clinical-supervisors/me?tab=followup', label: locale === 'ar' ? 'أعذاري ومتابعتي' : 'My Excuses & Follow-up', icon: ClipboardCheck, customCheck: () => isClinicalSupervisor },
           { path: '/supervisor/attendance', label: locale === 'ar' ? 'حضور المجموعات' : 'Group Attendance', icon: Clock, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') && can('attendance.record') },
           { path: '/supervisor/assessments', label: locale === 'ar' ? 'تقييمات الطلبة' : 'Student Assessments', icon: ClipboardCheck, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') && can('assessment.create') },
           { path: '/supervisor/osce', label: locale === 'ar' ? 'OSCE النهائي' : 'Final OSCE', icon: ClipboardCheck, customCheck: () => isClinicalSupervisor && can('supervisor.workspace.view') && can('assessment.create') },
@@ -121,7 +123,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
         items: [
           { path: '/profile', label: locale === 'ar' ? 'ملفي الشخصي' : 'My Profile', icon: GraduationCap },
           { path: '/department-heads', label: locale === 'ar' ? 'دليل رؤساء الأقسام' : 'Department Heads Directory', icon: Users, permission: 'people.view' },
-          { path: '/clinical-supervisors', label: locale === 'ar' ? 'المستشفيات والمشرفون' : 'Hospitals & Supervisors', icon: ShieldCheck, permission: 'people.view' },
+          { path: '/clinical-supervisors', label: locale === 'ar' ? 'المستشفيات والمشرفون' : 'Hospitals & Supervisors', icon: ShieldCheck, customCheck: () => ['people.view', 'people.manage', 'clinical_supervisors.view', 'clinical_supervisors.update', 'supervisor_documents.view', 'supervisor_documents.upload', 'supervisor_documents.delete', 'supervisor_records.view', 'supervisor_records.create', 'supervisor_records.review', 'supervisor_records.delete'].some(can) },
           { path: '/rta-assignments', label: locale === 'ar' ? 'تكليف مساعدي البحث والتدريس' : 'RTA Cohort Assignments', icon: Users, permission: 'rta_assignments.manage' },
         ]
       },

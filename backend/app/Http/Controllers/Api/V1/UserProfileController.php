@@ -10,6 +10,7 @@ use App\Services\SecureFileUploadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -120,11 +121,19 @@ class UserProfileController extends Controller
             'file_size' => round($stored['size_bytes'] / (1024 * 1024), 2).' MB',
             'created_at' => now()->toDateString(),
         ];
-        $profile = UserProfile::firstOrCreate(['user_id' => $user->id]);
-        $documents = is_array($profile->documents) ? $profile->documents : [];
-        $documents[] = $document;
-        $profile->update(['documents' => $documents]);
-        $this->syncProfessionalLegacy($user, $profile->fresh());
+        try {
+            DB::transaction(function () use ($user, $document) {
+                User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+                $profile = $this->professionalProfile($user);
+                $documents = $profile->documents ?: [];
+                $documents[] = $document;
+                $profile->update(['documents' => $documents]);
+                $this->syncProfessionalLegacy($user, $profile->fresh());
+            });
+        } catch (\Throwable $error) {
+            Storage::disk('local')->delete($stored['storage_path']);
+            throw $error;
+        }
 
         return ApiResponse::success($this->present($user->fresh()), __('Document uploaded successfully.'));
     }
@@ -134,18 +143,21 @@ class UserProfileController extends Controller
         /** @var User $user */
         $user = $request->user();
         abort_unless($this->supportsProfessionalProfile($user), 403);
-        $profile = UserProfile::where('user_id', $user->id)->firstOrFail();
-        $documents = is_array($profile->documents) ? $profile->documents : [];
+        $document = DB::transaction(function () use ($user, $docId) {
+        User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+        $profile = $this->professionalProfile($user);
+        $documents = $profile->documents ?: [];
         $document = collect($documents)->first(fn (array $item) => (string) ($item['id'] ?? '') === $docId);
         abort_unless($document, 404);
-        if (filled($document['storage_path'] ?? null)) {
-            Storage::disk('local')->delete($document['storage_path']);
-        }
-        $profile->update(['documents' => array_values(array_filter(
-            $documents,
+        $profile->update(['documents' => array_values(array_filter($documents,
             fn (array $item) => (string) ($item['id'] ?? '') !== $docId
         ))]);
         $this->syncProfessionalLegacy($user, $profile->fresh());
+        return $document;
+        });
+        if (filled($document['storage_path'] ?? null)) {
+            Storage::disk('local')->delete($document['storage_path']);
+        }
 
         return ApiResponse::success($this->present($user->fresh()), __('Document deleted successfully.'));
     }
@@ -154,8 +166,9 @@ class UserProfileController extends Controller
     {
         /** @var User $user */
         $user = $request->user();
-        $profile = UserProfile::where('user_id', $user->id)->firstOrFail();
-        $document = collect($profile->documents ?: [])->first(
+        $user->loadMissing(['userProfile', 'clinicalSupervisorProfile', 'departmentHeadProfile']);
+        $documents = $user->userProfile?->documents ?? $user->clinicalSupervisorProfile?->documents ?? $user->departmentHeadProfile?->documents ?? [];
+        $document = collect($documents)->first(
             fn (array $item) => (string) ($item['id'] ?? '') === $docId
         );
         if (! $document || empty($document['storage_path']) || ! Storage::disk('local')->exists($document['storage_path'])) {
@@ -350,5 +363,19 @@ class UserProfileController extends Controller
         if ($user->roles->pluck('code')->contains('DEPARTMENT_HEAD') || $user->person?->headAssignments()->current()->heads()->exists()) {
             $user->departmentHeadProfile()->firstOrCreate()->update($values);
         }
+    }
+
+    private function professionalProfile(User $user): UserProfile
+    {
+        $legacy = $user->clinicalSupervisorProfile ?: $user->departmentHeadProfile;
+        $profile = UserProfile::firstOrCreate(['user_id' => $user->id]);
+        $profile->fill([
+            'bio' => $profile->bio ?? $legacy?->cv_summary,
+            'publications' => $profile->publications ?? $legacy?->publications ?? [],
+            'conferences' => $profile->conferences ?? $legacy?->conferences ?? [],
+            'documents' => $profile->documents ?? $legacy?->documents ?? [],
+        ]);
+        $profile->save();
+        return $profile;
     }
 }

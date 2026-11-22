@@ -293,7 +293,7 @@ export function App() {
                 
                 <Route path="/clinical-supervisors" element={<ClinicalSupervisorsDirectoryPage />} />
                 <Route path="/clinical-supervisor-evaluations" element={<ClinicalSupervisorEvaluationsPage />} />
-                <Route path="/clinical-supervisors/me" element={<Navigate to="/profile?section=professional" replace />} />
+                <Route path="/clinical-supervisors/me" element={<ClinicalSupervisorProfilePage />} />
                 <Route path="/clinical-supervisors/:id" element={<ClinicalSupervisorProfilePage />} />
                 <Route path="/partnerships" element={<PartnershipsPage />} />
                 

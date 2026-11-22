@@ -106,7 +106,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
 }
 
 /** Fetch private attachments from this application's API with the SPA session. */
-export async function downloadApiFile(path: string, fallbackName: string): Promise<void> {
+export async function fetchApiFile(path: string, fallbackName: string): Promise<{ blob: Blob; filename: string }> {
   const parsed = new URL(path, window.location.origin);
   // Backend-generated absolute links may use a configured host. Always fetch
   // their API path from the current origin so session cookies stay on this app.
@@ -132,7 +132,12 @@ export async function downloadApiFile(path: string, fallbackName: string): Promi
   if (encodedName) {
     try { filename = decodeURIComponent(encodedName); } catch { /* Use the plain filename. */ }
   }
-  const objectUrl = URL.createObjectURL(await response.blob());
+  return { blob: await response.blob(), filename };
+}
+
+export async function downloadApiFile(path: string, fallbackName: string): Promise<void> {
+  const { blob, filename } = await fetchApiFile(path, fallbackName);
+  const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = objectUrl;
   link.download = filename;

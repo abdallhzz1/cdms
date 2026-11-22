@@ -564,10 +564,15 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->middleware('permission.any:department_head_evaluations.approve,approvals.decide');
 
         // Clinical Supervisors Routes
+        Route::get('supervisor-followup', [\App\Http\Controllers\Api\V1\SupervisorFollowupController::class, 'index']);
+        Route::post('supervisor-followup', [\App\Http\Controllers\Api\V1\SupervisorFollowupController::class, 'store'])->middleware('throttle:60,1');
+        Route::post('supervisor-followup/{record}/review', [\App\Http\Controllers\Api\V1\SupervisorFollowupController::class, 'review']);
+        Route::delete('supervisor-followup/{record}', [\App\Http\Controllers\Api\V1\SupervisorFollowupController::class, 'destroy']);
+        Route::get('supervisor-followup/{record}/files/{file}', [\App\Http\Controllers\Api\V1\SupervisorFollowupController::class, 'download']);
         Route::get('clinical-supervisors', [ClinicalSupervisorController::class, 'index'])
-            ->middleware('permission:people.view');
+            ->middleware('permission.any:people.view,people.manage,clinical_supervisors.view,clinical_supervisors.update,supervisor_documents.view,supervisor_documents.upload,supervisor_documents.delete,supervisor_records.view,supervisor_records.create,supervisor_records.review,supervisor_records.delete');
         Route::get('clinical-workforce', [CourseDistributionController::class, 'clinicalWorkforce'])
-            ->middleware('permission.any:people.view,training_sites.view');
+            ->middleware('permission.any:training_sites.view,people.view,people.manage,clinical_supervisors.view,clinical_supervisors.update,supervisor_documents.view,supervisor_documents.upload,supervisor_documents.delete,supervisor_records.view,supervisor_records.create,supervisor_records.review,supervisor_records.delete');
         Route::post('clinical-workforce/doctors', [CourseDistributionController::class, 'storeDoctor'])
             ->middleware('permission:people.manage');
         Route::put('clinical-workforce/doctors/{user}/hospital', [CourseDistributionController::class, 'assignDoctorHospital'])

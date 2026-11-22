@@ -68,7 +68,8 @@ class CourseDistributionController extends Controller
 
     public function clinicalWorkforce(): JsonResponse
     {
-        $directory = $this->doctorDirectory();
+        $allowedUsers = app(\App\Services\ClinicalSupervisorAccess::class)->users()->pluck('users.id');
+        $directory = $this->doctorDirectory()->filter(fn ($doctor) => $allowedUsers->contains($doctor['user_id']))->values();
 
         return ApiResponse::success([
             'academic_years' => AcademicYear::query()->active()

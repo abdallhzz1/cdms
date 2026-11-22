@@ -63,6 +63,7 @@ const ROLE_LABELS: Record<string, { label: LocalizedLabel; icon: Icon }> = {
 const MODULES: Record<string, { label: LocalizedLabel; icon: Icon }> = {
   BasicAttendance: { label: { ar: 'حضور محاضرات الدائرة الأساسية', en: 'Basic Sciences Lecture Attendance' }, icon: ClipboardCheck },
   People: { label: { ar: 'الكادر والمشرفون', en: 'Staff and Supervisors' }, icon: Users },
+  'Clinical Supervisors': { label: { ar: 'بروفايلات المشرفين والمتابعة والأعذار', en: 'Supervisor Profiles, Follow-up and Excuses' }, icon: ShieldCheck },
   Students: { label: { ar: 'شؤون الطلبة', en: 'Student Affairs' }, icon: GraduationCap },
   Grades: { label: { ar: 'العلامات الأكاديمية', en: 'Academic Grades' }, icon: ClipboardCheck },
   Distribution: { label: { ar: 'التوزيع والجدول السريري', en: 'Clinical Distribution and Schedule' }, icon: CalendarDays },
@@ -99,6 +100,15 @@ const MODULES: Record<string, { label: LocalizedLabel; icon: Icon }> = {
 };
 
 const PERMISSION_LABELS: Record<string, string> = {
+  'clinical_supervisors.view': 'عرض المستشفيات وبروفايلات المشرفين',
+  'clinical_supervisors.update': 'تعديل بيانات بروفايل المشرف الرسمية والمهنية',
+  'supervisor_documents.view': 'عرض وتنزيل الوثائق المهنية للمشرف',
+  'supervisor_documents.upload': 'رفع وثائق مهنية بالنيابة عن المشرف',
+  'supervisor_documents.delete': 'حذف الوثائق المهنية للمشرف',
+  'supervisor_records.view': 'عرض سجلات المتابعة والأعذار والملاحظات الداخلية',
+  'supervisor_records.create': 'تسجيل غياب أو ملاحظة أو رفع عذر وملف بالنيابة عن المشرف',
+  'supervisor_records.review': 'مراجعة أعذار المشرفين وقبولها أو رفضها',
+  'supervisor_records.delete': 'حذف سجل متابعة أو عذر مع توثيق السبب',
   'basic_attendance.amend_finalized': 'إلحاق طالب بكشف محاضرة معتمد وتحديد حضوره أو غيابه',
   'students.view': 'عرض دليل الطلبة',
   'students.create': 'إضافة الطلبة واستيراد كشوفاتهم',
@@ -225,6 +235,18 @@ function moduleInfo(module: string) {
 }
 
 function humanizePermission(permission: Permission) {
+  const supervisorLabels: Record<string, string> = {
+    'clinical_supervisors.view': 'View hospitals and supervisor profiles',
+    'clinical_supervisors.update': 'Edit official and professional supervisor profile data',
+    'supervisor_documents.view': 'View and download professional documents',
+    'supervisor_documents.upload': 'Upload professional documents on behalf of supervisors',
+    'supervisor_documents.delete': 'Delete professional documents',
+    'supervisor_records.view': 'View follow-up records, excuses and internal notes',
+    'supervisor_records.create': 'Record absences, notes, excuses and files on behalf of supervisors',
+    'supervisor_records.review': 'Review, approve or reject supervisor excuses',
+    'supervisor_records.delete': 'Delete follow-up records with an audited reason',
+  };
+  if (supervisorLabels[permission.code]) return supervisorLabels[permission.code];
   const tokens = permission.code.split('.');
   const action = tokens.pop() || permission.action;
   const actionLabels: Record<string, string> = {
