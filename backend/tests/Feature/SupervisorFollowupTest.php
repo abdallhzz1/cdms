@@ -111,7 +111,7 @@ class SupervisorFollowupTest extends TestCase
         $this->assertCount(1, ClinicalSupervisorProfile::where('user_id', $this->supervisor->id)->firstOrFail()->documents);
     }
 
-    public function test_technical_profile_view_does_not_bypass_department_scope_or_grant_review(): void
+    public function test_profile_view_is_shared_across_departments_when_permission_is_granted(): void
     {
         $department = \App\Models\Department::factory()->create();
         $otherDepartment = \App\Models\Department::factory()->create();
@@ -119,11 +119,11 @@ class SupervisorFollowupTest extends TestCase
         $head = User::factory()->create();
         $head->roles()->attach(Role::where('code', 'DEPARTMENT_HEAD')->firstOrFail(), ['scope_type' => 'department', 'scope_id' => $department->id]);
         $head->directPermissions()->attach(Permission::where('code', 'supervisor_records.view')->firstOrFail());
-        $this->actingAs($head)->getJson('/api/v1/clinical-supervisors/'.$this->supervisor->id)->assertForbidden();
-        $this->getJson('/api/v1/supervisor-followup?supervisor_user_id='.$this->supervisor->id)->assertForbidden();
+        $this->actingAs($head)->getJson('/api/v1/clinical-supervisors/'.$this->supervisor->id)->assertOk();
+        $this->getJson('/api/v1/supervisor-followup?supervisor_user_id='.$this->supervisor->id)->assertOk();
     }
 
-    public function test_default_rta_grants_follow_assigned_cohort_and_admin_assistant_can_submit_on_behalf(): void
+    public function test_default_rta_grants_allow_review_across_cohorts_and_admin_assistant_can_submit_on_behalf(): void
     {
         $person = Person::factory()->create(['user_id' => $this->supervisor->id, 'department_id' => null]);
         $rotation = \App\Models\Rotation::factory()->create(['academic_level' => 'fourth']);
@@ -143,9 +143,9 @@ class SupervisorFollowupTest extends TestCase
         $id = $this->actingAs($assistant)->postJson('/api/v1/supervisor-followup', $this->payload())->assertCreated()->json('data.id');
         $this->postJson('/api/v1/supervisor-followup/'.$id.'/review', ['decision' => 'approved', 'review_note' => 'OK'])->assertForbidden();
         $this->assertSame(1, $rta->notifications()->count());
-        $this->assertSame(0, $otherRta->notifications()->count());
-        $this->actingAs($otherRta)->getJson('/api/v1/clinical-supervisors/'.$this->supervisor->id)->assertForbidden();
-        $this->getJson('/api/v1/supervisor-followup')->assertJsonCount(0, 'data.items');
+        $this->assertSame(1, $otherRta->notifications()->count());
+        $this->actingAs($otherRta)->getJson('/api/v1/clinical-supervisors/'.$this->supervisor->id)->assertOk();
+        $this->getJson('/api/v1/supervisor-followup')->assertJsonCount(1, 'data.items');
         $this->actingAs($rta)->getJson('/api/v1/clinical-supervisors/'.$this->supervisor->id)->assertOk();
         $this->postJson('/api/v1/supervisor-followup/'.$id.'/review', ['decision' => 'approved', 'review_note' => 'Reviewed by cohort RTA'])->assertOk();
     }
@@ -160,7 +160,7 @@ class SupervisorFollowupTest extends TestCase
         $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
-    public function test_rta_directory_includes_cross_department_and_shared_row_supervisors_before_enrolment(): void
+    public function test_directory_has_no_department_cohort_or_schedule_membership_filter(): void
     {
         $rtaDepartment = \App\Models\Department::factory()->create();
         $otherDepartment = \App\Models\Department::factory()->create();
@@ -184,14 +184,14 @@ class SupervisorFollowupTest extends TestCase
         $rta = User::factory()->create(['assigned_levels' => ['fourth']]);
         $rta->roles()->attach(Role::where('code', 'RTA')->firstOrFail(), ['scope_type' => 'department', 'scope_id' => $rtaDepartment->id]);
         Person::factory()->create(['user_id' => $rta->id, 'department_id' => $rtaDepartment->id]);
-        $response = $this->actingAs($rta)->getJson('/api/v1/clinical-supervisors')->assertOk()->assertJsonCount(2, 'data');
-        $this->assertEqualsCanonicalizing([$primary->id, $shared->id], collect($response->json('data'))->pluck('user_id')->all());
+        $response = $this->actingAs($rta)->getJson('/api/v1/clinical-supervisors')->assertOk()->assertJsonCount(4, 'data');
+        $this->assertEqualsCanonicalizing([$this->supervisor->id, $primary->id, $shared->id, $unrelated->id], collect($response->json('data'))->pluck('user_id')->all());
         $workforce = $this->getJson('/api/v1/clinical-workforce')->assertOk();
-        $this->assertEqualsCanonicalizing([$primary->id, $shared->id], collect($workforce->json('data.hospitals'))->flatMap(fn ($hospital) => $hospital['supervisors'])->pluck('user_id')->unique()->all());
+        $this->assertEqualsCanonicalizing([$primary->id, $shared->id, $unrelated->id], collect($workforce->json('data.hospitals'))->flatMap(fn ($hospital) => $hospital['supervisors'])->pluck('user_id')->unique()->all());
         $this->getJson('/api/v1/clinical-supervisors/'.$shared->id)->assertOk();
-        $this->getJson('/api/v1/clinical-supervisors/'.$unrelated->id)->assertForbidden();
+        $this->getJson('/api/v1/clinical-supervisors/'.$unrelated->id)->assertOk();
         $rta->update(['assigned_levels' => []]);
-        $this->actingAs($rta->fresh())->getJson('/api/v1/clinical-supervisors')->assertOk()->assertJsonCount(0, 'data');
+        $this->actingAs($rta->fresh())->getJson('/api/v1/clinical-supervisors')->assertOk()->assertJsonCount(4, 'data');
     }
 
     public function test_review_only_access_cannot_read_internal_notes_and_cannot_mix_attachment_record_ids(): void

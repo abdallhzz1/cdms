@@ -21,7 +21,7 @@ on their behalf. Review is performed by another authorized user.
 - Internal files are distinct from the supervisor's editable professional
   documents, so they cannot be removed through My Profile.
 - Notifications are stored in the application's notification center. New
-  excuses notify eligible, scoped reviewers. Review decisions notify the
+  excuses notify eligible reviewers. Review decisions notify the
   subject and, for on-behalf submissions, the author.
 
 ## Permissions
@@ -48,14 +48,12 @@ preserved. A supervisor's self-service excuse submission does not grant access
 to colleagues or internal notes. Existing people.manage grants retain their
 professional profile/document access, without granting administrative review.
 
-Staff access consistently applies department/cohort boundaries on directory,
-profile, record, download, mutation and notification recipient selection.
-
-2026-11-22 correction: RTA access follows the assigned cohort across all
-departments, independent of the assistant's administrative department. Cohort
-links include primary and shared supervisors on schedule rows before student
-enrolment, as well as legacy student assignments. Department heads retain their
-department boundary; an RTA without an assigned cohort receives no cohort access.
+2026-11-22 updated requirement: the directory and supervisor profiles are shared
+across all departments and cohorts. There is no department, cohort or schedule
+membership filter for authorized staff, including assistants without an assigned
+cohort. Document and record permissions, internal-note privacy, subject ownership
+and independent-review checks still apply. Review notifications reach eligible
+permission holders across cohorts. This replaces the earlier cohort boundary.
 
 ## Storage and history
 
@@ -63,7 +61,7 @@ Migration `2026_11_22_150000_create_supervisor_followup_records` creates two new
 tables and seeds additive permission grants. No existing documents are moved.
 Attachments are private local-storage files, limited to five files per record,
 10 MB each, using the existing content/MIME validation service. File metadata
-never exposes storage paths. Downloads require record ownership or scoped staff
+never exposes storage paths. Downloads require record ownership or staff
 permission. Creation, review, profile/document operations and record deletion
 are audited. Record deletion is soft deletion; files/history are retained and
 are unavailable through ordinary download endpoints after deletion.
@@ -77,7 +75,7 @@ new frontend through the existing cPanel deployment configuration.
 Feature tests cover self submission with attachments, on-behalf submission,
 independent review, duplicate-review rejection, internal-note/file privacy,
 professional-document permissions and shared metadata consistency, soft
-deletion/audit, department/cohort boundaries and scoped notifications.
+deletion/audit, cross-department/cohort directory visibility and notifications.
 Frontend tests cover excuse submission, expandable review inbox, staff profile
 capabilities, upload result handling, retryable loading errors and authenticated
 file requests. Existing profile, directory, workforce and supervisor-evaluation
