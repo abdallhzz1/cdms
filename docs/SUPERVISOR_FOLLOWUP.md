@@ -51,6 +51,12 @@ professional profile/document access, without granting administrative review.
 Staff access consistently applies department/cohort boundaries on directory,
 profile, record, download, mutation and notification recipient selection.
 
+2026-11-22 correction: RTA access follows the assigned cohort across all
+departments, independent of the assistant's administrative department. Cohort
+links include primary and shared supervisors on schedule rows before student
+enrolment, as well as legacy student assignments. Department heads retain their
+department boundary; an RTA without an assigned cohort receives no cohort access.
+
 ## Storage and history
 
 Migration `2026_11_22_150000_create_supervisor_followup_records` creates two new

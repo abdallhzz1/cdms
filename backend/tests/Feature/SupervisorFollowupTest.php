@@ -160,6 +160,40 @@ class SupervisorFollowupTest extends TestCase
         $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
+    public function test_rta_directory_includes_cross_department_and_shared_row_supervisors_before_enrolment(): void
+    {
+        $rtaDepartment = \App\Models\Department::factory()->create();
+        $otherDepartment = \App\Models\Department::factory()->create();
+        $site = \App\Models\TrainingSite::factory()->create(['is_active' => true]);
+        $createSupervisor = function () use ($site, $otherDepartment): array {
+            $user = User::factory()->create(['is_active' => true]);
+            $user->roles()->attach(Role::where('code', 'CLINICAL_SUPERVISOR')->firstOrFail());
+            $person = Person::factory()->create(['user_id' => $user->id, 'department_id' => $otherDepartment->id, 'primary_site_id' => $site->id]);
+            return [$user, $person];
+        };
+        [$primary, $primaryPerson] = $createSupervisor();
+        [$shared, $sharedPerson] = $createSupervisor();
+        [$unrelated, $unrelatedPerson] = $createSupervisor();
+        foreach ([['fourth', $primaryPerson], ['fifth', $unrelatedPerson]] as [$level, $person]) {
+            $rotation = \App\Models\Rotation::factory()->create(['academic_level' => $level]);
+            $version = \App\Models\DistributionVersion::create(['rotation_id' => $rotation->id, 'status' => 'manual', 'name' => 'Empty schedule']);
+            $row = \App\Models\CourseScheduleRow::create(['distribution_version_id' => $version->id, 'row_type' => 'doctor', 'person_id' => $person->id, 'training_site_id' => $site->id]);
+            if ($level === 'fourth') $row->supervisorLinks()->create(['person_id' => $sharedPerson->id, 'weekdays' => ['monday']]);
+        }
+        $this->assertDatabaseCount('student_clinical_assignments', 0);
+        $rta = User::factory()->create(['assigned_levels' => ['fourth']]);
+        $rta->roles()->attach(Role::where('code', 'RTA')->firstOrFail(), ['scope_type' => 'department', 'scope_id' => $rtaDepartment->id]);
+        Person::factory()->create(['user_id' => $rta->id, 'department_id' => $rtaDepartment->id]);
+        $response = $this->actingAs($rta)->getJson('/api/v1/clinical-supervisors')->assertOk()->assertJsonCount(2, 'data');
+        $this->assertEqualsCanonicalizing([$primary->id, $shared->id], collect($response->json('data'))->pluck('user_id')->all());
+        $workforce = $this->getJson('/api/v1/clinical-workforce')->assertOk();
+        $this->assertEqualsCanonicalizing([$primary->id, $shared->id], collect($workforce->json('data.hospitals'))->flatMap(fn ($hospital) => $hospital['supervisors'])->pluck('user_id')->unique()->all());
+        $this->getJson('/api/v1/clinical-supervisors/'.$shared->id)->assertOk();
+        $this->getJson('/api/v1/clinical-supervisors/'.$unrelated->id)->assertForbidden();
+        $rta->update(['assigned_levels' => []]);
+        $this->actingAs($rta->fresh())->getJson('/api/v1/clinical-supervisors')->assertOk()->assertJsonCount(0, 'data');
+    }
+
     public function test_review_only_access_cannot_read_internal_notes_and_cannot_mix_attachment_record_ids(): void
     {
         $internal = $this->actingAs($this->staff)->postJson('/api/v1/supervisor-followup', $this->payload(['type' => 'file', 'files' => [$this->file()]]))->assertCreated()->json('data');
