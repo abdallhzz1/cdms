@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiFetch } from '@/api/client';
+import { apiFetch, downloadApiFile } from '@/api/client';
 import { useI18n } from '@/i18n/I18nContext';
 import { useAuth } from '@/auth/AuthContext';
 import { LoadingState } from '@/components/ui/LoadingState';
@@ -17,7 +17,7 @@ import {
   ChevronRight, Camera, GraduationCap, 
   Building2, Clock, 
   User, FolderOpen,
-  FileText, Trash2, Plus, Eye, Pencil
+  FileText, Trash2, Plus, Download, Pencil
 } from 'lucide-react';
 
 type ProfileTab = 'overview' | 'academic' | 'clinical' | 'attendance' | 'documents';
@@ -62,6 +62,7 @@ export function StudentProfilePage() {
   const [newDocTitle, setNewDocTitle] = useState('');
   const [newDocCategory, setNewDocCategory] = useState('clinical_pledge');
   const [selectedDocFile, setSelectedDocFile] = useState<File | null>(null);
+  const [documentDownloadError, setDocumentDownloadError] = useState('');
   const [clinicalPeriodFilter,setClinicalPeriodFilter]=useState('');
 
   // Edit Student Modal State for Admin Assistant / Admins
@@ -148,6 +149,12 @@ export function StudentProfilePage() {
     mutationFn: (documentId: string) => apiFetch(`/students/${studentId}/documents/${documentId}`, { method: 'DELETE' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['student', studentId] }),
     onError: (err: any) => alert(err?.message || (locale === 'ar' ? 'تعذر حذف الوثيقة' : 'Document deletion failed')),
+  });
+
+  const downloadDocumentMutation = useMutation({
+    mutationFn: (doc: StudentDoc) => downloadApiFile(doc.download_url, doc.file_name || doc.title),
+    onMutate: () => setDocumentDownloadError(''),
+    onError: (err: Error) => setDocumentDownloadError(err.message || (locale === 'ar' ? 'تعذر تنزيل الوثيقة' : 'Document download failed')),
   });
 
   // Update Student Profile Mutation for Admin Assistant / Admins
@@ -574,6 +581,7 @@ export function StudentProfilePage() {
             )}
           </div>
 
+          {documentDownloadError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs text-red-700">{documentDownloadError}</p>}
           {documents.length === 0 ? (
             <EmptyState title={locale === 'ar' ? 'لا توجد وثائق مرفقة لهذا الطالب' : 'No Documents Uploaded'} />
           ) : (
@@ -590,15 +598,16 @@ export function StudentProfilePage() {
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     {doc.download_url && (
-                      <a
-                        href={doc.download_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-1.5 text-slate-500 hover:text-teal-600 rounded-lg hover:bg-slate-200/50"
-                        title={locale === 'ar' ? 'معاينة' : 'Preview'}
+                      <button
+                        type="button"
+                        onClick={() => downloadDocumentMutation.mutate(doc)}
+                        disabled={downloadDocumentMutation.isPending}
+                        className="p-1.5 text-slate-500 hover:text-teal-600 rounded-lg hover:bg-slate-200/50 disabled:opacity-40"
+                        title={locale === 'ar' ? 'تنزيل الملف' : 'Download file'}
+                        aria-label={locale === 'ar' ? `تنزيل ${doc.title}` : `Download ${doc.title}`}
                       >
-                        <Eye className="w-4 h-4" />
-                      </a>
+                        <Download className="w-4 h-4" />
+                      </button>
                     )}
                     {can('students.update') && !doc.is_policy_evidence && (
                       <button

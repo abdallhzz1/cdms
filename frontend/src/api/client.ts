@@ -105,6 +105,44 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   return (await apiFetchEnvelope<T>(path, options)).data;
 }
 
+/** Fetch private attachments from this application's API with the SPA session. */
+export async function downloadApiFile(path: string, fallbackName: string): Promise<void> {
+  const parsed = new URL(path, window.location.origin);
+  // Backend-generated absolute links may use a configured host. Always fetch
+  // their API path from the current origin so session cookies stay on this app.
+  const pathname = parsed.pathname.startsWith('/api/v1/')
+    ? parsed.pathname.slice('/api/v1'.length) : parsed.pathname;
+  let response: Response;
+  try {
+    response = await fetch(apiUrl(pathname + parsed.search), {
+      credentials: 'include',
+      headers: buildHeaders(undefined, 'GET'),
+    });
+  } catch {
+    throw new ApiError('Unable to reach the server. Please check your connection.', 0);
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => null) as ApiErrorEnvelope | null;
+    if (response.status === 401) window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
+    throw new ApiError(error?.message || `Request failed with status ${response.status}.`, response.status, error?.errors || {});
+  }
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  let filename = disposition.match(/filename="([^"]+)"/i)?.[1] || fallbackName;
+  if (encodedName) {
+    try { filename = decodeURIComponent(encodedName); } catch { /* Use the plain filename. */ }
+  }
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  try { link.click(); } finally {
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  }
+}
+
 /** Use this variant for server-paginated screens that also need response metadata. */
 export async function apiFetchEnvelope<T>(path: string, options: ApiFetchOptions = {}): Promise<ApiSuccessEnvelope<T>> {
   const url = apiUrl(path);

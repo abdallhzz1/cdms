@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { apiFetch, ApiError, AUTH_SESSION_EXPIRED_EVENT } from './client';
+import { apiFetch, downloadApiFile, ApiError, AUTH_SESSION_EXPIRED_EVENT } from './client';
 
 describe('apiFetch', () => {
   afterEach(() => {
@@ -97,5 +97,43 @@ describe('apiFetch', () => {
     await expect(apiFetch('/operational/clinical-schedule')).rejects.toMatchObject({ status: 401 });
     expect(listener).toHaveBeenCalledOnce();
     window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, listener);
+  });
+});
+
+describe('private file downloads', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+  it('downloads through the current API origin with session cookies and the server filename', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(new Blob(['private file']), {
+      headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': "attachment; filename*=UTF-8''%D9%85%D9%84%D9%81.pdf" },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const createObjectURL = vi.fn(() => 'blob:student-document');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.href).toBe('blob:student-document');
+      expect(this.download).toBe('ملف.pdf');
+    });
+    await downloadApiFile('https://configured-server.example/api/v1/students/7/documents/doc-1', 'fallback.pdf');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/students/7/documents/doc-1', expect.objectContaining({ credentials: 'include' }));
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Accept')).toBe('application/json');
+    expect(click).toHaveBeenCalledOnce();
+    await vi.runAllTimersAsync();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:student-document');
+  });
+
+  it('reports an authentication failure without saving the JSON response as a file', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ message: 'Session expired', errors: {} }), { status: 401 })));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click');
+    const listener = vi.fn();
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, listener);
+    try {
+      await expect(downloadApiFile('/students/7/documents/doc-1', 'test.pdf')).rejects.toMatchObject({ status: 401, message: 'Session expired' });
+      expect(click).not.toHaveBeenCalled();
+      expect(listener).toHaveBeenCalledOnce();
+    } finally { window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, listener); }
   });
 });
