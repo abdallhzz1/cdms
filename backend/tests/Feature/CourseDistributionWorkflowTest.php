@@ -550,6 +550,72 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->assertSame($assignment->id, $mark->fresh()->student_clinical_assignment_id);
     }
 
+    public function test_membership_filter_does_not_resurrect_a_superseded_group_for_a_period(): void
+    {
+        $old = StudentGroupAssignment::where('student_subgroup_id', $this->subgroup->id)->firstOrFail();
+        $other = StudentSubgroup::factory()->create(['student_group_id' => $this->subgroup->student_group_id, 'name' => 'L9']);
+        $period = ClinicalPeriod::create([
+            'academic_year_id' => $this->year->id, 'code' => 'P2', 'name_ar' => 'Period two', 'sequence' => 2,
+            'start_date' => '2026-11-24', 'end_date' => '2027-02-15', 'weeks_count' => 12, 'status' => 'active',
+        ]);
+        $old->update(['valid_until' => '2026-11-23']);
+        StudentGroupAssignment::create([
+            'student_id' => $old->student_id, 'academic_year_id' => $this->year->id,
+            'student_group_id' => $other->student_group_id, 'student_subgroup_id' => $other->id,
+            'effective_from_clinical_period_id' => $period->id, 'valid_from' => '2026-11-24',
+        ]);
+        $rotation = Rotation::factory()->create([
+            'academic_year_id' => $this->year->id, 'academic_level' => 'fourth',
+            'course_id' => $this->course->id, 'clinical_period_id' => $period->id,
+        ]);
+        $resolver = app(\App\Services\Distribution\ClinicalPeriodGroupMembershipService::class);
+        $this->assertFalse($resolver->membershipsForRotation($rotation, [$this->subgroup->id])->pluck('student_id')->contains($old->student_id));
+        $this->assertTrue($resolver->membershipsForRotation($rotation, [$other->id])->pluck('student_id')->contains($old->student_id));
+    }
+
+    public function test_cell_save_preserves_assessment_links_and_reports_student_assignment_conflicts(): void
+    {
+        $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id, 'academic_level' => 'fourth', 'course_id' => $this->course->id,
+            'start_date' => '2026-09-01', 'weeks_count' => 1,
+        ])->assertCreated();
+        $version = DistributionVersion::findOrFail($created->json('data.version.id'));
+        $block = $version->rotation->blocks()->firstOrFail();
+        $row = CourseScheduleRow::create([
+            'distribution_version_id' => $version->id, 'row_type' => 'doctor',
+            'person_id' => $this->doctor->id, 'training_site_id' => $this->doctor->primary_site_id,
+        ]);
+        $url = '/api/v1/course-distribution/versions/'.$version->id.'/cell';
+        $payload = ['rotation_block_id' => $block->id, 'course_schedule_row_id' => $row->id, 'subgroup_id' => $this->subgroup->id];
+        $this->putJson($url, $payload)->assertOk();
+        $assignment = StudentClinicalAssignment::where('distribution_version_id', $version->id)->firstOrFail();
+        $mark = \App\Models\ClinicalAssessment::create([
+            'student_id' => $assignment->student_id, 'evaluator_person_id' => $this->doctor->id,
+            'student_clinical_assignment_id' => $assignment->id, 'evaluation_week' => 1,
+            'assessment_kind' => 'weekly', 'score' => 8, 'max_score' => 10, 'status' => 'submitted',
+        ]);
+        $this->putJson($url, $payload)->assertOk();
+        $this->assertSame($assignment->id, $mark->fresh()->student_clinical_assignment_id);
+
+        $empty = StudentSubgroup::factory()->create(['student_group_id' => $this->subgroup->student_group_id, 'name' => 'L8']);
+        $this->putJson($url, array_replace($payload, ['subgroup_id' => $empty->id]))
+            ->assertUnprocessable()->assertJsonValidationErrors('subgroup_ids');
+        $this->assertDatabaseHas('course_schedule_cells', ['distribution_version_id' => $version->id, 'student_subgroup_id' => $this->subgroup->id]);
+        $this->assertSame($assignment->id, $mark->fresh()->student_clinical_assignment_id);
+
+        // A stale assignment on another row must produce a clear 422, never a
+        // duplicate-key 500 or an automatic overwrite of the other placement.
+        $otherRow = CourseScheduleRow::create([
+            'distribution_version_id' => $version->id, 'row_type' => 'vacancy',
+            'label' => 'Other row', 'training_site_id' => $this->doctor->primary_site_id,
+        ]);
+        $unscored = StudentClinicalAssignment::where('distribution_version_id', $version->id)->where('id', '!=', $assignment->id)->firstOrFail();
+        $unscored->update(['course_schedule_row_id' => $otherRow->id]);
+        $this->putJson($url, $payload)->assertUnprocessable()->assertJsonValidationErrors('subgroup_ids');
+        $this->assertSame($otherRow->id, $unscored->fresh()->course_schedule_row_id);
+        $this->assertSame($assignment->id, $mark->fresh()->student_clinical_assignment_id);
+    }
+
     public function test_period_effective_transfer_preserves_old_assessments_and_moves_only_future_periods(): void
     {
         $oldMembership = StudentGroupAssignment::query()
@@ -572,7 +638,8 @@ class CourseDistributionWorkflowTest extends TestCase
         ]);
 
         $makeScheduledPeriod = function (ClinicalPeriod $period, StudentSubgroup $subgroup): DistributionVersion {
-            $rotation = Rotation::factory()->create([
+            $rotation = Rotation::where('academic_year_id', $this->year->id)->where('course_id', $this->course->id)
+                ->where('clinical_period_id', $period->id)->first() ?? Rotation::factory()->create([
                 'academic_year_id' => $this->year->id,
                 'academic_level' => 'fourth',
                 'course_id' => $this->course->id,

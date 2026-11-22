@@ -25,17 +25,24 @@ class ClinicalPeriodGroupMembershipService
             ->whereHas('student', fn ($student) => $student->where('registration_status', 'active'));
 
         if ($subgroupIds !== null) {
-            $query->whereIn('student_subgroup_id', $subgroupIds ?: [-1]);
+            // Load all memberships of candidate students before choosing the
+            // authoritative row. Filtering the subgroup here can resurrect an
+            // older membership after the student has moved to another group.
+            $query->whereIn('student_id', StudentGroupAssignment::query()
+                ->select('student_id')->where('academic_year_id', $rotation->academic_year_id)
+                ->whereIn('student_subgroup_id', $subgroupIds ?: [-1]));
         }
 
         if (! $rotation->clinical_period_id) {
-            return $query->current()->get()->unique('student_id')->values();
+            $memberships = $query->current()->orderByDesc('id')->get()->unique('student_id')->values();
+            return $subgroupIds === null ? $memberships : $memberships
+                ->whereIn('student_subgroup_id', $subgroupIds)->values();
         }
 
         $rotation->loadMissing('clinicalPeriod:id,sequence');
         $sequence = (int) $rotation->clinicalPeriod?->sequence;
 
-        return $query->get()
+        $memberships = $query->get()
             ->groupBy('student_id')
             ->map(fn (Collection $memberships) => $memberships
                 ->filter(fn (StudentGroupAssignment $membership) => $this->appliesToSequence($membership, $sequence))
@@ -47,6 +54,9 @@ class ClinicalPeriodGroupMembershipService
                 ->first())
             ->filter()
             ->values();
+
+        return $subgroupIds === null ? $memberships : $memberships
+            ->whereIn('student_subgroup_id', $subgroupIds)->values();
     }
 
     public function membershipForRotation(Collection $memberships, Rotation $rotation): ?StudentGroupAssignment

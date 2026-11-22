@@ -353,6 +353,41 @@ class CourseDistributionController extends Controller
         }
 
         DB::transaction(function () use ($version, $block, $row, $doctor, $subgroupIds, $siteId) {
+            $lockedVersion = DistributionVersion::whereKey($version->id)->lockForUpdate()->firstOrFail();
+            $this->ensureEditableVersion($lockedVersion);
+            if (CourseScheduleCell::where('distribution_version_id', $version->id)
+                ->where('rotation_block_id', $block->id)->whereIn('student_subgroup_id', $subgroupIds)
+                ->where('course_schedule_row_id', '!=', $row->id)->exists()) {
+                throw ValidationException::withMessages(['subgroup_ids' => ['إحدى المجموعات موزعة على صف آخر في الأسبوع نفسه. حدّث الجدول ثم أعد المحاولة.']]);
+            }
+            $memberships = app(ClinicalPeriodGroupMembershipService::class)
+                ->membershipsForRotation($version->rotation, $subgroupIds->all())->keyBy('student_id');
+            $assignments = StudentClinicalAssignment::query()
+                ->where('distribution_version_id', $version->id)
+                ->where('rotation_block_id', $block->id)
+                ->where(fn ($query) => $query->where('course_schedule_row_id', $row->id)
+                    ->orWhereIn('student_id', $memberships->keys()))
+                ->lockForUpdate()->get();
+            foreach ($assignments as $assignment) {
+                $membership = $memberships->get($assignment->student_id);
+                if ($membership && $assignment->course_schedule_row_id !== null
+                    && (int) $assignment->course_schedule_row_id !== (int) $row->id) {
+                    throw ValidationException::withMessages(['subgroup_ids' => [
+                        'يوجد طالب من المجموعة لديه تكليف على صف آخر في الأسبوع نفسه. راجع عضويته وتوزيعه قبل الحفظ؛ لم يتغير الجدول.',
+                    ]]);
+                }
+                $changed = ! $membership
+                    || (int) $assignment->student_subgroup_id !== (int) $membership->student_subgroup_id
+                    || (int) $assignment->supervisor_id !== (int) $doctor?->id
+                    || (int) $assignment->department_id !== (int) $doctor?->department_id
+                    || (int) $assignment->training_site_id !== $siteId;
+                if ($changed && $this->assignmentHasRecordedScore($assignment)) {
+                    throw ValidationException::withMessages(['subgroup_ids' => [
+                        'لا يمكن تغيير أو حذف تكليف سريري له تقييمات محفوظة. راجع العلامات والتوزيع أولاً؛ لم يتغير الجدول.',
+                    ]]);
+                }
+            }
+
             CourseScheduleCell::where([
                 'distribution_version_id' => $version->id,
                 'rotation_block_id' => $block->id,
@@ -367,34 +402,21 @@ class CourseDistributionController extends Controller
                 ], ['training_site_id' => $siteId]);
             }
 
-            StudentClinicalAssignment::where([
-                'distribution_version_id' => $version->id,
-                'rotation_block_id' => $block->id,
-                'course_schedule_row_id' => $row->id,
-            ])->delete();
-
-            $memberships = app(ClinicalPeriodGroupMembershipService::class)
-                ->membershipsForRotation($version->rotation, $subgroupIds->all());
-            StudentClinicalAssignment::query()
-                ->where('distribution_version_id', $version->id)
-                ->where('rotation_block_id', $block->id)
-                ->whereNull('course_schedule_row_id')
-                ->whereIn('student_id', $memberships->pluck('student_id'))
-                ->delete();
-            $now = now();
-            if ($memberships->isNotEmpty()) {
-                StudentClinicalAssignment::insert($memberships->map(fn ($membership) => [
+            foreach ($assignments as $assignment) {
+                if (! $memberships->has($assignment->student_id)) $assignment->delete();
+            }
+            foreach ($memberships as $membership) {
+                StudentClinicalAssignment::updateOrCreate([
                     'distribution_version_id' => $version->id,
-                    'course_schedule_row_id' => $row->id,
-                    'student_id' => $membership->student_id,
-                    'student_subgroup_id' => $membership->student_subgroup_id,
                     'rotation_block_id' => $block->id,
+                    'student_id' => $membership->student_id,
+                ], [
+                    'course_schedule_row_id' => $row->id,
+                    'student_subgroup_id' => $membership->student_subgroup_id,
                     'training_site_id' => $siteId,
                     'department_id' => $doctor?->department_id,
                     'supervisor_id' => $doctor?->id,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ])->all());
+                ]);
             }
         });
 
@@ -1295,6 +1317,16 @@ class CourseDistributionController extends Controller
         if (in_array($version->status, ['published', 'withdrawn'], true)) {
             throw ValidationException::withMessages(['version' => ['أنشئ نسخة تعديل قبل تغيير جدول منشور أو ملغى النشر.']]);
         }
+    }
+
+    private function assignmentHasRecordedScore(StudentClinicalAssignment $assignment): bool
+    {
+        return ClinicalAssessment::where('student_clinical_assignment_id', $assignment->id)->exists()
+            || DB::table('clinical_mini_osce_scores')
+                ->where('distribution_version_id', $assignment->distribution_version_id)
+                ->where('student_id', $assignment->student_id)
+                ->where('rotation_block_id', $assignment->rotation_block_id)
+                ->where('entered_by_person_id', $assignment->supervisor_id)->exists();
     }
 
     private function blockExcludesGroup(DistributionVersion $version, RotationBlock $block, string $mainGroupCode): bool
