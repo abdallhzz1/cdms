@@ -11,6 +11,24 @@ class SupervisorWorkScheduleService
 {
     public const DAYS = ['saturday', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
 
+    /** Include legacy links and workplaces saved in dated work schedules. */
+    public function linkedSiteIds(Person $person): array
+    {
+        $person->loadMissing(['trainingSites', 'availabilities']);
+
+        return collect([$person->primary_site_id])
+            ->merge($person->trainingSites->pluck('id'))
+            ->merge($person->availabilities
+                ->filter(fn ($entry) => ($entry->status ?: 'work') === 'work')
+                ->pluck('training_site_id'))
+            ->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+    }
+
+    public function isLinkedToSite(Person $person, int $siteId): bool
+    {
+        return in_array($siteId, $this->linkedSiteIds($person), true);
+    }
+
     public function workingDays(Person $person, int $siteId, Carbon|string|null $from = null, Carbon|string|null $until = null): array
     {
         $records = $this->overlappingRecords($person, $from, $until);
@@ -21,7 +39,7 @@ class SupervisorWorkScheduleService
             return $person->availabilities()->exists() ? [] : self::DAYS;
         }
 
-        return $records->where('training_site_id', $siteId)->where('status', 'work')
+        return $records->where('training_site_id', $siteId)->filter(fn ($entry) => ($entry->status ?: 'work') === 'work')
             ->pluck('day')->filter()->unique()->values()->all();
     }
 

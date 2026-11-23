@@ -84,6 +84,157 @@ class CourseDistributionWorkflowTest extends TestCase
             ->assertJsonPath('data.hospitals.0.supervisors.0.id', $this->doctor->id);
     }
 
+    public function test_supervisor_can_be_scheduled_at_either_linked_hospital_and_published_sites_are_preserved(): void
+    {
+        $secondSite = TrainingSite::factory()->create(['is_active' => true]);
+        $schedules = collect([
+            [$this->doctor->primary_site_id, 'tuesday'], [$secondSite->id, 'wednesday'],
+        ])->map(fn ($item, $index) => [
+            'training_site_id' => $item[0], 'is_primary' => $index === 0,
+            'valid_from' => '2026-09-01', 'valid_until' => '2026-09-30',
+            'days' => [['day' => $item[1], 'status' => 'work']],
+        ])->all();
+        $this->actingAs($this->user)->putJson("/api/v1/clinical-workforce/doctors/{$this->doctor->user_id}/work-schedules", ['schedules' => $schedules])->assertOk();
+        $options = $this->getJson('/api/v1/course-distribution/options')->assertOk();
+        foreach ([$this->doctor->primary_site_id, $secondSite->id] as $siteId) {
+            $hospital = collect($options->json('data.hospitals'))->firstWhere('id', $siteId);
+            $this->assertContains($this->doctor->id, array_column($hospital['supervisors'], 'id'));
+        }
+
+        $created = $this->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id, 'academic_level' => 'fourth', 'course_id' => $this->course->id,
+            'start_date' => '2026-09-01', 'weeks_count' => 2,
+        ])->assertCreated();
+        $versionId = $created->json('data.version.id');
+        $blocks = RotationBlock::where('rotation_id', $created->json('data.rotation.id'))->orderBy('from_week')->get();
+        // The same supervisor appears in two rows, each bound to its selected workplace.
+        foreach ([$secondSite->id, $this->doctor->primary_site_id] as $index => $siteId) {
+            $rowId = $this->postJson("/api/v1/course-distribution/versions/{$versionId}/rows", [
+                'row_type' => 'doctor', 'person_id' => $this->doctor->id, 'training_site_id' => $siteId,
+            ])->assertCreated()->json('data.id');
+            $this->putJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
+                'rotation_block_id' => $blocks[$index]->id, 'course_schedule_row_id' => $rowId,
+                'subgroup_id' => $this->subgroup->id,
+            ])->assertOk();
+        }
+        $this->getJson('/api/v1/course-distribution/schedule?academic_year_id='.$this->year->id.'&academic_level=fourth&course_id='.$this->course->id)
+            ->assertOk()->assertJsonPath('data.rows.0.training_site_id', $secondSite->id)
+            ->assertJsonPath('data.rows.0.supervisors.0.weekdays', ['wednesday'])
+            ->assertJsonPath('data.rows.1.supervisors.0.weekdays', ['tuesday']);
+        $this->completeApproval($versionId);
+        $version = DistributionVersion::findOrFail($versionId);
+        $this->actingAs($this->user)->postJson("/api/v1/distribution-versions/{$versionId}/publish", [
+            'last_updated_at' => $version->updated_at->toIso8601String(),
+        ])->assertOk();
+        $student = Student::where('academic_year_id', $this->year->id)->firstOrFail();
+        $published = app(\App\Services\Distribution\ClinicalScheduleQueryService::class)->getStudentSchedule($student);
+        $this->assertSame([$secondSite->id, (int) $this->doctor->primary_site_id], $published->pluck('training_site.id')->all());
+        $this->assertSame(['wednesday'], array_column($published[0]['supervisor']['work_schedule'], 'day'));
+        $this->assertSame(['tuesday'], array_column($published[1]['supervisor']['work_schedule'], 'day'));
+        $this->assertSame(2, $this->doctor->fresh()->trainingSites()->count());
+    }
+
+    public function test_existing_dated_workplace_is_available_even_if_legacy_site_pivot_is_missing(): void
+    {
+        $site = TrainingSite::factory()->create(['is_active' => true]);
+        $unrelated = TrainingSite::factory()->create(['is_active' => true]);
+        $this->doctor->availabilities()->create([
+            'training_site_id' => $site->id, 'day' => 'tuesday', 'status' => null,
+            'available_from' => '2026-09-01', 'available_until' => '2026-09-30',
+        ]);
+        $options = $this->actingAs($this->user)->getJson('/api/v1/course-distribution/options')->assertOk();
+        $hospital = collect($options->json('data.hospitals'))->firstWhere('id', $site->id);
+        $this->assertSame([$this->doctor->id], array_column($hospital['supervisors'], 'id'));
+        $created = $this->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id, 'academic_level' => 'fourth', 'course_id' => $this->course->id,
+            'start_date' => '2026-09-01', 'weeks_count' => 1,
+        ])->assertCreated();
+        $versionId = $created->json('data.version.id');
+        $rotation = Rotation::findOrFail($created->json('data.rotation.id'));
+        $rotation->siteCapacityRules()->create(['site_id' => $site->id, 'max_students' => 20]);
+        $this->getJson("/api/v1/distribution-versions/{$versionId}/options")->assertOk()
+            ->assertJsonPath('data.supervisors.0.id', $this->doctor->id)
+            ->assertJsonPath('data.supervisors.0.training_site_ids.1', $site->id);
+        $rowId = $this->postJson("/api/v1/course-distribution/versions/{$versionId}/rows", [
+            'row_type' => 'doctor', 'person_id' => $this->doctor->id, 'training_site_id' => $site->id,
+        ])->assertCreated()->json('data.id');
+        $this->putJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
+            'rotation_block_id' => $rotation->blocks()->first()->id, 'course_schedule_row_id' => $rowId,
+            'subgroup_id' => $this->subgroup->id,
+        ])->assertOk();
+        $this->postJson("/api/v1/course-distribution/versions/{$versionId}/rows", [
+            'row_type' => 'doctor', 'person_id' => $this->doctor->id, 'training_site_id' => $unrelated->id,
+        ])->assertUnprocessable();
+        $this->completeApproval($versionId);
+        $version = DistributionVersion::findOrFail($versionId);
+        $this->actingAs($this->user)->postJson("/api/v1/distribution-versions/{$versionId}/publish", [
+            'last_updated_at' => $version->updated_at->toIso8601String(),
+        ])->assertOk();
+    }
+
+    public function test_changing_a_row_hospital_updates_default_cells_but_preserves_explicit_week_overrides(): void
+    {
+        $secondSite = TrainingSite::factory()->create(['is_active' => true]);
+        $overrideSite = TrainingSite::factory()->create(['is_active' => true]);
+        $this->doctor->trainingSites()->attach([$secondSite->id, $overrideSite->id]);
+        $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id, 'academic_level' => 'fourth', 'course_id' => $this->course->id,
+            'start_date' => '2026-09-01', 'weeks_count' => 2,
+        ])->assertCreated();
+        $versionId = $created->json('data.version.id');
+        $blocks = RotationBlock::where('rotation_id', $created->json('data.rotation.id'))->orderBy('from_week')->get();
+        $rowId = $this->postJson("/api/v1/course-distribution/versions/{$versionId}/rows", [
+            'row_type' => 'doctor', 'person_id' => $this->doctor->id, 'training_site_id' => $this->doctor->primary_site_id,
+        ])->assertCreated()->json('data.id');
+        foreach ($blocks as $index => $block) {
+            $this->putJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
+                'rotation_block_id' => $block->id, 'course_schedule_row_id' => $rowId, 'subgroup_id' => $this->subgroup->id,
+                ...($index === 1 ? ['training_site_id' => $overrideSite->id] : []),
+            ])->assertOk();
+        }
+        $assignmentIds = StudentClinicalAssignment::where('distribution_version_id', $versionId)->orderBy('id')->pluck('id')->all();
+        $this->putJson("/api/v1/course-distribution/versions/{$versionId}/rows/{$rowId}", [
+            'row_type' => 'doctor', 'person_id' => $this->doctor->id, 'training_site_id' => $secondSite->id,
+        ])->assertOk();
+        $this->assertSame([$secondSite->id, $overrideSite->id], CourseScheduleCell::where('course_schedule_row_id', $rowId)->orderBy('rotation_block_id')->pluck('training_site_id')->all());
+        $this->assertSame($assignmentIds, StudentClinicalAssignment::where('distribution_version_id', $versionId)->orderBy('id')->pluck('id')->all());
+        $this->completeApproval($versionId);
+        $version = DistributionVersion::findOrFail($versionId);
+        $this->actingAs($this->user)->postJson("/api/v1/distribution-versions/{$versionId}/publish", ['last_updated_at' => $version->updated_at->toIso8601String()])->assertOk();
+        $student = Student::where('academic_year_id', $this->year->id)->firstOrFail();
+        $schedule = app(\App\Services\Distribution\ClinicalScheduleQueryService::class)->getStudentSchedule($student);
+        $this->assertSame([$secondSite->id, $overrideSite->id], $schedule->pluck('training_site.id')->all());
+        $this->assertSame($this->doctor->primary_site_id, $this->doctor->fresh()->primary_site_id);
+    }
+
+    public function test_row_hospital_change_is_rejected_without_partial_changes_when_a_placed_week_is_unavailable(): void
+    {
+        $secondSite = TrainingSite::factory()->create(['is_active' => true]);
+        $this->doctor->trainingSites()->attach($secondSite->id);
+        $this->doctor->availabilities()->createMany([
+            ['training_site_id' => $this->doctor->primary_site_id, 'day' => 'tuesday', 'status' => 'work', 'available_from' => '2026-09-01', 'available_until' => '2026-09-07'],
+            ['training_site_id' => $secondSite->id, 'day' => 'wednesday', 'status' => 'work', 'available_from' => '2026-09-08', 'available_until' => '2026-09-14'],
+        ]);
+        $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id, 'academic_level' => 'fourth', 'course_id' => $this->course->id,
+            'start_date' => '2026-09-01', 'weeks_count' => 2,
+        ])->assertCreated();
+        $versionId = $created->json('data.version.id');
+        $rowId = $this->postJson("/api/v1/course-distribution/versions/{$versionId}/rows", [
+            'row_type' => 'doctor', 'person_id' => $this->doctor->id, 'training_site_id' => $this->doctor->primary_site_id,
+        ])->assertCreated()->json('data.id');
+        $block = RotationBlock::where('rotation_id', $created->json('data.rotation.id'))->orderBy('from_week')->firstOrFail();
+        $this->putJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
+            'rotation_block_id' => $block->id, 'course_schedule_row_id' => $rowId, 'subgroup_id' => $this->subgroup->id,
+        ])->assertOk();
+        $this->putJson("/api/v1/course-distribution/versions/{$versionId}/rows/{$rowId}", [
+            'row_type' => 'doctor', 'person_id' => $this->doctor->id, 'training_site_id' => $secondSite->id,
+        ])->assertUnprocessable()->assertJsonValidationErrors('training_site_id');
+        $this->assertDatabaseHas('course_schedule_rows', ['id' => $rowId, 'training_site_id' => $this->doctor->primary_site_id]);
+        $this->assertDatabaseMissing('course_schedule_cells', ['course_schedule_row_id' => $rowId, 'training_site_id' => $secondSite->id]);
+        $this->assertDatabaseMissing('student_clinical_assignments', ['course_schedule_row_id' => $rowId, 'training_site_id' => $secondSite->id]);
+    }
+
     public function test_period_schedule_uses_dates_for_the_selected_clinical_year_only(): void
     {
         $period = ClinicalPeriod::create([
@@ -537,6 +688,7 @@ class CourseDistributionWorkflowTest extends TestCase
         ]);
         app(CourseScheduleMembershipSyncService::class)->syncStudent($student->id, $this->year->id);
         $this->assertSame($assignment->id, $mark->fresh()->student_clinical_assignment_id);
+
         $this->assertSame(1, StudentClinicalAssignment::where('student_id', $student->id)
             ->where('distribution_version_id', $versionId)->count());
 
@@ -595,6 +747,16 @@ class CourseDistributionWorkflowTest extends TestCase
             'assessment_kind' => 'weekly', 'score' => 8, 'max_score' => 10, 'status' => 'submitted',
         ]);
         $this->putJson($url, $payload)->assertOk();
+        $this->assertSame($assignment->id, $mark->fresh()->student_clinical_assignment_id);
+
+        $secondSite = TrainingSite::factory()->create(['is_active' => true]);
+        $this->doctor->trainingSites()->attach($secondSite->id);
+        $this->putJson("/api/v1/course-distribution/versions/{$version->id}/rows/{$row->id}", [
+            'row_type' => 'doctor', 'person_id' => $this->doctor->id, 'training_site_id' => $secondSite->id,
+        ])->assertUnprocessable()->assertJsonValidationErrors('training_site_id');
+        $this->assertSame((int) $this->doctor->primary_site_id, $row->fresh()->training_site_id);
+        $this->assertSame((int) $this->doctor->primary_site_id, $assignment->fresh()->training_site_id);
+        $this->assertSame((int) $this->doctor->primary_site_id, CourseScheduleCell::where('course_schedule_row_id', $row->id)->value('training_site_id'));
         $this->assertSame($assignment->id, $mark->fresh()->student_clinical_assignment_id);
 
         $empty = StudentSubgroup::factory()->create(['student_group_id' => $this->subgroup->student_group_id, 'name' => 'L8']);

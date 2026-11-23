@@ -13,7 +13,8 @@ class DistributionCompatibilityService
     public function validate(DistributionValidationContext $context, array $assignments): array
     {
         $violations = [];
-        $supervisors = Person::query()->with('trainingSites:id')
+        $workSchedules = app(\App\Services\SupervisorWorkScheduleService::class);
+        $supervisors = Person::query()->with(['trainingSites:id', 'availabilities'])
             ->whereIn('id', collect($assignments)->pluck('supervisor_id')->filter()->unique())
             ->get()->keyBy('id');
 
@@ -37,14 +38,11 @@ class DistributionCompatibilityService
                 ];
             }
 
-            // A supervisor may work at several sites. The primary site remains
-            // a legacy fallback, while person_training_site is authoritative.
+            // Use the same workplace links as the row picker, including dated
+            // work schedules imported before the site pivot was synchronized.
             if ($assignment->supervisor_id) {
                 $supervisor = $supervisors->get($assignment->supervisor_id);
-                $isSupervisorAtSite = $supervisor && (
-                    (int) $supervisor->primary_site_id === (int) $assignment->site_id
-                    || $supervisor->trainingSites->contains('id', $assignment->site_id)
-                );
+                $isSupervisorAtSite = $supervisor && $workSchedules->isLinkedToSite($supervisor, (int) $assignment->site_id);
 
                 if (!$isSupervisorAtSite) {
                     $violations[] = [

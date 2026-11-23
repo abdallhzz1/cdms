@@ -47,7 +47,11 @@ class ClinicalDistributionMatrixReport
                 $rows = [];
                 foreach ($version->courseScheduleRows->sortBy([['sort_order', 'asc'], ['id', 'asc']]) as $row) {
                     $legacyDays = $row->person?->availabilities->isNotEmpty()
-                        ? $row->person->availabilities->where('status', 'work')->pluck('day')->filter()->unique()->all()
+                        ? $row->person->availabilities->where('training_site_id', $row->training_site_id)
+                            ->filter(fn ($day) => ($day->status ?: 'work') === 'work'
+                                && (! $rotation->start_date || ! $day->available_until || $day->available_until->gte($rotation->start_date))
+                                && (! $rotation->start_date || ! $day->available_from || $day->available_from->toDateString() <= $dates->calculateBlockEndDate($rotation->start_date, $duration, $version->breaks)))
+                            ->pluck('day')->filter()->unique()->all()
                         : SupervisorWorkScheduleService::DAYS;
                     $supervisors = $row->supervisorLinks->isNotEmpty() ? $row->supervisorLinks : collect($row->person ? [(object) ['person' => $row->person, 'weekdays' => $legacyDays]] : []);
                     $doctors = $supervisors->map(fn ($link) => $ar ? $link->person?->full_name_ar : ($link->person?->full_name_en ?: $link->person?->full_name_ar))->filter()->join(' + ');

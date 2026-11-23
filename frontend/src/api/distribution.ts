@@ -124,6 +124,7 @@ export interface SupervisorOption {
   full_name_ar: string;
   full_name_en?: string | null;
   primary_site_id?: number | null;
+  training_site_ids?: number[];
   department_id?: number | null;
   is_active: boolean;
 }

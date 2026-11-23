@@ -50,7 +50,8 @@ export function SubgroupAssignmentModal({ version, subgroup, supervisors, onClos
 
   const supervisorOptions = useMemo(() => {
     if (!siteId) return [];
-    return supervisors.filter((person) => Number(person.primary_site_id) === Number(siteId));
+    return supervisors.filter((person) => Number(person.primary_site_id) === Number(siteId)
+      || person.training_site_ids?.some((id) => Number(id) === Number(siteId)));
   }, [siteId, supervisors]);
 
   const submit = async (force = false) => {

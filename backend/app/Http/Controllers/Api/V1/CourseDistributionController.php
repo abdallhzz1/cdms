@@ -315,7 +315,7 @@ class CourseDistributionController extends Controller
             : collect($doctor ? [(object) ['person' => $doctor, 'weekdays' => null]] : []);
         foreach ($rowSupervisors as $link) {
             $rowDoctor = $link->person;
-            if (! $rowDoctor->trainingSites()->whereKey($siteId)->exists() && (int) $rowDoctor->primary_site_id !== $siteId) {
+            if (! $this->workSchedules->isLinkedToSite($rowDoctor, $siteId)) {
                 throw ValidationException::withMessages(['training_site_id' => ["المشرف {$rowDoctor->full_name_ar} غير مرتبط بالمستشفى المحدد."]]);
             }
             $workingDays = $this->workSchedules->workingDays($rowDoctor, $siteId, $this->blockStartDate($version, $block), $this->blockEndDate($version, $block));
@@ -595,7 +595,7 @@ class CourseDistributionController extends Controller
                 foreach ($supervisors as $link) {
                     $doctor = $link->person;
                     if (! $doctor || ! Person::active()->whereKey($doctor->id)->exists()
-                        || (! $doctor->trainingSites()->whereKey($siteId)->exists() && (int) $doctor->primary_site_id !== $siteId)) {
+                        || ! $this->workSchedules->isLinkedToSite($doctor, $siteId)) {
                         throw ValidationException::withMessages(['source_version_id' => ['أحد المشرفين في الفترة المصدر غير نشط أو غير مرتبط بالمركز المحدد. لم تُحفظ أي تغييرات.']]);
                     }
                 }
@@ -645,7 +645,7 @@ class CourseDistributionController extends Controller
                 foreach ($rowSupervisors as $link) {
                     $doctor = $link->person;
                     if (! $doctor || ! Person::active()->whereKey($doctor->id)->exists()
-                        || (! $doctor->trainingSites()->whereKey($siteId)->exists() && (int) $doctor->primary_site_id !== $siteId)) {
+                        || ! $this->workSchedules->isLinkedToSite($doctor, $siteId)) {
                         throw ValidationException::withMessages(['source_version_id' => ['أحد المشرفين غير نشط أو غير مرتبط بمركز التدريب المحدد؛ لم يُحفظ أي تغيير.']]);
                     }
                     $workingDays = $this->workSchedules->workingDays($doctor, $siteId, $this->blockStartDate($version, $targetBlock), $this->blockEndDate($version, $targetBlock));
@@ -876,16 +876,50 @@ class CourseDistributionController extends Controller
         abort_unless((int) $row->distribution_version_id === (int) $version->id, 404);
         [$data, $supervisors] = $this->validateScheduleRow($request, $row);
 
-        DB::transaction(function () use ($row, $data, $supervisors) {
+        DB::transaction(function () use ($row, $data, $supervisors, $version) {
+            $lockedVersion = DistributionVersion::whereKey($version->id)->lockForUpdate()->firstOrFail();
+            $this->ensureEditableVersion($lockedVersion);
+            $row = CourseScheduleRow::whereKey($row->id)->lockForUpdate()->firstOrFail();
+            $oldSiteId = (int) $row->training_site_id;
+            $newSiteId = (int) $data['training_site_id'];
+            $cells = CourseScheduleCell::where('course_schedule_row_id', $row->id)->with('rotationBlock')->lockForUpdate()->get();
+            $sitesByBlock = $cells->groupBy('rotation_block_id')->map(function ($items) use ($oldSiteId, $newSiteId) {
+                $siteId = $items->first()->training_site_id;
+                return ! $siteId || (int) $siteId === $oldSiteId ? $newSiteId : (int) $siteId;
+            });
+            $assignments = StudentClinicalAssignment::where('course_schedule_row_id', $row->id)->lockForUpdate()->get();
+            foreach ($assignments as $assignment) {
+                $changesPlacement = (int) $assignment->training_site_id !== ($sitesByBlock[$assignment->rotation_block_id] ?? $newSiteId)
+                    || (int) $assignment->supervisor_id !== (int) $data['person_id'];
+                if ($changesPlacement && $this->assignmentHasRecordedScore($assignment)) {
+                    throw ValidationException::withMessages(['training_site_id' => ['لا يمكن تغيير مستشفى أو مشرف تكليف له تقييمات محفوظة. راجع التقييمات أولاً؛ لم يتغير الجدول.']]);
+                }
+            }
+            foreach ($cells->groupBy('rotation_block_id') as $blockCells) {
+                foreach ($blockCells->map(fn ($cell) => ! $cell->training_site_id || (int) $cell->training_site_id === $oldSiteId ? $newSiteId : (int) $cell->training_site_id)->unique() as $siteId) {
+                    $block = $blockCells->first()->rotationBlock;
+                    foreach ($supervisors as $supervisor) {
+                        $doctor = Person::findOrFail($supervisor['person_id']);
+                        $days = $this->workSchedules->workingDays($doctor, $siteId, $this->blockStartDate($version, $block), $this->blockEndDate($version, $block));
+                        if (! $this->workSchedules->isLinkedToSite($doctor, $siteId) || ! array_intersect($days, $supervisor['weekdays'])) {
+                            throw ValidationException::withMessages(['training_site_id' => ['لا يمكن تغيير الصف لأن أحد الأسابيع الموزعة لا يوافق مستشفى المشرف وأيام عمله. عدّل الخلايا أو أيام الدوام أولاً.']]);
+                        }
+                        $this->ensureNoCrossSiteScheduleConflict($doctor, $row, $version, $block, $siteId, $supervisor['weekdays']);
+                    }
+                }
+            }
+            if ($oldSiteId !== $newSiteId) {
+                CourseScheduleCell::where('course_schedule_row_id', $row->id)
+                    ->where(fn ($query) => $query->whereNull('training_site_id')->orWhere('training_site_id', $oldSiteId))
+                    ->update(['training_site_id' => $newSiteId]);
+            }
             $row->update($data);
             $this->syncRowSupervisors($row, $supervisors);
             // Route-bound rows may already have cached relations. Reload them
             // after changing person/site so propagated assignments always use
             // the supervisor that was selected in this request.
             $row->unsetRelation('person')->unsetRelation('trainingSite')->refresh();
-            $sitesByBlock = CourseScheduleCell::where('course_schedule_row_id', $row->id)
-                ->get()->groupBy('rotation_block_id')->map(fn ($cells) => $cells->first()->training_site_id ?: $row->training_site_id);
-            StudentClinicalAssignment::where('course_schedule_row_id', $row->id)->get()->each(function ($assignment) use ($row, $sitesByBlock) {
+            $assignments->each(function ($assignment) use ($row, $sitesByBlock) {
                 $assignment->update([
                     'supervisor_id' => $row->person_id,
                     'training_site_id' => $sitesByBlock[$assignment->rotation_block_id] ?? $row->training_site_id,
@@ -1233,8 +1267,7 @@ class CourseDistributionController extends Controller
             $claimedDays = [];
             foreach ($requested as $index => $item) {
                 $doctor = Person::active()->findOrFail($item['person_id']);
-                if (! $doctor->trainingSites()->whereKey($data['training_site_id'])->exists()
-                    && $doctor->primary_site_id !== (int) $data['training_site_id']) {
+                if (! $this->workSchedules->isLinkedToSite($doctor, (int) $data['training_site_id'])) {
                     throw ValidationException::withMessages(["supervisors.{$index}.person_id" => ['المشرف لا يتبع المستشفى المحدد.']]);
                 }
                 $availableDays = $this->workSchedules->workingDays($doctor, (int) $data['training_site_id'], $rangeStart, $rangeEnd);
@@ -1399,10 +1432,8 @@ class CourseDistributionController extends Controller
             ->map(function (User $user) use ($activeSiteIds) {
                 $person = $user->person;
                 $siteId = $person?->primary_site_id;
-                $siteIds = $person?->trainingSites->pluck('id')->filter(fn ($id) => $activeSiteIds->contains($id))->values() ?? collect();
-                if ($siteId && $activeSiteIds->contains($siteId) && ! $siteIds->contains($siteId)) {
-                    $siteIds->push($siteId);
-                }
+                $siteIds = collect($person ? $this->workSchedules->linkedSiteIds($person) : [])
+                    ->filter(fn ($id) => $activeSiteIds->contains($id))->values();
 
                 return [
                     'id' => $person?->id,

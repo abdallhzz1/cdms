@@ -565,7 +565,10 @@ export function DistributionPage() {
     if (row.supervisors?.length) return row.supervisors;
     if (!row.person) return [];
     const weekdays = row.person.work_schedules?.length
-      ? Array.from(new Set(row.person.work_schedules.flatMap((item) => item.days.filter((day) => day.status === "work").map((day) => day.day))))
+      ? Array.from(new Set(row.person.work_schedules.filter((item) => Number(item.training_site_id) === Number(row.training_site_id)
+        && (!item.valid_until || !schedule?.rotation?.start_date || item.valid_until >= schedule.rotation.start_date.slice(0,10))
+        && (!item.valid_from || !schedule?.rotation?.effective_end_date || item.valid_from <= schedule.rotation.effective_end_date.slice(0,10)))
+        .flatMap((item) => item.days.filter((day) => day.status === "work").map((day) => day.day))))
       : [...weekdayCodes];
     return [{ person_id: row.person.id, weekdays, person: row.person }];
   };

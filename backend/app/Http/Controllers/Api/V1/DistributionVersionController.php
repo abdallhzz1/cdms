@@ -232,9 +232,15 @@ class DistributionVersionController extends Controller
         $siteIds = $siteRules->pluck('site_id')->filter()->values();
         $supervisors = Person::query()
             ->active()
-            ->whereIn('primary_site_id', $siteIds)
+            ->where(fn ($query) => $query->whereIn('primary_site_id', $siteIds)
+                ->orWhereHas('trainingSites', fn ($sites) => $sites->whereIn('training_sites.id', $siteIds))
+                ->orWhereHas('availabilities', fn ($days) => $days->whereIn('training_site_id', $siteIds)
+                    ->where(fn ($status) => $status->where('status', 'work')->orWhereNull('status'))))
+            ->with(['trainingSites:id', 'availabilities'])
             ->orderBy('full_name_ar')
             ->get(['id', 'full_name_ar', 'full_name_en', 'primary_site_id', 'department_id', 'is_active']);
+        $workSchedules = app(\App\Services\SupervisorWorkScheduleService::class);
+        $supervisors->each(fn ($person) => $person->setAttribute('training_site_ids', $workSchedules->linkedSiteIds($person)));
 
         return response()->json([
             'message' => 'Distribution options retrieved successfully.',
