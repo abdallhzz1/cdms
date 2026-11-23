@@ -149,6 +149,7 @@ type ScheduleRow = {
   person_id?: number | null;
   training_site_id: number;
   label?: string | null;
+  workplace_schedule?: {site_ids:number[];locations:Array<{training_site_id:number;training_site:{id:number;name_ar:string;name_en?:string|null};days:string[];valid_from:string;valid_until:string}>}|null;
   person?: {
     id: number;
     full_name_ar: string;
@@ -349,6 +350,7 @@ export function DistributionPage() {
     supervisors: [] as Array<{ personId: string; weekdays: string[] }>,
     label: tr("شاغر", "Vacancy"),
     search: "",
+    followWorkplaces: false,
   });
 
   const optionsQuery = useQuery({
@@ -522,6 +524,11 @@ export function DistributionPage() {
     )));
   };
   const doctorIsAvailable = (doctor: Doctor) => doctorAvailableDays(doctor).length > 0;
+  const selectedFollowDoctor = rowForm.supervisors.length === 1 ? rowDoctors.find(doctor=>String(doctor.id)===rowForm.supervisors[0].personId) : undefined;
+  const followLocations = selectedFollowDoctor?.work_schedules?.filter(item=>item.days.some(day=>day.status==='work')
+    && (!item.valid_until||!schedule?.rotation?.start_date||item.valid_until>=schedule.rotation.start_date.slice(0,10))
+    && (!item.valid_from||!schedule?.rotation?.effective_end_date||item.valid_from<=schedule.rotation.effective_end_date.slice(0,10)))??[];
+  const rowLocationSummary = (row:ScheduleRow) => row.workplace_schedule?.locations.map(location=><div key={`${location.training_site_id}-${location.valid_from}`} className="text-[10px] font-bold text-teal-700">{ar?location.training_site.name_ar:location.training_site.name_en||location.training_site.name_ar}: {location.days.map(dayLabel).join('، ')}</div>);
   const doctorsCount = (schedule?.rows ?? []).filter(
     (row) => row.row_type === "doctor",
   ).length;
@@ -836,6 +843,7 @@ export function DistributionPage() {
               weekdays: item.weekdays,
             })) : [],
             training_site_id: Number(rowForm.hospitalId),
+            follow_supervisor_workplaces: rowForm.followWorkplaces,
             label: rowForm.row_type === "vacancy" ? rowForm.label : null,
           },
         },
@@ -1114,7 +1122,7 @@ export function DistributionPage() {
       row,
       block,
       subgroupIds: current.map((cell) => cell.subgroup_id),
-      siteId: String(current[0]?.training_site_id ?? row.training_site_id),
+      siteId: String(row.workplace_schedule ? row.training_site_id : current[0]?.training_site_id ?? row.training_site_id),
     });
   };
 
@@ -1144,6 +1152,7 @@ export function DistributionPage() {
       supervisors,
       label: row?.label ?? tr("شاغر", "Vacancy"),
       search: "",
+      followWorkplaces: Boolean(row?.workplace_schedule),
     });
     setRowModal(true);
   };
@@ -1638,12 +1647,12 @@ export function DistributionPage() {
           ) : (
             <>
               <section className="space-y-3 md:hidden" aria-label={tr("توزيع الأسبوع على الهاتف", "Mobile weekly distribution")}>
-                {selectedMobileBlock && Array.from(new Set(schedule.rows.map((row) => row.training_site_id))).map((siteId) => {
-                  const siteRows = schedule.rows.filter((row) => row.training_site_id === siteId);
+                {selectedMobileBlock && Array.from(new Set(schedule.rows.map((row) => row.workplace_schedule ? -row.id : row.training_site_id))).map((siteId) => {
+                  const siteRows = schedule.rows.filter((row) => (row.workplace_schedule ? -row.id : row.training_site_id) === siteId);
                   const site = siteRows[0]?.training_site ?? hospitals.find((hospital) => hospital.id === siteId);
                   return <div key={siteId} className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <header className="flex items-center justify-between gap-2 bg-slate-50 px-3 py-3">
-                      <h3 className="min-w-0 truncate text-sm font-black text-slate-800">{(ar ? site?.name_ar : site?.name_en || site?.name_ar) || tr("مركز غير محدد", "Unspecified site")}</h3>
+                      <h3 className="min-w-0 text-sm font-black text-slate-800">{siteRows[0]?.workplace_schedule ? tr('المجموعة تتبع أماكن دوام المشرف','Group follows supervisor workplaces') : (ar ? site?.name_ar : site?.name_en || site?.name_ar) || tr("مركز غير محدد", "Unspecified site")}</h3>
                       <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-600">{siteRows.length} {tr("صفوف", "rows")}</span>
                     </header>
                     <div className="divide-y divide-slate-100">
@@ -1662,7 +1671,7 @@ export function DistributionPage() {
                               <button type="button" aria-label={tr("حذف الصف", "Delete row")} disabled={deleteRow.isPending} onClick={() => { if (window.confirm(tr("سيتم حذف الصف وكل توزيعاته. هل أنت متأكد؟", "The row and all its assignments will be deleted. Are you sure?"))) deleteRow.mutate({ rowId: row.id, versionId: schedule.version!.id }); }} className="grid h-9 w-9 place-items-center rounded-lg bg-red-50 text-red-600 disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>
                             </div>}
                           </div>
-                          {row.row_type === "doctor" && <div className="mt-1.5 space-y-1">{rowSupervisors(row).map((item) => <div key={item.person_id} className="text-[10px] font-bold text-slate-500">{ar ? item.person.full_name_ar : item.person.full_name_en || item.person.full_name_ar}: {item.weekdays.map(dayLabel).join("، ")}</div>)}</div>}
+                          {row.row_type === "doctor" && <div className="mt-1.5 space-y-1">{row.workplace_schedule ? rowLocationSummary(row) : rowSupervisors(row).map((item) => <div key={item.person_id} className="text-[10px] font-bold text-slate-500">{ar ? item.person.full_name_ar : item.person.full_name_en || item.person.full_name_ar}: {item.weekdays.map(dayLabel).join("، ")}</div>)}</div>}
                           <button type="button" onClick={() => openCell(row, selectedMobileBlock)} disabled={!canEditCell} className={`mt-2 flex min-h-12 w-full min-w-0 items-center justify-between gap-2 rounded-xl border px-3 py-2 text-start text-xs font-bold ${wholeCohortActivity ? "border-amber-200 bg-amber-50 text-amber-800" : cells.length ? "border-teal-200 bg-teal-50 text-teal-800" : "border-slate-200 bg-slate-50 text-slate-500"} disabled:cursor-default`}>
                             <span className="flex min-w-0 flex-wrap gap-1.5">{wholeCohortActivity ? selectedMobileBlock.activity_label : cells.length ? cells.map((cell) => <span key={cell.subgroup_id} className="rounded-lg bg-white/80 px-2 py-1">{cell.subgroup_name}</span>) : canEditCell ? tr("اضغط لتوزيع مجموعة", "Tap to assign a group") : tr("لم يتم التوزيع", "Not assigned")}</span>
                             {canEditCell && <Pencil className="h-4 w-4 shrink-0" />}
@@ -1742,7 +1751,7 @@ export function DistributionPage() {
                                   <span>{row.row_type === "vacancy" ? row.label || tr("شاغر", "Vacancy") : rowSupervisorName(row)}</span>
                                   {row.row_type === "doctor" && workLocationInfoButton(row)}
                                 </div>
-                                {row.row_type === "doctor" && <div className="mt-1 space-y-1">{rowSupervisors(row).map((item) => <div key={item.person_id} className="text-[9px] font-bold text-slate-400">{ar ? item.person.full_name_ar : item.person.full_name_en || item.person.full_name_ar}: {item.weekdays.map(dayLabel).join("، ")}</div>)}</div>}
+                                {row.row_type === "doctor" && <div className="mt-1 space-y-1">{row.workplace_schedule ? rowLocationSummary(row) : rowSupervisors(row).map((item) => <div key={item.person_id} className="text-[9px] font-bold text-slate-400">{ar ? item.person.full_name_ar : item.person.full_name_en || item.person.full_name_ar}: {item.weekdays.map(dayLabel).join("، ")}</div>)}</div>}
                               </div>
                               {can("distribution.schedule_rows.manage") &&
                                 isEditable && (
@@ -1885,7 +1894,8 @@ export function DistributionPage() {
         {workDetailsRow && (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-black text-teal-800"><Building2 className="h-4 w-4" />{ar ? workDetailsRow.training_site?.name_ar : workDetailsRow.training_site?.name_en || workDetailsRow.training_site?.name_ar}</div>
-            {rowSupervisors(workDetailsRow).map((item) => <section key={item.person_id} className="rounded-xl border border-slate-200 p-3">
+            {workDetailsRow.workplace_schedule && <div className="space-y-2">{rowLocationSummary(workDetailsRow)}</div>}
+            {!workDetailsRow.workplace_schedule && rowSupervisors(workDetailsRow).map((item) => <section key={item.person_id} className="rounded-xl border border-slate-200 p-3">
               <h4 className="font-black text-slate-800">{ar ? item.person.full_name_ar : item.person.full_name_en || item.person.full_name_ar}</h4>
               <div className="mt-2 flex flex-wrap gap-1.5">{item.weekdays.map((day) => <span key={day} className="rounded-lg bg-teal-50 px-2.5 py-1 text-xs font-bold text-teal-800">{dayLabel(day)}</span>)}</div>
             </section>)}
@@ -2076,7 +2086,7 @@ export function DistributionPage() {
               {tr("أماكن وأيام دوام المشرف", "Supervisor work locations")}
             </span>
             <div className="mt-2 space-y-1 text-[11px] font-bold text-teal-800">
-              {rowSupervisors(editingCell.row).map((item) => <div key={item.person_id}>
+              {editingCell.row.workplace_schedule ? rowLocationSummary(editingCell.row) : rowSupervisors(editingCell.row).map((item) => <div key={item.person_id}>
                 {ar ? item.person.full_name_ar : item.person.full_name_en || item.person.full_name_ar}: {item.weekdays.map(dayLabel).join("، ")}
               </div>)}
             </div>
@@ -2260,6 +2270,7 @@ export function DistributionPage() {
                     setRowForm({
                       ...rowForm,
                       hospitalId: event.target.value,
+                      followWorkplaces: false,
                       supervisors: [],
                       search: "",
                     })
@@ -2307,11 +2318,11 @@ export function DistributionPage() {
                   const personId = String(doctor.id);
                   const selected = rowForm.supervisors.some((item) => item.personId === personId);
                   const available = doctorIsAvailable(doctor);
-                  return <button key={doctor.id} type="button" disabled={!available && !selected} onClick={() => {
-                    if (selected) return setRowForm({ ...rowForm, supervisors: rowForm.supervisors.filter((item) => item.personId !== personId) });
+                  return <button key={doctor.id} type="button" disabled={(!available && !selected) || (rowForm.followWorkplaces && !selected)} onClick={() => {
+                    if (selected) return setRowForm({ ...rowForm, followWorkplaces:false, supervisors: rowForm.supervisors.filter((item) => item.personId !== personId) });
                     const claimedDays = rowForm.supervisors.flatMap((item) => item.weekdays);
                     const weekdays = doctorAvailableDays(doctor).filter((day) => !claimedDays.includes(day));
-                    setRowForm({ ...rowForm, supervisors: [...rowForm.supervisors, { personId, weekdays }] });
+                    setRowForm({ ...rowForm, followWorkplaces:false, supervisors: [...rowForm.supervisors, { personId, weekdays }] });
                   }} className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-start text-xs font-bold ${selected ? "border-teal-500 bg-teal-50 text-teal-900" : available ? "border-slate-200 text-slate-700 hover:border-teal-200" : "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300"}`}>
                     <span className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${selected ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300"}`}>{selected ? "✓" : ""}</span>
                     <span>{ar ? doctor.full_name_ar : doctor.full_name_en || doctor.full_name_ar}{doctor.specialty ? ` — ${doctor.specialty}` : ""}</span>
@@ -2335,7 +2346,8 @@ export function DistributionPage() {
                   )}
                 </p>
               )}
-              {rowForm.supervisors.map((selected) => {
+              {selectedFollowDoctor && (followLocations.length>0||rowForm.followWorkplaces) && <div className="rounded-xl border border-teal-200 bg-teal-50 p-3"><label className="flex items-start gap-2 text-xs font-bold text-teal-900"><input type="checkbox" checked={rowForm.followWorkplaces} onChange={event=>setRowForm({...rowForm,followWorkplaces:event.target.checked,supervisors:rowForm.supervisors.map(item=>({...item,weekdays:selectedFollowDoctor?doctorAvailableDays(selectedFollowDoctor):item.weekdays}))})}/>{tr('المجموعة تتبع المشرف في جميع مستشفياته حسب أيام الدوام','Group follows the supervisor across all scheduled hospitals')}</label>{rowForm.followWorkplaces&&<div className="mt-2 space-y-1">{followLocations.map((location,index)=><div className="text-[11px] text-teal-800" key={index}>{ar?location.training_site?.name_ar:location.training_site?.name_en||location.training_site?.name_ar}: {location.days.filter(day=>day.status==='work').map(day=>dayLabel(day.day)).join('، ')}</div>)}</div>}</div>}
+              {!rowForm.followWorkplaces && rowForm.supervisors.map((selected) => {
                 const doctor = rowDoctors.find((item) => String(item.id) === selected.personId);
                 const availableDays = doctor ? doctorAvailableDays(doctor) : [];
                 return <div key={selected.personId} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">

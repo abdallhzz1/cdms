@@ -76,7 +76,7 @@ class CourseScheduleMembershipSyncService
                 $desired->put($key, [
                     'course_schedule_row_id' => $cell->course_schedule_row_id,
                     'student_subgroup_id' => $cell->student_subgroup_id,
-                    'training_site_id' => $row->training_site_id,
+                    'training_site_id' => $cell->training_site_id ?: $row->training_site_id,
                     'department_id' => $row->person?->department_id,
                     'supervisor_id' => $row->person_id,
                 ]);

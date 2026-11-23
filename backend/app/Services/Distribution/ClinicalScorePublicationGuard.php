@@ -16,9 +16,9 @@ class ClinicalScorePublicationGuard
     public function transfer(DistributionVersion $old, DistributionVersion $next, int $actorId): array
     {
         $oldAssignments = StudentClinicalAssignment::query()->where('distribution_version_id', $old->id)
-            ->get()->keyBy('id');
+            ->with(['courseScheduleRow','rotationBlock','distributionVersion.rotation','distributionVersion.breaks'])->get()->keyBy('id');
         $nextAssignments = StudentClinicalAssignment::query()->where('distribution_version_id', $next->id)
-            ->get()->groupBy(fn (StudentClinicalAssignment $item) => $this->key($item));
+            ->with(['courseScheduleRow','rotationBlock','distributionVersion.rotation','distributionVersion.breaks'])->get()->groupBy(fn (StudentClinicalAssignment $item) => $this->key($item));
         $assessments = ClinicalAssessment::query()
             ->whereIn('student_clinical_assignment_id', $oldAssignments->keys())
             ->whereNotNull('score')->lockForUpdate()->get();
@@ -133,7 +133,8 @@ class ClinicalScorePublicationGuard
     {
         return json_encode([$assignment->student_id, $assignment->supervisor_id,
             $assignment->rotation_block_id, $assignment->training_site_id,
-            $assignment->student_subgroup_id, $assignment->department_id], JSON_THROW_ON_ERROR);
+            $assignment->student_subgroup_id, $assignment->department_id,
+            app(ClinicalWorkplaceSchedule::class)->signature($assignment)], JSON_THROW_ON_ERROR);
     }
 
     private function weekInBlock(StudentClinicalAssignment $assignment, int $week): bool

@@ -30,6 +30,18 @@ class DistributionStateValidator
         bool $force,
         ?string $overrideReason
     ): void {
+        $rowIds = collect($assignments)->pluck('course_schedule_row_id')->filter()->unique();
+        $followingRows = $rowIds->isEmpty() ? collect() : \App\Models\CourseScheduleRow::whereIn('id',$rowIds)->whereNotNull('workplace_schedule')->get()->keyBy('id');
+        if ($followingRows->isNotEmpty()) {
+            $blocks = $version->rotation->blocks()->get()->keyBy('id');
+            $workplaces = app(ClinicalWorkplaceSchedule::class);
+            foreach (collect($assignments)->unique(fn ($item)=>($item['course_schedule_row_id']??0).':'.$item['rotation_block_id']) as $assignment) {
+                $row = $followingRows->get($assignment['course_schedule_row_id']??null);
+                if ($row && (! $blocks->has($assignment['rotation_block_id']) || ! $workplaces->locations($row,$blocks[$assignment['rotation_block_id']],$version))) {
+                    throw ValidationException::withMessages(['workplaces'=>['أحد الأسابيع الموزعة لا يحتوي أيام تدريب معتمدة في مستشفيات المشرف. راجع أماكن الدوام والتواريخ قبل الاعتماد والنشر.']]);
+                }
+            }
+        }
         $studentIds = array_unique(array_column($assignments, 'student_id'));
 
         // Load all students and their group assignments for this rotation's academic year in ONE query

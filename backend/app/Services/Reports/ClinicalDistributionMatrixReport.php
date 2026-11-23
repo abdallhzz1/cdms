@@ -57,6 +57,9 @@ class ClinicalDistributionMatrixReport
                     $doctors = $supervisors->map(fn ($link) => $ar ? $link->person?->full_name_ar : ($link->person?->full_name_en ?: $link->person?->full_name_ar))->filter()->join(' + ');
                     $days = $supervisors->flatMap(fn ($link) => $link->weekdays ?: [])->unique()->map(fn ($day) => __('distribution_report.'.$day))->join(', ');
                     $values = [$name($row->trainingSite), $row->row_type === 'vacancy' ? ($row->label ?: __('distribution_report.vacancy')) : $doctors, $days];
+                    if ($row->workplace_schedule) {
+                        $values[0] = collect($row->workplace_schedule['locations'])->map(fn ($location) => $name((object) $location['training_site']).' ('.collect($location['days'])->map(fn ($day) => __('distribution_report.'.$day))->join(', ').')')->join(' / ');
+                    }
                     foreach ($weeks as $week) {
                         $groups = ($versionCells[$row->id.':'.$week['block_id']] ?? collect())
                             ->map(fn ($cell) => $cell->studentSubgroup?->name.($cell->training_site_id && (int) $cell->training_site_id !== (int) $row->training_site_id ? ' · '.$name($cell->trainingSite) : ''))->filter()->unique()->sort(SORT_NATURAL)->values()->join(' + ');

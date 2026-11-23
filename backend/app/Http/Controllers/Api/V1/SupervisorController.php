@@ -229,6 +229,7 @@ class SupervisorController extends Controller
             $assignment->setAttribute('session_start_date', $start?->toDateString());
             $assignment->setAttribute('session_end_date', $end?->toDateString());
             $assignment->setAttribute('scheduled_dates', $this->scheduledDates($person, $assignment));
+            $assignment->setAttribute('training_sites', app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->assignmentLocations($assignment));
             $assignment->setAttribute('evaluation_weeks', $this->evaluationWeeks($assignment));
         });
         foreach ($periods as $period) {
@@ -290,7 +291,7 @@ class SupervisorController extends Controller
             'mini_osce_scores' => $miniOsce,
             'assessment_templates' => ClinicalAssessmentTemplate::query()
                 ->where('is_active', true)->with('criteria')->orderByRaw('course_id IS NULL DESC')->get(),
-            'schedule_configured' => $person->availabilities()->exists(),
+            'schedule_configured' => $person->availabilities()->exists() || $assignments->contains(fn ($assignment)=>(bool)$assignment->courseScheduleRow?->workplace_schedule),
         ]);
     }
 
@@ -304,6 +305,7 @@ class SupervisorController extends Controller
         ]);
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
         $this->ensureScheduledSession($person, $assignment, $data['session_date']);
+        $assignment = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->forDate($assignment, $data['session_date']);
         $studentIds = $this->assignmentGroupQuery($assignment)->pluck('student_id');
         $session = ClinicalSession::query()
             ->where('rotation_block_id', $assignment->rotation_block_id)
@@ -335,6 +337,7 @@ class SupervisorController extends Controller
         ]);
         $assignment = $this->ownedCurrentAssignment($person, (int) $data['assignment_id']);
         $this->ensureScheduledSession($person, $assignment, $data['session_date']);
+        $assignment = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->forDate($assignment, $data['session_date']);
         foreach ($data['records'] as $index => $row) {
             if ($row['status'] === 'excused' && ! filled(trim((string) ($row['excuse_note'] ?? '')))) {
                 throw ValidationException::withMessages(["records.$index.excuse_note" => ['سبب العذر مطلوب عند اختيار «بعذر».']]);
@@ -1050,6 +1053,10 @@ class SupervisorController extends Controller
     private function scheduledDates(Person $person, StudentClinicalAssignment $assignment): array
     {
         [$start, $end] = $this->assignmentDateRange($assignment);
+        if ($start && $end) {
+            $planned = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->scheduledDates($assignment, $start->toDateString(), $end->toDateString());
+            if ($planned !== null) return $planned;
+        }
         if (! $start || ! $end || ! $assignment->training_site_id || $person->availabilities->isEmpty()) return [];
         $records = $person->availabilities->filter(fn ($row) =>
             (int) $row->training_site_id === (int) $assignment->training_site_id
@@ -1127,6 +1134,9 @@ class SupervisorController extends Controller
                 'trainingSite:id,name_ar,name_en',
                 'department:id,name_ar,name_en',
                 'distributionVersion:id,rotation_id,status,is_current',
+                'distributionVersion.rotation',
+                'distributionVersion.breaks',
+                'courseScheduleRow',
             ])->orderBy('rotation_block_id')->orderBy('student_subgroup_id')->orderBy('student_id')->get();
     }
 
@@ -1154,7 +1164,7 @@ class SupervisorController extends Controller
             ->where('distribution_version_id', $assignment->distribution_version_id)
             ->where('supervisor_id', $assignment->supervisor_id)
             ->where('rotation_block_id', $assignment->rotation_block_id)
-            ->where('training_site_id', $assignment->training_site_id)
+            ->where('training_site_id', $assignment->getRawOriginal('training_site_id'))
             ->where('student_subgroup_id', $assignment->student_subgroup_id);
     }
 

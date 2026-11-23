@@ -185,7 +185,8 @@ class PublicStudentScheduleController extends Controller
             ->whereHas('distributionVersion', fn ($query) => $query
                 ->where('status', 'published')->where('is_current', true))
             ->with([
-                'distributionVersion',
+                'distributionVersion.breaks',
+                'courseScheduleRow',
                 'rotationBlock.rotation.course',
                 'rotationBlock.rotation.academicYear',
                 'rotationBlock.rotation.clinicalPeriod',

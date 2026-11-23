@@ -51,7 +51,8 @@ class ClinicalScheduleItemDTO
             ->map(fn ($entry) => ['day' => $entry->day, 'status' => $entry->status ?: 'work', 'note' => $entry->notes ?: $entry->reason])
             ->values()->all() : [];
         $workLocations = $supervisor ? $supervisor->availabilities
-            ->filter(fn ($entry) => (!$blockStartDate || !$entry->available_until || $entry->available_until->toDateString() >= $blockStartDate)
+            ->filter(fn ($entry) => (int) $entry->training_site_id === (int) $assignment->training_site_id
+                && (!$blockStartDate || !$entry->available_until || $entry->available_until->toDateString() >= $blockStartDate)
                 && (!$blockEndDate || !$entry->available_from || $entry->available_from->toDateString() <= $blockEndDate))
             ->groupBy('training_site_id')
             ->map(function ($entries) {
@@ -70,8 +71,21 @@ class ClinicalScheduleItemDTO
                 ];
             })->values()->all() : [];
 
+        $workplaces = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class);
+        if ($workplaces->follows($assignment)) {
+            $workLocations = array_map(fn ($location) => [
+                'training_site' => $location['training_site'],
+                'valid_from' => $location['valid_from'], 'valid_until' => $location['valid_until'],
+                'scheduled_dates' => $location['scheduled_dates'],
+                'days' => array_map(fn ($day) => ['day' => $day, 'status' => 'work', 'note' => null], $location['days']),
+            ], $workplaces->assignmentLocations($assignment));
+            $workSchedule = collect($workLocations)->flatMap(fn ($location) => $location['days'])->unique('day')->values()->all();
+        }
+
         return [
             'assignment_id' => $assignment->id,
+            'follows_supervisor_workplaces' => $workplaces->follows($assignment),
+            'training_sites' => $workplaces->follows($assignment) ? $workLocations : [],
             'distribution_version_id' => $assignment->distribution_version_id,
             'student' => $student ? [
                 'id' => $student->id,

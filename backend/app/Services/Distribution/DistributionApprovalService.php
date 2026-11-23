@@ -251,6 +251,8 @@ class DistributionApprovalService
         ]);
 
         $str = '';
+        $rowIds = collect($assignments)->pluck('course_schedule_row_id')->filter()->unique();
+        $workplaces = $rowIds->isEmpty() ? collect() : \App\Models\CourseScheduleRow::whereIn('id', $rowIds)->whereNotNull('workplace_schedule')->get()->keyBy('id');
         foreach ($assignments as $a) {
             $str .= $a['student_id'] . '|' . 
                     ($a['student_subgroup_id'] ?? '') . '|' . 
@@ -258,6 +260,7 @@ class DistributionApprovalService
                     $a['training_site_id'] . '|' . 
                     ($a['department_id'] ?? '') . '|' . 
                     ($a['supervisor_id'] ?? '') . ';;';
+            if ($row = $workplaces->get($a['course_schedule_row_id'] ?? null)) $str .= json_encode($row->workplace_schedule, JSON_THROW_ON_ERROR).';;';
         }
 
         return hash('sha256', $str);

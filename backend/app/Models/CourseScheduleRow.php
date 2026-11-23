@@ -14,6 +14,7 @@ class CourseScheduleRow extends Model
         'training_site_id',
         'label',
         'sort_order',
+        'workplace_schedule',
     ];
 
     protected $casts = [
@@ -21,6 +22,7 @@ class CourseScheduleRow extends Model
         'person_id' => 'integer',
         'training_site_id' => 'integer',
         'sort_order' => 'integer',
+        'workplace_schedule' => 'array',
     ];
 
     public function version()

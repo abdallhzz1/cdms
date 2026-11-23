@@ -57,11 +57,11 @@ describe('clinical distribution phone workspace', () => {
     expect(context).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('allows the same supervisor to be selected at either hospital and saves that hospital with its own working days', async () => {
+  it('lets one group follow a supervisor across both hospitals from one schedule row', async () => {
     localStorage.setItem('cdms.locale', 'en');
     const doctor = {id:10,user_id:20,full_name_ar:'د. أحمد',full_name_en:'Dr Ahmad',primary_site_id:4,training_site_ids:[4,5],work_schedules:[
-      {training_site_id:4,valid_from:'2026-09-01',valid_until:'2026-09-30',days:[{day:'tuesday',status:'work'}]},
-      {training_site_id:5,valid_from:'2026-09-01',valid_until:'2026-09-30',days:[{day:'wednesday',status:'work'}]},
+      {training_site_id:4,training_site:{id:4,name_ar:'الأهلي',name_en:'Ahli Hospital'},valid_from:'2026-09-01',valid_until:'2026-09-30',days:[{day:'tuesday',status:'work'}]},
+      {training_site_id:5,training_site:{id:5,name_ar:'الخليل',name_en:'Hebron Hospital'},valid_from:'2026-09-01',valid_until:'2026-09-30',days:[{day:'wednesday',status:'work'}]},
     ]};
     const hospitals = [
       {id:4,name_ar:'الأهلي',name_en:'Ahli Hospital',supervisors:[doctor]},
@@ -85,9 +85,12 @@ describe('clinical distribution phone workspace', () => {
     expect(within(dialog).getByRole('button',{name:'Dr Ahmad'})).toBeEnabled();
     await userEvent.selectOptions(hospitalSelect,'5');
     await userEvent.click(within(dialog).getByRole('button',{name:'Dr Ahmad'}));
+    await userEvent.click(within(dialog).getByRole('checkbox',{name:'Group follows the supervisor across all scheduled hospitals'}));
+    expect(within(dialog).getByText('Ahli Hospital: Tue')).toBeVisible();
+    expect(within(dialog).getByText('Hebron Hospital: Wed')).toBeVisible();
     await userEvent.click(within(dialog).getByRole('button',{name:'Save row'}));
     await waitFor(()=>expect(fetchSpy.mock.calls.some(([url,init])=>String(url).endsWith('/versions/6/rows')&&init?.method==='POST'&&String(init.body).includes('"training_site_id":5'))).toBe(true));
     const saved=fetchSpy.mock.calls.find(([url,init])=>String(url).endsWith('/versions/6/rows')&&init?.method==='POST');
-    expect(JSON.parse(String(saved?.[1]?.body))).toMatchObject({training_site_id:5,supervisors:[{person_id:10,weekdays:['wednesday']}]});
+    expect(JSON.parse(String(saved?.[1]?.body))).toMatchObject({training_site_id:5,follow_supervisor_workplaces:true,supervisors:[{person_id:10,weekdays:['wednesday']}]});
   });
 });

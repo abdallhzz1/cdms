@@ -204,7 +204,7 @@ class ReportCenterService
             ->whereHas('distributionVersion', fn ($q) => $q->where('status', 'published')->where('is_current', true))
             ->with(['distributionVersion.rotation.academicYear', 'distributionVersion.rotation.course', 'distributionVersion.rotation.clinicalPeriod', 'rotationBlock', 'student', 'studentSubgroup', 'trainingSite', 'supervisor', 'courseScheduleRow.person']);
         $this->filterAssignments($query, $filters);
-        $rows = $query->get()->map(function ($assignment) {
+        $rows = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->expand($query->get())->map(function ($assignment) {
             $rotation = $assignment->distributionVersion?->rotation;
             $doctor = $assignment->supervisor ?? $assignment->courseScheduleRow?->person;
 
@@ -244,7 +244,7 @@ class ReportCenterService
     {
         $months = $this->reportMonths($filters);
         $sites = [];
-        foreach ($this->clinicalTrainingSiteAssignments($filters)->get() as $assignment) {
+        foreach (app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->expand($this->clinicalTrainingSiteAssignments($filters)->get()) as $assignment) {
             $site = $assignment->trainingSite;
             $academicLevel = $assignment->rotationBlock?->rotation?->academic_level;
             $period = $this->assignmentPeriod($assignment);
@@ -255,6 +255,7 @@ class ReportCenterService
 
             foreach ($months as $month => $period) {
                 [$monthStart, $monthEnd] = $period;
+                if ($assignment->placement_dates !== null && ! array_filter($assignment->placement_dates, fn ($date) => $date >= $monthStart->toDateString() && $date <= $monthEnd->toDateString())) continue;
                 if ($blockStart->lessThanOrEqualTo($monthEnd) && $blockEnd->greaterThanOrEqualTo($monthStart)) {
                     $sites[$site->id] ??= [
                         'name' => $site->name_ar,
@@ -318,7 +319,7 @@ class ReportCenterService
             ])
             ->get();
 
-        foreach ($assignments as $assignment) {
+        foreach (app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->expand($assignments) as $assignment) {
             $student = $assignment->student;
             $site = $assignment->trainingSite;
             $rotation = $assignment->rotationBlock?->rotation;
@@ -330,6 +331,7 @@ class ReportCenterService
 
             foreach ($months as $month => $monthPeriod) {
                 [$monthStart, $monthEnd] = $monthPeriod;
+                if ($assignment->placement_dates !== null && ! array_filter($assignment->placement_dates, fn ($date) => $date >= $monthStart->toDateString() && $date <= $monthEnd->toDateString())) continue;
                 if (! $trainingStart->lessThanOrEqualTo($monthEnd) || ! $trainingEnd->greaterThanOrEqualTo($monthStart)) {
                     continue;
                 }
@@ -415,7 +417,6 @@ class ReportCenterService
         $period = $this->reportMonths($filters)[$month];
         [$monthStart, $monthEnd] = $period;
         $siteAssignments = $this->clinicalTrainingSiteAssignments($filters)
-            ->where('training_site_id', $siteId)
             ->with([
                 'student:id,university_number,full_name_ar',
                 'studentSubgroup:id,name',
@@ -424,9 +425,12 @@ class ReportCenterService
             ])
             ->get();
 
+        $siteAssignments = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->expand($siteAssignments)->where('training_site_id', $siteId)->values();
+
         abort_if($siteAssignments->isEmpty(), 404);
 
         $assignments = $siteAssignments->filter(function ($assignment) use ($monthStart, $monthEnd): bool {
+                if ($assignment->placement_dates !== null && ! array_filter($assignment->placement_dates, fn ($date) => $date >= $monthStart->toDateString() && $date <= $monthEnd->toDateString())) return false;
                 $period = $this->assignmentPeriod($assignment);
 
                 return $period
@@ -473,6 +477,7 @@ class ReportCenterService
                 'rotationBlock.rotation:id,start_date,academic_level,academic_year_id,course_id,clinical_period_id',
                 'distributionVersion.breaks',
                 'trainingSite:id,name_ar',
+                'courseScheduleRow',
             ]);
         $this->filterAssignments($query, $filters);
 
@@ -481,6 +486,7 @@ class ReportCenterService
 
     private function assignmentPeriod($assignment): ?array
     {
+        if ($assignment->placement_dates) return [CarbonImmutable::parse(min($assignment->placement_dates))->startOfDay(), CarbonImmutable::parse(max($assignment->placement_dates))->endOfDay()];
         $rotation = $assignment->rotationBlock?->rotation;
         if (! $rotation?->start_date) {
             return null;

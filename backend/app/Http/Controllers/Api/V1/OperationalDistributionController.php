@@ -78,6 +78,9 @@ class OperationalDistributionController extends Controller
         }
 
         $siteIds = (clone $assignments)->distinct()->pluck('training_site_id')->filter();
+        $rowIds = (clone $assignments)->whereNotNull('course_schedule_row_id')->distinct()->pluck('course_schedule_row_id');
+        $siteIds = $siteIds->merge(\App\Models\CourseScheduleRow::whereIn('id', $rowIds)->whereNotNull('workplace_schedule')->get()
+            ->flatMap(fn ($row) => $row->workplace_schedule['site_ids'] ?? []))->unique();
 
         $rotations = app(\App\Services\DepartmentHeadCourseScope::class)->rotations(Rotation::query())
             ->whereHas('distributionVersions', fn ($query) => $query

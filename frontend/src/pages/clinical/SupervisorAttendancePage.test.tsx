@@ -19,6 +19,25 @@ const workspace = { supervisor: { full_name_ar: 'د. أحمد', full_name_en: 'D
 afterEach(() => { vi.restoreAllMocks(); document.cookie = 'XSRF-TOKEN=; Max-Age=0; path=/'; });
 
 describe('manual clinical attendance', () => {
+  it('shows the hospital for the selected day while keeping one group across both hospitals', async()=>{
+    localStorage.setItem('cdms.locale','en');
+    const locations=[
+      {training_site_id:5,training_site:{id:5,name_ar:'الأهلي',name_en:'Ahli Hospital'},days:['wednesday'],scheduled_dates:['2026-09-23']},
+      {training_site_id:6,training_site:{id:6,name_ar:'الثاني',name_en:'Second Hospital'},days:['thursday'],scheduled_dates:['2026-09-24']},
+    ];
+    vi.spyOn(window,'fetch').mockImplementation(async input=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope(user);
+      if(url.includes('/my-supervisor-workspace'))return envelope({...workspace,assignments:workspace.assignments.map(item=>({...item,scheduled_dates:['2026-09-23','2026-09-24'],training_sites:locations}))});
+      if(url.includes('/my-supervisor-attendance'))return envelope({records:[],qr_session:null});
+      throw new Error(`Unmocked: ${url}`);
+    });
+    renderWithProviders(<SupervisorAttendancePage/>,{route:'/supervisor/attendance?date=2026-09-24'});
+    expect(await screen.findByText('Surgery · Second Hospital')).toBeVisible();
+    await userEvent.selectOptions(screen.getByLabelText('Training day'),'2026-09-23');
+    expect(await screen.findByText('Surgery · Ahli Hospital')).toBeVisible();
+  });
+
   it('requires an explicit status for every student and saves official notes with the group', async () => {
     window.localStorage.setItem('cdms.locale', 'en');
     document.cookie = 'XSRF-TOKEN=test; path=/';

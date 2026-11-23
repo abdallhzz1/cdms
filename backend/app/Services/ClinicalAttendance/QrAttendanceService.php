@@ -28,6 +28,7 @@ class QrAttendanceService
         return DB::transaction(function () use ($person, $assignmentId, $date) {
             $assignment = $this->ownedAssignment($person, $assignmentId);
             $this->ensureScheduledDate($person, $assignment, $date);
+            $assignment = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->forDate($assignment, $date);
             $groupAssignments = $this->groupAssignments($assignment)->orderBy('id')->lockForUpdate()->get(['id', 'student_id']);
             $key = $this->assignmentKey($assignment);
             $existing = ClinicalQrAttendanceSession::where(['assignment_key' => $key, 'session_date' => $date])
@@ -145,6 +146,8 @@ class QrAttendanceService
         $start = Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, (int) $block->from_week, $breaks))->startOfDay();
         $end = Carbon::parse($this->dateCalculator->calculateBlockEndDate($rotation->start_date, (int) $block->to_week, $breaks))->endOfDay();
         abort_unless($day->gte($start) && $day->lte($end), 422, 'اليوم المحدد خارج فترة تكليف المجموعة.');
+        $planned = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->scheduledDates($assignment, $date, $date);
+        if ($planned !== null) { abort_unless(count($planned), 422, 'اليوم المحدد ليس يوم تدريب معتمدًا للمجموعة.'); return; }
         $scheduled = $person->availabilities()->where('training_site_id', $assignment->training_site_id)
             ->where('day', strtolower($day->format('l')))
             ->where(fn ($query) => $query->whereNull('status')->orWhere('status', 'work'))
@@ -153,7 +156,7 @@ class QrAttendanceService
             ->exists();
         abort_unless($scheduled, 422, 'اليوم المحدد ليس يوم دوام مجدول للمشرف في موقع المجموعة.');
     }
-    private function groupAssignments(StudentClinicalAssignment $a) { return StudentClinicalAssignment::query()->where('distribution_version_id', $a->distribution_version_id)->where('rotation_block_id', $a->rotation_block_id)->where('training_site_id', $a->training_site_id)->where('supervisor_id', $a->supervisor_id)->where('student_subgroup_id', $a->student_subgroup_id); }
+    private function groupAssignments(StudentClinicalAssignment $a) { return StudentClinicalAssignment::query()->where('distribution_version_id', $a->distribution_version_id)->where('rotation_block_id', $a->rotation_block_id)->where('training_site_id', $a->getRawOriginal('training_site_id'))->where('supervisor_id', $a->supervisor_id)->where('student_subgroup_id', $a->student_subgroup_id); }
     private function assignmentKey(StudentClinicalAssignment $a): string { return implode('|', [$a->distribution_version_id, $a->rotation_block_id, $a->training_site_id, $a->supervisor_id, $a->student_subgroup_id ?? 0]); }
     private function scanResponse(ClinicalQrAttendanceSession $session, ClinicalQrAttendanceRoster $roster, string $phase, bool $idempotent): array { return ['operation' => $phase, 'recorded_at' => $phase === 'check_in' ? $roster->checked_in_at?->toIso8601String() : $roster->checked_out_at?->toIso8601String(), 'group' => $session->assignment?->studentSubgroup?->name, 'training_site' => $session->trainingSite?->name_ar, 'idempotent' => $idempotent]; }
     private function event(?ClinicalQrAttendanceSession $s, ?Student $student, ?string $phase, string $result, ?string $nonce, Request $request): void { ClinicalQrScanEvent::create(['clinical_qr_attendance_session_id' => $s?->id, 'student_id' => $student?->id, 'phase' => $phase, 'result_code' => $result, 'qr_nonce_hash' => $nonce ? hash('sha256', $nonce) : null, 'ip_hash' => hash_hmac('sha256', (string) $request->ip(), (string) config('app.key')), 'user_agent' => Str::limit((string) $request->userAgent(), 500, ''), 'occurred_at' => now()]); }

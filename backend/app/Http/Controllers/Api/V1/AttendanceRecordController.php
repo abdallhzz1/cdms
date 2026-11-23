@@ -216,6 +216,7 @@ class AttendanceRecordController extends Controller
                 'supervisor.availabilities',
             ])->get();
         abort_if($assignments->isEmpty(), 404);
+        $assignments = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->expand($assignments);
 
         $subgroups = app(\App\Services\DepartmentHeadCourseScope::class)
             ->subgroups(StudentSubgroup::query())->where('student_group_id', $groupId)->get();
@@ -405,6 +406,7 @@ class AttendanceRecordController extends Controller
                 'supervisor.availabilities',
             ])
             ->get();
+        $assignments = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->expand($assignments);
         $students = $assignments->pluck('student')->filter()->unique('id')->values();
         $rotation = $reference->rotationBlock?->rotation;
         $reference->loadMissing('distributionVersion.breaks');
@@ -601,6 +603,7 @@ class AttendanceRecordController extends Controller
             $assignments = $assignments->where('department_id', $departmentId);
         }
 
+        $assignments = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->expand($assignments);
         $blockIds = $assignments->pluck('rotation_block_id')->unique();
         $sessions = ClinicalSession::query()
             ->whereIn('rotation_block_id', $blockIds)
@@ -642,13 +645,14 @@ class AttendanceRecordController extends Controller
                     && (! $row->available_until || $row->available_until->gte($start))
                     && (! $row->available_from || $row->available_from->lte($end))
                 );
-                if ($availability->isEmpty()) return [];
+                $planned = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->scheduledDates($first, $start->toDateString(), $end->toDateString());
+                if ($planned === null && $availability->isEmpty()) return [];
 
                 $studentIds = $group->pluck('student_id')->map(fn ($id) => (int) $id)->unique();
                 $items = [];
                 for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
                     if ($this->dateCalculator->isBreakDate($date, $breaks)) continue;
-                    if (! $availability->contains(fn ($row) =>
+                    if ($planned !== null ? ! in_array($date->toDateString(), $planned, true) : ! $availability->contains(fn ($row) =>
                         $row->day === strtolower($date->format('l'))
                         && (! $row->available_from || $row->available_from->lte($date))
                         && (! $row->available_until || $row->available_until->gte($date)))) continue;
@@ -728,7 +732,7 @@ class AttendanceRecordController extends Controller
             ->whereHas('distributionVersion', fn ($version) => $version
                 ->where('status', 'published')
                 ->where('is_current', true))
-            ->whereIn('student_id', $this->applyStudentAccessScope(Student::query())->select('students.id'));
+            ->whereIn('student_id', $this->applyStudentAccessScope(Student::query())->select('students.id'))->with('courseScheduleRow');
 
         $departmentId = $this->getClinicalOperationsDepartmentId();
         if ($departmentId) {
@@ -783,6 +787,8 @@ class AttendanceRecordController extends Controller
     /** @return array<string> */
     private function scheduledDates(StudentClinicalAssignment $assignment, Carbon $rangeStart, Carbon $rangeEnd): array
     {
+        $planned = app(\App\Services\Distribution\ClinicalWorkplaceSchedule::class)->scheduledDates($assignment, $rangeStart->toDateString(), $rangeEnd->toDateString());
+        if ($planned !== null) return $planned;
         $assignment->loadMissing('supervisor.availabilities', 'rotationBlock.rotation', 'distributionVersion.breaks');
         $rotation = $assignment->rotationBlock?->rotation;
         $block = $assignment->rotationBlock;

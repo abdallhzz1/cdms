@@ -235,6 +235,90 @@ class CourseDistributionWorkflowTest extends TestCase
         $this->assertDatabaseMissing('student_clinical_assignments', ['course_schedule_row_id' => $rowId, 'training_site_id' => $secondSite->id]);
     }
 
+    public function test_one_weekly_group_follows_a_supervisor_between_two_hospitals_without_duplicate_assignments(): void
+    {
+        $secondSite = TrainingSite::factory()->create(['is_active' => true, 'name_ar' => 'المستشفى الثاني', 'name_en' => 'Second Hospital']);
+        $primarySiteId = (int) $this->doctor->primary_site_id;
+        $this->doctor->trainingSites()->attach($secondSite->id);
+        foreach ([$primarySiteId => ['sunday','monday','tuesday'], $secondSite->id => ['wednesday','thursday']] as $siteId => $days) {
+            foreach ($days as $day) $this->doctor->availabilities()->create(['training_site_id' => $siteId, 'day' => $day, 'status' => 'work', 'available_from' => '2026-08-30', 'available_until' => '2026-09-05']);
+        }
+        $created = $this->actingAs($this->user)->postJson('/api/v1/course-distribution/schedules', [
+            'academic_year_id' => $this->year->id, 'academic_level' => 'fourth', 'course_id' => $this->course->id,
+            'start_date' => '2026-08-30', 'weeks_count' => 1,
+        ])->assertCreated();
+        $versionId = $created->json('data.version.id');
+        $rowId = $this->postJson("/api/v1/course-distribution/versions/{$versionId}/rows", [
+            'row_type' => 'doctor', 'person_id' => $this->doctor->id, 'training_site_id' => $primarySiteId, 'follow_supervisor_workplaces' => true,
+        ])->assertCreated()->assertJsonCount(2, 'data.workplace_schedule.locations')->json('data.id');
+        $block = RotationBlock::where('rotation_id', $created->json('data.rotation.id'))->firstOrFail();
+        $this->putJson("/api/v1/course-distribution/versions/{$versionId}/cell", [
+            'rotation_block_id' => $block->id, 'course_schedule_row_id' => $rowId, 'subgroup_id' => $this->subgroup->id,
+        ])->assertOk();
+        $this->assertSame(2, StudentClinicalAssignment::where('distribution_version_id', $versionId)->count());
+        $this->assertSame(1, CourseScheduleCell::where('distribution_version_id', $versionId)->count());
+        $this->completeApproval($versionId);
+        $version = DistributionVersion::findOrFail($versionId);
+        $this->actingAs($this->user)->postJson("/api/v1/distribution-versions/{$versionId}/publish", ['last_updated_at' => $version->updated_at->toIso8601String()])->assertOk();
+        $query = app(\App\Services\Distribution\ClinicalScheduleQueryService::class);
+        $student = Student::where('academic_year_id', $this->year->id)->firstOrFail();
+        $weekly = $query->getStudentSchedule($student);
+        $this->assertCount(1, $weekly);
+        $this->assertCount(2, $weekly[0]['training_sites']);
+        foreach (['2026-08-30' => $primarySiteId, '2026-08-31' => $primarySiteId, '2026-09-01' => $primarySiteId, '2026-09-02' => $secondSite->id, '2026-09-03' => $secondSite->id] as $date => $siteId) {
+            $daily = $query->getDailyGroups($date, $siteId);
+            $this->assertCount(1, $daily);
+            $this->assertCount(2, $daily[0]['students']);
+            $otherSiteId = $siteId === $primarySiteId ? $secondSite->id : $primarySiteId;
+            $this->assertCount(0, $query->getDailyGroups($date, $otherSiteId));
+        }
+        $this->assertCount(0, $query->getDailyGroups('2026-09-04'));
+        $admin = $query->getAdministrativeSchedule(\Illuminate\Http\Request::create('/', 'GET', ['training_site_id' => $secondSite->id]));
+        $this->assertSame(2, $admin->total());
+        $this->assertCount(2, $admin->items()[0]['training_sites']);
+        $report = app(\App\Services\Reports\ReportCenterService::class)->report('clinical_training_sites_sep_nov_2026', ['academic_year_id' => $this->year->id, 'month_from' => '2026-08', 'month_to' => '2026-09']);
+        $secondRow = collect($report['rows'])->first(fn ($row) => $row[0] === 'المستشفى الثاني');
+        $this->assertSame(0, $secondRow[1]); // no August duty at the second hospital
+        $this->assertSame(2, $secondRow[5]); // both students train there in September
+
+        $supervisorRole = Role::where('code','CLINICAL_SUPERVISOR')->firstOrFail();
+        $supervisorRole->permissions()->syncWithoutDetaching(Permission::whereIn('code',['attendance.record','supervisor.workspace.view'])->pluck('id')->mapWithKeys(fn ($id)=>[$id=>['scope_type'=>'global']])->all());
+        $supervisor = $this->doctor->user;
+        $assignment = StudentClinicalAssignment::where('distribution_version_id',$versionId)->firstOrFail();
+        $records = StudentClinicalAssignment::where('distribution_version_id',$versionId)->get()->map(fn ($item)=>['student_id'=>$item->student_id,'status'=>'present'])->all();
+        $this->actingAs($supervisor)->postJson('/api/v1/operational/my-supervisor-attendance', ['assignment_id'=>$assignment->id,'session_date'=>'2026-09-02','records'=>$records])->assertOk();
+        $this->assertDatabaseHas('clinical_sessions',['rotation_block_id'=>$block->id,'training_site_id'=>$secondSite->id,'session_date'=>'2026-09-02 00:00:00']);
+        $this->getJson('/api/v1/operational/my-supervisor-attendance?assignment_id='.$assignment->id.'&session_date=2026-09-02')->assertOk()->assertJsonCount(2,'data.records');
+        $this->getJson('/api/v1/operational/my-supervisor-workspace')->assertOk()->assertJsonCount(5,'data.assignments.0.scheduled_dates')->assertJsonCount(2,'data.assignments.0.training_sites');
+        $qr = app(\App\Services\ClinicalAttendance\QrAttendanceService::class)->open($supervisor,$assignment->id,'2026-09-03');
+        $this->assertSame($secondSite->id,(int)$qr->training_site_id);
+        $this->assertCount(2,$qr->roster);
+        $this->assertSame($primarySiteId,(int)$assignment->fresh()->training_site_id);
+        $this->assertSame(2,StudentClinicalAssignment::where('distribution_version_id',$versionId)->count());
+
+        // Published site/day snapshots do not change when the profile is edited later.
+        $this->doctor->availabilities()->delete();
+        $this->actingAs($this->user);
+        $this->assertCount(1,$query->getDailyGroups('2026-09-02',$secondSite->id));
+        $review = Permission::where('code','attendance.review')->firstOrFail();
+        Role::where('code','COURSE_DISTRIBUTOR_TEST')->firstOrFail()->permissions()->syncWithoutDetaching([$review->id=>['scope_type'=>'global']]);
+        $this->actingAs($this->user->fresh())->getJson('/api/v1/attendance-records/group-summary?assignment_id='.$assignment->id.'&week=1')
+            ->assertOk()->assertJsonCount(2,'data.schedule')->assertJsonPath('data.students.0.totals.scheduled_days',5)
+            ->assertJsonPath('data.students.0.totals.present',1);
+        $mark = \App\Models\ClinicalAssessment::create([
+            'student_id'=>$assignment->student_id,'evaluator_person_id'=>$this->doctor->id,'student_clinical_assignment_id'=>$assignment->id,
+            'evaluation_week'=>1,'assessment_kind'=>'weekly','score'=>8,'max_score'=>10,'status'=>'submitted',
+        ]);
+        $revisionId = $this->postJson("/api/v1/course-distribution/versions/{$versionId}/revise")->assertOk()->json('data.id');
+        $this->completeApproval($revisionId);
+        $revision = DistributionVersion::findOrFail($revisionId);
+        $this->actingAs($this->user)->postJson("/api/v1/distribution-versions/{$revisionId}/publish",['last_updated_at'=>$revision->updated_at->toIso8601String()])->assertOk();
+        $this->assertSame($revisionId,(int)$mark->fresh()->clinicalAssignment->distribution_version_id);
+        $this->assertSame('8.00',$mark->fresh()->score);
+        $this->assertCount(1,$query->getStudentSchedule($student));
+        $this->assertCount(1,$query->getDailyGroups('2026-09-02',$secondSite->id));
+    }
+
     public function test_period_schedule_uses_dates_for_the_selected_clinical_year_only(): void
     {
         $period = ClinicalPeriod::create([

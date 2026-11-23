@@ -72,7 +72,8 @@ export function buildSupervisorAgenda(workspace:Workspace,currentDate=today()):A
   }
 
   for(const group of groups)for(const date of group.scheduledDates){
-    const duty=addDuty(date,group.siteId,group.siteAr,group.siteEn);
+    const location=group.trainingSites?.find(site=>site.scheduled_dates.includes(date))?.training_site;
+    const duty=addDuty(date,location?.id??group.siteId,location?.name_ar??group.siteAr,location?.name_en||location?.name_ar||group.siteEn);
     if(!duty.groups.some(item=>item.key===group.key))duty.groups.push(group);
   }
 

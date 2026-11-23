@@ -39,7 +39,6 @@ class ClinicalScheduleQueryService
             ->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation
                 ->whereDate('start_date', '<=', $date))
             ->whereNotNull('student_subgroup_id')
-            ->when($siteId, fn ($assignments) => $assignments->where('training_site_id', $siteId))
             ->with([
                 'student:id,university_number,full_name_ar,full_name_en,photo_url',
                 'studentSubgroup.group',
@@ -48,8 +47,12 @@ class ClinicalScheduleQueryService
                 'trainingSite:id,name_ar,name_en',
                 'department:id,name_ar,name_en',
                 'supervisor.availabilities',
+                'courseScheduleRow',
                 'distributionVersion.breaks',
+                'distributionVersion.rotation',
             ]);
+        $workplaces = app(ClinicalWorkplaceSchedule::class);
+        if ($siteId) $workplaces->atSite($query, $siteId);
 
         $departmentId = $this->getClinicalOperationsDepartmentId();
         if ($departmentId) $query->where('student_clinical_assignments.department_id', $departmentId);
@@ -60,7 +63,8 @@ class ClinicalScheduleQueryService
                 : $query->whereHas('rotationBlock.rotation', fn ($rotation) => $rotation->whereIn('academic_level', $levels));
         }
 
-        $assignments = $query->get()->filter(function (StudentClinicalAssignment $assignment) use ($day, $weekday) {
+        $assignments = $workplaces->expand($query->get())->filter(function (StudentClinicalAssignment $assignment) use ($day, $weekday, $siteId, $workplaces) {
+            if ($siteId && (int) $assignment->training_site_id !== $siteId) return false;
             $block = $assignment->rotationBlock;
             $rotation = $block?->rotation;
             if (! $assignment->student || ! $assignment->studentSubgroup?->group || ! $assignment->trainingSite
@@ -71,6 +75,9 @@ class ClinicalScheduleQueryService
             $start = Carbon::parse($this->dateCalculator->calculateBlockStartDate($rotation->start_date, (int) $block->from_week, $breaks))->startOfDay();
             $end = Carbon::parse($this->dateCalculator->calculateBlockEndDate($rotation->start_date, (int) $block->to_week, $breaks))->endOfDay();
             if ($day->lt($start) || $day->gt($end)) return false;
+
+            $planned = $workplaces->scheduledDates($assignment, $day->toDateString(), $day->toDateString());
+            if ($planned !== null) return count($planned) > 0;
 
             return $assignment->supervisor->availabilities->contains(fn ($availability) =>
                 (int) $availability->training_site_id === (int) $assignment->training_site_id
@@ -142,6 +149,9 @@ class ClinicalScheduleQueryService
                 'supervisor.availabilities.trainingSite',
                 'supervisor.user.userProfile',
                 'supervisor.user.clinicalSupervisorProfile',
+                'courseScheduleRow',
+                'distributionVersion.breaks',
+                'distributionVersion.rotation',
             ]);
 
         // Auto-scope by department if user is a Department Head or RTA
@@ -185,7 +195,7 @@ class ClinicalScheduleQueryService
         }
 
         if ($request->filled('training_site_id')) {
-            $query->where('training_site_id', (int) $request->input('training_site_id'));
+            app(ClinicalWorkplaceSchedule::class)->atSite($query, (int) $request->input('training_site_id'));
         }
 
         if (!$scopedDeptId && $request->filled('department_id')) {
@@ -240,7 +250,14 @@ class ClinicalScheduleQueryService
         $perPage = (int) $request->input('per_page', 100);
         $perPage = min(max($perPage, 1), 100); // Clamp between 1 and 100
 
-        $paginator = $query->paginate($perPage);
+        if ($request->filled('training_site_id')) {
+            $siteId = (int) $request->input('training_site_id');
+            $workplaces = app(ClinicalWorkplaceSchedule::class);
+            $items = $query->get()->filter(fn ($assignment) => ! $workplaces->follows($assignment)
+                || collect($workplaces->assignmentLocations($assignment))->contains('training_site_id', $siteId))->values();
+            $page = max(1,(int)$request->input('page',1));
+            $paginator = new \Illuminate\Pagination\LengthAwarePaginator($items->forPage($page,$perPage)->values(),$items->count(),$perPage,$page,['path'=>$request->url(),'query'=>$request->query()]);
+        } else $paginator = $query->paginate($perPage);
 
         // Transform collection to DTOs
         $paginator->getCollection()->transform(function (StudentClinicalAssignment $assignment) {
@@ -273,6 +290,9 @@ class ClinicalScheduleQueryService
                 'supervisor.availabilities.trainingSite',
                 'supervisor.user.userProfile',
                 'supervisor.user.clinicalSupervisorProfile',
+                'courseScheduleRow',
+                'distributionVersion.breaks',
+                'distributionVersion.rotation',
             ])
             ->join('rotation_blocks', 'student_clinical_assignments.rotation_block_id', '=', 'rotation_blocks.id')
             ->join('rotations', 'rotation_blocks.rotation_id', '=', 'rotations.id')
