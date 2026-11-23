@@ -30,6 +30,33 @@ function mockApi(exportResponse?:Response) {
 afterEach(()=>vi.restoreAllMocks());
 
 describe('ReportsDashboard',()=>{
+  it('shows the twelve-week matrix report and passes course and version selection to export',async()=>{
+    const report={key:'clinical_distribution_matrix',category:'clinical',title:'جدول التوزيع السريري',description:'جدول الأسابيع'};
+    const weeks=Array.from({length:12},(_,i)=>({number:i+1,start:'2026-09-01',end:'2026-09-07',activity:''}));
+    const fetchSpy=vi.spyOn(window,'fetch').mockImplementation(async input=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope({id:1,roles:['SYS_ADMIN'],permissions:[{code:'reports.view',scope:'global'},{code:'reports.export',scope:'global'}]});
+      if(url.includes('/summary'))return envelope({...summary,courses:[{id:9,code:'MED401',name_ar:'باطني',name_en:'Medicine',academic_level:'fourth'}],reports:[...summary.reports,report]});
+      if(url.includes('/clinical_distribution_matrix/preview'))return envelope({definition:report,columns:[],rows:[['Hospital','Dr Supervisor']],total:1,preview_limit:20,matrix_total:1,matrices:[{title:'MED401 · Period 1',version_id:1,status:'manual',weeks,rows:[['Hospital','Dr Supervisor','Monday',...Array(12).fill('Q1 + Q2')]],total_rows:1,breaks:[]}]});
+      if(url.includes('/export'))return new Response(new Blob(['pdf']),{headers:{'Content-Type':'application/pdf'}});
+      if(url.includes('/preview'))return envelope(preview);
+      return envelope({female:0,male:0,unspecified:0,total:0,batches:[]});
+    });
+    Object.defineProperty(URL,'createObjectURL',{configurable:true,value:vi.fn(()=> 'blob:matrix')});
+    Object.defineProperty(URL,'revokeObjectURL',{configurable:true,value:vi.fn()});
+    vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>undefined);
+    renderWithProviders(<ReportsDashboard/>);
+    await screen.findByText('طالب تجريبي');
+    await userEvent.selectOptions(await screen.findByLabelText('Report'),'clinical_distribution_matrix');
+    expect(await screen.findByText('MED401 · Period 1')).toBeVisible();
+    expect(screen.getByRole('columnheader',{name:/^Week 12/})).toBeVisible();
+    expect(screen.getAllByText('Q1 + Q2')).toHaveLength(12);
+    await userEvent.selectOptions(screen.getByLabelText('Course'),'9');
+    await userEvent.selectOptions(screen.getByLabelText('Schedule version'),'published');
+    await waitFor(()=>expect(screen.getByRole('button',{name:'PDF'})).toBeEnabled());
+    await userEvent.click(screen.getByRole('button',{name:'PDF'}));
+    await waitFor(()=>expect(fetchSpy.mock.calls.some(([url])=>String(url).includes('/clinical_distribution_matrix/export?')&&String(url).includes('course_id=9')&&String(url).includes('schedule_version=published'))).toBe(true));
+  });
   it('renders the compact report controls and preview',async()=>{
     const fetchSpy=mockApi();
     renderWithProviders(<ReportsDashboard/>);

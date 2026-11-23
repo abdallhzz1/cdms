@@ -26,6 +26,7 @@ class ReportCenterService
     public function catalog(): array
     {
         $catalog = [
+            ['key' => 'clinical_distribution_matrix', 'category' => 'clinical', 'title' => __('distribution_report.title'), 'description' => 'المشرفون والمواقع والمجموعات موزعة على 12 أسبوعًا كما في شاشة التوزيع السريري.'],
             ['key' => 'student_directory', 'category' => 'academic', 'title' => 'دليل الطلبة الأكاديمي', 'description' => 'قائمة الطلبة حسب السنة والحالة الأكاديمية والمجموعة الرئيسية.'],
             ['key' => 'group_rosters', 'category' => 'clinical', 'title' => 'قوائم مجموعات الطلبة', 'description' => 'كشف الطلبة المسجلين في المجموعات الرئيسية لكل عام وسنة سريرية.'],
             ['key' => 'clinical_schedule', 'category' => 'clinical', 'title' => 'الجدول السريري المنشور', 'description' => 'أماكن دوام الطلبة والمجموعات والمستشفيات والأطباء في الجداول المنشورة.'],
@@ -93,6 +94,7 @@ class ReportCenterService
         abort_unless($this->hasReport($key), 404);
 
         $payload = match ($key) {
+            'clinical_distribution_matrix' => app(ClinicalDistributionMatrixReport::class)->build($filters),
             'student_directory' => $this->studentDirectory($filters),
             'group_rosters' => $this->groupRosters($filters),
             'clinical_schedule' => $this->clinicalSchedule($filters),

@@ -27,6 +27,7 @@ class ReportCenterController extends Controller
         return ApiResponse::success([
             'academic_years' => AcademicYear::query()->orderByDesc('start_date')->get(['id', 'code', 'is_current', 'status']),
             'clinical_periods' => ClinicalPeriod::query()->orderBy('academic_year_id')->orderBy('sequence')->get(['id', 'academic_year_id', 'code', 'name_ar', 'name_en', 'sequence']),
+            'courses' => app(\App\Services\DepartmentHeadCourseScope::class)->courses(\App\Models\Course::query())->orderBy('code')->get(['id', 'code', 'name_ar', 'name_en', 'academic_level']),
             'metrics' => $this->reports->summary($filters),
             'reports' => $this->reports->catalog(),
             'generated_at' => now()->toIso8601String(),
@@ -128,6 +129,10 @@ class ReportCenterController extends Controller
         $payload['rows'] = array_slice($payload['rows'], 0, 20);
         $payload['total'] = $total;
         $payload['preview_limit'] = 20;
+        if (isset($payload['matrices'])) {
+            $payload['matrix_total'] = count($payload['matrices']);
+            $payload['matrices'] = array_map(function ($matrix) { $matrix['total_rows'] = count($matrix['rows']); $matrix['rows'] = array_slice($matrix['rows'], 0, 20); return $matrix; }, array_slice($payload['matrices'], 0, 3));
+        }
 
         return ApiResponse::success($payload, null, ['generated_at' => now()->toIso8601String()]);
     }
@@ -154,6 +159,10 @@ class ReportCenterController extends Controller
         $title = $payload['definition']['title'];
         $fileBase = $report . '-' . now()->format('Y-m-d-His');
         $filterLabel = $this->reports->filterLabel($filters);
+        if ($report === 'clinical_distribution_matrix') {
+            if ($format === 'pdf') return Pdf::loadView('reports.clinical_distribution_matrix', ['matrices' => $payload['matrices']])->setPaper('a4', 'landscape')->download($fileBase.'.pdf');
+            return Excel::download(new \App\Exports\ClinicalDistributionMatrixExport($payload['matrices']), $fileBase.'.xlsx');
+        }
 
         if ($format === 'pdf') {
             $logoPath = base_path('../frontend/src/assets/hebron.png');
@@ -201,6 +210,8 @@ class ReportCenterController extends Controller
             'academic_year_id' => ['nullable', 'integer', 'exists:academic_years,id'],
             'academic_level' => ['nullable', 'in:fourth,fifth,sixth'],
             'clinical_period_id' => ['nullable', 'integer', 'exists:clinical_periods,id'],
+            'course_id' => ['nullable', 'integer', 'exists:courses,id'],
+            'schedule_version' => ['nullable', 'in:working,published'],
             'month_from' => ['nullable', 'date_format:Y-m'],
             'month_to' => ['nullable', 'date_format:Y-m', 'after_or_equal:month_from'],
         ];

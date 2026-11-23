@@ -77,7 +77,7 @@ class ReportCenterWorkflowTest extends TestCase
     public function test_every_report_can_be_previewed_safely(): void
     {
         $keys = [
-            'student_directory', 'group_rosters', 'clinical_schedule', 'supervisors_hospitals',
+            'student_directory', 'group_rosters', 'clinical_schedule', 'clinical_distribution_matrix', 'supervisors_hospitals',
             'clinical_training_sites_sep_nov_2026', 'grades', 'attendance', 'clinical_assessments',
             'course_reports', 'quality_plans', 'data_gaps',
         ];
@@ -240,5 +240,56 @@ class ReportCenterWorkflowTest extends TestCase
 
         $this->actingAs($viewer)->getJson('/api/v1/report-center/student_directory/preview')->assertOk();
         $this->actingAs($viewer)->get('/api/v1/report-center/student_directory/export?format=pdf')->assertForbidden();
+    }
+
+    public function test_distribution_matrix_matches_schedule_cells_and_exports_twelve_weeks(): void
+    {
+        $course = \App\Models\Course::factory()->create(['academic_level' => 'fourth']);
+        $rotation = Rotation::factory()->create(['academic_year_id' => $this->year->id, 'course_id' => $course->id, 'academic_level' => 'fourth', 'start_date' => '2026-09-01', 'duration_weeks' => 12]);
+        $published = DistributionVersion::create(['rotation_id' => $rotation->id, 'name' => 'Published', 'status' => 'published', 'is_current' => true]);
+        $version = DistributionVersion::create(['rotation_id' => $rotation->id, 'name' => 'Working', 'status' => 'manual']);
+        $site = TrainingSite::factory()->create(['name_ar' => 'المستشفى الأهلي', 'name_en' => 'Al-Ahli Hospital']);
+        $person = \App\Models\Person::factory()->create(['full_name_ar' => 'د. أحمد محمد', 'full_name_en' => 'Dr Ahmad Mohammad']);
+        $shared = \App\Models\Person::factory()->create(['full_name_ar' => 'د. سامر علي', 'full_name_en' => 'Dr Samer Ali']);
+        $row = \App\Models\CourseScheduleRow::create(['distribution_version_id' => $version->id, 'row_type' => 'doctor', 'person_id' => $person->id, 'training_site_id' => $site->id]);
+        $row->supervisorLinks()->create(['person_id' => $person->id, 'weekdays' => ['monday']]);
+        $row->supervisorLinks()->create(['person_id' => $shared->id, 'weekdays' => ['tuesday']]);
+        \App\Models\CourseScheduleRow::create(['distribution_version_id' => $version->id, 'row_type' => 'vacancy', 'label' => 'شاغر', 'training_site_id' => $site->id, 'sort_order' => 2]);
+        $group = \App\Models\StudentGroup::factory()->create(['academic_year_id' => $this->year->id, 'academic_level' => 'fourth', 'name' => 'Q']);
+        $subgroups = collect(['Q1', 'Q2'])->map(fn ($name) => \App\Models\StudentSubgroup::factory()->create(['student_group_id' => $group->id, 'name' => $name]));
+        foreach (range(1, 12) as $week) {
+            $block = RotationBlock::factory()->create(['rotation_id' => $rotation->id, 'block_code' => 'W'.$week, 'from_week' => $week, 'to_week' => $week]);
+            foreach ($subgroups as $subgroup) \App\Models\CourseScheduleCell::create(['distribution_version_id' => $version->id, 'course_schedule_row_id' => $row->id, 'rotation_block_id' => $block->id, 'student_subgroup_id' => $subgroup->id]);
+            if ($week === 3) \App\Models\CourseScheduleBlockActivity::create(['distribution_version_id' => $version->id, 'rotation_block_id' => $block->id, 'activity_type' => 'lectures', 'activity_label' => 'محاضرات', 'activity_scope' => 'all']);
+        }
+        $version->breaks()->create(['label' => 'إجازة', 'start_date' => '2026-09-08', 'end_date' => '2026-09-14']);
+        $params = 'academic_year_id='.$this->year->id.'&course_id='.$course->id;
+        $preview = $this->actingAs($this->reporter)->getJson('/api/v1/report-center/clinical_distribution_matrix/preview?'.$params)
+            ->assertOk()->assertJsonCount(1, 'data.matrices')->assertJsonCount(12, 'data.matrices.0.weeks')->assertJsonCount(2, 'data.matrices.0.rows')
+            ->assertJsonPath('data.matrices.0.version_id', $version->id)->assertJsonPath('data.matrices.0.rows.0.3', 'Q1 + Q2')
+            ->assertJsonPath('data.matrices.0.rows.0.5', 'محاضرات')->assertJsonPath('data.matrices.0.weeks.1.start', '2026-09-15');
+        $this->assertCount(15, $preview->json('data.matrices.0.rows.0'));
+        $this->getJson('/api/v1/report-center/clinical_distribution_matrix/preview?'.$params.'&schedule_version=published')->assertOk()->assertJsonPath('data.matrices.0.version_id', $published->id);
+        $this->getJson('/api/v1/report-center/clinical_distribution_matrix/preview?'.$params.'&search=nomatch')->assertOk()->assertJsonCount(0, 'data.matrices');
+        $xlsx = $this->get('/api/v1/report-center/clinical_distribution_matrix/export?'.$params.'&format=xlsx')->assertOk();
+        $temp = tmpfile(); fwrite($temp, $xlsx->streamedContent());
+        $book = \PhpOffice\PhpSpreadsheet\IOFactory::load(stream_get_meta_data($temp)['uri']);
+        $sheet = $book->getActiveSheet();
+        $this->assertSame('Q1 + Q2', $sheet->getCell('D6')->getValue());
+        $this->assertSame('Q1 + Q2', $sheet->getCell('O6')->getValue());
+        $this->assertSame('O', $sheet->getHighestColumn());
+        $this->assertSame(1, $sheet->getPageSetup()->getFitToWidth());
+        $book->disconnectWorksheets(); fclose($temp);
+        foreach (['ar', 'en'] as $locale) {
+            $pdf = $this->withHeader('Accept-Language', $locale)->get('/api/v1/report-center/clinical_distribution_matrix/export?'.$params.'&format=pdf')->assertOk();
+            $this->assertStringStartsWith('%PDF', $pdf->getContent());
+        }
+        // Longer existing schedules must not lose weeks when split into 12-column tables.
+        $rotation->update(['duration_weeks' => 13]);
+        $block = RotationBlock::factory()->create(['rotation_id' => $rotation->id, 'block_code' => 'W13', 'from_week' => 13, 'to_week' => 13]);
+        \App\Models\CourseScheduleCell::create(['distribution_version_id' => $version->id, 'course_schedule_row_id' => $row->id, 'rotation_block_id' => $block->id, 'student_subgroup_id' => $subgroups[0]->id]);
+        $this->getJson('/api/v1/report-center/clinical_distribution_matrix/preview?'.$params)->assertOk()
+            ->assertJsonCount(2, 'data.matrices')->assertJsonPath('data.matrices.1.weeks.0.number', 13)
+            ->assertJsonPath('data.matrices.1.rows.0.3', 'Q1')->assertJsonPath('data.matrices.1.rows.0.4', '—');
     }
 }
