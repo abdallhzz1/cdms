@@ -425,3 +425,19 @@ that instruction fails as written on a Windows + Herd setup.
 **Validation:** Automated classroom scenario covers 100 students on one network, OTP/identity/scan routes, duplicate-scan idempotence, QR closure, permission revocation, attribution, and RTA lecturer assignment. Existing register and API exception tests are retained.
 
 **Status:** Adopted 2026-11-24 by explicit owner direction.
+
+## ADR-028 — University attendance approval seals registers; same-day lectures are limited by time conflicts
+
+**Date:** 2026-11-24.
+
+**Decision:** At the system owner's direction, the attendance action is now approval: manual entry saves the complete roster and seals the register atomically, and QR approval closes scanning, records absences and seals the register in the same transaction. Reopening a saved register shows attendance statuses without editing controls. Existing manual and closed QR registers are also treated as sealed; their original attendance rows are preserved and no historical approver or timestamp is invented.
+
+**Correction permission:** Only an active `ADMIN_ASSISTANT` with `university_lectures.attendance.correct_approved` can correct a sealed register. This permission is seeded/granted to that role and configurable by the administrator. A correction requires a reason, preserves the original approval metadata and unchanged student records, and records before/after values, actor and reason in the existing audit log. General attendance management and clinical supervisor access do not permit corrections after approval. The API enforces these checks while locking the lecture and session.
+
+**Scheduling:** Removes the previous maximum of two lectures per main group per day. Any number of lectures is permitted when their time intervals do not overlap on an actual common occurrence. Adjacent intervals are allowed; create and update retain the existing group lock and overlap validation.
+
+**Migration impact:** Adds nullable `approved_at` and `approved_by_user_id` to university sessions, with a short named user foreign key, and adds the dedicated correction permission. No attendance rows, membership snapshots or prior approval metadata are backfilled. New approvals record the real timestamp and user.
+
+**UI:** Lecture management actions open in a small responsive dialog so the last row's actions cannot be clipped by the lecture list. Approved registers have compact read-only student rows. Authorized administrative corrections require an explicit edit action and return to read-only after saving.
+
+**Status:** Adopted 2026-11-24 by explicit owner direction.

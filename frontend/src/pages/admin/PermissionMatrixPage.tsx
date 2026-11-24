@@ -146,6 +146,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   'attendance.excuse': 'توثيق أعذار الغياب',
   'attendance.notify': 'إرسال إنذارات الغياب',
   'university_lectures.attendance.view': 'عرض كشوف حضور جميع محاضرات الجامعة',
+  'university_lectures.attendance.correct_approved': 'تصحيح كشف حضور معتمد (للمساعد الإداري فقط)',
   'university_lectures.attendance.manage': 'تسجيل الحضور وفتح وإغلاق QR لجميع محاضرات الجامعة',
   'university_lectures.manage': 'إعداد ومراجعة محاضرات الجامعة',
   'student_events.view': 'عرض فعاليات الكلية وكشوفها',
@@ -379,7 +380,7 @@ export function PermissionMatrixPage() {
       window.setTimeout(() => setNotice(null), 3000);
       return;
     }
-    if (permission.code === 'university_lectures.delete_with_attendance' && selectedRole.code !== 'ADMIN_ASSISTANT') return;
+    if (['university_lectures.delete_with_attendance','university_lectures.attendance.correct_approved'].includes(permission.code) && selectedRole.code !== 'ADMIN_ASSISTANT') return;
     setPending((current) => new Set(current).add(key));
     setMatrix((current) => current.map((role) => role.role_id !== selectedRole.id ? role : {
       ...role,
@@ -515,7 +516,7 @@ export function PermissionMatrixPage() {
                       const key = `${selectedRole?.id}:${permission.id}`;
                       const saving = pending.has(key);
                       const locked = selectedRole?.code === 'SYS_ADMIN' && permission.code === 'roles.manage';
-                      const assistantOnly = permission.code === 'university_lectures.delete_with_attendance' && selectedRole?.code !== 'ADMIN_ASSISTANT';
+                      const assistantOnly = ['university_lectures.delete_with_attendance','university_lectures.attendance.correct_approved'].includes(permission.code) && selectedRole?.code !== 'ADMIN_ASSISTANT';
                       return (
                         <button key={permission.id} type="button" disabled={saving||assistantOnly} onClick={() => togglePermission(permission)} className="flex w-full items-center gap-3 px-4 py-3 text-start transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70 sm:px-5">
                           <span className="min-w-0 flex-1 text-xs font-bold text-slate-700">{localizedPermissionLabel(permission)}{locked && <span className="ms-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500">{tr('أساسية', 'Core')}</span>}{assistantOnly && <span className="ms-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500">{tr('للمساعد الإداري فقط', 'Admin assistant only')}</span>}</span>

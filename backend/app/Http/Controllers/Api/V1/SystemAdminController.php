@@ -240,9 +240,9 @@ class SystemAdminController extends Controller
             );
         }
 
-        if ($permission->code === 'university_lectures.delete_with_attendance'
+        if (in_array($permission->code,['university_lectures.delete_with_attendance','university_lectures.attendance.correct_approved'],true)
             && $role->code !== 'ADMIN_ASSISTANT' && $granted) {
-            return ApiResponse::error('صلاحية حذف المحاضرة مع كشوفها مخصصة لدور المساعد الإداري فقط.', [], [], 422);
+            return ApiResponse::error('هذه الصلاحية مخصصة لدور المساعد الإداري فقط.', [], [], 422);
         }
 
         DB::transaction(function () use ($role, $permission, $granted): void {

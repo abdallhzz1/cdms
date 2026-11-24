@@ -54,6 +54,7 @@ class PermissionSeeder extends Seeder
             ['code' => 'university_lectures.manage', 'module' => 'University Lectures', 'action' => 'MANAGE', 'description_key' => 'permissions.university_lectures_manage.description'],
             ['code' => 'university_lectures.attendance.view', 'module' => 'University Lectures', 'action' => 'VIEW_ATTENDANCE', 'description_key' => 'permissions.university_lectures_attendance_view.description'],
             ['code' => 'university_lectures.attendance.manage', 'module' => 'University Lectures', 'action' => 'MANAGE_ATTENDANCE', 'description_key' => 'permissions.university_lectures_attendance_manage.description'],
+            ['code' => 'university_lectures.attendance.correct_approved', 'module' => 'University Lectures', 'action' => 'CORRECT_APPROVED', 'description_key' => 'permissions.university_lectures_attendance_correct_approved.description'],
             ['code' => 'university_lectures.delete_with_attendance', 'module' => 'University Lectures', 'action' => 'DELETE_WITH_ATTENDANCE', 'description_key' => 'permissions.university_lectures_delete_with_attendance.description'],
             ['code' => 'assessment.view', 'module' => 'Assessment', 'action' => 'VIEW', 'description_key' => 'permissions.assessment_view.description'],
             ['code' => 'assessment.review', 'module' => 'Assessment', 'action' => 'REVIEW', 'description_key' => 'permissions.assessment_review.description'],

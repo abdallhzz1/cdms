@@ -107,7 +107,7 @@ class RolePermissionSeeder extends Seeder
 
         $defaultGrants = [
             'SYS_ADMIN' => ['approval_workflows.view', 'approval_workflows.manage', 'approvals.view'],
-            'ADMIN_ASSISTANT' => ['clinical_field_monitoring.view', 'clinical_field_monitoring.export', 'clinical_field_monitoring.delete'],
+            'ADMIN_ASSISTANT' => ['clinical_field_monitoring.view', 'clinical_field_monitoring.export', 'clinical_field_monitoring.delete', 'university_lectures.attendance.correct_approved'],
             'CLINICAL_DIRECTOR' => ['approval_workflows.view', 'approvals.view', 'approvals.decide', 'attendance.review', 'university_lectures.manage', 'student_events.view', 'student_events.manage', 'student_events.attendance.manage'],
             'DEAN' => ['approval_workflows.view', 'approvals.view', 'approvals.decide'],
             'VICE_DEAN' => ['approvals.view', 'approvals.decide'],

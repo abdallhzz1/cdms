@@ -97,7 +97,7 @@ class ClinicalUniversityAttendanceTest extends TestCase
             ...$plan, 'title' => 'محاضرة ثانية', 'starts_at' => '10:00', 'ends_at' => '11:00',
         ])->assertCreated()->json('data.id');
         $this->actingAs($rta)->postJson('/api/v1/operational/university-attendance/plans', [
-            ...$plan, 'title' => 'محاضرة ثالثة', 'starts_at' => '12:00', 'ends_at' => '13:00',
+            ...$plan, 'title' => 'محاضرة متداخلة', 'starts_at' => '08:30', 'ends_at' => '09:30',
         ])->assertUnprocessable();
         $temporary = $this->actingAs($rta)->postJson('/api/v1/operational/university-attendance/plans', [
             ...$plan, 'title' => 'محاضرة قابلة للحذف', 'weekday' => 'friday',
@@ -140,8 +140,10 @@ class ClinicalUniversityAttendanceTest extends TestCase
         $this->actingAs($rta)->getJson('/api/v1/operational/university-attendance/plans?student_group_id='.$group->id)
             ->assertOk()->assertJsonPath('data.sessions.0.session_date', '2026-10-08')
             ->assertJsonPath('data.lectures.0.starts_on', '2026-09-01');
-        $this->actingAs($doctor)->postJson("/api/v1/operational/university-attendance/plans/$first/day", [
-            'session_date' => '2026-10-08', 'records' => [
+        $correctionAssistant=User::factory()->create();
+        $correctionAssistant->roles()->attach(Role::where('code','ADMIN_ASSISTANT')->firstOrFail());
+        $this->actingAs($correctionAssistant)->postJson("/api/v1/operational/university-attendance/plans/$first/day", [
+            'session_date' => '2026-10-08', 'correction_reason'=>'تصحيح موثق من المساعد الإداري', 'records' => [
                 ['student_id' => $students[0]->id, 'status' => 'late'],
                 ['student_id' => $students[1]->id, 'status' => 'present'],
             ],

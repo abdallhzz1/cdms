@@ -206,14 +206,20 @@ class ClinicalUniversityAttendanceController extends Controller
                 'student' => $membership->student, 'subgroup' => $membership->subgroup,
                 'status' => null, 'excuse_note' => null, 'recorded_by' => null, 'updated_at' => null,
             ]);
+        $approved=$session?->isApproved()??false;
+        $canCorrect=$this->access->canCorrectApproved($request->user());
+        $canEdit=($approved?$canCorrect:($lecture->is_active&&$this->access->canOperate($request->user(),$lecture)))
+            && $date<=today()->toDateString() && $session?->qr_state!=='open';
         return ApiResponse::success(['session_id' => $session?->id, 'qr_state' => $session?->qr_state,
+            'is_approved'=>$approved,'approved_at'=>$session?->approved_at?->toIso8601String(),
+            'can_edit'=>$canEdit,'can_correct_approved'=>$approved&&$canCorrect,
             'lecture' => $this->planPayload($lecture->loadMissing('group.academicYear')),
             'rows' => $rows->sortBy(fn ($row) => ($row['subgroup']?->name ?? '').'|'.($row['student']?->full_name_ar ?? ''))->values()]);
     }
 
     public function record(Request $request, ClinicalUniversityLecture $lecture): JsonResponse
     {
-        $this->access->authorizeOperate($request->user(),$lecture);
+        $this->access->authorizeView($request->user(),$lecture);
         $person = $lecture->supervisor;
         $data = $request->validate([
             'session_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
@@ -221,6 +227,7 @@ class ClinicalUniversityAttendanceController extends Controller
             'records.*.student_id' => ['required', 'integer', 'distinct', 'exists:students,id'],
             'records.*.status' => ['required', Rule::in(AttendanceRecord::STATUSES)],
             'records.*.excuse_note' => ['nullable', 'string', 'max:2000'],
+            'correction_reason'=>['nullable','string','max:1000'],
         ]);
         foreach ($data['records'] as $index => $row) {
             if ($row['status'] === 'excused' && ! filled(trim((string) ($row['excuse_note'] ?? '')))) {
@@ -229,9 +236,15 @@ class ClinicalUniversityAttendanceController extends Controller
         }
         $session = DB::transaction(function () use ($request, $lecture, $person, $data) {
             $locked = ClinicalUniversityLecture::query()->whereKey($lecture->id)->lockForUpdate()->firstOrFail();
-            $this->access->authorizeOperate($request->user(),$locked);
-            $this->validateOccurrence($locked, $data['session_date'], true);
             $session = $locked->sessions()->whereDate('session_date', $data['session_date'])->lockForUpdate()->first();
+            $approved=$session?->isApproved()??false;
+            if($approved) {
+                abort_unless($this->access->canCorrectApproved($request->user()),403);
+                if(mb_strlen(trim((string)($data['correction_reason']??'')))<10) {
+                    throw ValidationException::withMessages(['correction_reason'=>[app()->getLocale()==='ar'?'اكتب سبب التصحيح بما لا يقل عن 10 أحرف.':'Enter a correction reason of at least 10 characters.']]);
+                }
+            } else $this->access->authorizeOperate($request->user(),$locked);
+            $this->validateOccurrence($locked, $data['session_date'], !$approved);
             abort_if($session?->qr_state === 'open', 409, 'كشف QR مفتوح. أغلقه قبل إجراء تصحيح يدوي.');
             $existing = $session ? $session->records()->lockForUpdate()->get()->keyBy('student_id') : collect();
             $membership = $session ? collect() : $this->roster($locked, $data['session_date'])->keyBy('student_id');
@@ -252,6 +265,7 @@ class ClinicalUniversityAttendanceController extends Controller
                 $studentId = (int) $row['student_id'];
                 $previous = $existing->get($studentId);
                 $note = trim((string) ($row['excuse_note'] ?? '')) ?: null;
+                if($previous && $previous->status===$row['status'] && $previous->excuse_note===$note) continue;
                 $record = ClinicalUniversityAttendanceRecord::updateOrCreate(
                     ['clinical_university_session_id' => $session->id, 'student_id' => $studentId],
                     ['student_subgroup_id' => $previous?->student_subgroup_id ?? $membership->get($studentId)?->student_subgroup_id,
@@ -262,12 +276,19 @@ class ClinicalUniversityAttendanceController extends Controller
                         'lecture_id' => $locked->id, 'session_id' => $session->id, 'date' => $data['session_date'],
                         'student_id' => $studentId, 'previous_status' => $previous?->status, 'status' => $row['status'],
                         'previous_note' => $previous?->excuse_note, 'note' => $note,
+                        'correction_reason'=>$approved?trim($data['correction_reason']):null,
                     ], $studentId);
                 }
             }
+            if(!$approved) {
+                $session->update(['approved_at'=>now(),'approved_by_user_id'=>$request->user()->id]);
+                AuditLog::create(['user_id'=>$request->user()->id,'action'=>'clinical_university.attendance_approved',
+                    'entity_type'=>ClinicalUniversitySession::class,'entity_id'=>$session->id,
+                    'changes'=>['lecture_id'=>$locked->id,'session_date'=>$data['session_date'],'source'=>'manual','records_count'=>count($data['records'])]]);
+            }
             return $session;
         });
-        return ApiResponse::success(['session_id' => $session->id], 'تم حفظ كشف محاضرة الجامعة لجميع المجموعات الفرعية.');
+        return ApiResponse::success(['session_id' => $session->id,'is_approved'=>true], app()->getLocale()==='ar'?'تم اعتماد كشف الحضور.':'Attendance register approved.');
     }
 
     public function openQr(Request $request, ClinicalUniversityLecture $lecture, UniversityQrAttendanceService $qr): JsonResponse
@@ -338,9 +359,6 @@ class ClinicalUniversityAttendanceController extends Controller
                 && $lecture->starts_on->toDateString() <= $day && $lecture->ends_on->toDateString() >= $day);
             if ($sameDay->contains(fn (ClinicalUniversityLecture $lecture) => $lecture->starts_at < $data['ends_at'] && $lecture->ends_at > $data['starts_at'])) {
                 throw ValidationException::withMessages(['starts_at' => ['يوجد موعد متداخل للمجموعة في هذا اليوم.']]);
-            }
-            if ($sameDay->count() >= 2) {
-                throw ValidationException::withMessages(['student_group_id' => ['لا يمكن إضافة أكثر من محاضرتين في اليوم نفسه للمجموعة الرئيسية.']]);
             }
         }
     }

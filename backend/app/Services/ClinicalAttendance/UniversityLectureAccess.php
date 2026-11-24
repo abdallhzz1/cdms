@@ -14,12 +14,17 @@ class UniversityLectureAccess
 
     public function canViewAny(User $actor): bool
     {
-        return $actor->can('permission', ['university_lectures.manage']) || $actor->can('permission', ['university_lectures.attendance.view']) || $this->canOperateAny($actor);
+        return $actor->can('permission', ['university_lectures.manage']) || $actor->can('permission', ['university_lectures.attendance.view']) || $this->canOperateAny($actor) || $this->canCorrectApproved($actor);
     }
 
     public function canOperateAny(User $actor): bool
     {
         return $actor->can('permission', ['university_lectures.attendance.manage']);
+    }
+
+    public function canCorrectApproved(User $actor): bool
+    {
+        return $actor->hasRole('ADMIN_ASSISTANT') && $actor->can('permission', ['university_lectures.attendance.correct_approved']);
     }
 
     public function person(User $actor): ?Person

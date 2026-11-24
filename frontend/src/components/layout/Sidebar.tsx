@@ -94,7 +94,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
           { path: '/distribution/groups', label: locale === 'ar' ? 'تسجيل مجموعات الطلبة' : 'Student Group Registration', icon: GraduationCap, permission: 'group_registration.view' },
           { path: '/clinical/schedule', label: locale === 'ar' ? 'الجدول السريري' : 'Clinical Schedule', icon: Calendar, permission: 'clinical_schedule.view' },
           { path: '/attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance Log', icon: Clock, permission: 'attendance.review' },
-          { path: '/attendance/university', label: locale === 'ar' ? 'محاضرات الجامعة' : 'University Lectures', icon: Calendar, customCheck: () => ['university_lectures.manage','university_lectures.attendance.view','university_lectures.attendance.manage','attendance.record'].some(can) },
+          { path: '/attendance/university', label: locale === 'ar' ? 'محاضرات الجامعة' : 'University Lectures', icon: Calendar, customCheck: () => ['university_lectures.manage','university_lectures.attendance.view','university_lectures.attendance.manage','university_lectures.attendance.correct_approved','attendance.record'].some(can) },
           { path: '/assessments', label: locale === 'ar' ? 'مراجعة التقييمات السريرية' : 'Clinical Assessment Review', icon: ClipboardCheck, permission: 'assessment.review' },
           { path: '/clinical-field-monitoring', label: locale === 'ar' ? 'المتابعة والزيارات الميدانية' : 'Field Monitoring & Visits', icon: ClipboardCheck, permission: 'clinical_field_monitoring.view' },
           { path: '/assessments/criteria', label: locale === 'ar' ? 'إعداد نموذج التقييم' : 'Assessment Template', icon: Settings, permission: 'assessment.criteria.manage' },

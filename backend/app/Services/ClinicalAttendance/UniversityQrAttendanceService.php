@@ -78,8 +78,9 @@ class UniversityQrAttendanceService
                     ['previous_status' => null, 'status' => 'absent', 'source' => 'qr_close']);
                 $absent++;
             }
-            $session->update(['qr_state' => 'closed', 'qr_closed_at' => now()]);
+            $session->update(['qr_state' => 'closed', 'qr_closed_at' => now(),'approved_at'=>now(),'approved_by_user_id'=>$actor->id]);
             $this->audit($actor->id, 'clinical_university.qr_closed', $session, null, ['absent_count' => $absent]);
+            $this->audit($actor->id, 'clinical_university.attendance_approved', $session, null, ['source'=>'qr','absent_count'=>$absent]);
             return $session;
         });
     }
