@@ -37,6 +37,10 @@ describe('university lecture attendance',()=>{
     expect(sent[0].url).toContain('/plans/11/day');
     expect(sent[0].body).toMatchObject({session_date:date,records:[{student_id:7,status:'present'},{student_id:8,status:'present'}]});
     await screen.findByText('Approved attendance register');
+    const totals=within(screen.getByRole('group',{name:'Attendance totals'}));
+    expect(totals.getByText('Present: 2')).toBeVisible();
+    expect(totals.getByText('Absent: 0')).toBeVisible();
+    expect(totals.getByText('Total: 2')).toBeVisible();
     expect(screen.queryByRole('button',{name:'All present'})).not.toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText('Lecture and main group'),'12');
     await waitFor(()=>expect(screen.getAllByRole('button',{name:'Approve attendance'})[0]).toBeDisabled());
@@ -99,6 +103,10 @@ describe('university lecture attendance',()=>{
     await userEvent.click(screen.getAllByRole('button',{name:'Save correction'})[0]);
     await waitFor(()=>expect(sent).toMatchObject({session_date:date,correction_reason:'Correct documented attendance',records:[{student_id:7,status:'absent'},{student_id:8,status:'present'}]}));
     await waitFor(()=>expect(screen.queryByRole('button',{name:'Save correction'})).not.toBeInTheDocument());
+    const totals=within(screen.getByRole('group',{name:'Attendance totals'}));
+    expect(totals.getByText('Present: 1')).toBeVisible();
+    expect(totals.getByText('Absent: 1')).toBeVisible();
+    expect(totals.getByText('Total: 2')).toBeVisible();
     expect(screen.queryByRole('button',{name:'All present'})).not.toBeInTheDocument();
   });
 
