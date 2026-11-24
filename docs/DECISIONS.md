@@ -409,3 +409,19 @@ that instruction fails as written on a Windows + Herd setup.
 **Impact:** No database migration. A new scoped API write endpoint and a review-screen entry form; assessment and grade records continue to use the assigned supervisor as evaluator and the authenticated reviewer as workflow actor.
 
 **Status:** Adopted 2026-11-04 by explicit owner direction.
+
+## ADR-027 — University lecture attendance supports classroom traffic and delegated staff access
+
+**Date:** 2026-11-24.
+
+**Decision:** At the system owner's request, university lecture attendance has separate global permissions to view registers (`university_lectures.attendance.view`) and operate registers/QR (`university_lectures.attendance.manage`). The migration grants these to the system administrator, clinical director, research and teaching assistants, and administrative assistants. Administrators can change these grants in the permission matrix. Lecture planning and permanent deletion retain their existing separate permissions. Assigned active clinical supervisors and RTAs can operate their own lectures with `attendance.record`; an RTA may be selected as lecturer even before a Person profile exists, with a single linked profile created transactionally when assigning the lecture.
+
+**Attribution and preservation:** Registers retain the assigned lecturer; the authenticated staff member is recorded as the actual actor. Existing register snapshots, audit history, QR date restrictions, roster eligibility, closed-session rules, and correction validation remain enforced.
+
+**Traffic:** Public clinical/university attendance limits distinguish student access tokens or trusted devices and OTP challenges. A missing identity or a shared classroom QR never becomes one student bucket. Generous network ceilings remain alongside strict student/challenge limits. Rate-limit responses retain HTTP 429 and Retry-After; the scanner prevents overlapping scans and respects the cooldown. Remembering a browser is optional and cannot block successful attendance.
+
+**Migration impact:** Adds permission rows and role grants only; no attendance records or historical assignments are rewritten. The frontend is built into the repository's production assets for cPanel deployment without npm on the server.
+
+**Validation:** Automated classroom scenario covers 100 students on one network, OTP/identity/scan routes, duplicate-scan idempotence, QR closure, permission revocation, attribution, and RTA lecturer assignment. Existing register and API exception tests are retained.
+
+**Status:** Adopted 2026-11-24 by explicit owner direction.

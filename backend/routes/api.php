@@ -150,11 +150,11 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('student-schedule/remember', [PublicStudentScheduleController::class, 'remember'])->middleware('throttle:student-otp-verify');
         Route::post('student-schedule/forget', [PublicStudentScheduleController::class, 'forget'])->middleware('throttle:operational-read');
         Route::post('student-schedule', [PublicStudentScheduleController::class, 'schedule'])->middleware('throttle:operational-read');
-        Route::post('clinical-attendance/identity', [PublicClinicalQrAttendanceController::class, 'identity'])->middleware('throttle:operational-read');
+        Route::post('clinical-attendance/identity', [PublicClinicalQrAttendanceController::class, 'identity'])->middleware('throttle:clinical-attendance-read');
         Route::post('clinical-attendance/begin', [PublicClinicalQrAttendanceController::class, 'begin'])->middleware('throttle:clinical-attendance-scan');
-        Route::post('clinical-attendance/request-otp', [PublicClinicalQrAttendanceController::class, 'requestOtp'])->middleware('throttle:student-otp-request');
-        Route::post('clinical-attendance/verify-otp', [PublicClinicalQrAttendanceController::class, 'verifyOtp'])->middleware('throttle:student-otp-verify');
-        Route::post('clinical-attendance/remember', [PublicClinicalQrAttendanceController::class, 'remember'])->middleware('throttle:student-otp-verify');
+        Route::post('clinical-attendance/request-otp', [PublicClinicalQrAttendanceController::class, 'requestOtp'])->middleware('throttle:clinical-attendance-otp-request');
+        Route::post('clinical-attendance/verify-otp', [PublicClinicalQrAttendanceController::class, 'verifyOtp'])->middleware('throttle:clinical-attendance-otp-verify');
+        Route::post('clinical-attendance/remember', [PublicClinicalQrAttendanceController::class, 'remember'])->middleware('throttle:clinical-attendance-otp-verify');
         Route::post('clinical-attendance/scan', [PublicClinicalQrAttendanceController::class, 'scan'])->middleware('throttle:clinical-attendance-scan');
         Route::get('student-policies/{campaign:public_id}', [PublicStudentPolicyController::class, 'show'])->middleware('throttle:operational-read');
         Route::get('student-policies/{campaign:public_id}/document', [PublicStudentPolicyController::class, 'document'])->middleware('throttle:operational-read');
@@ -970,19 +970,19 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             ->middleware('permission:attendance.record')
             ->name('operational.my-supervisor-attendance');
         Route::prefix('operational/university-attendance')->group(function () {
-            Route::get('plans', [ClinicalUniversityAttendanceController::class, 'index'])->middleware('permission:university_lectures.manage');
+            Route::get('plans', [ClinicalUniversityAttendanceController::class, 'index'])->middleware('permission.any:university_lectures.manage,university_lectures.attendance.view,university_lectures.attendance.manage,attendance.record');
             Route::post('plans', [ClinicalUniversityAttendanceController::class, 'store'])->middleware('permission:university_lectures.manage');
             Route::put('plans/{lecture}', [ClinicalUniversityAttendanceController::class, 'update'])->middleware('permission:university_lectures.manage');
             Route::delete('plans/{lecture}', [ClinicalUniversityAttendanceController::class, 'destroy'])->middleware('permission:university_lectures.manage');
             Route::delete('plans/{lecture}/with-attendance', [ClinicalUniversityAttendanceController::class, 'destroyWithAttendance'])
                 ->middleware(['permission:university_lectures.manage', 'permission:university_lectures.delete_with_attendance']);
             Route::post('plans/{lecture}/archive', [ClinicalUniversityAttendanceController::class, 'archive'])->middleware('permission:university_lectures.manage');
-            Route::get('mine', [ClinicalUniversityAttendanceController::class, 'mine'])->middleware('permission:attendance.record');
-            Route::get('plans/{lecture}/day', [ClinicalUniversityAttendanceController::class, 'day'])->middleware('permission.any:attendance.record,university_lectures.manage');
-            Route::post('plans/{lecture}/day', [ClinicalUniversityAttendanceController::class, 'record'])->middleware('permission:attendance.record');
-            Route::post('plans/{lecture}/qr/open', [ClinicalUniversityAttendanceController::class, 'openQr'])->middleware('permission:attendance.record');
-            Route::get('plans/{lecture}/qr', [ClinicalUniversityAttendanceController::class, 'qr'])->middleware('permission:attendance.record');
-            Route::post('plans/{lecture}/qr/close', [ClinicalUniversityAttendanceController::class, 'closeQr'])->middleware('permission:attendance.record');
+            Route::get('mine', [ClinicalUniversityAttendanceController::class, 'mine'])->middleware('permission.any:attendance.record,university_lectures.attendance.manage');
+            Route::get('plans/{lecture}/day', [ClinicalUniversityAttendanceController::class, 'day'])->middleware('permission.any:attendance.record,university_lectures.manage,university_lectures.attendance.view,university_lectures.attendance.manage');
+            Route::post('plans/{lecture}/day', [ClinicalUniversityAttendanceController::class, 'record'])->middleware('permission.any:attendance.record,university_lectures.attendance.manage');
+            Route::post('plans/{lecture}/qr/open', [ClinicalUniversityAttendanceController::class, 'openQr'])->middleware('permission.any:attendance.record,university_lectures.attendance.manage');
+            Route::get('plans/{lecture}/qr', [ClinicalUniversityAttendanceController::class, 'qr'])->middleware('permission.any:attendance.record,university_lectures.attendance.manage');
+            Route::post('plans/{lecture}/qr/close', [ClinicalUniversityAttendanceController::class, 'closeQr'])->middleware('permission.any:attendance.record,university_lectures.attendance.manage');
         });
         Route::prefix('operational/clinical-qr-attendance')->middleware(['permission:attendance.record'])->group(function () {
             Route::get('sessions', [ClinicalQrAttendanceController::class, 'index']);

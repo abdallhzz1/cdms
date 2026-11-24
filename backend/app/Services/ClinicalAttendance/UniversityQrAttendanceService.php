@@ -23,8 +23,10 @@ class UniversityQrAttendanceService
     {
         abort_unless(config('clinical_attendance.enabled'), 403, 'تسجيل QR متوقف حاليًا.');
         abort_unless($date === today()->toDateString(), 422, 'يمكن فتح QR في يوم المحاضرة فقط.');
+        app(UniversityLectureAccess::class)->authorizeOperate($actor,$lecture);
         return DB::transaction(function () use ($lecture, $person, $actor, $date): ClinicalUniversitySession {
             $locked = ClinicalUniversityLecture::query()->whereKey($lecture->id)->lockForUpdate()->firstOrFail();
+            app(UniversityLectureAccess::class)->authorizeOperate($actor,$locked);
             abort_unless($locked->is_active && (int) $locked->supervisor_person_id === (int) $person->id
                 && $date >= $locked->starts_on->toDateString() && $date <= $locked->ends_on->toDateString()
                 && strtolower(Carbon::parse($date)->format('l')) === $locked->weekday, 403);
@@ -40,13 +42,14 @@ class UniversityQrAttendanceService
                 'supervisor_person_id' => $person->id, 'recorded_by_user_id' => $actor->id,
                 'qr_public_id' => (string) Str::uuid(), 'qr_state' => 'open', 'qr_opened_at' => now(),
             ]);
-            foreach ($members as $member) {
-                ClinicalUniversityAttendanceRecord::create([
+            foreach ($members->chunk(500) as $chunk) {
+                ClinicalUniversityAttendanceRecord::insert($chunk->map(fn ($member)=>[
                     'clinical_university_session_id' => $session->id,
                     'student_id' => $member->student_id,
                     'student_subgroup_id' => $member->student_subgroup_id,
                     'status' => null,
-                ]);
+                    'created_at'=>now(),'updated_at'=>now(),
+                ])->all());
             }
             $this->audit($actor->id, 'clinical_university.qr_opened', $session, null, ['roster_count' => $members->count()]);
             return $session;
@@ -61,10 +64,11 @@ class UniversityQrAttendanceService
 
     public function close(ClinicalUniversityLecture $lecture, Person $person, User $actor, string $date): ClinicalUniversitySession
     {
+        app(UniversityLectureAccess::class)->authorizeOperate($actor,$lecture);
         return DB::transaction(function () use ($lecture, $person, $actor, $date): ClinicalUniversitySession {
             $session = ClinicalUniversitySession::query()->where('clinical_university_lecture_id', $lecture->id)
                 ->whereDate('session_date', $date)->lockForUpdate()->firstOrFail();
-            abort_unless((int) $session->supervisor_person_id === (int) $person->id, 403);
+            app(UniversityLectureAccess::class)->authorizeOperate($actor,$lecture);
             if ($session->qr_state === 'closed') return $session;
             abort_unless($session->qr_state === 'open', 409, 'هذا الكشف ليس كشف QR مفتوحًا.');
             $absent = 0;

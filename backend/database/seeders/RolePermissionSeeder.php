@@ -115,6 +115,7 @@ class RolePermissionSeeder extends Seeder
             'RTA' => ['assessment.review', 'attendance.review', 'university_lectures.manage', 'student_events.view', 'student_events.manage', 'student_events.attendance.manage'],
         ];
         $defaultGrants['RTA'] = array_merge($defaultGrants['RTA'], ['clinical_field_monitoring.view', 'clinical_field_monitoring.create_assistant', 'clinical_field_monitoring.export']);
+        foreach (['SYS_ADMIN','RTA','ADMIN_ASSISTANT','CLINICAL_DIRECTOR'] as $attendanceRole) $defaultGrants[$attendanceRole] = array_merge($defaultGrants[$attendanceRole], ['university_lectures.attendance.view','university_lectures.attendance.manage']);
         $defaultGrants['DEPARTMENT_HEAD'] = array_merge($defaultGrants['DEPARTMENT_HEAD'], ['clinical_field_monitoring.view', 'clinical_field_monitoring.create_department_report', 'clinical_field_monitoring.export']);
         $defaultGrants['CLINICAL_DIRECTOR'] = array_merge($defaultGrants['CLINICAL_DIRECTOR'], ['clinical_field_monitoring.view', 'clinical_field_monitoring.create_supervisory_visit', 'clinical_field_monitoring.review', 'clinical_field_monitoring.export']);
         $defaultGrants['DEAN'] = array_merge($defaultGrants['DEAN'], ['clinical_field_monitoring.view', 'clinical_field_monitoring.review', 'clinical_field_monitoring.export']);

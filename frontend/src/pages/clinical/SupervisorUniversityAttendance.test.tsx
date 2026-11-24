@@ -64,7 +64,10 @@ describe('university lecture attendance',()=>{
     await userEvent.click(screen.getByRole('button',{name:'QR'}));
     await userEvent.click(screen.getByRole('button',{name:'Open lecture QR'}));
     expect(await screen.findByAltText('Lecture attendance QR code')).toBeVisible();
-    expect(screen.getByRole('button',{name:'Manual'})).toBeDisabled();
+    await userEvent.click(screen.getByRole('button',{name:'Manual'}));
+    expect(screen.getByRole('button',{name:'All present'})).toBeDisabled();
+    expect(screen.getByRole('button',{name:'Save lecture attendance'})).toBeDisabled();
+    await userEvent.click(screen.getByRole('button',{name:'QR'}));
     await userEvent.click(screen.getByRole('button',{name:'Close QR and record absences'}));
     await waitFor(()=>expect(calls.some(call=>call.includes('/qr/close'))).toBe(true));
   });

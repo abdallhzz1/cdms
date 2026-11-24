@@ -145,6 +145,8 @@ const PERMISSION_LABELS: Record<string, string> = {
   'attendance.qr.reopen_finalized': 'إعادة فتح جلسة QR معتمدة',
   'attendance.excuse': 'توثيق أعذار الغياب',
   'attendance.notify': 'إرسال إنذارات الغياب',
+  'university_lectures.attendance.view': 'عرض كشوف حضور جميع محاضرات الجامعة',
+  'university_lectures.attendance.manage': 'تسجيل الحضور وفتح وإغلاق QR لجميع محاضرات الجامعة',
   'university_lectures.manage': 'إعداد ومراجعة محاضرات الجامعة',
   'student_events.view': 'عرض فعاليات الكلية وكشوفها',
   'student_events.manage': 'إضافة وتعديل ونشر وأرشفة فعاليات الكلية',

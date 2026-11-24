@@ -245,7 +245,7 @@ export function App() {
                 <Route path="/training-sites/:id/roster" element={<Navigate to="/clinical/schedule" replace />} />
                 <Route path="/clinical/dashboard" element={<ClinicalDashboard />} />
                 <Route path="/attendance" element={<ProtectedRoute requiredPermission="attendance.review"><AttendanceMasterPage /></ProtectedRoute>} />
-                <Route path="/attendance/university" element={<ProtectedRoute requiredPermission="university_lectures.manage"><UniversityAttendanceAdminPage /></ProtectedRoute>} />
+                <Route path="/attendance/university" element={<ProtectedRoute requiredAnyPermission={['university_lectures.manage','university_lectures.attendance.view','university_lectures.attendance.manage','attendance.record']}><UniversityAttendanceAdminPage /></ProtectedRoute>} />
                 <Route path="/assessments" element={<ProtectedRoute requiredPermission="assessment.review"><AssessmentsMasterPage /></ProtectedRoute>} />
                 <Route path="/clinical-field-monitoring" element={<ProtectedRoute requiredPermission="clinical_field_monitoring.view"><ClinicalFieldMonitoringPage /></ProtectedRoute>} />
                 <Route path="/admin/clinical-assessments" element={<ProtectedRoute requiredRole="SYS_ADMIN"><AdminClinicalAssessmentsPage /></ProtectedRoute>} />

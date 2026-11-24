@@ -216,7 +216,7 @@ class ClinicalUniversityAttendanceTest extends TestCase
         $deleteUrl = "/api/v1/operational/university-attendance/plans/$first/with-attendance";
         $deletion = ['confirmation' => 'محاضرة أولى', 'reason' => 'تم إنشاء المحاضرة والكشف بطريق الخطأ'];
 
-        $this->actingAs($assistant)->getJson('/api/v1/operational/university-attendance/plans')->assertForbidden();
+        $this->actingAs($assistant)->getJson('/api/v1/operational/university-attendance/plans')->assertOk();
         $this->actingAs($admin)->postJson('/api/v1/admin/permissions/toggle', [
             'role_id' => $assistantRole->id, 'permission_id' => $managePermission->id, 'granted' => true,
         ])->assertOk();

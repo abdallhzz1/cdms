@@ -83,6 +83,9 @@ return Application::configure(basePath: dirname(__DIR__))
             };
 
             return match (true) {
+                // Named rate limiters provide a complete localized 429 response,
+                // including Retry-After. Do not turn it into an unexpected 500.
+                $e instanceof \Illuminate\Http\Exceptions\HttpResponseException => $e->getResponse(),
                 $e instanceof ValidationException => ApiResponse::error(
                     message: (string) collect($e->errors())->flatten()->first(),
                     errors: $e->errors(),
@@ -103,7 +106,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 $e instanceof HttpExceptionInterface => ApiResponse::error(
                     message: $httpMessage($e->getStatusCode()),
                     status: $e->getStatusCode(),
-                ),
+                )->withHeaders($e->getHeaders()),
                 default => (function () use ($e, $request, $text) {
                     $referenceId = (string) Str::uuid();
                     Log::error('Unhandled API exception', [

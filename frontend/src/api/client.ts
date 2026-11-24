@@ -33,7 +33,7 @@ export class ApiError extends Error {
   readonly status: number;
   readonly errors: Record<string, unknown>;
 
-  constructor(message: string, status: number, errors: Record<string, unknown> = {}) {
+  constructor(message: string, status: number, errors: Record<string, unknown> = {}, readonly retryAfterSeconds = 0) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
@@ -191,7 +191,8 @@ export async function apiFetchEnvelope<T>(path: string, options: ApiFetchOptions
     if (response.status === 401 && path !== '/auth/me' && path !== '/auth/login') {
       window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
     }
-    throw new ApiError(message, response.status, errors);
+    const retryAfter = Number(response.headers.get('Retry-After') || envelope?.meta?.retry_after_seconds || 0);
+    throw new ApiError(message, response.status, errors, Number.isFinite(retryAfter) ? retryAfter : 0);
   }
 
   return envelope;

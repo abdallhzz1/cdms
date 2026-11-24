@@ -52,6 +52,8 @@ class PermissionSeeder extends Seeder
             ['code' => 'attendance.excuse', 'module' => 'Attendance', 'action' => 'EXCUSE', 'description_key' => 'permissions.attendance_excuse.description'],
             ['code' => 'attendance.notify', 'module' => 'Attendance', 'action' => 'NOTIFY', 'description_key' => 'permissions.attendance_notify.description'],
             ['code' => 'university_lectures.manage', 'module' => 'University Lectures', 'action' => 'MANAGE', 'description_key' => 'permissions.university_lectures_manage.description'],
+            ['code' => 'university_lectures.attendance.view', 'module' => 'University Lectures', 'action' => 'VIEW_ATTENDANCE', 'description_key' => 'permissions.university_lectures_attendance_view.description'],
+            ['code' => 'university_lectures.attendance.manage', 'module' => 'University Lectures', 'action' => 'MANAGE_ATTENDANCE', 'description_key' => 'permissions.university_lectures_attendance_manage.description'],
             ['code' => 'university_lectures.delete_with_attendance', 'module' => 'University Lectures', 'action' => 'DELETE_WITH_ATTENDANCE', 'description_key' => 'permissions.university_lectures_delete_with_attendance.description'],
             ['code' => 'assessment.view', 'module' => 'Assessment', 'action' => 'VIEW', 'description_key' => 'permissions.assessment_view.description'],
             ['code' => 'assessment.review', 'module' => 'Assessment', 'action' => 'REVIEW', 'description_key' => 'permissions.assessment_review.description'],

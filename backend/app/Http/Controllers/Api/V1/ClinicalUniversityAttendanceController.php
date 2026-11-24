@@ -26,25 +26,36 @@ use Illuminate\Validation\ValidationException;
 class ClinicalUniversityAttendanceController extends Controller
 {
     private const DAYS = ['saturday', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+    public function __construct(private readonly \App\Services\ClinicalAttendance\UniversityLectureAccess $access) {}
 
     public function index(Request $request): JsonResponse
     {
-        $this->authorizeManager($request);
+        $actor = $request->user();
+        $all = $this->access->canViewAny($actor);
+        abort_unless($all || ($this->access->eligible($actor) && $actor->can('permission',['attendance.record'])),403);
+        $ownPersonId = $all ? null : $this->access->person($actor)?->id;
         $request->validate(['student_group_id' => ['nullable', 'integer', 'exists:student_groups,id']]);
         $groups = StudentGroup::query()->with('academicYear:id,code,start_date,end_date,is_current')
-            ->whereHas('academicYear', fn ($query) => $query->where('status', 'active'))
+            ->when(!$all,fn ($query)=>$query->whereIn('id',ClinicalUniversityLecture::where('supervisor_person_id',$ownPersonId??0)->select('student_group_id')))
             ->orderByDesc('academic_year_id')->orderBy('name')->get(['id', 'academic_year_id', 'academic_level', 'name']);
         $supervisorUsers = User::query()->where('is_active', true)
-            ->whereHas('roles', fn ($roles) => $roles->where('code', 'CLINICAL_SUPERVISOR'))
-            ->get(['id', 'email']);
+            ->whereHas('roles', fn ($roles) => $roles->whereIn('code', \App\Services\ClinicalAttendance\UniversityLectureAccess::INSTRUCTOR_ROLES))
+            ->with('person')->orderBy('name')->get(['id', 'email','name']);
         $supervisors = Person::query()->where('is_active', true)
             ->where(fn ($query) => $query->whereIn('user_id', $supervisorUsers->pluck('id'))
                 ->orWhere(fn ($unlinked) => $unlinked->whereNull('user_id')->whereIn('email', $supervisorUsers->pluck('email'))))
-            ->orderBy('full_name_ar')->get(['id', 'full_name_ar', 'full_name_en']);
+            ->orderBy('full_name_ar')->get(['id', 'user_id', 'email', 'full_name_ar', 'full_name_en']);
+        $lecturers = $supervisorUsers->filter(fn ($user)=>!$user->person || $user->person->is_active)->map(function ($user) use ($supervisors) {
+            $person=$user->person ?? $supervisors->first(fn ($person)=>strtolower((string)$person->email)===strtolower($user->email));
+            return ['id'=>$person?->id,'user_id'=>$user->id,'full_name_ar'=>$person?->full_name_ar?:$user->name,'full_name_en'=>$person?->full_name_en];
+        })->values();
         $lectures = ClinicalUniversityLecture::query()->with(['group.academicYear:id,code', 'supervisor:id,full_name_ar,full_name_en'])
+            ->when(!$all,fn ($query)=>$query->where('supervisor_person_id',$ownPersonId??0))
+            ->when($request->filled('student_group_id'),fn ($query)=>$query->where('student_group_id',$request->integer('student_group_id')))
             ->withCount('sessions')
             ->orderByDesc('is_active')->orderByDesc('starts_on')->orderBy('weekday')->orderBy('starts_at')->get();
         $sessions = ClinicalUniversitySession::query()->with(['lecture.group:id,name', 'supervisor:id,full_name_ar'])
+            ->when(!$all,fn ($query)=>$query->whereHas('lecture',fn ($lecture)=>$lecture->where('supervisor_person_id',$ownPersonId??0)))
             ->when($request->filled('student_group_id'), fn ($query) => $query->whereHas('lecture', fn ($lecture) => $lecture->where('student_group_id', $request->integer('student_group_id'))))
             ->withCount('records')->orderByDesc('session_date')->orderByDesc('id')->limit(250)->get();
 
@@ -52,7 +63,7 @@ class ClinicalUniversityAttendanceController extends Controller
         $sessions = $sessions->map(fn (ClinicalUniversitySession $session) => [
             ...$session->toArray(), 'session_date' => $session->session_date->toDateString(),
         ]);
-        return ApiResponse::success(compact('groups', 'supervisors', 'lectures', 'sessions'));
+        return ApiResponse::success(compact('groups', 'supervisors', 'lecturers', 'lectures', 'sessions'));
     }
 
     public function store(Request $request): JsonResponse
@@ -60,6 +71,7 @@ class ClinicalUniversityAttendanceController extends Controller
         $this->authorizeManager($request);
         $data = $this->validateLecture($request);
         $lecture = DB::transaction(function () use ($request, $data) {
+            $data = $this->resolveLecturer($data);
             StudentGroup::query()->whereKey($data['student_group_id'])->lockForUpdate()->firstOrFail();
             $this->validatePlan($data);
             $lecture = ClinicalUniversityLecture::create($data + ['created_by_user_id' => $request->user()->id]);
@@ -74,6 +86,7 @@ class ClinicalUniversityAttendanceController extends Controller
         $this->authorizeManager($request);
         $data = $this->validateLecture($request);
         $lecture = DB::transaction(function () use ($request, $lecture, $data) {
+            $data = $this->resolveLecturer($data);
             StudentGroup::query()->whereKey($data['student_group_id'])->lockForUpdate()->firstOrFail();
             $locked = ClinicalUniversityLecture::query()->whereKey($lecture->id)->lockForUpdate()->firstOrFail();
             abort_if($locked->sessions()->exists(), 409, 'هذه المحاضرة لها كشوف محفوظة. أوقفها وأنشئ موعدًا جديدًا لحفظ السجل التاريخي.');
@@ -167,7 +180,9 @@ class ClinicalUniversityAttendanceController extends Controller
 
     public function mine(Request $request): JsonResponse
     {
-        $person = $this->supervisor($request);
+        abort_unless($this->access->eligible($request->user()),403);
+        $person = $this->access->person($request->user());
+        if (!$person) return ApiResponse::success([]);
         $lectures = ClinicalUniversityLecture::query()->where('supervisor_person_id', $person->id)->where('is_active', true)
             ->with(['group.academicYear:id,code', 'supervisor:id,full_name_ar,full_name_en'])
             ->orderBy('weekday')->orderBy('starts_at')->get();
@@ -198,7 +213,8 @@ class ClinicalUniversityAttendanceController extends Controller
 
     public function record(Request $request, ClinicalUniversityLecture $lecture): JsonResponse
     {
-        $person = $this->supervisor($request);
+        $this->access->authorizeOperate($request->user(),$lecture);
+        $person = $lecture->supervisor;
         $data = $request->validate([
             'session_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
             'records' => ['required', 'array', 'min:1', 'max:500'],
@@ -206,7 +222,6 @@ class ClinicalUniversityAttendanceController extends Controller
             'records.*.status' => ['required', Rule::in(AttendanceRecord::STATUSES)],
             'records.*.excuse_note' => ['nullable', 'string', 'max:2000'],
         ]);
-        abort_unless((int) $lecture->supervisor_person_id === (int) $person->id, 403);
         foreach ($data['records'] as $index => $row) {
             if ($row['status'] === 'excused' && ! filled(trim((string) ($row['excuse_note'] ?? '')))) {
                 throw ValidationException::withMessages(["records.$index.excuse_note" => ['سبب العذر مطلوب عند اختيار «بعذر».']]);
@@ -214,7 +229,7 @@ class ClinicalUniversityAttendanceController extends Controller
         }
         $session = DB::transaction(function () use ($request, $lecture, $person, $data) {
             $locked = ClinicalUniversityLecture::query()->whereKey($lecture->id)->lockForUpdate()->firstOrFail();
-            abort_unless((int) $locked->supervisor_person_id === (int) $person->id, 403);
+            $this->access->authorizeOperate($request->user(),$locked);
             $this->validateOccurrence($locked, $data['session_date'], true);
             $session = $locked->sessions()->whereDate('session_date', $data['session_date'])->lockForUpdate()->first();
             abort_if($session?->qr_state === 'open', 409, 'كشف QR مفتوح. أغلقه قبل إجراء تصحيح يدوي.');
@@ -257,7 +272,8 @@ class ClinicalUniversityAttendanceController extends Controller
 
     public function openQr(Request $request, ClinicalUniversityLecture $lecture, UniversityQrAttendanceService $qr): JsonResponse
     {
-        $person = $this->supervisor($request);
+        $this->access->authorizeOperate($request->user(),$lecture);
+        $person = $lecture->supervisor;
         $date = $request->validate(['session_date' => ['required', 'date_format:Y-m-d']])['session_date'];
         $session = $qr->open($lecture, $person, $request->user(), $date);
         return ApiResponse::success(['session_id' => $session->id, 'qr_state' => $session->qr_state], 'فُتح QR لمحاضرة الجامعة.');
@@ -265,18 +281,17 @@ class ClinicalUniversityAttendanceController extends Controller
 
     public function qr(Request $request, ClinicalUniversityLecture $lecture, UniversityQrAttendanceService $qr): JsonResponse
     {
-        $person = $this->supervisor($request);
+        $this->access->authorizeOperate($request->user(),$lecture);
         $date = $request->validate(['session_date' => ['required', 'date_format:Y-m-d']])['session_date'];
-        abort_unless((int) $lecture->supervisor_person_id === (int) $person->id, 403);
         $session = $lecture->sessions()->whereDate('session_date', $date)->firstOrFail();
         return ApiResponse::success($qr->payload($session));
     }
 
     public function closeQr(Request $request, ClinicalUniversityLecture $lecture, UniversityQrAttendanceService $qr): JsonResponse
     {
-        $person = $this->supervisor($request);
+        $this->access->authorizeOperate($request->user(),$lecture);
+        $person = $lecture->supervisor;
         $date = $request->validate(['session_date' => ['required', 'date_format:Y-m-d']])['session_date'];
-        abort_unless((int) $lecture->supervisor_person_id === (int) $person->id, 403);
         $session = $qr->close($lecture, $person, $request->user(), $date);
         return ApiResponse::success(['session_id' => $session->id, 'qr_state' => $session->qr_state], 'أُغلق QR وسُجل غير الماسحين غائبين.');
     }
@@ -285,7 +300,8 @@ class ClinicalUniversityAttendanceController extends Controller
     {
         $data = $request->validate([
             'student_group_id' => ['required', 'integer', 'exists:student_groups,id'],
-            'supervisor_person_id' => ['required', 'integer', 'exists:people,id'],
+            'supervisor_person_id' => ['required_without:lecturer_user_id',Rule::prohibitedIf($request->filled('lecturer_user_id')), 'integer', 'exists:people,id'],
+            'lecturer_user_id' => ['required_without:supervisor_person_id',Rule::prohibitedIf($request->filled('supervisor_person_id')),'integer','exists:users,id'],
             'title' => ['required', 'string', 'max:160'],
             'weekday' => ['required', Rule::in(self::DAYS)],
             'starts_at' => ['required', 'date_format:H:i'],
@@ -305,8 +321,8 @@ class ClinicalUniversityAttendanceController extends Controller
         $group = StudentGroup::with('academicYear')->findOrFail($data['student_group_id']);
         $supervisor = Person::findOrFail($data['supervisor_person_id']);
         $account = $supervisor->user ?? User::query()->where('email', $supervisor->email)->first();
-        if (! $supervisor->is_active || ! $account?->is_active || ! $account->hasRole('CLINICAL_SUPERVISOR')) {
-            throw ValidationException::withMessages(['supervisor_person_id' => ['اختر مشرفًا سريريًا نشطًا لديه حساب ودور المشرف.']]);
+        if (! $supervisor->is_active || !$account || !$this->access->eligible($account)) {
+            throw ValidationException::withMessages(['supervisor_person_id' => ['اختر محاضرًا نشطًا من المشرفين السريريين أو مساعدي البحث والتدريس.']]);
         }
         if ($data['starts_on'] < $group->academicYear->start_date->toDateString() || $data['ends_on'] > $group->academicYear->end_date->toDateString()
             || Carbon::parse($data['starts_on'])->diffInDays($data['ends_on']) > 370) {
@@ -337,7 +353,7 @@ class ClinicalUniversityAttendanceController extends Controller
     private function planPayload(ClinicalUniversityLecture $lecture): array
     {
         $lecture->loadMissing('group.academicYear', 'supervisor');
-        return [...$lecture->toArray(), 'starts_on' => $lecture->starts_on->toDateString(),
+        return [...$lecture->toArray(), 'can_record_attendance'=>$this->access->canOperate(auth()->user(),$lecture), 'starts_on' => $lecture->starts_on->toDateString(),
             'ends_on' => $lecture->ends_on->toDateString(), 'scheduled_dates' => $lecture->scheduledDates()];
     }
 
@@ -355,21 +371,23 @@ class ClinicalUniversityAttendanceController extends Controller
         abort_unless($request->user()?->can('permission', ['university_lectures.manage']), 403);
     }
 
-    private function supervisor(Request $request): Person
-    {
-        abort_unless($request->user()?->hasRole('CLINICAL_SUPERVISOR'), 403);
-        abort_unless($request->user()->can('permission', ['supervisor.workspace.view']), 403);
-        $person = Person::query()->where('user_id', $request->user()->id)->first()
-            ?? Person::query()->where('email', $request->user()->email)->whereNull('user_id')->first();
-        if (! $person) abort(404, 'لم نجد ملف المشرف السريري المرتبط بحسابك.');
-        if (! $person->user_id) $person->update(['user_id' => $request->user()->id]);
-        return $person;
-    }
-
     private function authorizeLecture(Request $request, ClinicalUniversityLecture $lecture): void
     {
-        if ($request->user()?->can('permission', ['university_lectures.manage'])) return;
-        abort_unless((int) $lecture->supervisor_person_id === (int) $this->supervisor($request)->id, 403);
+        $this->access->authorizeView($request->user(),$lecture);
+    }
+
+    private function resolveLecturer(array $data): array
+    {
+        if (isset($data['lecturer_user_id'])) {
+            $user=User::whereKey($data['lecturer_user_id'])->lockForUpdate()->firstOrFail();
+            if (!$this->access->eligible($user)) throw ValidationException::withMessages(['lecturer_user_id'=>['الحساب ليس لمحاضر نشط من المشرفين أو مساعدي البحث والتدريس.']]);
+            $person=Person::where('user_id',$user->id)->first() ?? Person::whereNull('user_id')->whereRaw('LOWER(email) = ?',[strtolower($user->email)])->first();
+            if (!$person) $person=Person::create(['user_id'=>$user->id,'email'=>strtolower($user->email),'full_name_ar'=>$user->name,'is_active'=>true]);
+            elseif (!$person->user_id) $person->update(['user_id'=>$user->id]);
+            $data['supervisor_person_id']=$person->id;
+            unset($data['lecturer_user_id']);
+        }
+        return $data;
     }
 
     private function audit(Request $request, string $action, int $id, array $changes, ?int $studentId = null): void

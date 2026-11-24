@@ -118,10 +118,10 @@ class AppServiceProvider extends ServiceProvider
             if ($identity !== '') $limits[] = Limit::perMinute(20)->by('event-scan-device:'.hash('sha256', $identity));
             return $limits;
         });
-        RateLimiter::for('clinical-attendance-scan', fn (Request $request) => [
-            Limit::perMinute(30)->by('clinical-scan-ip:'.$request->ip()),
-            Limit::perMinute(10)->by('clinical-scan-token:'.hash('sha256', (string) $request->input('access_token'))),
-        ]);
+        RateLimiter::for('clinical-attendance-read', \App\Services\ClinicalAttendance\PublicAttendanceRateLimits::reads(...));
+        RateLimiter::for('clinical-attendance-scan', \App\Services\ClinicalAttendance\PublicAttendanceRateLimits::scans(...));
+        RateLimiter::for('clinical-attendance-otp-request', \App\Services\ClinicalAttendance\PublicAttendanceRateLimits::requestOtp(...));
+        RateLimiter::for('clinical-attendance-otp-verify', \App\Services\ClinicalAttendance\PublicAttendanceRateLimits::verifyOtp(...));
 
         RateLimiter::for('confidential-finance-unlock', fn (Request $request) => [
             Limit::perMinute(5)->by('confidential-finance:ip:'.$request->ip()),
