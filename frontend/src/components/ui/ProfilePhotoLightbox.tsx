@@ -9,9 +9,10 @@ type Props = {
   enlargeLabel: string;
   size?: 'sm' | 'md';
   shape?: 'rounded' | 'circle';
+  loading?: 'eager' | 'lazy';
 };
 
-export function ProfilePhotoLightbox({ photoUrl, name, subtitle, enlargeLabel, size = 'md', shape = 'rounded' }: Props) {
+export function ProfilePhotoLightbox({ photoUrl, name, subtitle, enlargeLabel, size = 'md', shape = 'rounded', loading = 'eager' }: Props) {
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [photoUrl]);
@@ -22,7 +23,7 @@ export function ProfilePhotoLightbox({ photoUrl, name, subtitle, enlargeLabel, s
 
   return <>
     <button type="button" onClick={() => setOpen(true)} aria-label={enlargeLabel} title={enlargeLabel} className={`group relative shrink-0 overflow-hidden border border-slate-200 bg-white ${sizeClass}`}>
-      <img src={photo} alt={name} onError={() => setFailed(true)} className="h-full w-full object-cover" />
+      <img src={photo} alt={name} loading={loading} onError={() => setFailed(true)} className="h-full w-full object-cover" />
       <span className="absolute inset-0 hidden place-items-center bg-white/80 text-teal-700 group-hover:grid"><ZoomIn className="h-4 w-4" /></span>
     </button>
     <Modal isOpen={open} onClose={() => setOpen(false)} title={name} maxWidth="lg" backdropTone="light">

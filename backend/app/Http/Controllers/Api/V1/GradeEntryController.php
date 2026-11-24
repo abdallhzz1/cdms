@@ -74,7 +74,7 @@ class GradeEntryController extends Controller
             ->where('academic_level', $course->academic_level)
             ->whereIn('registration_status', ['active', 'registered'])
             ->orderBy('university_number')
-            ->get(['id', 'university_number', 'full_name_ar', 'full_name_en', 'academic_level']);
+            ->get(['id', 'university_number', 'full_name_ar', 'full_name_en', 'academic_level', 'photo_url']);
 
         $enrollments = StudentCourseEnrollment::query()
             ->where('course_id', $course->id)
@@ -85,8 +85,9 @@ class GradeEntryController extends Controller
             ->keyBy('student_id');
 
         $clinical = $this->clinicalScores($students->pluck('id')->all(), $course->id, (int) $data['academic_year_id']);
+        $groups=app(\App\Services\GradeRosterGroups::class)->forStudents($students->pluck('id')->all(),$course->id,(int)$data['academic_year_id']);
 
-        return ApiResponse::success($students->map(function (Student $student) use ($enrollments, $clinical, $course, $data) {
+        return ApiResponse::success($students->map(function (Student $student) use ($enrollments, $clinical, $course, $data, $groups) {
             $enrollment = $enrollments->get($student->id);
             $official = $clinical->get($student->id);
             $saved = $enrollment?->gradeEntry;
@@ -96,6 +97,7 @@ class GradeEntryController extends Controller
                     || abs((float) $saved->clinical_score - (float) $official) > 0.005);
             return [
                 'student' => $student,
+                'clinical_groups'=>$groups->get($student->id,[]),
                 'enrollment_id' => $enrollment?->id,
                 'grade_entry' => $saved,
                 'official_clinical_score' => $official,

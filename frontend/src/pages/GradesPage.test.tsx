@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { GradesPage } from './GradesPage';
@@ -9,6 +9,53 @@ const envelope=(data:unknown)=>new Response(JSON.stringify({success:true,data,me
 afterEach(()=>{vi.restoreAllMocks();document.cookie='XSRF-TOKEN=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'});
 
 describe('GradesPage official workflow',()=>{
+  it('filters clinical groups and subgroups without duplicating students or losing hidden drafts and shows student photos',async()=>{
+    document.cookie='XSRF-TOKEN=test; path=/';
+    const pair=(groupId:number,name:string,id:number,subgroup:string)=>({group:{id:groupId,name},subgroup:{id,name:subgroup}});
+    const memberships=[[pair(10,'Q',101,'Q1')],[pair(10,'Q',102,'Q2')],[pair(20,'A',201,'A1')],[],[pair(10,'Q',101,'Q1'),pair(20,'A',201,'A1')]];
+    const names=['First group student','Second subgroup student','Other group student','Unassigned student','Multiple groups student'];
+    const sent:{url:string;body:Record<string,unknown>}[]=[];
+    vi.spyOn(window,'fetch').mockImplementation(async(input,init)=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope({id:1,roles:['RTA'],assigned_levels:['fourth'],permissions:[{code:'grades.view',scope:'global'},{code:'grades.create',scope:'global'}]});
+      if(url.includes('/grade-entries/options'))return envelope({academic_years:[{id:3,code:'2026-2027',is_current:true}],courses:[{id:8,code:'MED401',name_ar:'الجراحة',name_en:'Surgery',academic_level:'fourth',is_active:true}],assigned_levels:['fourth']});
+      if(url.includes('/grade-entries/approval-status'))return envelope(null);
+      if(url.includes('/grade-entries/roster'))return envelope(names.map((name,index)=>({student:{id:index+5,university_number:String(22210001+index),full_name_ar:name,full_name_en:name,academic_level:'fourth',photo_url:index===0?'/student-photo.jpg':null},clinical_groups:memberships[index],official_clinical_score:18,grade_entry:index===2?{id:17,clinical_score:18,osce_score:35,written_score:37,score:90,status:'approved'}:null})));
+      if(init?.method==='POST'){sent.push({url,body:JSON.parse(String(init.body))});return envelope([]);}
+      throw new Error(`Unmocked ${url}`);
+    });
+    renderWithProviders(<GradesPage/>,{route:'/grades'});
+    expect(await screen.findAllByText('Multiple groups student')).toHaveLength(1);
+    expect(screen.getByText('5 / 5 students · Draft')).toBeVisible();
+    expect(screen.getByRole('img',{name:'First group student'})).toHaveAttribute('src','/student-photo.jpg');
+    await userEvent.click(screen.getByRole('button',{name:'Enlarge student photo'}));
+    expect(within(screen.getByRole('dialog')).getByRole('img',{name:'First group student'})).toBeVisible();
+    await userEvent.keyboard('{Escape}');
+    await userEvent.selectOptions(screen.getByLabelText('Clinical group'),'10');
+    await userEvent.selectOptions(screen.getByLabelText('Subgroup'),'101');
+    expect(screen.queryByText('Second subgroup student')).not.toBeInTheDocument();
+    expect(screen.queryByText('Other group student')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Multiple groups student')).toHaveLength(1);
+    await userEvent.type(screen.getByRole('spinbutton',{name:'OSCE exam /40 — First group student'}),'17');
+    await userEvent.selectOptions(screen.getByLabelText('Clinical group'),'20');
+    expect(screen.getByLabelText('Subgroup')).toHaveValue('');
+    expect(screen.queryByText('First group student')).not.toBeInTheDocument();
+    expect(screen.getByText('Filters apply to viewing and export. Submission and approval cover the full course sheet.')).toBeVisible();
+    await userEvent.selectOptions(screen.getByLabelText('Clinical group'),'10');
+    expect(screen.getByRole('spinbutton',{name:'OSCE exam /40 — First group student'})).toHaveValue(17);
+    await userEvent.selectOptions(screen.getByLabelText('Clinical group'),'unassigned');
+    expect(screen.getByText('Unassigned student')).toBeVisible();
+    expect(screen.queryByText('Multiple groups student')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button',{name:'Save new grades'}));
+    await waitFor(()=>expect(sent).toHaveLength(1));
+    expect(sent[0].body.grades).toEqual(expect.arrayContaining([expect.objectContaining({student_id:5,osce_score:17})]));
+    expect(sent[0].body.grades).toHaveLength(4);
+    expect(sent[0].body.grades).not.toEqual(expect.arrayContaining([expect.objectContaining({student_id:7})]));
+    await userEvent.click(screen.getByRole('button',{name:'Submit new grades'}));
+    await waitFor(()=>expect(sent).toHaveLength(2));
+    expect(sent[1].body).toEqual({course_code:'MED401',academic_year_id:3});
+  });
+
   it('renders the course assessment plan returned by the grade API',async()=>{
     document.cookie='XSRF-TOKEN=test; path=/';
     vi.spyOn(window,'fetch').mockImplementation(async(input)=>{
@@ -21,9 +68,9 @@ describe('GradesPage official workflow',()=>{
     });
     renderWithProviders(<GradesPage/>,{route:'/grades'});
     expect(await screen.findByText('Assessment plan: 25 + 35 + 40 = 100')).toBeVisible();
-    expect(await screen.findByText('Clinical practice /25')).toBeVisible();
-    expect(screen.getByText('Skills examination /35')).toBeVisible();
-    expect(screen.getByText('Knowledge examination /40')).toBeVisible();
+    expect(await screen.findByRole('columnheader',{name:'Clinical practice /25'})).toBeVisible();
+    expect(screen.getByRole('columnheader',{name:'Skills examination /35'})).toBeVisible();
+    expect(screen.getByRole('columnheader',{name:'Knowledge examination /40'})).toBeVisible();
   });
 
   it('loads the scoped official roster and never submits a client clinical score',async()=>{

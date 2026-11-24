@@ -441,3 +441,17 @@ that instruction fails as written on a Windows + Herd setup.
 **UI:** Lecture management actions open in a small responsive dialog so the last row's actions cannot be clipped by the lecture list. Approved registers have compact read-only student rows. Authorized administrative corrections require an explicit edit action and return to read-only after saving.
 
 **Status:** Adopted 2026-11-24 by explicit owner direction.
+
+## ADR-029 — Grade sheets display course groups and photos without changing approval scope
+
+**Date:** 2026-11-24.
+
+**Decision:** At the owner's request, `/grades` displays student photos, clinical main groups and subgroups, dependent group filters and grouped student rows. Group metadata comes from distinct subgroups in current published distributions for the selected course and academic year, restricted to the already authorized grade roster. Students without published course assignments use their latest membership in the selected academic year, preferring an open membership. Missing membership remains explicitly unassigned. Multiple course memberships remain metadata on one student grade row.
+
+**Workflow and UI:** Filtering preserves drafts keyed by student ID. Saving retains the existing editable-row rules; submission and approval still apply to the complete course/year sheet, with that scope stated beside filtered views. Automatically calculated clinical marks and existing approval permissions are unchanged. A sheet cannot be labelled approved while unsaved student rows remain. The same student fields render as cards on phones/tablets and a table on desktop, with photos that can be enlarged.
+
+**Export:** Excel exports the displayed students with clinical group and subgroup columns, frozen headings and column filters. No photo images are embedded. Main groups and subgroups are display metadata, not new approval units.
+
+**Migration impact:** No schema or permission changes. Adds bulk-loaded group metadata and `photo_url` to the existing scoped grade roster API.
+
+**Status:** Adopted 2026-11-24 by explicit owner direction.

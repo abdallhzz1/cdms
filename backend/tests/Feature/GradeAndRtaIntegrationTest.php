@@ -105,6 +105,47 @@ class GradeAndRtaIntegrationTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_grade_roster_includes_photos_and_course_groups_without_duplicate_students_or_cross_year_memberships(): void
+    {
+        $year=AcademicYear::factory()->create();
+        $otherYear=AcademicYear::factory()->create();
+        $course=Course::factory()->create(['academic_level'=>'fourth']);
+        $role=Role::where('code','RTA')->firstOrFail();
+        $role->permissions()->attach(Permission::where('code','grades.view')->firstOrFail()->id,['scope_type'=>'global']);
+        $user=User::factory()->create(['assigned_levels'=>['fourth']]);$user->roles()->attach($role);
+        $students=Student::factory()->count(3)->create(['academic_level'=>'fourth','registration_status'=>'active','photo_url'=>'/storage/test-student-photo.jpg']);
+        $hidden=Student::factory()->create(['academic_level'=>'fifth','registration_status'=>'active']);
+        $a=\App\Models\StudentGroup::factory()->create(['academic_year_id'=>$year->id,'name'=>'A']);
+        $b=\App\Models\StudentGroup::factory()->create(['academic_year_id'=>$year->id,'name'=>'B']);
+        $a1=\App\Models\StudentSubgroup::factory()->create(['student_group_id'=>$a->id,'name'=>'A1']);
+        $b2=\App\Models\StudentSubgroup::factory()->create(['student_group_id'=>$b->id,'name'=>'B2']);
+        foreach([$students[0],$students[1]] as $student)\App\Models\StudentGroupAssignment::factory()->create(['student_id'=>$student->id,'academic_year_id'=>$year->id,'student_group_id'=>$a->id,'student_subgroup_id'=>$a1->id]);
+        \App\Models\StudentGroupAssignment::factory()->create(['student_id'=>$students[2]->id,'academic_year_id'=>$otherYear->id]);
+        $rotation=Rotation::factory()->create(['course_id'=>$course->id,'academic_year_id'=>$year->id,'academic_level'=>'fourth']);
+        $block=RotationBlock::factory()->create(['rotation_id'=>$rotation->id]);
+        $version=DistributionVersion::create(['rotation_id'=>$rotation->id,'status'=>'published','is_current'=>true]);
+        $old=DistributionVersion::create(['rotation_id'=>$rotation->id,'status'=>'published','is_current'=>false]);
+        $draft=DistributionVersion::create(['rotation_id'=>$rotation->id,'status'=>'draft','is_current'=>true]);
+        $supervisor=Person::factory()->create();$site=TrainingSite::factory()->create();
+        foreach([[$version,$b2],[$old,$a1],[$draft,$a1]] as [$v,$subgroup]){
+            StudentClinicalAssignment::create(['student_id'=>$students[0]->id,'student_subgroup_id'=>$subgroup->id,'rotation_block_id'=>$block->id,'distribution_version_id'=>$v->id,'supervisor_id'=>$supervisor->id,'training_site_id'=>$site->id]);
+        }
+        $nextBlock=RotationBlock::factory()->create(['rotation_id'=>$rotation->id,'from_week'=>5,'to_week'=>8]);
+        StudentClinicalAssignment::create(['student_id'=>$students[0]->id,'student_subgroup_id'=>$b2->id,'rotation_block_id'=>$nextBlock->id,'distribution_version_id'=>$version->id,'supervisor_id'=>$supervisor->id,'training_site_id'=>$site->id]);
+        $otherRotation=Rotation::factory()->create(['academic_year_id'=>$year->id,'academic_level'=>'fourth']);
+        $otherBlock=RotationBlock::factory()->create(['rotation_id'=>$otherRotation->id]);
+        $otherVersion=DistributionVersion::create(['rotation_id'=>$otherRotation->id,'status'=>'published','is_current'=>true]);
+        StudentClinicalAssignment::create(['student_id'=>$students[0]->id,'student_subgroup_id'=>$a1->id,'rotation_block_id'=>$otherBlock->id,'distribution_version_id'=>$otherVersion->id,'supervisor_id'=>$supervisor->id,'training_site_id'=>$site->id]);
+        $response=$this->actingAs($user)->getJson("/api/v1/grade-entries/roster?course_id={$course->id}&academic_year_id={$year->id}")->assertOk()->assertJsonCount(3,'data');
+        $rows=collect($response->json('data'))->keyBy('student.id');
+        $this->assertFalse($rows->has($hidden->id));
+        $this->assertSame('/storage/test-student-photo.jpg',$rows[$students[0]->id]['student']['photo_url']);
+        $this->assertSame([['group'=>['id'=>$b->id,'name'=>'B'],'subgroup'=>['id'=>$b2->id,'name'=>'B2']]],$rows[$students[0]->id]['clinical_groups']);
+        $this->assertSame($a1->id,$rows[$students[1]->id]['clinical_groups'][0]['subgroup']['id']);
+        $this->assertSame([],$rows[$students[2]->id]['clinical_groups']);
+        $this->assertDatabaseCount('grade_entries',0);
+    }
+
     public function test_only_assignment_manager_can_change_rta_cohorts(): void
     {
         $rta = User::factory()->create();
