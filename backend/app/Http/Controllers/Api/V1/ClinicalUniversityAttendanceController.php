@@ -49,7 +49,7 @@ class ClinicalUniversityAttendanceController extends Controller
             $person=$user->person ?? $supervisors->first(fn ($person)=>strtolower((string)$person->email)===strtolower($user->email));
             return ['id'=>$person?->id,'user_id'=>$user->id,'full_name_ar'=>$person?->full_name_ar?:$user->name,'full_name_en'=>$person?->full_name_en];
         })->values();
-        $lectures = ClinicalUniversityLecture::query()->with(['group.academicYear:id,code', 'supervisor:id,full_name_ar,full_name_en'])
+        $lectures = ClinicalUniversityLecture::query()->with(['group.academicYear:id,code', 'supervisor:id,full_name_ar,full_name_en', 'sessions:id,clinical_university_lecture_id,session_date,qr_state,approved_at'])
             ->when(!$all,fn ($query)=>$query->where('supervisor_person_id',$ownPersonId??0))
             ->when($request->filled('student_group_id'),fn ($query)=>$query->where('student_group_id',$request->integer('student_group_id')))
             ->withCount('sessions')
@@ -184,7 +184,7 @@ class ClinicalUniversityAttendanceController extends Controller
         $person = $this->access->person($request->user());
         if (!$person) return ApiResponse::success([]);
         $lectures = ClinicalUniversityLecture::query()->where('supervisor_person_id', $person->id)->where('is_active', true)
-            ->with(['group.academicYear:id,code', 'supervisor:id,full_name_ar,full_name_en'])
+            ->with(['group.academicYear:id,code', 'supervisor:id,full_name_ar,full_name_en', 'sessions:id,clinical_university_lecture_id,session_date,qr_state,approved_at'])
             ->orderBy('weekday')->orderBy('starts_at')->get();
         return ApiResponse::success($lectures->map(fn (ClinicalUniversityLecture $lecture) => $this->planPayload($lecture)));
     }
@@ -370,9 +370,14 @@ class ClinicalUniversityAttendanceController extends Controller
 
     private function planPayload(ClinicalUniversityLecture $lecture): array
     {
-        $lecture->loadMissing('group.academicYear', 'supervisor');
-        return [...$lecture->toArray(), 'can_record_attendance'=>$this->access->canOperate(auth()->user(),$lecture), 'starts_on' => $lecture->starts_on->toDateString(),
-            'ends_on' => $lecture->ends_on->toDateString(), 'scheduled_dates' => $lecture->scheduledDates()];
+        $lecture->loadMissing('group.academicYear', 'supervisor', 'sessions:id,clinical_university_lecture_id,session_date,qr_state,approved_at');
+        $dates=$lecture->scheduledDates();
+        $approvedDates=$lecture->sessions->filter(fn (ClinicalUniversitySession $session)=>$session->isApproved())->map(fn ($session)=>$session->session_date->toDateString())->all();
+        $payload=$lecture->toArray();
+        unset($payload['sessions']);
+        return [...$payload, 'can_record_attendance'=>$this->access->canOperate(auth()->user(),$lecture), 'starts_on' => $lecture->starts_on->toDateString(),
+            'ends_on' => $lecture->ends_on->toDateString(), 'scheduled_dates' => $dates,
+            'available_qr_dates'=>array_values(array_diff($dates,$approvedDates))];
     }
 
     private function validateOccurrence(ClinicalUniversityLecture $lecture, string $date, bool $write): void

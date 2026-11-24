@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { UniversityAttendanceAdminPage } from './UniversityAttendanceAdminPage';
@@ -9,6 +9,27 @@ const envelope=(data:unknown)=>new Response(JSON.stringify({success:true,data,me
 afterEach(()=>{vi.restoreAllMocks();document.cookie='XSRF-TOKEN=; Max-Age=0; path=/';});
 
 describe('university lecture planning',()=>{
+  it('hides QR for approved lectures and retains it for open or unapproved occurrences',async()=>{
+    window.localStorage.setItem('cdms.locale','en');
+    const date=today();
+    const group={id:4,name:'A',academic_level:'fourth',academic_year:{code:'2026/2027',start_date:'2026-09-01',end_date:'2027-08-31',is_current:true}};
+    const base={student_group_id:4,weekday:'thursday',starts_at:'09:00:00',ends_at:'11:30:00',starts_on:date,ends_on:date,scheduled_dates:[date],is_active:true,sessions_count:1,can_record_attendance:true,group,supervisor:{id:9,full_name_ar:'محاضر تجريبي'}};
+    vi.spyOn(window,'fetch').mockImplementation(async input=>{
+      const url=String(input);
+      if(url.includes('/auth/me'))return envelope({id:1,roles:['RTA'],permissions:[{code:'university_lectures.attendance.manage',scope:'global'}]});
+      return envelope({groups:[group],supervisors:[],sessions:[],lectures:[
+        {...base,id:21,title:'Approved lecture',available_qr_dates:[]},
+        {...base,id:22,title:'Open lecture',available_qr_dates:[date]},
+        {...base,id:23,title:'Recurring lecture',available_qr_dates:['2026-12-10']},
+      ]});
+    });
+    renderWithProviders(<UniversityAttendanceAdminPage/>,{route:'/attendance/university'});
+    const approved=within((await screen.findByText('Approved lecture')).closest('article')!);
+    expect(approved.queryByRole('button',{name:'Attendance QR'})).not.toBeInTheDocument();
+    expect(approved.getByRole('button',{name:'Attendance register'})).toBeVisible();
+    for(const title of ['Open lecture','Recurring lecture'])expect(within(screen.getByText(title).closest('article')!).getByRole('button',{name:'Attendance QR'})).toBeVisible();
+  });
+
   it('lets an attendance-only administrative assistant open another lecturers register and QR',async()=>{
     window.localStorage.setItem('cdms.locale','en');document.cookie='XSRF-TOKEN=test; path=/';
     const date=today();let state:'open'|null=null;const calls:string[]=[];

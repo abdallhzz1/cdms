@@ -240,6 +240,23 @@ class UniversityAttendanceAccessAndRateLimitTest extends TestCase
         $this->postJson($url, [...$plan, 'starts_on' => '2026-10-22', 'ends_on' => '2026-10-22', 'starts_at' => '09:00', 'ends_at' => '11:00'])->assertCreated();
     }
 
+    public function test_approved_occurrences_are_removed_from_qr_dates_while_open_and_future_occurrences_remain_available(): void
+    {
+        [$lecture,,$doctor]=$this->fixture();
+        $lecture->update(['ends_on'=>'2026-10-22']);
+        $list='/api/v1/operational/university-attendance/plans';
+        $base=$list.'/'.$lecture->id;
+        $this->actingAs($doctor)->getJson($list)->assertOk()->assertJsonPath('data.lectures.0.available_qr_dates',['2026-10-15','2026-10-22']);
+        $this->postJson($base.'/qr/open',['session_date'=>'2026-10-15'])->assertOk();
+        $this->getJson($list)->assertOk()->assertJsonPath('data.lectures.0.available_qr_dates',['2026-10-15','2026-10-22']);
+        $this->postJson($base.'/qr/close',['session_date'=>'2026-10-15'])->assertOk();
+        $this->getJson($list)->assertOk()->assertJsonPath('data.lectures.0.available_qr_dates',['2026-10-22']);
+        $lecture->update(['ends_on'=>'2026-10-15']);
+        $this->getJson($list)->assertOk()->assertJsonPath('data.lectures.0.available_qr_dates',[]);
+        ClinicalUniversitySession::where('clinical_university_lecture_id',$lecture->id)->update(['approved_at'=>null,'approved_by_user_id'=>null,'qr_state'=>null]);
+        $this->getJson($list)->assertOk()->assertJsonPath('data.lectures.0.available_qr_dates',[]);
+    }
+
     public function test_approved_correction_permission_is_configurable_and_reserved_for_administrative_assistants(): void
     {
         $admin = $this->actor('SYS_ADMIN');
