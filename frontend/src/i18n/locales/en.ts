@@ -351,7 +351,7 @@ const en = {
     clinical_feedback_view: { description: 'View aggregate student feedback' },
     clinical_feedback_comments: { description: 'Read redacted student comments' },
     clinical_feedback_moderate: { description: 'Review, redact and follow up confidential comments' },
-    clinical_feedback_manage: { description: 'Configure student access and release feedback batches' },
+    clinical_feedback_manage: { description: 'Configure student portal access' },
     clinical_feedback_publish_marks: { description: 'Publish official clinical assessments to students' },
     clinical_field_monitoring_view: { description: 'View field monitoring and supervisory visit forms in the user scope' },
     clinical_field_monitoring_create_assistant: { description: 'Create the research and teaching assistant field follow-up form' },

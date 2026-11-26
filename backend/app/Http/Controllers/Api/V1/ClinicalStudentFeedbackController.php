@@ -44,7 +44,7 @@ class ClinicalStudentFeedbackController extends Controller
             ->with(['academicYear', 'clinicalPeriod', 'course'])->orderByDesc('academic_year_id')->orderByDesc('start_date')->get();
         $windows = ClinicalFeedbackWindow::whereIn('rotation_id', $rotations->pluck('id'))->get()->keyBy('rotation_id');
 
-        return ApiResponse::success(['student_url' => '/portal/clinical-assessments', 'minimum_responses' => ClinicalStudentFeedback::MIN_REPORT_SIZE,
+        return ApiResponse::success(['student_url' => '/portal/clinical-assessments', 'minimum_responses' => 1,
             'rotations' => $rotations->map(function ($r) use ($windows) {
                 $w = $windows->get($r->id);
 
@@ -79,10 +79,13 @@ class ClinicalStudentFeedbackController extends Controller
 
     public function publishReports(Request $request, int $window)
     {
-        return ApiResponse::success(['published_batches' => $this->service->publishReports($this->window($window), $request->user())]);
+        $this->window($window);
+
+        // Compatibility for previously deployed clients; responses are already visible.
+        return ApiResponse::success(['published_batches' => 0, 'automatic' => true]);
     }
 
-    private function visibleBatches(Request $request)
+    private function visibleAnswers(Request $request)
     {
         $own = Person::where(function ($q) use ($request) {
             $q->where('user_id', $request->user()->id);
@@ -92,7 +95,7 @@ class ClinicalStudentFeedbackController extends Controller
         })->pluck('id');
         $windows = ClinicalFeedbackWindow::whereIn('rotation_id', $this->rotations()->select('rotations.id'))->select('id');
 
-        return DB::table('clinical_feedback_batches')->whereIn('window_id', $windows)->whereNotIn('supervisor_id', $own)
+        return DB::table('clinical_feedback_answers')->whereIn('window_id', $windows)->whereNotIn('supervisor_id', $own)
             ->when($request->filled('window_id'), fn ($q) => $q->where('window_id', $request->integer('window_id')));
     }
 
@@ -100,16 +103,16 @@ class ClinicalStudentFeedbackController extends Controller
     {
         $data = $request->validate(['window_id' => ['required', 'integer', 'min:1']]);
         $this->window((int) $data['window_id']);
-        $batches = $this->visibleBatches($request)->orderBy('from_week')->get();
-        $answers = DB::table('clinical_feedback_answers')->whereIn('batch_id', $batches->pluck('id'))->get(['batch_id', 'experience', 'supervision']);
-        $people = Person::whereIn('id', $batches->pluck('supervisor_id'))->get()->keyBy('id');
+        $groups = $this->visibleAnswers($request)->select('window_id', 'supervisor_id', 'slot_key', 'from_week', 'to_week')
+            ->selectRaw('COUNT(*) as responses, AVG(experience) as experience, AVG(supervision) as supervision')
+            ->groupBy('window_id', 'supervisor_id', 'slot_key', 'from_week', 'to_week')->orderBy('from_week')->orderBy('supervisor_id')->get();
+        $people = Person::whereIn('id', $groups->pluck('supervisor_id'))->get()->keyBy('id');
 
-        return ApiResponse::success($batches->map(function ($b) use ($answers, $people) {
-            $items = $answers->where('batch_id', $b->id);
-            // A question answered by one person is suppressed even in a five-person batch.
-            $average = fn ($key) => $items->whereNotNull($key)->count() >= ClinicalStudentFeedback::MIN_REPORT_SIZE ? round($items->whereNotNull($key)->avg($key), 2) : null;
+        return ApiResponse::success($groups->map(function ($b) use ($people) {
+            // Aggregate all responses for this assessment and supervisor, including legacy batches.
+            $average = fn ($key) => $b->$key === null ? null : round((float) $b->$key, 2);
 
-            return ['id' => $b->id, 'window_id' => $b->window_id, 'from_week' => $b->from_week, 'to_week' => $b->to_week, 'responses' => $items->count(),
+            return ['id' => hash('sha256', $b->window_id.'|'.$b->slot_key.'|'.$b->supervisor_id), 'window_id' => $b->window_id, 'from_week' => $b->from_week, 'to_week' => $b->to_week, 'responses' => (int) $b->responses,
                 'supervisor_ar' => $people->get($b->supervisor_id)?->full_name_ar, 'supervisor_en' => $people->get($b->supervisor_id)?->full_name_en,
                 'experience' => $average('experience'), 'supervision' => $average('supervision')];
         })->values());
@@ -120,7 +123,7 @@ class ClinicalStudentFeedbackController extends Controller
         $data = $request->validate(['window_id' => ['required', 'integer', 'min:1']]);
         $this->window((int) $data['window_id']);
         $moderator = $request->user()->can('permission', 'clinical_feedback.moderate');
-        $rows = DB::table('clinical_feedback_answers')->whereIn('batch_id', $this->visibleBatches($request)->select('id'))
+        $rows = $this->visibleAnswers($request)
             ->whereNotNull($moderator ? 'private_comment' : 'reviewed_comment')->orderBy('id')->paginate(25);
         // No answer bundles, ratings, precise times, student IDs or participation lists.
         $people = Person::whereIn('id', collect($rows->items())->pluck('supervisor_id'))->get()->keyBy('id');
@@ -138,7 +141,7 @@ class ClinicalStudentFeedbackController extends Controller
         $data = $request->validate(['version' => ['required', 'string', 'size:64'], 'text' => ['nullable', 'string', 'max:2000'], 'follow_up' => ['required', 'in:new,reviewed,resolved']]);
 
         return DB::transaction(function () use ($request, $answer, $data) {
-            $row = DB::table('clinical_feedback_answers')->where('id', $answer)->whereIn('batch_id', $this->visibleBatches($request)->select('id'))->lockForUpdate()->first();
+            $row = $this->visibleAnswers($request)->where('id', $answer)->lockForUpdate()->first();
             abort_unless($row, 404);
             $current = hash('sha256', ($row->reviewed_comment ?? '').'|'.$row->follow_up);
             if (! hash_equals($current, $data['version'])) {

@@ -18,8 +18,6 @@ use Illuminate\Validation\ValidationException;
 
 class ClinicalStudentFeedback
 {
-    public const MIN_REPORT_SIZE = 5;
-
     /** Internal catalog; never serialize this collection to the student. */
     public function catalog(Student $student, ?Collection $assignments = null, ?Collection $windows = null, ?Collection $official = null): Collection
     {
@@ -205,37 +203,6 @@ class ClinicalStudentFeedback
                 ClinicalMarkRelease::upsert($chunk, ['window_id', 'student_id', 'slot_key'], ['assessment_id', 'kind', 'from_week', 'to_week', 'starts_on', 'ends_on', 'supervisor_id', 'score', 'max_score', 'revision', 'released_at', 'released_by']);
             }
             $this->audit($actor, 'clinical_feedback.marks_published', $window->id, ['from_week' => $from, 'to_week' => $to, 'count' => $count]);
-
-            return $count;
-        }, 3);
-    }
-
-    public function publishReports(ClinicalFeedbackWindow $window, User $actor): int
-    {
-        return DB::transaction(function () use ($window, $actor) {
-            ClinicalFeedbackWindow::whereKey($window->id)->lockForUpdate()->firstOrFail();
-            $rotation = $window->rotation;
-            $breaks = $rotation->distributionVersions()->where('is_current', true)->where('status', 'published')->with('breaks')->get()->flatMap->breaks;
-            $lastWeek = max((int) $rotation->duration_weeks, (int) $rotation->blocks()->max('to_week'));
-            $ends = collect([$rotation->end_date?->toDateString(), $rotation->clinicalPeriod?->end_date?->toDateString(), $rotation->start_date && $lastWeek >= 1 && $lastWeek <= 60 ? app(ClinicalScheduleDateCalculator::class)->calculateBlockEndDate($rotation->start_date, $lastWeek, $breaks) : null])->filter();
-            if ($ends->isEmpty() || $ends->max() >= today()->toDateString()) {
-                throw ValidationException::withMessages(['reports' => [__('clinical_feedback.period_ongoing')]]);
-            }
-            $groups = DB::table('clinical_feedback_answers')->where('window_id', $window->id)->whereNull('batch_id')->lockForUpdate()->get()->groupBy(fn ($a) => $a->slot_key.'|'.$a->supervisor_id);
-            $count = 0;
-            foreach ($groups as $items) {
-                // One answer per student per slot means five answers here are five participants,
-                // not one student answering five different weeks. Late responses wait for a new batch.
-                if ($items->count() < self::MIN_REPORT_SIZE) {
-                    continue;
-                }
-                $first = $items->first();
-                $id = Str::uuid()->toString();
-                DB::table('clinical_feedback_batches')->insert(['id' => $id, 'window_id' => $window->id, 'supervisor_id' => $first->supervisor_id, 'slot_key' => $first->slot_key, 'from_week' => $first->from_week, 'to_week' => $first->to_week, 'released_on' => today()->toDateString()]);
-                DB::table('clinical_feedback_answers')->whereIn('id', $items->pluck('id'))->update(['batch_id' => $id]);
-                $count++;
-            }
-            $this->audit($actor, 'clinical_feedback.reports_released', $window->id, ['batches' => $count]);
 
             return $count;
         }, 3);

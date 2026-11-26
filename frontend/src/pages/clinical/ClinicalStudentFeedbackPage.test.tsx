@@ -14,7 +14,7 @@ describe('clinical feedback review permissions', () => {
     vi.spyOn(window, 'fetch').mockImplementation(async input => {
       const url = String(input);
       if (url.includes('/auth/me')) return response({ id: 3, name: 'Reader', roles: ['QUALITY'], permissions: [{ code: 'clinical_feedback.view', scope: 'global' }] });
-      if (url.includes('/options')) return response({ rotations: [rotation], student_url: '/portal/clinical-assessments', minimum_responses: 5 });
+      if (url.includes('/options')) return response({ rotations: [rotation], student_url: '/portal/clinical-assessments', minimum_responses: 1 });
       if (url.includes('/reports?')) return response([{ id: 'batch-1', from_week: 1, to_week: 1, responses: 5, supervisor_ar: 'مشرف', experience: 4.2, supervision: 4.5 }]);
       throw new Error(url);
     });
@@ -28,7 +28,7 @@ describe('clinical feedback review permissions', () => {
     vi.spyOn(window, 'fetch').mockImplementation(async input => {
       const url = String(input);
       if (url.includes('/auth/me')) return response({ id: 1, name: 'Reader', roles: ['ADMIN_ASSISTANT'], permissions: [{ code: 'clinical_feedback.comments', scope: 'global' }] });
-      if (url.includes('/options')) return response({ rotations: [rotation], student_url: '/portal/clinical-assessments', minimum_responses: 5 });
+      if (url.includes('/options')) return response({ rotations: [rotation], student_url: '/portal/clinical-assessments', minimum_responses: 1 });
       if (url.includes('/comments?')) return response([{ id: 'comment-1', version: 'v'.repeat(64), window_id: 9, from_week: 1, to_week: 1, text: 'Safe redacted text', private_comment: 'MUST NEVER RENDER', reviewed_text: 'Safe redacted text', follow_up: 'reviewed', supervisor_en: 'Dr Clinical' }], { current_page: 1, last_page: 1 });
       throw new Error(url);
     });
@@ -46,7 +46,7 @@ describe('clinical feedback review permissions', () => {
     vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes('/auth/me')) return response({ id: 2, name: 'Moderator', roles: ['QUALITY'], permissions: [{ code: 'clinical_feedback.moderate', scope: 'global' }] });
-      if (url.includes('/options')) return response({ rotations: [rotation], student_url: '/portal/clinical-assessments', minimum_responses: 5 });
+      if (url.includes('/options')) return response({ rotations: [rotation], student_url: '/portal/clinical-assessments', minimum_responses: 1 });
       if (url.includes('/comments?')) return response([{ id: 'comment-1', version: 'v'.repeat(64), window_id: 9, from_week: 1, to_week: 1, text: 'Original text', reviewed_text: null, follow_up: 'new' }], { current_page: 1, last_page: 1 });
       if (url.endsWith('/comments/comment-1')) { bodies.push(JSON.parse(String(init?.body))); return response({ version: 'n'.repeat(64) }); }
       throw new Error(url);
@@ -70,7 +70,7 @@ describe('clinical feedback review permissions', () => {
     vi.spyOn(window, 'fetch').mockImplementation(async input => {
       const url = String(input);
       if (url.includes('/auth/me')) return response({ id: 3, name: 'Reader', roles: ['QUALITY'], permissions: [{ code: 'clinical_feedback.view', scope: 'global' }] });
-      if (url.includes('/options')) return response({ rotations, minimum_responses: 5 });
+      if (url.includes('/options')) return response({ rotations, minimum_responses: 1 });
       if (url.includes('/reports?')) return response([]);
       throw new Error(url);
     });
@@ -97,7 +97,7 @@ describe('clinical feedback review permissions', () => {
     vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes('/auth/me')) return response({ id: 3, name: 'Publisher', roles: ['QUALITY'], permissions: [{ code: 'clinical_feedback.publish_marks', scope: 'global' }] });
-      if (url.includes('/options')) return response({ rotations: [{ ...rotation, from_week: 3 }], minimum_responses: 5 });
+      if (url.includes('/options')) return response({ rotations: [{ ...rotation, from_week: 3 }], minimum_responses: 1 });
       if (url.endsWith('/windows/9/marks')) { bodies.push(JSON.parse(String(init?.body))); return response({ published: 0 }); }
       throw new Error(url);
     });
@@ -107,5 +107,41 @@ describe('clinical feedback review permissions', () => {
     await userEvent.click(publish);
     expect(await screen.findByText(/Weeks 3–12 are published/)).toBeVisible();
     expect(bodies).toEqual([{ from_week: 3, to_week: 12 }]);
+  });
+
+  it('shows a single response immediately, refreshes the same summary automatically and has no batch release controls', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    let reads = 0;
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return response({ id: 3, name: 'Director', roles: ['CLINICAL_DIRECTOR'], permissions: ['view', 'manage'].map(action => ({ code: `clinical_feedback.${action}`, scope: 'global' })) });
+      if (url.includes('/options')) return response({ rotations: [rotation], minimum_responses: 1 });
+      if (url.includes('/reports?')) { reads++; return response([{ id: 'stable-group', from_week: 1, to_week: 1, responses: reads === 1 ? 1 : 2, supervisor_en: 'Supervisor', experience: reads === 1 ? 4 : 3, supervision: null }]); }
+      throw new Error(url);
+    });
+    renderWithProviders(<ClinicalStudentFeedbackPage />);
+    expect(await screen.findByText('Responses: 1')).toBeVisible();
+    expect(screen.getByText('4 / 5')).toHaveAttribute('dir', 'ltr');
+    expect(screen.getByText(/Responses are available as soon as they are submitted/)).toBeVisible();
+    expect(await screen.findByText('Responses: 2', {}, { timeout: 6500 })).toBeVisible();
+    expect(screen.getByText('3 / 5')).toBeVisible();
+    expect(screen.getAllByRole('article')).toHaveLength(1);
+    await userEvent.click(screen.getByRole('tab', { name: 'Access and publication' }));
+    expect(screen.getByRole('button', { name: 'Save settings' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Release eligible batches' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/at least five/)).not.toBeInTheDocument();
+  }, 10_000);
+
+  it('shows an empty state for an unconfigured course instead of waiting indefinitely for a disabled report query', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return response({ id: 3, name: 'Reader', roles: ['QUALITY'], permissions: [{ code: 'clinical_feedback.view', scope: 'global' }] });
+      if (url.includes('/options')) return response({ rotations: [{ ...rotation, window_id: null, is_enabled: false }], minimum_responses: 1 });
+      throw new Error(url);
+    });
+    renderWithProviders(<ClinicalStudentFeedbackPage />);
+    expect(await screen.findByText('No responses are available for this selection yet.')).toBeVisible();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });

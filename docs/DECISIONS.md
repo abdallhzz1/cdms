@@ -505,3 +505,15 @@ that instruction fails as written on a Windows + Herd setup.
 **History and validation:** The additive migration retains publisher/time, uses short MySQL identifiers and refuses destructive rollback. Publication history also blocks rotation deletion. Tests cover pending/future weeks, draft-to-official entry, corrections/returns, unpublished ranges, start/duration bounds, idempotence, selector metadata and dependency resets. Existing authentication, privacy batching, scope and grade/supervisor regression checks remain in place. Deployment requires the migration and one explicit range publication to adopt the new behavior for existing courses.
 
 **Status:** Adopted by explicit owner instruction.
+
+## ADR-033 — Display clinical feedback immediately from the first response
+
+**Date:** 2026-11-26.
+
+**Decision:** The owner explicitly requests immediate results without the five-student threshold. This supersedes ADR-031's delayed/frozen-batch reporting. Authorized results use all responses, grouped by window, assessment slot and supervisor, including formerly waiting and batched legacy data. Each question averages its available numeric responses; null answers are excluded and an entirely unanswered question stays null. Late replies update the same summary. Staff results/comments refresh every five seconds while their tab is active, without replacing an existing view or draft during refresh. Manual report-release controls and threshold/period-end text are removed.
+
+**Access and privacy:** Existing permissions, course/department/cohort scope, self-review exclusions, encryption, redacted-comment reader access and optimistic moderation guards remain enforced directly on answers. Student identity and precise submission time remain absent; small-count live reporting can permit timing/context inferences, so no threshold-based anonymity guarantee is made. Student grade publication and feedback-before-mark gates are unchanged.
+
+**Compatibility and validation:** No migration or data rewrite is required. Historical batch records remain retained; the old scoped release endpoint returns `automatic: true` without mutating data. Tests verify a first reply before period end, later live averages, null denominators, separate slots, old and waiting replies without duplication, own-feedback denial, permission/cohort scope, automatic UI refresh and absence of release controls.
+
+**Status:** Adopted by explicit owner instruction.

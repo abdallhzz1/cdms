@@ -300,37 +300,31 @@ class ClinicalStudentFeedbackTest extends TestCase
         $this->assertDatabaseCount('clinical_feedback_participations', 1);
     }
 
-    public function test_reports_wait_for_period_end_and_five_distinct_students_and_late_responses_stay_private(): void
+    public function test_each_response_is_visible_immediately_during_the_period_without_manual_release(): void
     {
         $service = app(ClinicalStudentFeedback::class);
-        $students = collect();
-        for ($n = 0; $n < 4; $n++) {
-            $s = $this->pupil();
-            $students->push($s);
-            $this->participate($s);
-        }
-        $this->actingAs($this->director)->postJson('/api/v1/clinical-student-feedback/windows/'.$this->window->id.'/reports')->assertOk()->assertJsonPath('data.published_batches', 0);
-        $fifth = $this->pupil();
-        $this->participate($fifth);
         $this->window->rotation->update(['end_date' => '2026-12-01']);
-        $this->postJson('/api/v1/clinical-student-feedback/windows/'.$this->window->id.'/reports')->assertUnprocessable();
-        $this->window->rotation->update(['end_date' => '2026-10-24']);
-        $this->postJson('/api/v1/clinical-student-feedback/windows/'.$this->window->id.'/reports')->assertOk()->assertJsonPath('data.published_batches', 1);
-        $this->getJson('/api/v1/clinical-student-feedback/reports?window_id='.$this->window->id)->assertOk()->assertJsonPath('data.0.responses', 5)->assertJsonPath('data.0.experience', 4);
-        $this->participate($this->pupil(), 'Late hidden response');
-        $this->postJson('/api/v1/clinical-student-feedback/windows/'.$this->window->id.'/reports')->assertOk()->assertJsonPath('data.published_batches', 0);
-        $this->getJson('/api/v1/clinical-student-feedback/reports?window_id='.$this->window->id)->assertOk()->assertJsonPath('data.0.responses', 5);
-        $comments = $this->getJson('/api/v1/clinical-student-feedback/comments?window_id='.$this->window->id)->assertOk();
-        $this->assertCount(5, $comments->json('data'));
-        $this->assertStringNotContainsString('Late hidden response', $comments->getContent());
+        $first = $this->pupil();
+        $this->participate($first, 'First immediate response');
+        $this->actingAs($this->director);
+        $report = $this->getJson('/api/v1/clinical-student-feedback/reports?window_id='.$this->window->id)->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.responses', 1)->assertJsonPath('data.0.experience', 4)->assertJsonPath('data.0.supervision', 5);
+        $reportId = $report->json('data.0.id');
+        $this->assertSame(['id', 'window_id', 'from_week', 'to_week', 'responses', 'supervisor_ar', 'supervisor_en', 'experience', 'supervision'], array_keys($report->json('data.0')));
+        $comments = $this->getJson('/api/v1/clinical-student-feedback/comments?window_id='.$this->window->id)->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.text', 'First immediate response');
+        $this->assertSame(['id', 'window_id', 'from_week', 'to_week', 'supervisor_ar', 'supervisor_en', 'text', 'version', 'reviewed_text', 'follow_up'], array_keys($comments->json('data.0')));
+        $second = $this->pupil();
+        $service->publishMarks($this->window, $this->director, 1, 12);
+        $service->participate($second, $this->key($second), 2, 0, 'Second immediate response');
+        $this->getJson('/api/v1/clinical-student-feedback/reports?window_id='.$this->window->id)->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $reportId)->assertJsonPath('data.0.responses', 2)->assertJsonPath('data.0.experience', 3)->assertJsonPath('data.0.supervision', 5);
+        $this->getJson('/api/v1/clinical-student-feedback/comments?window_id='.$this->window->id)->assertOk()->assertJsonCount(2, 'data');
+        $this->getJson('/api/v1/clinical-student-feedback/options')->assertOk()->assertJsonPath('data.minimum_responses', 1);
+        $this->postJson('/api/v1/clinical-student-feedback/windows/'.$this->window->id.'/reports')->assertOk()->assertJsonPath('data.published_batches', 0)->assertJsonPath('data.automatic', true);
+        $this->assertDatabaseCount('clinical_feedback_batches', 0);
     }
 
     public function test_reviewer_cannot_read_their_own_feedback_even_with_all_permissions_and_other_readers_only_get_redacted_comments(): void
     {
-        for ($n = 0; $n < 5; $n++) {
-            $this->participate($this->pupil(), 'Identifying original');
-        }
-        app(ClinicalStudentFeedback::class)->publishReports($this->window, $this->director);
+        $this->participate($this->pupil(), 'Identifying original');
         $reader = $this->actor(['view', 'comments'], 'ADMIN_ASSISTANT');
         $this->actingAs($reader)->getJson('/api/v1/clinical-student-feedback/comments?window_id='.$this->window->id)->assertOk()->assertJsonCount(0, 'data');
         $this->actingAs($this->director);
@@ -352,7 +346,12 @@ class ClinicalStudentFeedbackTest extends TestCase
         $this->actingAs($admin)->getJson('/api/v1/clinical-student-feedback/options')->assertForbidden();
         $rta = $this->actor(['view', 'manage'], 'RTA');
         $other = Rotation::factory()->create(['academic_level' => 'fifth', 'course_id' => Course::factory()->create(['academic_level' => 'fifth'])->id]);
+        $otherWindow = ClinicalFeedbackWindow::create(['rotation_id' => $other->id, 'is_enabled' => true, 'from_week' => 1]);
         $this->actingAs($rta)->putJson('/api/v1/clinical-student-feedback/rotations/'.$other->id, ['is_enabled' => true, 'from_week' => 1])->assertNotFound();
+        $this->getJson('/api/v1/clinical-student-feedback/reports?window_id='.$otherWindow->id)->assertNotFound();
+        $this->getJson('/api/v1/clinical-student-feedback/comments?window_id='.$this->window->id)->assertForbidden();
+        $rta->directPermissions()->attach(Permission::where('code', 'clinical_feedback.comments')->value('id'));
+        $this->actingAs($rta->fresh())->getJson('/api/v1/clinical-student-feedback/comments?window_id='.$otherWindow->id)->assertNotFound();
         $this->postJson('/api/v1/clinical-student-feedback/windows/'.$this->window->id.'/marks', ['from_week' => 1, 'to_week' => 1])->assertForbidden();
         $this->withHeader('Origin', 'https://attacker.example')->postJson('/api/v1/public/clinical-student/forget')->assertForbidden();
         $this->withHeader('Origin', 'http://localhost:9999')->postJson('/api/v1/public/clinical-student/forget')->assertForbidden();
@@ -379,7 +378,7 @@ class ClinicalStudentFeedbackTest extends TestCase
         }
     }
 
-    public function test_five_weeks_from_one_student_do_not_bypass_report_anonymity_threshold(): void
+    public function test_different_weeks_remain_separate_reports_even_for_one_student(): void
     {
         $this->block->update(['to_week' => 5]);
         $student = $this->pupil();
@@ -393,7 +392,9 @@ class ClinicalStudentFeedbackTest extends TestCase
             $service->participate($student, $slot['key'], 5, 5, 'Same student');
         }
         $this->assertDatabaseCount('clinical_feedback_answers', 5);
-        $this->assertSame(0, $service->publishReports($this->window, $this->director));
+        $rows = $this->actingAs($this->director)->getJson('/api/v1/clinical-student-feedback/reports?window_id='.$this->window->id)->assertOk()->assertJsonCount(5, 'data')->json('data');
+        $this->assertSame([1, 2, 3, 4, 5], array_column($rows, 'from_week'));
+        $this->assertSame([1, 1, 1, 1, 1], array_column($rows, 'responses'));
     }
 
     public function test_schedule_deletion_preserves_feedback_history_even_without_any_marks(): void
@@ -419,7 +420,7 @@ class ClinicalStudentFeedbackTest extends TestCase
         $this->assertDatabaseMissing('clinical_feedback_windows', ['id' => $window->id]);
     }
 
-    public function test_question_average_is_suppressed_when_only_one_person_rated_in_a_five_person_batch(): void
+    public function test_question_average_uses_available_ratings_without_treating_unable_to_assess_as_zero(): void
     {
         $service = app(ClinicalStudentFeedback::class);
         for ($n = 0; $n < 5; $n++) {
@@ -427,8 +428,24 @@ class ClinicalStudentFeedbackTest extends TestCase
             $service->publishMarks($this->window, $this->director, 1, 1);
             $service->participate($s, $this->key($s), $n === 0 ? 1 : 0, 5, null);
         }
-        $service->publishReports($this->window, $this->director);
-        $this->actingAs($this->director)->getJson('/api/v1/clinical-student-feedback/reports?window_id='.$this->window->id)->assertOk()->assertJsonPath('data.0.experience', null)->assertJsonPath('data.0.supervision', 5);
+        $this->actingAs($this->director)->getJson('/api/v1/clinical-student-feedback/reports?window_id='.$this->window->id)->assertOk()->assertJsonPath('data.0.experience', 1)->assertJsonPath('data.0.supervision', 5);
+        DB::table('clinical_feedback_answers')->update(['experience' => null]);
+        $this->getJson('/api/v1/clinical-student-feedback/reports?window_id='.$this->window->id)->assertOk()->assertJsonPath('data.0.experience', null);
+    }
+
+    public function test_legacy_batched_and_waiting_answers_are_visible_together_without_backfill_or_duplicates(): void
+    {
+        $this->participate($this->pupil(), 'Already batched');
+        $batchId = Str::uuid()->toString();
+        DB::table('clinical_feedback_batches')->insert(['id' => $batchId, 'window_id' => $this->window->id, 'supervisor_id' => $this->supervisor->id, 'slot_key' => 'weekly:1', 'from_week' => 1, 'to_week' => 1, 'released_on' => today()->toDateString()]);
+        DB::table('clinical_feedback_answers')->update(['batch_id' => $batchId]);
+        $this->participate($this->pupil(), 'Previously waiting');
+        $this->actingAs($this->director)->getJson('/api/v1/clinical-student-feedback/reports?window_id='.$this->window->id)->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.responses', 2);
+        $comments = $this->getJson('/api/v1/clinical-student-feedback/comments?window_id='.$this->window->id)->assertOk()->assertJsonCount(2, 'data');
+        $this->assertEqualsCanonicalizing(['Already batched', 'Previously waiting'], array_column($comments->json('data'), 'text'));
+        $this->assertDatabaseCount('clinical_feedback_batches', 1);
+        $this->assertSame(1, DB::table('clinical_feedback_answers')->whereNull('batch_id')->count());
+        $this->assertSame(1, DB::table('clinical_feedback_answers')->where('batch_id', $batchId)->count());
     }
 
     public function test_period_assessment_is_one_slot_and_drafts_and_mini_osce_are_not_published(): void

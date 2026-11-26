@@ -340,7 +340,7 @@ const ar: typeof en = {
     clinical_feedback_view: { description: 'عرض نتائج التغذية الراجعة المجمعة' },
     clinical_feedback_comments: { description: 'قراءة الملاحظات المنقحة' },
     clinical_feedback_moderate: { description: 'مراجعة الملاحظات السرية وتنقيحها ومتابعتها' },
-    clinical_feedback_manage: { description: 'تفعيل بوابة الطالب وإتاحة دفعات الردود' },
+    clinical_feedback_manage: { description: 'تفعيل بوابة الطالب وإدارة إتاحتها' },
     clinical_feedback_publish_marks: { description: 'نشر التقييمات السريرية الرسمية للطلبة' },
     clinical_field_monitoring_view: { description: 'عرض نماذج المتابعة والزيارات الميدانية الخاصة بالمستخدم' },
     clinical_field_monitoring_create_assistant: { description: 'إنشاء نموذج المتابعة الميدانية لمساعد البحث والتدريس' },
