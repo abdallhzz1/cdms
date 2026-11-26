@@ -1,6 +1,8 @@
+import { arClinicalFeedback } from '../clinicalFeedbackMessages';
 import type en from './en';
 
 const ar: typeof en = {
+  clinicalFeedback: arClinicalFeedback,
   basicAttendance: { permissions: { view: 'عرض حضور محاضرات الشعب المكلف بها', record: 'إدارة تسجيل حضور المحاضرات والتصحيحات', manage: 'إدارة مساقات الأساسية والشعب والقوائم وتكليف المحاضرين', export: 'تصدير حضور محاضرات الشعب المكلف بها', delete: 'حذف مساقات الأساسية وشعبها وكشوفها نهائيًا وإزالة طلبة الشعب', amendFinalized: 'إضافة طالب مسجل إلى كشف محاضرة معتمد مع توثيق قرار الحضور' } },
   courseDepartments: {
     title: 'الأقسام المسؤولة',
@@ -335,6 +337,11 @@ const ar: typeof en = {
     student_events_manage: { description: 'إضافة وتعديل ونشر وأرشفة فعاليات الكلية' },
     student_events_attendance_manage: { description: 'فتح وإغلاق رمز الحضور وتصحيح كشف الفعالية' },
     student_events_delete: { description: 'الحذف النهائي لأي فعالية مع كشف حضورها' },
+    clinical_feedback_view: { description: 'عرض نتائج التغذية الراجعة المجمعة' },
+    clinical_feedback_comments: { description: 'قراءة الملاحظات المنقحة' },
+    clinical_feedback_moderate: { description: 'مراجعة الملاحظات السرية وتنقيحها ومتابعتها' },
+    clinical_feedback_manage: { description: 'تفعيل بوابة الطالب وإتاحة دفعات الردود' },
+    clinical_feedback_publish_marks: { description: 'نشر التقييمات السريرية الرسمية للطلبة' },
     clinical_field_monitoring_view: { description: 'عرض نماذج المتابعة والزيارات الميدانية الخاصة بالمستخدم' },
     clinical_field_monitoring_create_assistant: { description: 'إنشاء نموذج المتابعة الميدانية لمساعد البحث والتدريس' },
     clinical_field_monitoring_create_department_report: { description: 'إنشاء التقرير الدوري لرئيس القسم السريري' },

@@ -1099,6 +1099,7 @@ class CourseDistributionController extends Controller
     {
         $this->ensureAcademicLevelInUserScope($rotation->academic_level);
         $this->authorizeRotationCourseAccess($rotation);
+        app(\App\Services\ClinicalStudentFeedback::class)->assertRotationDeletable($rotation->id);
         if ($rotation->distributionVersions()->where('status', 'published')->where('is_current', true)->exists()) {
             throw ValidationException::withMessages(['rotation' => ['يجب إلغاء نشر الجدول قبل حذفه.']]);
         }

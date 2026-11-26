@@ -1,5 +1,7 @@
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
+import { ClinicalStudentAssessmentsPage } from '@/pages/public/ClinicalStudentAssessmentsPage';
+import { ClinicalStudentFeedbackPage } from '@/pages/clinical/ClinicalStudentFeedbackPage';
 import { FoundationHome } from '@/pages/FoundationHome';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFound } from '@/pages/NotFound';
@@ -111,6 +113,7 @@ function DefaultAuthenticatedHome() {
 export function App() {
   return (
     <Routes>
+      <Route path="/portal/clinical-assessments" element={<ClinicalStudentAssessmentsPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/lecture-attendance" element={<PublicLectureAttendancePage />} />
       <Route path="/event-check-in" element={<PublicStudentEventCheckInPage />} />
@@ -247,6 +250,7 @@ export function App() {
                 <Route path="/attendance" element={<ProtectedRoute requiredPermission="attendance.review"><AttendanceMasterPage /></ProtectedRoute>} />
                 <Route path="/attendance/university" element={<ProtectedRoute requiredAnyPermission={['university_lectures.manage','university_lectures.attendance.view','university_lectures.attendance.manage','university_lectures.attendance.correct_approved','attendance.record']}><UniversityAttendanceAdminPage /></ProtectedRoute>} />
                 <Route path="/assessments" element={<ProtectedRoute requiredPermission="assessment.review"><AssessmentsMasterPage /></ProtectedRoute>} />
+                <Route path="/clinical-student-feedback" element={<ProtectedRoute requiredAnyPermission={["clinical_feedback.view", "clinical_feedback.comments", "clinical_feedback.moderate", "clinical_feedback.manage", "clinical_feedback.publish_marks"]}><ClinicalStudentFeedbackPage /></ProtectedRoute>} />
                 <Route path="/clinical-field-monitoring" element={<ProtectedRoute requiredPermission="clinical_field_monitoring.view"><ClinicalFieldMonitoringPage /></ProtectedRoute>} />
                 <Route path="/admin/clinical-assessments" element={<ProtectedRoute requiredRole="SYS_ADMIN"><AdminClinicalAssessmentsPage /></ProtectedRoute>} />
                 

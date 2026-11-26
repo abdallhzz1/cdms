@@ -40,6 +40,20 @@ class AppServiceProvider extends ServiceProvider
         // email so a single attacker can't lock out a real user by hammering
         // their address from elsewhere, while still throttling any one
         // (ip, email) pair.
+        $portalKey = fn (Request $r, string $value) => hash_hmac('sha256', $value, (string) config('app.key'));
+        RateLimiter::for('clinical-portal-otp', fn (Request $r) => [
+            Limit::perMinutes(10, 3)->by('clinical-otp:'.$portalKey($r, (string) $r->input('university_number'))),
+            Limit::perMinute(1000)->by('clinical-otp-network:'.$r->ip()),
+        ]);
+        RateLimiter::for('clinical-portal-verify', fn (Request $r) => [
+            Limit::perMinute(10)->by('clinical-verify:'.$portalKey($r, (string) $r->input('challenge'))),
+            Limit::perMinute(3000)->by('clinical-verify-network:'.$r->ip()),
+        ]);
+        RateLimiter::for('clinical-portal-read', fn (Request $r) => [
+            Limit::perMinute($r->cookie(\App\Services\ClinicalStudentPortalIdentity::COOKIE) ? 120 : 6000)->by('clinical-portal:'.$portalKey($r, (string) ($r->cookie(\App\Services\ClinicalStudentPortalIdentity::COOKIE) ?: $r->ip()))),
+            Limit::perMinute(6000)->by('clinical-portal-network:'.$r->ip()),
+        ]);
+
         RateLimiter::for('login', function (Request $request) {
             $key = strtolower((string) $request->input('email')).'|'.$request->ip();
 

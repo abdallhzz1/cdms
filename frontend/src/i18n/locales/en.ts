@@ -1,3 +1,4 @@
+import { enClinicalFeedback } from '../clinicalFeedbackMessages';
 /**
  * English translation dictionary. Keys are namespaced as
  * `<area>.<key>` (e.g. `common.appName`) — see PROJECT_RULES.md A 7:
@@ -12,6 +13,7 @@
  * plain `string` here is both simpler and correct.
  */
 const en = {
+  clinicalFeedback: enClinicalFeedback,
   basicAttendance: { permissions: { view: 'View lecture attendance for assigned sections', record: 'Manage lecture check-in and corrections', manage: 'Manage basic courses, sections, rosters and lecturer assignments', export: 'Export lecture attendance for assigned sections', delete: 'Permanently delete basic courses, sections, their registers and section enrolments', amendFinalized: 'Add an enrolled student to a finalized lecture with a documented attendance decision' } },
   courseDepartments: {
     title: 'Responsible departments',
@@ -346,6 +348,11 @@ const en = {
     student_events_manage: { description: 'Create, edit, publish and archive college events' },
     student_events_attendance_manage: { description: 'Open or close check-in QR and correct event attendance' },
     student_events_delete: { description: 'Permanently delete any event and its attendance register' },
+    clinical_feedback_view: { description: 'View aggregate student feedback' },
+    clinical_feedback_comments: { description: 'Read redacted student comments' },
+    clinical_feedback_moderate: { description: 'Review, redact and follow up confidential comments' },
+    clinical_feedback_manage: { description: 'Configure student access and release feedback batches' },
+    clinical_feedback_publish_marks: { description: 'Publish official clinical assessments to students' },
     clinical_field_monitoring_view: { description: 'View field monitoring and supervisory visit forms in the user scope' },
     clinical_field_monitoring_create_assistant: { description: 'Create the research and teaching assistant field follow-up form' },
     clinical_field_monitoring_create_department_report: { description: 'Create the clinical department head periodic report' },

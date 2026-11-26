@@ -111,6 +111,7 @@ class RotationController extends Controller
     public function destroy(Rotation $rotation): JsonResponse
     {
         app(\App\Services\DepartmentHeadCourseScope::class)->authorizeRotation($rotation);
+        app(\App\Services\ClinicalStudentFeedback::class)->assertRotationDeletable($rotation->id);
         $rotation->delete();
         return ApiResponse::success(null, 'Rotation deleted successfully');
     }

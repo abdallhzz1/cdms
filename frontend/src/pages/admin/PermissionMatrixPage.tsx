@@ -96,10 +96,16 @@ const MODULES: Record<string, { label: LocalizedLabel; icon: Icon }> = {
   Partnerships: { label: { ar: 'الشراكات السريرية', en: 'Clinical Partnerships' }, icon: ShieldCheck },
   GroupRegistration: { label: { ar: 'تسجيل مجموعات الطلبة', en: 'Student Group Registration' }, icon: GraduationCap },
   'Confidential Finance': { label: { ar: 'الخزنة المالية السرية', en: 'Confidential Finance Vault' }, icon: LockKeyhole },
+  'Clinical Student Feedback': { label: { ar: 'تقييمات الطلبة والتغذية الراجعة السرية', en: 'Student Marks and Confidential Feedback' }, icon: LockKeyhole },
   'Student Policies': { label: { ar: 'سياسات وتعهدات الطلبة', en: 'Student Policies and Acknowledgements' }, icon: ClipboardCheck },
 };
 
 const PERMISSION_LABELS: Record<string, string> = {
+  'clinical_feedback.view': 'عرض نتائج التغذية الراجعة المجمعة للطلبة',
+  'clinical_feedback.comments': 'قراءة ملاحظات الطلبة بعد تنقيحها',
+  'clinical_feedback.moderate': 'مراجعة الملاحظات السرية وتنقيح الهوية وتوثيق المتابعة',
+  'clinical_feedback.manage': 'تفعيل بوابة التقييمات وإتاحة دفعات التغذية الراجعة',
+  'clinical_feedback.publish_marks': 'نشر التقييمات السريرية الرسمية للطلبة',
   'clinical_supervisors.view': 'عرض المستشفيات وبروفايلات المشرفين',
   'clinical_supervisors.update': 'تعديل بيانات بروفايل المشرف الرسمية والمهنية',
   'supervisor_documents.view': 'عرض وتنزيل الوثائق المهنية للمشرف',
@@ -239,6 +245,11 @@ function moduleInfo(module: string) {
 
 function humanizePermission(permission: Permission) {
   const supervisorLabels: Record<string, string> = {
+    'clinical_feedback.view': 'View aggregate student feedback',
+    'clinical_feedback.comments': 'Read redacted student comments',
+    'clinical_feedback.moderate': 'Review confidential comments, redact identity and follow up',
+    'clinical_feedback.manage': 'Configure student access and release feedback batches',
+    'clinical_feedback.publish_marks': 'Publish official clinical assessment marks to students',
     'clinical_supervisors.view': 'View hospitals and supervisor profiles',
     'clinical_supervisors.update': 'Edit official and professional supervisor profile data',
     'supervisor_documents.view': 'View and download professional documents',

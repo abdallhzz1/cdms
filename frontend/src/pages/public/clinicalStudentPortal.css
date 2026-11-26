@@ -1,0 +1,7 @@
+/* Keep iOS from zooming form controls; scope this to the student portal. */
+.clinical-student-portal input:not([type='checkbox']),
+.clinical-student-portal select,
+.clinical-student-portal textarea {
+  font-size: 16px;
+  line-height: 1.6;
+}

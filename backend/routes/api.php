@@ -121,6 +121,15 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // Public Routes (No authentication required — for lobby displays & student self-lookup)
     // -------------------------------------------------------------------------
     Route::prefix('public')->name('public.')->group(function () {
+        Route::prefix('clinical-student')->withoutMiddleware(EnsureFrontendRequestsAreStateful::class)->middleware([\Illuminate\Cookie\Middleware\EncryptCookies::class, \App\Http\Middleware\ClinicalPortalPrivacy::class])->group(function () {
+            $controller = \App\Http\Controllers\Api\V1\ClinicalStudentPortalController::class;
+            Route::get('identity', [$controller, 'identity'])->middleware('throttle:clinical-portal-read');
+            Route::post('request-otp', [$controller, 'requestOtp'])->middleware('throttle:clinical-portal-otp');
+            Route::post('verify-otp', [$controller, 'verifyOtp'])->middleware('throttle:clinical-portal-verify');
+            Route::post('marks', [$controller, 'marks'])->middleware('throttle:clinical-portal-read');
+            Route::post('participate', [$controller, 'participate'])->middleware('throttle:clinical-portal-read');
+            Route::post('forget', [$controller, 'forget'])->middleware('throttle:clinical-portal-read');
+        });
         Route::prefix('student-events')->group(function () {
             Route::get('posters/{publicId}', [PublicStudentEventController::class, 'poster'])
                 ->whereUuid('publicId')->middleware('throttle:operational-read')
@@ -479,6 +488,17 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::delete('operational-tasks/{operationalTask}/attachments/{attachment}', [OperationalTaskController::class, 'destroyAttachment'])->middleware('permission:tasks.view');
         Route::put('operational-tasks/{operationalTask}', [OperationalTaskController::class, 'update'])->middleware('permission.any:tasks.view,tasks.manage');
         Route::delete('operational-tasks/{operationalTask}', [OperationalTaskController::class, 'destroy'])->middleware('permission:tasks.manage');
+        Route::prefix('clinical-student-feedback')->middleware(\App\Http\Middleware\ClinicalPortalPrivacy::class)->group(function () {
+            $controller = \App\Http\Controllers\Api\V1\ClinicalStudentFeedbackController::class;
+            Route::get('options', [$controller, 'options'])->middleware('permission.any:clinical_feedback.view,clinical_feedback.comments,clinical_feedback.moderate,clinical_feedback.manage,clinical_feedback.publish_marks');
+            Route::put('rotations/{rotation}', [$controller, 'configure'])->middleware('permission:clinical_feedback.manage');
+            Route::post('windows/{window}/marks', [$controller, 'publishMarks'])->middleware('permission:clinical_feedback.publish_marks');
+            Route::post('windows/{window}/reports', [$controller, 'publishReports'])->middleware('permission:clinical_feedback.manage');
+            Route::get('reports', [$controller, 'reports'])->middleware('permission:clinical_feedback.view');
+            Route::get('comments', [$controller, 'comments'])->middleware('permission.any:clinical_feedback.comments,clinical_feedback.moderate');
+            Route::put('comments/{answer}', [$controller, 'moderate'])->whereUuid('answer')->middleware('permission:clinical_feedback.moderate');
+        });
+
         Route::get('quality-surveys', [QualitySurveyController::class, 'index'])->middleware('permission:quality.view');
         Route::get('quality-surveys/participation-options', [QualitySurveyController::class, 'participationOptions'])->middleware('permission:quality.view');
         Route::post('quality-surveys', [QualitySurveyController::class, 'store'])->middleware('permission:quality.manage');

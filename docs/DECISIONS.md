@@ -473,3 +473,23 @@ that instruction fails as written on a Windows + Herd setup.
 **Validation:** Regression tests cover mixed basic/clinical roles, direct permissions, inactive accounts, cohort/year/course boundaries, open versus sealed university registers, historical distributions and grades, operation counts, approval separation, empty distribution coverage, zero-valued charts and Arabic/English trend direction. Existing supervisor portal tests are retained. Responsive browser checks use synthetic data on phone, tablet and desktop.
 
 **Status:** Adopted 2026-11-26 by explicit owner direction.
+
+## ADR-031 — Students verify identity, give confidential feedback, then view released clinical marks
+
+**Date:** 2026-11-26.
+
+**Decision:** Explicit owner direction extends the accountless student portal with `/portal/clinical-assessments`, and adds `/clinical-student-feedback` for authorized staff. The owner requested a link only, no QR. Each course rotation starts disabled; staff select a start week and explicitly publish official marks. Ended weekly slots or actual period-based assessments use the existing current-publication/official-assessment selection. Drafts, returns, future slots, Mini-OSCE and final OSCE are excluded. Marks remain absent from student API payloads until the verified owner completes that slot's short feedback and a matching official mark is published. Corrections require republication while preserving participation. Grade calculations and the supervisor workspace are unchanged.
+
+**Identity:** Real email OTP is mandatory independently of schedule test bypass and Sanctum domain assumptions. Codes are hashed, limited, expiring and single-use. Dedicated encrypted HttpOnly cookies have server expiry, optional thirty-day remembering and revocation. Public mutation requests require exact same-origin and a custom non-simple header. Student IDs are derived from this session, never accepted as grade-access authority. Responses are private/no-store.
+
+**Feedback:** Two ratings permit explicit inability to assess; free text is optional. A student/rotation/logical-slot/day ledger prevents duplicates. Random-UUID answers have no student, participation, grade, device, IP, timestamp or persistent respondent identifier. Comments are encrypted and never returned through student endpoints. Transactions and unique constraints preserve idempotence. This separation is an application privacy measure, not cryptographic anonymity against privileged database/log/backup access or identifying free text.
+
+**Review:** Frozen batches need at least five students for the same slot/supervisor and are released only after the full training period and break-adjusted weeks end. Late responses cannot change a published batch individually. Each numeric average separately needs five numerical answers. Staff cannot read their own feedback despite mixed roles. Department/course and RTA cohort scope remain enforced. Moderators redact originals before comment readers can see them. No identity lists, precise reply times, response bundles with ratings, exports or deletes are exposed.
+
+**Permissions and history:** Five separate permissions cover aggregates, redacted comments, moderation, setup/report release, and mark publication. Defaults are documented in `docs/CLINICAL_STUDENT_FEEDBACK.md`; technical administrators receive no automatic feedback-reading access. Student records with publication/participation history cannot be force-deleted; expired authentication records are ephemeral and cannot prevent deletion of otherwise deletable directory records. Scheduled pruning never deletes academic or feedback history.
+
+**Migration impact:** Seven additive tables and permission rows/grants. No existing marks, formulas, workflow states or source assessments are rewritten or automatically published. DDL uses short identifiers and can resume after already-created tables. Confidential history is deliberately protected from destructive rollback; disable the course window for operational rollback.
+
+**Validation:** Identity/cookie round trips, bypass resistance, authorization/scope, same-origin protection, hidden grade payloads, correction/republication, duplicate submissions, encrypted unlinked comments, low-count and per-question suppression, late batches, self-review denial, redaction permissions, safe deletion, credential cleanup, bulk query growth, existing grade/review and supervisor behavior, and responsive Arabic/English student journeys are checked locally. The existing schedule-cookie test harness now actually sends its cookies; production schedule code is unchanged.
+
+**Status:** Adopted by explicit owner instruction.

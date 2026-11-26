@@ -573,6 +573,11 @@ class StudentController extends Controller
         $force = $request->boolean('force');
         $deletedCounts = DB::transaction(function () use ($request, $student, $force): array {
             $lockedStudent = Student::query()->lockForUpdate()->findOrFail($student->id);
+            if ((\Illuminate\Support\Facades\Schema::hasTable('clinical_mark_releases') && DB::table('clinical_mark_releases')->where('student_id', $lockedStudent->id)->exists())
+                || (\Illuminate\Support\Facades\Schema::hasTable('clinical_feedback_participations') && DB::table('clinical_feedback_participations')->where('student_id', $lockedStudent->id)->exists())) {
+                throw ValidationException::withMessages(['student' => [__('clinical_feedback.student_history')]]);
+            }
+
 
             // Registration rosters and subgroup selections are operational setup
             // records and may be cleaned when an administrator explicitly deletes

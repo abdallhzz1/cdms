@@ -340,6 +340,7 @@ class PublicStudentScheduleTest extends TestCase
 
     public function test_verified_student_can_remember_this_browser_and_revoke_it(): void
     {
+        $this->withCredentials();
         $token = Str::random(80);
         StudentScheduleOtpChallenge::create([
             'student_id' => $this->student->id,
@@ -358,15 +359,15 @@ class PublicStudentScheduleTest extends TestCase
         $this->assertNotNull($cookie);
         $this->assertDatabaseCount('student_schedule_trusted_devices', 1);
 
-        $this->withCookie('cdms_student_schedule', $cookie->getValue())
+        $this->withUnencryptedCookie('cdms_student_schedule', $cookie->getValue())
             ->postJson('/api/v1/public/student-schedule', [])
             ->assertOk()
             ->assertJsonPath('data.student.university_number', '22210466');
 
-        $this->withCookie('cdms_student_schedule', $cookie->getValue())
+        $this->withUnencryptedCookie('cdms_student_schedule', $cookie->getValue())
             ->postJson('/api/v1/public/student-schedule/forget', [])
             ->assertOk();
-        $this->withCookie('cdms_student_schedule', $cookie->getValue())
+        $this->withUnencryptedCookie('cdms_student_schedule', $cookie->getValue())
             ->postJson('/api/v1/public/student-schedule', [])
             ->assertUnauthorized();
     }
@@ -380,6 +381,7 @@ class PublicStudentScheduleTest extends TestCase
 
     public function test_expired_trusted_browser_cannot_view_schedule(): void
     {
+        $this->withCredentials();
         $token = Str::random(80);
         \App\Models\StudentScheduleTrustedDevice::create([
             'student_id' => $this->student->id,
@@ -387,7 +389,7 @@ class PublicStudentScheduleTest extends TestCase
             'expires_at' => now()->subMinute(),
         ]);
 
-        $this->withCookie('cdms_student_schedule', $token)
+        $this->withUnencryptedCookie('cdms_student_schedule', $token)
             ->postJson('/api/v1/public/student-schedule', [])
             ->assertUnauthorized();
     }

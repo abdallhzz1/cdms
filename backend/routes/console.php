@@ -64,6 +64,17 @@ Artisan::command('basic-attendance:finalize-expired', function () {
 
 Schedule::command('basic-attendance:finalize-expired')->everyFiveMinutes()->withoutOverlapping();
 
+Artisan::command('clinical-portal:prune', function () {
+    if (!\Illuminate\Support\Facades\Schema::hasTable('clinical_portal_sessions')) return;
+    $challenges = \Illuminate\Support\Facades\DB::table('clinical_portal_challenges')->where('expires_at', '<', now()->subDays(2))->delete();
+    $sessions = \Illuminate\Support\Facades\DB::table('clinical_portal_sessions')->where(function ($q) {
+        $q->where('expires_at', '<', now()->subDays(30))->orWhere('revoked_at', '<', now()->subDays(30));
+    })->delete();
+    $this->info("Removed {$challenges} expired challenges and {$sessions} expired/revoked portal sessions. Academic and feedback records were retained.");
+})->purpose('Remove expired clinical student portal credentials without deleting academic or feedback history');
+
+Schedule::command('clinical-portal:prune')->dailyAt('03:45')->withoutOverlapping();
+
 if (config('operations.backup.enabled') && class_exists(\Spatie\Backup\Commands\BackupCommand::class)) {
     Schedule::command('backup:run --only-db')
         ->dailyAt('02:00')
