@@ -24,6 +24,7 @@ describe('student clinical assessments', () => {
     });
     renderWithProviders(<ClinicalStudentAssessmentsPage />);
     const submit = await screen.findByRole('button', { name: /Send and view my mark/ });
+    const selectedWeek = (screen.getByRole('combobox', { name: 'Week / period' }) as HTMLSelectElement).value;
     expect(submit).toBeDisabled(); expect(screen.queryByText('8')).not.toBeInTheDocument();
     expect(screen.getByText(/Your name and number are not shown/)).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'How useful was your training?: 4' }));
@@ -32,7 +33,12 @@ describe('student clinical assessments', () => {
     expect(await screen.findByText('Your clinical assessment mark')).toBeVisible();
     expect(screen.queryByRole('button', { name: /Send and view my mark/ })).not.toBeInTheDocument();
     expect(bodies).toEqual([{ key: slot.key, experience: 4, supervision: 5, comment: null }]);
-    expect(screen.getByRole('combobox', { name: 'Week / period' })).toHaveValue(slot.key);
+    expect(screen.getByRole('combobox', { name: 'Week / period' })).toHaveValue(selectedWeek);
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Week / period' }), screen.getByRole('option', { name: 'Week 1' }));
+    expect(screen.getByRole('button', { name: /Send and view my mark/ })).toBeDisabled();
+    expect(screen.queryByText('Your clinical assessment mark')).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Week / period' }), selectedWeek);
+    expect(screen.getByText('Your clinical assessment mark')).toBeVisible();
   });
 
   it('preserves the answers after a failed request and permits unable-to-assess without forcing a comment', async () => {
@@ -80,11 +86,11 @@ describe('student clinical assessments', () => {
     expect(requestedMarks).toBeGreaterThan(0);
   });
 
-  it('shows only courses and weeks belonging to the selected clinical period', async () => {
+  it('offers only period and week selectors and shows all assessments for the selected week', async () => {
     localStorage.setItem('cdms.locale', 'en'); document.cookie = 'XSRF-TOKEN=test';
     const slots = [
       { ...slot, period_key: 'year1|p1' },
-      { ...slot, key: 'b'.repeat(64), rotation_id: 2, course_id: 2, course_en: 'Medicine', period_key: 'year1|p1', from_week: 4, to_week: 4 },
+      { ...slot, key: 'b'.repeat(64), rotation_id: 2, course_id: 2, course_en: 'Medicine', period_key: 'year1|p1' },
       { ...slot, key: 'c'.repeat(64), rotation_id: 3, course_id: 3, course_en: 'Pediatrics', period_key: 'year1|p2', period_en: 'Period two', from_week: 1, to_week: 1 },
     ];
     vi.spyOn(window, 'fetch').mockImplementation(async input => {
@@ -96,15 +102,46 @@ describe('student clinical assessments', () => {
     });
     renderWithProviders(<ClinicalStudentAssessmentsPage />);
     const period = await screen.findByRole('combobox', { name: 'Clinical period' });
-    const course = screen.getByRole('combobox', { name: 'Course' });
     const week = screen.getByRole('combobox', { name: 'Week / period' });
+    expect(screen.getAllByRole('combobox')).toHaveLength(2);
+    expect(screen.queryByRole('combobox', { name: 'Course' })).not.toBeInTheDocument();
     expect(within(period).getAllByRole('option')).toHaveLength(2);
-    expect(within(course).getAllByRole('option').map(o => o.textContent)).toEqual(['Surgery', 'Medicine']);
-    await userEvent.selectOptions(course, '2'); expect(week).toHaveValue('b'.repeat(64));
+    expect(within(week).getAllByRole('option').map(o => o.textContent)).toEqual(['Week 2']);
+    expect(screen.getByRole('region', { name: 'Week 2 · Surgery' })).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Week 2 · Medicine' })).toBeVisible();
+    const comments = screen.getAllByRole('textbox');
+    expect(new Set(comments.map(c => c.id)).size).toBe(2);
     await userEvent.selectOptions(period, 'year1|p2');
-    expect(course).toHaveValue('3'); expect(week).toHaveValue('c'.repeat(64));
-    expect(within(course).getAllByRole('option').map(o => o.textContent)).toEqual(['Pediatrics']);
     expect(within(week).getAllByRole('option').map(o => o.textContent)).toEqual(['Week 1']);
+    expect(screen.queryByRole('region', { name: 'Week 2 · Surgery' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Week 1' })).toBeVisible();
+    await userEvent.selectOptions(period, 'year1|p1');
+    expect(within(week).getAllByRole('option').map(o => o.textContent)).toEqual(['Week 2']);
+    expect(screen.getAllByRole('button', { name: /Send and view my mark/ })).toHaveLength(2);
+  });
+
+  it('submits feedback for the right assessment when two courses share a week without revealing the other mark', async () => {
+    localStorage.setItem('cdms.locale', 'en'); document.cookie = 'XSRF-TOKEN=test';
+    let done = false; const bodies: Record<string, unknown>[] = [];
+    vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return response(null, 401);
+      if (url.endsWith('/identity')) return response({ student });
+      if (url.endsWith('/marks')) return response({ slots: [slot, { ...slot, key: 'b'.repeat(64), rotation_id: 2, course_id: 2, course_en: 'Medicine', can_participate: !done, feedback_done: done, ...(done ? { mark: { score: 9, max_score: 10, revision: 1 } } : {}) }] });
+      if (url.endsWith('/participate')) { bodies.push(JSON.parse(String(init?.body))); done = true; return response(null); }
+      throw new Error(url);
+    });
+    renderWithProviders(<ClinicalStudentAssessmentsPage />);
+    const medicine = await screen.findByRole('region', { name: 'Week 2 · Medicine' });
+    await userEvent.click(within(medicine).getByRole('button', { name: 'How useful was your training?: 4' }));
+    await userEvent.click(within(medicine).getByRole('button', { name: 'How was the supervision and guidance?: 5' }));
+    await userEvent.click(within(medicine).getByRole('button', { name: /Send and view my mark/ }));
+    expect(await within(medicine).findByText('Your clinical assessment mark')).toBeVisible();
+    expect(bodies).toEqual([{ key: 'b'.repeat(64), experience: 4, supervision: 5, comment: null }]);
+    const surgery = screen.getByRole('region', { name: 'Week 2 · Surgery' });
+    expect(within(surgery).queryByText('Your clinical assessment mark')).not.toBeInTheDocument();
+    expect(within(surgery).getByRole('button', { name: /Send and view my mark/ })).toBeDisabled();
+    expect(within(screen.getByRole('combobox', { name: 'Week / period' })).getAllByRole('option')).toHaveLength(1);
   });
 
   it('keeps pending weeks free of a survey and reveals feedback before a later official mark', async () => {
