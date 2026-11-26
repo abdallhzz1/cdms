@@ -490,7 +490,16 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::delete('operational-tasks/{operationalTask}', [OperationalTaskController::class, 'destroy'])->middleware('permission:tasks.manage');
         Route::prefix('clinical-student-feedback')->middleware(\App\Http\Middleware\ClinicalPortalPrivacy::class)->group(function () {
             $controller = \App\Http\Controllers\Api\V1\ClinicalStudentFeedbackController::class;
-            Route::get('options', [$controller, 'options'])->middleware('permission.any:clinical_feedback.view,clinical_feedback.comments,clinical_feedback.moderate,clinical_feedback.manage,clinical_feedback.publish_marks');
+            Route::get('options', [$controller, 'options'])->middleware('permission.any:clinical_feedback.view,clinical_feedback.comments,clinical_feedback.moderate,clinical_feedback.manage,clinical_feedback.publish_marks,clinical_feedback.test,clinical_feedback.delete_test');
+            $testController = \App\Http\Controllers\Api\V1\ClinicalFeedbackTestController::class;
+            Route::get('test-students', [$testController, 'students'])->middleware('permission:clinical_feedback.test');
+            Route::get('test-runs', [$testController, 'index'])->middleware('permission.any:clinical_feedback.test,clinical_feedback.delete_test');
+            Route::post('test-runs', [$testController, 'create'])->middleware('permission:clinical_feedback.test');
+            Route::get('test-runs/{run}/identity', [$testController, 'identity'])->whereUuid('run')->middleware('permission:clinical_feedback.test');
+            Route::post('test-runs/{run}/marks', [$testController, 'marks'])->whereUuid('run')->middleware('permission:clinical_feedback.test');
+            Route::post('test-runs/{run}/participate', [$testController, 'participate'])->whereUuid('run')->middleware('permission:clinical_feedback.test');
+            Route::delete('test-runs/{run}/answers/{answer}', [$testController, 'deleteAnswer'])->whereUuid('run')->whereUuid('answer')->middleware('permission:clinical_feedback.delete_test');
+            Route::delete('test-runs/{run}', [$testController, 'destroy'])->whereUuid('run')->middleware('permission:clinical_feedback.delete_test');
             Route::put('rotations/{rotation}', [$controller, 'configure'])->middleware('permission:clinical_feedback.manage');
             Route::post('windows/{window}/marks', [$controller, 'publishMarks'])->middleware('permission:clinical_feedback.publish_marks');
             Route::post('windows/{window}/reports', [$controller, 'publishReports'])->middleware('permission:clinical_feedback.manage');

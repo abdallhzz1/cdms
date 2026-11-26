@@ -341,6 +341,8 @@ const ar: typeof en = {
     clinical_feedback_comments: { description: 'قراءة الملاحظات المنقحة' },
     clinical_feedback_moderate: { description: 'مراجعة الملاحظات السرية وتنقيحها ومتابعتها' },
     clinical_feedback_manage: { description: 'تفعيل بوابة الطالب وإدارة إتاحتها' },
+    clinical_feedback_test: { description: 'فحص بوابة التقييمات لطالب موجود بحساب إداري' },
+    clinical_feedback_delete_test: { description: 'حذف ردود الفحص والتجارب الإدارية الخاصة بك' },
     clinical_feedback_publish_marks: { description: 'نشر التقييمات السريرية الرسمية للطلبة' },
     clinical_field_monitoring_view: { description: 'عرض نماذج المتابعة والزيارات الميدانية الخاصة بالمستخدم' },
     clinical_field_monitoring_create_assistant: { description: 'إنشاء نموذج المتابعة الميدانية لمساعد البحث والتدريس' },

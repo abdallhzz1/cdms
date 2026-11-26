@@ -86,10 +86,10 @@ class ClinicalStudentFeedback
             && abs((float) $release->score - (float) $a->score) < 0.005 && abs((float) $release->max_score - (float) $a->max_score) < 0.005;
     }
 
-    public function forStudent(Student $student): array
+    public function forStudent(Student $student, ?Collection $participations = null): array
     {
         $releases = ClinicalMarkRelease::where('student_id', $student->id)->get()->keyBy(fn ($r) => $r->window_id.'|'.$r->slot_key);
-        $participations = DB::table('clinical_feedback_participations')->where('student_id', $student->id)->get()->keyBy(fn ($p) => $p->window_id.'|'.$p->slot_key);
+        $participations ??= DB::table('clinical_feedback_participations')->where('student_id', $student->id)->get()->keyBy(fn ($p) => $p->window_id.'|'.$p->slot_key);
         $catalog = $this->catalog($student);
         $publications = DB::table('clinical_week_publications')->whereIn('window_id', $catalog->pluck('window.id')->unique())->get()->keyBy(fn ($p) => $p->window_id.'|'.$p->week);
 
@@ -134,9 +134,7 @@ class ClinicalStudentFeedback
             if (DB::table('clinical_feedback_participations')->where($scope)->exists()) {
                 return;
             }
-            $release = ClinicalMarkRelease::where($scope)->first();
-            $authorized = DB::table('clinical_week_publications')->where('window_id', $slot['window']->id)->where('week', $slot['to_week'])->exists();
-            abort_unless($this->officialValid($slot) && ($authorized || $this->snapshotMatches($slot, $release)), 404);
+            $this->assertSlotReady($slot, $student->id);
             // No student/mark/participation/token/IP/device/timestamp is stored with answers.
             DB::table('clinical_feedback_answers')->insert([
                 'id' => Str::uuid()->toString(), 'window_id' => $slot['window']->id, 'supervisor_id' => $slot['supervisor_id'],
@@ -146,6 +144,22 @@ class ClinicalStudentFeedback
             ]);
             DB::table('clinical_feedback_participations')->insert($scope + ['completed_on' => today()->toDateString()]);
         }, 3);
+    }
+
+    public function readySlot(Student $student, string $key): array
+    {
+        $slot = $this->catalog($student)->firstWhere('key', $key);
+        abort_unless($slot && $slot['supervisor_id'] && $slot['ends_on'] < today()->toDateString(), 404);
+        $this->assertSlotReady($slot, $student->id);
+
+        return $slot;
+    }
+
+    private function assertSlotReady(array $slot, int $studentId): void
+    {
+        $release = ClinicalMarkRelease::where(['window_id' => $slot['window']->id, 'student_id' => $studentId, 'slot_key' => $slot['slot_key']])->first();
+        $authorized = DB::table('clinical_week_publications')->where('window_id', $slot['window']->id)->where('week', $slot['to_week'])->exists();
+        abort_unless($this->officialValid($slot) && ($authorized || $this->snapshotMatches($slot, $release)), 404);
     }
 
     public function publishMarks(ClinicalFeedbackWindow $window, User $actor, int $from, int $to): int

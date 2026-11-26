@@ -547,4 +547,121 @@ class ClinicalStudentFeedbackTest extends TestCase
         $service->publishMarks($this->window->fresh(), $this->director, 1, 12);
         $this->assertSame($rows[$rotation->id]['period_key'], $service->forStudent($student)[0]['period_key']);
     }
+
+    public function test_staff_can_test_an_existing_student_and_delete_test_data_without_changing_real_participation_or_grades(): void
+    {
+        $student = $this->pupil();
+        $service = app(ClinicalStudentFeedback::class);
+        $service->publishMarks($this->window, $this->director, 1, 12);
+        $assistant = $this->actor(['test', 'delete_test'], 'ADMIN_ASSISTANT');
+        $this->actingAs($assistant);
+        $this->getJson('/api/v1/clinical-student-feedback/test-students?search='.substr($student->university_number, -4))->assertOk()->assertJsonPath('data.0.id', $student->id);
+        $run = $this->postJson('/api/v1/clinical-student-feedback/test-runs', ['student_id' => $student->id])->assertOk()->json('data.id');
+        $base = '/api/v1/clinical-student-feedback/test-runs/'.$run;
+        $this->getJson($base.'/identity')->assertOk()->assertJsonPath('data.student.university_number', $student->university_number);
+        $this->postJson($base.'/marks')->assertOk()->assertJsonPath('data.is_test', true)->assertJsonPath('data.slots.0.can_participate', true)->assertJsonMissingPath('data.slots.0.mark');
+        $payload = ['key' => $this->key($student), 'experience' => 4, 'supervision' => 5, 'comment' => 'Synthetic staff response'];
+        $this->postJson($base.'/participate', $payload)->assertOk();
+        $this->postJson($base.'/participate', $payload)->assertOk();
+        $mark = $this->postJson($base.'/marks')->assertOk()->assertJsonPath('data.slots.0.mark.score', 8)->assertJsonPath('data.slots.0.test_response.comment', 'Synthetic staff response');
+        $answer = $mark->json('data.slots.0.test_response.id');
+        $this->assertDatabaseCount('clinical_feedback_test_answers', 1);
+        $this->assertDatabaseCount('clinical_feedback_answers', 0);
+        $this->assertDatabaseCount('clinical_feedback_participations', 0);
+        $this->assertDatabaseCount('clinical_portal_sessions', 0);
+        $this->assertStringNotContainsString('Synthetic staff response', DB::table('clinical_feedback_test_answers')->value('private_comment'));
+        $this->assertFalse($service->forStudent($student)[0]['feedback_done']);
+        $this->assertArrayNotHasKey('mark', $service->forStudent($student)[0]);
+        $this->actingAs($this->director)->getJson('/api/v1/clinical-student-feedback/reports?window_id='.$this->window->id)->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson('/api/v1/clinical-student-feedback/comments?window_id='.$this->window->id)->assertOk()->assertJsonCount(0, 'data');
+        $this->actingAs($assistant);
+        $this->getJson('/api/v1/clinical-student-feedback/test-runs')->assertOk()->assertJsonPath('data.runs.0.answers_count', 1);
+        $this->deleteJson($base.'/answers/'.$answer)->assertOk();
+        $this->postJson($base.'/marks')->assertOk()->assertJsonPath('data.slots.0.can_participate', true)->assertJsonMissingPath('data.slots.0.mark');
+        $this->postJson($base.'/participate', $payload)->assertOk();
+        $this->deleteJson($base)->assertOk();
+        $this->assertDatabaseCount('clinical_feedback_test_runs', 0);
+        $this->assertDatabaseCount('clinical_feedback_test_answers', 0);
+        $this->assertDatabaseHas('clinical_assessments', ['student_id' => $student->id, 'score' => 8, 'status' => 'submitted']);
+        $this->actingAs($this->director)->getJson('/api/v1/clinical-student-feedback/reports?window_id='.$this->window->id)->assertOk()->assertJsonCount(0, 'data');
+        $this->assertDatabaseHas('audit_logs', ['user_id' => $assistant->id, 'action' => 'clinical_feedback.test_deleted']);
+    }
+
+    public function test_staff_tests_do_not_expose_or_delete_a_students_real_response(): void
+    {
+        $student = $this->pupil();
+        $this->participate($student, 'Real confidential reply');
+        $realAnswer = DB::table('clinical_feedback_answers')->value('id');
+        $assistant = $this->actor(['test', 'delete_test'], 'ADMIN_ASSISTANT');
+        $this->actingAs($assistant);
+        $run = $this->postJson('/api/v1/clinical-student-feedback/test-runs', ['student_id' => $student->id])->assertOk()->json('data.id');
+        $base = '/api/v1/clinical-student-feedback/test-runs/'.$run;
+        $result = $this->postJson($base.'/marks')->assertOk()->assertJsonPath('data.slots.0.feedback_done', false)->assertJsonPath('data.slots.0.can_participate', true)->assertJsonMissingPath('data.slots.0.mark');
+        $this->assertStringNotContainsString('Real confidential reply', $result->getContent());
+        $this->deleteJson($base.'/answers/'.$realAnswer)->assertNotFound();
+        $this->postJson($base.'/participate', ['key' => $this->key($student), 'experience' => 1, 'supervision' => 1])->assertOk();
+        $this->deleteJson($base)->assertOk();
+        $this->assertDatabaseCount('clinical_feedback_answers', 1);
+        $this->assertDatabaseCount('clinical_feedback_participations', 1);
+        $this->assertTrue(app(ClinicalStudentFeedback::class)->forStudent($student)[0]['feedback_done']);
+    }
+
+    public function test_test_permissions_ownership_expiry_and_student_scope_are_enforced_on_every_endpoint(): void
+    {
+        $student = $this->pupil();
+        $this->participate($student);
+        $assistant = $this->actor(['test'], 'ADMIN_ASSISTANT');
+        $this->actingAs($assistant);
+        $run = $this->postJson('/api/v1/clinical-student-feedback/test-runs', ['student_id' => $student->id])->assertOk()->json('data.id');
+        $base = '/api/v1/clinical-student-feedback/test-runs/'.$run;
+        $this->deleteJson($base)->assertForbidden();
+        $this->postJson('/api/v1/public/clinical-student/marks')->assertUnauthorized();
+        $other = $this->actor(['test', 'delete_test'], 'ADMIN_ASSISTANT');
+        $this->actingAs($other)->postJson($base.'/marks')->assertNotFound();
+        $this->getJson($base.'/identity')->assertNotFound();
+        $this->deleteJson($base)->assertNotFound();
+        $this->getJson('/api/v1/clinical-student-feedback/test-runs')->assertOk()->assertJsonCount(0, 'data.runs');
+        $rta = $this->actor(['test', 'delete_test'], 'RTA');
+        $outside = Student::factory()->create(['academic_level' => 'fifth', 'registration_status' => 'active', 'academic_registration_status' => 'registered']);
+        $this->actingAs($rta)->postJson('/api/v1/clinical-student-feedback/test-runs', ['student_id' => $outside->id])->assertNotFound();
+        $this->actingAs($assistant);
+        $assistant->directPermissions()->detach(Permission::where('code', 'clinical_feedback.test')->value('id'));
+        $this->actingAs($assistant->fresh())->postJson($base.'/marks')->assertForbidden();
+        $assistant->directPermissions()->attach(Permission::whereIn('code', ['clinical_feedback.test', 'clinical_feedback.delete_test'])->pluck('id'));
+        $this->actingAs($assistant->fresh());
+        DB::table('clinical_feedback_test_runs')->where('id', $run)->update(['expires_at' => now()->subMinute()]);
+        $this->postJson($base.'/marks')->assertNotFound();
+        $this->getJson('/api/v1/clinical-student-feedback/test-runs')->assertOk()->assertJsonPath('data.runs.0.is_active', false);
+        $this->deleteJson($base)->assertOk();
+    }
+
+    public function test_staff_test_cannot_accept_feedback_for_unpublished_ungraded_or_foreign_slots(): void
+    {
+        $student = $this->pupil(false);
+        $other = $this->pupil();
+        $assistant = $this->actor(['test', 'delete_test'], 'ADMIN_ASSISTANT');
+        $this->actingAs($assistant);
+        $run = $this->postJson('/api/v1/clinical-student-feedback/test-runs', ['student_id' => $student->id])->assertOk()->json('data.id');
+        $base = '/api/v1/clinical-student-feedback/test-runs/'.$run;
+        $this->postJson($base.'/marks')->assertOk()->assertJsonCount(0, 'data.slots');
+        app(ClinicalStudentFeedback::class)->publishMarks($this->window, $this->director, 1, 12);
+        $this->postJson($base.'/marks')->assertOk()->assertJsonPath('data.slots.0.status', 'not_evaluated');
+        $this->postJson($base.'/participate', ['key' => $this->key($student), 'experience' => 5, 'supervision' => 5])->assertNotFound();
+        $this->postJson($base.'/participate', ['key' => $this->key($other), 'experience' => 5, 'supervision' => 5])->assertNotFound();
+        $this->assertDatabaseCount('clinical_feedback_test_answers', 0);
+        $this->assertDatabaseCount('clinical_feedback_participations', 0);
+    }
+
+    public function test_testing_migration_grants_both_controls_to_administrative_assistants_idempotently(): void
+    {
+        $migration = require database_path('migrations/2026_11_26_190000_add_clinical_feedback_testing.php');
+        $migration->up();
+        $migration->up();
+        $assistant = $this->actor([], 'ADMIN_ASSISTANT');
+        $this->actingAs($assistant)->getJson('/api/v1/clinical-student-feedback/test-runs')->assertOk();
+        $student = $this->pupil();
+        $run = $this->postJson('/api/v1/clinical-student-feedback/test-runs', ['student_id' => $student->id])->assertOk()->json('data.id');
+        $this->deleteJson('/api/v1/clinical-student-feedback/test-runs/'.$run)->assertOk();
+        $this->assertSame(2, Role::where('code', 'ADMIN_ASSISTANT')->firstOrFail()->permissions()->whereIn('code', ['clinical_feedback.test', 'clinical_feedback.delete_test'])->count());
+    }
 }

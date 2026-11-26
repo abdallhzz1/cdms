@@ -250,7 +250,7 @@ export function App() {
                 <Route path="/attendance" element={<ProtectedRoute requiredPermission="attendance.review"><AttendanceMasterPage /></ProtectedRoute>} />
                 <Route path="/attendance/university" element={<ProtectedRoute requiredAnyPermission={['university_lectures.manage','university_lectures.attendance.view','university_lectures.attendance.manage','university_lectures.attendance.correct_approved','attendance.record']}><UniversityAttendanceAdminPage /></ProtectedRoute>} />
                 <Route path="/assessments" element={<ProtectedRoute requiredPermission="assessment.review"><AssessmentsMasterPage /></ProtectedRoute>} />
-                <Route path="/clinical-student-feedback" element={<ProtectedRoute requiredAnyPermission={["clinical_feedback.view", "clinical_feedback.comments", "clinical_feedback.moderate", "clinical_feedback.manage", "clinical_feedback.publish_marks"]}><ClinicalStudentFeedbackPage /></ProtectedRoute>} />
+                <Route path="/clinical-student-feedback" element={<ProtectedRoute requiredAnyPermission={["clinical_feedback.view", "clinical_feedback.comments", "clinical_feedback.moderate", "clinical_feedback.manage", "clinical_feedback.publish_marks", "clinical_feedback.test", "clinical_feedback.delete_test"]}><ClinicalStudentFeedbackPage /></ProtectedRoute>} />
                 <Route path="/clinical-field-monitoring" element={<ProtectedRoute requiredPermission="clinical_field_monitoring.view"><ClinicalFieldMonitoringPage /></ProtectedRoute>} />
                 <Route path="/admin/clinical-assessments" element={<ProtectedRoute requiredRole="SYS_ADMIN"><AdminClinicalAssessmentsPage /></ProtectedRoute>} />
                 

@@ -517,3 +517,17 @@ that instruction fails as written on a Windows + Herd setup.
 **Compatibility and validation:** No migration or data rewrite is required. Historical batch records remain retained; the old scoped release endpoint returns `automatic: true` without mutating data. Tests verify a first reply before period end, later live averages, null denominators, separate slots, old and waiting replies without duplication, own-feedback denial, permission/cohort scope, automatic UI refresh and absence of release controls.
 
 **Status:** Adopted by explicit owner instruction.
+
+## ADR-034 — Staff can test an existing student without creating a real student response
+
+**Date:** 2026-11-26.
+
+**Decision:** The owner identifies as an administrative assistant and requests live-installation testing with an existing student plus deletion of test replies. Add separate configurable `clinical_feedback.test` and `clinical_feedback.delete_test` permissions, defaulted only to administrative assistants. Staff open the shared student portal in an explicitly labeled test dialog, using their authenticated staff session. Public student OTP/cookies remain unchanged.
+
+**Isolation:** Two test-only tables retain creator, student, eight-hour expiry, and encrypted test replies. Tests use the same official-assessment, published-week and week-end gates as real participation, while substituting only the test completion ledger. A real student's completion and confidential reply are not revealed or reused. Test data is excluded from real reports and cannot modify grades, publications or real participation. Deleting an answer resets only that test gate; deleting a run cascades its test answers. Test records do not add academic-history deletion restrictions.
+
+**Authorization:** Every preview read/answer requires current test permission, creator ownership, active session expiry and eligible student/course/cohort scope. Cleanup requires its separate permission and ownership, including after expiry. UUIDs are references, not bearer credentials. Private/no-store and exact-origin mutation checks apply. Audits record the staff actor, action and run UUID without reply content. Native modal focus containment, separate query caches, dependent period/week selectors and touch-sized controls support phone/tablet/desktop use.
+
+**Validation and deployment:** Tests cover migration grants/idempotence, permission revocation, ownership, expiry, scope, unpublished/ungraded/foreign slot rejection, feedback-before-mark, duplicate submissions, encryption, exclusion from reports, reply/full-run deletion and preservation of real student records. The shared public student journey and grade/supervisor regressions remain checked. Run the additive migration before deploying built assets; no production test records or student data are created by deployment.
+
+**Status:** Adopted by explicit owner instruction.

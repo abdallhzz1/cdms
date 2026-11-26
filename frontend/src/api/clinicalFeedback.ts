@@ -16,6 +16,7 @@ export type ClinicalStudentSlot = {
   kind: 'weekly' | 'period'; from_week: number; to_week: number; starts_on: string; ends_on: string;
   supervisor_ar: string | null; supervisor_en: string | null; feedback_done: boolean; can_participate: boolean; mark_ready: boolean;
   mark?: { score: number; max_score: number; revision: number };
+  test_response?: { id: string; experience: number | null; supervision: number | null; comment: string | null };
 };
 
 export const clinicalPeriodKey = (item: { period_key?: string; academic_year?: string | null; year?: string; period_en: string }) =>

@@ -96,7 +96,7 @@ export function Sidebar({ isOpenMobile, onCloseMobile, isCollapsed = false, onTo
           { path: '/attendance', label: locale === 'ar' ? 'سجل الحضور والغياب' : 'Attendance Log', icon: Clock, permission: 'attendance.review' },
           { path: '/attendance/university', label: locale === 'ar' ? 'محاضرات الجامعة' : 'University Lectures', icon: Calendar, customCheck: () => ['university_lectures.manage','university_lectures.attendance.view','university_lectures.attendance.manage','university_lectures.attendance.correct_approved','attendance.record'].some(can) },
           { path: '/assessments', label: locale === 'ar' ? 'مراجعة التقييمات السريرية' : 'Clinical Assessment Review', icon: ClipboardCheck, permission: 'assessment.review' },
-          { path: '/clinical-student-feedback', label: locale === 'ar' ? 'التغذية الراجعة للطلبة' : 'Student Feedback', icon: MessagesSquare, customCheck: () => ['view', 'comments', 'moderate', 'manage', 'publish_marks'].some(key => can(`clinical_feedback.${key}`)) },
+          { path: '/clinical-student-feedback', label: locale === 'ar' ? 'التغذية الراجعة للطلبة' : 'Student Feedback', icon: MessagesSquare, customCheck: () => ['view', 'comments', 'moderate', 'manage', 'publish_marks', 'test', 'delete_test'].some(key => can(`clinical_feedback.${key}`)) },
           { path: '/clinical-field-monitoring', label: locale === 'ar' ? 'المتابعة والزيارات الميدانية' : 'Field Monitoring & Visits', icon: ClipboardCheck, permission: 'clinical_field_monitoring.view' },
           { path: '/assessments/criteria', label: locale === 'ar' ? 'إعداد نموذج التقييم' : 'Assessment Template', icon: Settings, permission: 'assessment.criteria.manage' },
         ]

@@ -113,6 +113,8 @@ class PermissionSeeder extends Seeder
             ['code' => 'clinical_feedback.comments', 'module' => 'Clinical Student Feedback', 'action' => 'COMMENTS', 'description_key' => 'permissions.clinical_feedback_comments.description'],
             ['code' => 'clinical_feedback.moderate', 'module' => 'Clinical Student Feedback', 'action' => 'MODERATE', 'description_key' => 'permissions.clinical_feedback_moderate.description'],
             ['code' => 'clinical_feedback.manage', 'module' => 'Clinical Student Feedback', 'action' => 'MANAGE', 'description_key' => 'permissions.clinical_feedback_manage.description'],
+            ['code' => 'clinical_feedback.test', 'module' => 'Clinical Student Feedback', 'action' => 'TEST', 'description_key' => 'permissions.clinical_feedback_test.description'],
+            ['code' => 'clinical_feedback.delete_test', 'module' => 'Clinical Student Feedback', 'action' => 'DELETE_TEST', 'description_key' => 'permissions.clinical_feedback_delete_test.description'],
             ['code' => 'clinical_feedback.publish_marks', 'module' => 'Clinical Student Feedback', 'action' => 'PUBLISH_MARKS', 'description_key' => 'permissions.clinical_feedback_publish_marks.description'],
             ['code' => 'clinical_field_monitoring.view', 'module' => 'Clinical Field Monitoring', 'action' => 'VIEW', 'description_key' => 'permissions.clinical_field_monitoring_view.description'],
             ['code' => 'clinical_field_monitoring.create_assistant', 'module' => 'Clinical Field Monitoring', 'action' => 'CREATE_ASSISTANT', 'description_key' => 'permissions.clinical_field_monitoring_create_assistant.description'],
