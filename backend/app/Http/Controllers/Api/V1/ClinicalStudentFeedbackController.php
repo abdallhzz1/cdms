@@ -49,7 +49,8 @@ class ClinicalStudentFeedbackController extends Controller
                 $w = $windows->get($r->id);
 
                 return ['id' => $r->id, 'course_ar' => $r->course->name_ar, 'course_en' => $r->course->name_en, 'year' => $r->academicYear?->code,
-                    'period_ar' => $r->clinicalPeriod?->name_ar ?: $r->name, 'period_en' => $r->clinicalPeriod?->name_en ?: $r->name,
+                    'clinical_period_id' => $r->clinical_period_id, 'period_key' => $r->academic_year_id.'|'.($r->clinical_period_id ?: 'unlinked'),
+                    'period_ar' => $r->clinicalPeriod?->name_ar ?: __('clinical_feedback.unassigned_period', [], 'ar'), 'period_en' => $r->clinicalPeriod?->name_en ?: __('clinical_feedback.unassigned_period', [], 'en'),
                     'academic_level' => $r->academic_level, 'window_id' => $w?->id, 'is_enabled' => (bool) $w?->is_enabled, 'from_week' => $w?->from_week ?? 1,
                     'ends_on' => ($r->clinicalPeriod?->end_date ?: $r->end_date)?->toDateString(), 'weeks' => min(60, max(1, $r->duration_weeks))];
             })->values()]);

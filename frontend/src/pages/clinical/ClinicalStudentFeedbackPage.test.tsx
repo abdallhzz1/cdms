@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { ClinicalStudentFeedbackPage } from './ClinicalStudentFeedbackPage';
@@ -37,7 +37,7 @@ describe('clinical feedback review permissions', () => {
     expect(screen.queryByText('MUST NEVER RENDER')).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Access and publication' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Publish selected marks' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Publish selected weeks' })).not.toBeInTheDocument();
   });
 
   it('provides an explicit redaction step to authorized moderators without adding identity or grade fields', async () => {
@@ -57,5 +57,55 @@ describe('clinical feedback review permissions', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save redacted copy' }));
     expect(await screen.findByText('Saved.')).toBeVisible();
     expect(bodies).toEqual([{ version: 'v'.repeat(64), text: 'Safe copy', follow_up: 'new' }]);
+  });
+
+  it('filters separate period, cohort and course selectors and resets dependent selections', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    const rotations = [
+      { ...rotation, period_key: 'year1|p1' },
+      { ...rotation, id: 2, window_id: 10, period_key: 'year1|p1', academic_level: 'fifth', course_en: 'Medicine' },
+      { ...rotation, id: 3, window_id: 11, period_key: 'year1|p1', academic_level: 'fifth', course_en: 'Pediatrics' },
+      { ...rotation, id: 4, window_id: 12, period_key: 'year1|p2', period_en: 'Period two', academic_level: 'sixth', course_en: 'Obstetrics' },
+    ];
+    vi.spyOn(window, 'fetch').mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return response({ id: 3, name: 'Reader', roles: ['QUALITY'], permissions: [{ code: 'clinical_feedback.view', scope: 'global' }] });
+      if (url.includes('/options')) return response({ rotations, minimum_responses: 5 });
+      if (url.includes('/reports?')) return response([]);
+      throw new Error(url);
+    });
+    renderWithProviders(<ClinicalStudentFeedbackPage />);
+    const period = await screen.findByRole('combobox', { name: 'Clinical period' });
+    const cohort = screen.getByRole('combobox', { name: 'Cohort' });
+    const course = screen.getByRole('combobox', { name: 'Course' });
+    expect(within(period).getAllByRole('option')).toHaveLength(2);
+    expect(within(cohort).getAllByRole('option')).toHaveLength(2);
+    expect(within(course).getAllByRole('option').map(o => o.textContent)).toEqual(['Surgery']);
+    await userEvent.selectOptions(cohort, 'fifth');
+    expect(within(course).getAllByRole('option').map(o => o.textContent)).toEqual(['Medicine', 'Pediatrics']);
+    await userEvent.selectOptions(course, '3');
+    await userEvent.selectOptions(period, 'year1|p2');
+    expect(cohort).toHaveValue('sixth'); expect(course).toHaveValue('4');
+    expect(within(course).queryByRole('option', { name: 'Surgery' })).not.toBeInTheDocument();
+    await userEvent.selectOptions(period, 'year1|p1');
+    expect(cohort).toHaveValue('fourth'); expect(course).toHaveValue('1');
+  });
+
+  it('defaults to publishing the full week range and confirms standing publication even when no grades exist', async () => {
+    localStorage.setItem('cdms.locale', 'en'); document.cookie = 'XSRF-TOKEN=test';
+    const bodies: unknown[] = [];
+    vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes('/auth/me')) return response({ id: 3, name: 'Publisher', roles: ['QUALITY'], permissions: [{ code: 'clinical_feedback.publish_marks', scope: 'global' }] });
+      if (url.includes('/options')) return response({ rotations: [{ ...rotation, from_week: 3 }], minimum_responses: 5 });
+      if (url.endsWith('/windows/9/marks')) { bodies.push(JSON.parse(String(init?.body))); return response({ published: 0 }); }
+      throw new Error(url);
+    });
+    renderWithProviders(<ClinicalStudentFeedbackPage />);
+    const publish = await screen.findByRole('button', { name: 'Publish selected weeks' });
+    expect(within(screen.getByRole('combobox', { name: 'From week' })).queryByRole('option', { name: '1' })).not.toBeInTheDocument();
+    await userEvent.click(publish);
+    expect(await screen.findByText(/Weeks 3–12 are published/)).toBeVisible();
+    expect(bodies).toEqual([{ from_week: 3, to_week: 12 }]);
   });
 });

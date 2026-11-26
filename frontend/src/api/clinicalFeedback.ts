@@ -8,12 +8,15 @@ export const clinicalPortalFetch = <T,>(path: string, options: ApiFetchOptions =
 export const clinicalFeedbackEnvelope = <T,>(path: string) => apiFetchEnvelope<T>(path);
 
 export type FeedbackRotation = {
-  id: number; course_ar: string; course_en: string; year: string; period_ar: string; period_en: string;
+  id: number; period_key?: string; clinical_period_id?: number | null; course_ar: string; course_en: string; year: string; period_ar: string; period_en: string;
   academic_level: string; window_id: number | null; is_enabled: boolean; from_week: number; ends_on: string | null; weeks: number;
 };
 export type ClinicalStudentSlot = {
-  key: string; rotation_id: number; academic_year: string | null; course_id: number; course_ar: string; course_en: string; period_ar: string; period_en: string;
+  key: string; period_key?: string; clinical_period_id?: number | null; status?: 'not_evaluated' | 'awaiting_week_end' | 'awaiting_release' | 'feedback_required' | 'visible'; assessment_available?: boolean; rotation_id: number; academic_year: string | null; course_id: number; course_ar: string; course_en: string; period_ar: string; period_en: string;
   kind: 'weekly' | 'period'; from_week: number; to_week: number; starts_on: string; ends_on: string;
   supervisor_ar: string | null; supervisor_en: string | null; feedback_done: boolean; can_participate: boolean; mark_ready: boolean;
   mark?: { score: number; max_score: number; revision: number };
 };
+
+export const clinicalPeriodKey = (item: { period_key?: string; academic_year?: string | null; year?: string; period_en: string }) =>
+  item.period_key ?? `${item.academic_year ?? item.year ?? ''}|${item.period_en}`;

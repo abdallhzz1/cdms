@@ -72,30 +72,57 @@ class ClinicalStudentFeedback
         return $slots->unique('key')->values();
     }
 
+    private function officialValid(array $slot): bool
+    {
+        $a = $slot['assessment'];
+
+        return $a && $slot['supervisor_id'] && (float) $a->max_score > 0 && (float) $a->score >= 0 && (float) $a->score <= (float) $a->max_score;
+    }
+
+    private function snapshotMatches(array $slot, ?ClinicalMarkRelease $release): bool
+    {
+        $a = $slot['assessment'];
+
+        return $release && $this->officialValid($slot) && (int) $release->assessment_id === (int) $a->id
+            && (int) $release->supervisor_id === (int) $slot['supervisor_id']
+            && abs((float) $release->score - (float) $a->score) < 0.005 && abs((float) $release->max_score - (float) $a->max_score) < 0.005;
+    }
+
     public function forStudent(Student $student): array
     {
         $releases = ClinicalMarkRelease::where('student_id', $student->id)->get()->keyBy(fn ($r) => $r->window_id.'|'.$r->slot_key);
         $participations = DB::table('clinical_feedback_participations')->where('student_id', $student->id)->get()->keyBy(fn ($p) => $p->window_id.'|'.$p->slot_key);
+        $catalog = $this->catalog($student);
+        $publications = DB::table('clinical_week_publications')->whereIn('window_id', $catalog->pluck('window.id')->unique())->get()->keyBy(fn ($p) => $p->window_id.'|'.$p->week);
 
-        return $this->catalog($student)->filter(fn ($s) => $s['starts_on'] <= today()->toDateString())->map(function ($s) use ($releases, $participations) {
-            $key = $s['window']->id.'|'.$s['slot_key'];
-            $done = $participations->has($key);
-            $release = $releases->get($key);
-            $official = $s['assessment'];
-            $ready = $release && $official && (int) $release->assessment_id === (int) $official->id && (int) $release->supervisor_id === (int) $s['supervisor_id']
-                && abs((float) $release->score - (float) $official->score) < 0.005 && abs((float) $release->max_score - (float) $official->max_score) < 0.005;
-            $ended = $s['ends_on'] < today()->toDateString();
+        return $catalog->filter(fn ($s) => $publications->has($s['window']->id.'|'.$s['to_week']) || $releases->has($s['window']->id.'|'.$s['slot_key']))
+            ->map(function ($s) use ($releases, $participations, $publications) {
+                $key = $s['window']->id.'|'.$s['slot_key'];
+                $done = $participations->has($key);
+                $release = $releases->get($key);
+                $official = $s['assessment'];
+                $available = $this->officialValid($s);
+                $authorized = $publications->has($s['window']->id.'|'.$s['to_week']);
+                $ended = $s['ends_on'] < today()->toDateString();
+                // New week publication is standing authorization for current official marks.
+                // Existing snapshots retain their original rules until staff publish the range.
+                $ready = $available && $ended && ($authorized || $this->snapshotMatches($s, $release));
+                $status = ! $available ? 'not_evaluated' : (! $ended ? 'awaiting_week_end' : (! $ready ? 'awaiting_release' : ($done ? 'visible' : 'feedback_required')));
+                $period = $s['rotation']->clinicalPeriod;
 
-            return [
-                'key' => $s['key'], 'rotation_id' => $s['rotation']->id, 'academic_year' => $s['rotation']->academicYear?->code, 'course_id' => $s['rotation']->course_id, 'course_ar' => $s['rotation']->course->name_ar, 'course_en' => $s['rotation']->course->name_en,
-                'period_ar' => $s['rotation']->clinicalPeriod?->name_ar ?: $s['rotation']->name, 'period_en' => $s['rotation']->clinicalPeriod?->name_en ?: $s['rotation']->name,
-                'kind' => $s['kind'], 'from_week' => $s['from_week'], 'to_week' => $s['to_week'], 'starts_on' => $s['starts_on'], 'ends_on' => $s['ends_on'],
-                'supervisor_ar' => $s['supervisor']?->full_name_ar, 'supervisor_en' => $s['supervisor']?->full_name_en,
-                'feedback_done' => $done, 'can_participate' => $ended && (bool) $s['supervisor_id'] && ! $done,
-                'mark_ready' => (bool) $ready,
-                // Omit private fields entirely until both server-side conditions are satisfied.
-            ] + ($done && $ready && $ended ? ['mark' => ['score' => (float) $release->score, 'max_score' => (float) $release->max_score, 'revision' => $release->revision]] : []);
-        })->values()->all();
+                return [
+                    'key' => $s['key'], 'rotation_id' => $s['rotation']->id, 'academic_year' => $s['rotation']->academicYear?->code,
+                    'clinical_period_id' => $s['rotation']->clinical_period_id,
+                    'period_key' => $s['rotation']->academic_year_id.'|'.($s['rotation']->clinical_period_id ?: 'unlinked'),
+                    'course_id' => $s['rotation']->course_id, 'course_ar' => $s['rotation']->course->name_ar, 'course_en' => $s['rotation']->course->name_en,
+                    'period_ar' => $period?->name_ar ?: __('clinical_feedback.unassigned_period', [], 'ar'),
+                    'period_en' => $period?->name_en ?: __('clinical_feedback.unassigned_period', [], 'en'),
+                    'kind' => $s['kind'], 'from_week' => $s['from_week'], 'to_week' => $s['to_week'], 'starts_on' => $s['starts_on'], 'ends_on' => $s['ends_on'],
+                    'supervisor_ar' => $s['supervisor']?->full_name_ar, 'supervisor_en' => $s['supervisor']?->full_name_en,
+                    'feedback_done' => $done, 'can_participate' => $ready && ! $done, 'mark_ready' => (bool) $ready,
+                    'assessment_available' => (bool) $available, 'status' => $status,
+                ] + ($done && $ready ? ['mark' => ['score' => (float) $official->score, 'max_score' => (float) $official->max_score, 'revision' => $release?->revision ?? 1]] : []);
+            })->values()->all();
     }
 
     public function participate(Student $student, string $key, int $experience, int $supervision, ?string $comment): void
@@ -109,6 +136,9 @@ class ClinicalStudentFeedback
             if (DB::table('clinical_feedback_participations')->where($scope)->exists()) {
                 return;
             }
+            $release = ClinicalMarkRelease::where($scope)->first();
+            $authorized = DB::table('clinical_week_publications')->where('window_id', $slot['window']->id)->where('week', $slot['to_week'])->exists();
+            abort_unless($this->officialValid($slot) && ($authorized || $this->snapshotMatches($slot, $release)), 404);
             // No student/mark/participation/token/IP/device/timestamp is stored with answers.
             DB::table('clinical_feedback_answers')->insert([
                 'id' => Str::uuid()->toString(), 'window_id' => $slot['window']->id, 'supervisor_id' => $slot['supervisor_id'],
@@ -126,6 +156,19 @@ class ClinicalStudentFeedback
             $window = ClinicalFeedbackWindow::whereKey($window->id)->lockForUpdate()->firstOrFail();
             if (! $window->is_enabled) {
                 throw ValidationException::withMessages(['window' => [__('clinical_feedback.enable_before_publish')]]);
+            }
+            $window->load('rotation');
+            $weekCount = min(60, max(1, (int) $window->rotation->duration_weeks));
+            if ($to > $weekCount) {
+                throw ValidationException::withMessages(['to_week' => [__('clinical_feedback.invalid_week_range')]]);
+            }
+            if ($to < max($from, (int) $window->from_week)) {
+                throw ValidationException::withMessages(['to_week' => [__('clinical_feedback.invalid_week_range')]]);
+            }
+            $decisions = collect(range(max($from, (int) $window->from_week), $to))
+                ->map(fn ($week) => ['window_id' => $window->id, 'week' => $week, 'published_by' => $actor->id, 'published_at' => now()])->all();
+            if ($decisions) {
+                DB::table('clinical_week_publications')->upsert($decisions, ['window_id', 'week'], ['published_by', 'published_at']);
             }
             $ids = StudentClinicalAssignment::whereHas('distributionVersion', fn ($q) => $q->where('rotation_id', $window->rotation_id)->where('is_current', true)->where('status', 'published'))
                 ->whereHas('student', fn ($q) => $q->where('registration_status', 'active')->where('academic_registration_status', 'registered'))->distinct()->pluck('student_id');
@@ -207,7 +250,7 @@ class ClinicalStudentFeedback
         if (! $window) {
             return;
         }
-        foreach (['clinical_mark_releases', 'clinical_feedback_participations', 'clinical_feedback_answers', 'clinical_feedback_batches'] as $table) {
+        foreach (['clinical_mark_releases', 'clinical_feedback_participations', 'clinical_feedback_answers', 'clinical_feedback_batches', 'clinical_week_publications'] as $table) {
             if (DB::table($table)->where('window_id', $window)->exists()) {
                 throw ValidationException::withMessages(['rotation' => [__('clinical_feedback.schedule_history')]]);
             }

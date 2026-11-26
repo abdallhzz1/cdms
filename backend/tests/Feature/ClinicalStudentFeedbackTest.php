@@ -6,6 +6,7 @@ use App\Mail\ClinicalPortalOtpMail;
 use App\Models\AcademicYear;
 use App\Models\ClinicalAssessment;
 use App\Models\ClinicalFeedbackWindow;
+use App\Models\ClinicalPeriod;
 use App\Models\Course;
 use App\Models\CourseAssessmentComponent;
 use App\Models\DistributionVersion;
@@ -98,6 +99,7 @@ class ClinicalStudentFeedbackTest extends TestCase
 
     private function participate(Student $student, string $comment = 'Useful training'): void
     {
+        app(ClinicalStudentFeedback::class)->publishMarks($this->window, $this->director, 1, 12);
         app(ClinicalStudentFeedback::class)->participate($student, $this->key($student), 4, 5, $comment);
     }
 
@@ -166,7 +168,7 @@ class ClinicalStudentFeedbackTest extends TestCase
         $this->assertNotSame(DB::table('clinical_portal_sessions')->value('token_hash'), $cookie->getValue());
         $this->withUnencryptedCookie(ClinicalStudentPortalIdentity::COOKIE, $cookie->getValue());
         $this->getJson('/api/v1/public/clinical-student/identity')->assertOk()->assertJsonPath('data.student.university_number', $student->university_number);
-        $this->postJson('/api/v1/public/clinical-student/marks')->assertOk()->assertJsonCount(1, 'data.slots')->assertJsonMissingPath('data.slots.0.mark');
+        $this->postJson('/api/v1/public/clinical-student/marks')->assertOk()->assertJsonCount(0, 'data.slots')->assertJsonMissingPath('data.slots.0.mark');
         $this->travel(9)->hours();
         $this->postJson('/api/v1/public/clinical-student/marks')->assertUnauthorized();
     }
@@ -248,6 +250,7 @@ class ClinicalStudentFeedbackTest extends TestCase
         $this->studentSession($student);
         $payload = ['key' => $this->key($other), 'experience' => 4, 'supervision' => 5, 'comment' => 'Original'];
         $this->postJson('/api/v1/public/clinical-student/participate', $payload)->assertNotFound();
+        app(ClinicalStudentFeedback::class)->publishMarks($this->window, $this->director, 1, 1);
         $payload['key'] = $this->key($student);
         $this->postJson('/api/v1/public/clinical-student/participate', $payload)->assertOk();
         $payload['comment'] = 'Replacement';
@@ -262,22 +265,31 @@ class ClinicalStudentFeedbackTest extends TestCase
         $this->assertArrayNotHasKey('answer_id', (array) DB::table('clinical_feedback_participations')->first());
     }
 
-    public function test_participation_can_precede_mark_entry_and_zero_means_unable_to_assess(): void
+    public function test_ungraded_published_week_waits_for_supervisor_before_feedback_and_zero_is_supported(): void
     {
         $student = $this->pupil(false);
         $this->studentSession($student);
-        $this->postJson('/api/v1/public/clinical-student/participate', ['key' => $this->key($student), 'experience' => 0, 'supervision' => 0])->assertOk();
-        $this->postJson('/api/v1/public/clinical-student/marks')->assertOk()->assertJsonPath('data.slots.0.feedback_done', true)->assertJsonMissingPath('data.slots.0.mark');
+        app(ClinicalStudentFeedback::class)->publishMarks($this->window, $this->director, 1, 12);
+        $this->postJson('/api/v1/public/clinical-student/marks')->assertOk()->assertJsonPath('data.slots.0.status', 'not_evaluated')->assertJsonPath('data.slots.0.can_participate', false);
+        $payload = ['key' => $this->key($student), 'experience' => 0, 'supervision' => 0];
+        $this->postJson('/api/v1/public/clinical-student/participate', $payload)->assertNotFound();
+        $this->assertDatabaseCount('clinical_feedback_participations', 0);
+        $assignment = StudentClinicalAssignment::where('student_id', $student->id)->firstOrFail();
+        ClinicalAssessment::create(['student_id' => $student->id, 'student_clinical_assignment_id' => $assignment->id, 'evaluator_person_id' => $this->supervisor->id, 'assessment_kind' => 'weekly', 'evaluation_week' => 1, 'score' => 8, 'max_score' => 10, 'status' => 'submitted']);
+        $this->postJson('/api/v1/public/clinical-student/marks')->assertOk()->assertJsonPath('data.slots.0.status', 'feedback_required')->assertJsonMissingPath('data.slots.0.mark');
+        $this->postJson('/api/v1/public/clinical-student/participate', $payload)->assertOk();
+        $this->postJson('/api/v1/public/clinical-student/marks')->assertOk()->assertJsonPath('data.slots.0.mark.score', 8);
         $this->assertNull(DB::table('clinical_feedback_answers')->first()->experience);
         $this->assertNull(DB::table('clinical_feedback_answers')->first()->supervision);
     }
 
-    public function test_corrections_and_returned_marks_require_republication_without_another_response(): void
+    public function test_legacy_snapshots_require_republication_of_corrections_without_another_response(): void
     {
         $student = $this->pupil();
         $service = app(ClinicalStudentFeedback::class);
         $service->publishMarks($this->window, $this->director, 1, 1);
         $this->participate($student);
+        DB::table('clinical_week_publications')->delete();
         $this->studentSession($student);
         ClinicalAssessment::where('student_id', $student->id)->update(['score' => 9]);
         $this->postJson('/api/v1/public/clinical-student/marks')->assertOk()->assertJsonMissingPath('data.slots.0.mark');
@@ -370,8 +382,13 @@ class ClinicalStudentFeedbackTest extends TestCase
     public function test_five_weeks_from_one_student_do_not_bypass_report_anonymity_threshold(): void
     {
         $this->block->update(['to_week' => 5]);
-        $student = $this->pupil(false);
+        $student = $this->pupil();
+        $assignment = StudentClinicalAssignment::where('student_id', $student->id)->firstOrFail();
+        foreach (range(2, 5) as $week) {
+            ClinicalAssessment::create(['student_id' => $student->id, 'student_clinical_assignment_id' => $assignment->id, 'evaluator_person_id' => $this->supervisor->id, 'assessment_kind' => 'weekly', 'evaluation_week' => $week, 'score' => 8, 'max_score' => 10, 'status' => 'submitted']);
+        }
         $service = app(ClinicalStudentFeedback::class);
+        $service->publishMarks($this->window, $this->director, 1, 5);
         foreach ($service->catalog($student) as $slot) {
             $service->participate($student, $slot['key'], 5, 5, 'Same student');
         }
@@ -382,7 +399,8 @@ class ClinicalStudentFeedbackTest extends TestCase
     public function test_schedule_deletion_preserves_feedback_history_even_without_any_marks(): void
     {
         $student = $this->pupil(false);
-        $this->participate($student);
+        DB::table('clinical_feedback_participations')->insert(['window_id' => $this->window->id, 'student_id' => $student->id, 'slot_key' => 'weekly:1', 'completed_on' => today()->toDateString()]);
+        DB::table('clinical_feedback_answers')->insert(['id' => Str::uuid()->toString(), 'window_id' => $this->window->id, 'supervisor_id' => $this->supervisor->id, 'slot_key' => 'weekly:1', 'from_week' => 1, 'to_week' => 1, 'experience' => 4, 'supervision' => 5]);
         $this->version->update(['is_current' => false, 'status' => 'draft']);
         $this->director->directPermissions()->attach(Permission::where('code', 'distribution.delete')->value('id'));
         $this->actingAs($this->director)->getJson('/api/v1/clinical-student-feedback/options')->assertOk()->assertJsonPath('data.rotations.0.id', $this->window->rotation_id);
@@ -406,6 +424,7 @@ class ClinicalStudentFeedbackTest extends TestCase
         $service = app(ClinicalStudentFeedback::class);
         for ($n = 0; $n < 5; $n++) {
             $s = $this->pupil();
+            $service->publishMarks($this->window, $this->director, 1, 1);
             $service->participate($s, $this->key($s), $n === 0 ? 1 : 0, 5, null);
         }
         $service->publishReports($this->window, $this->director);
@@ -426,5 +445,89 @@ class ClinicalStudentFeedbackTest extends TestCase
         $assessment->update(['status' => 'submitted']);
         $this->assertSame(1, $service->publishMarks($this->window, $this->director, 1, 12));
         $this->assertDatabaseCount('clinical_mark_releases', 1);
+    }
+
+    public function test_published_weeks_persist_for_future_and_late_assessments_without_premature_feedback_or_marks(): void
+    {
+        $this->window->rotation->update(['start_date' => '2026-11-22', 'end_date' => '2027-02-13']);
+        $this->block->update(['to_week' => 12]);
+        $student = $this->pupil();
+        $service = app(ClinicalStudentFeedback::class);
+        $this->actingAs($this->director)->postJson('/api/v1/clinical-student-feedback/windows/'.$this->window->id.'/marks', ['from_week' => 1, 'to_week' => 12])->assertOk()->assertJsonPath('data.published', 0);
+        $this->assertDatabaseCount('clinical_week_publications', 12);
+        $this->assertDatabaseCount('clinical_mark_releases', 0);
+        $this->studentSession($student);
+        $slots = collect($this->postJson('/api/v1/public/clinical-student/marks')->assertOk()->assertJsonCount(12, 'data.slots')->json('data.slots'))->keyBy('from_week');
+        $this->assertSame('awaiting_week_end', $slots[1]['status']);
+        $this->assertSame('not_evaluated', $slots[2]['status']);
+        $this->assertFalse($slots[1]['can_participate']);
+        $this->assertArrayNotHasKey('mark', $slots[1]);
+        $this->postJson('/api/v1/public/clinical-student/participate', ['key' => $slots[1]['key'], 'experience' => 4, 'supervision' => 5])->assertNotFound();
+        $this->travel(14)->days();
+        $this->studentSession($student);
+        $assignment = StudentClinicalAssignment::where('student_id', $student->id)->firstOrFail();
+        $late = ClinicalAssessment::create(['student_id' => $student->id, 'student_clinical_assignment_id' => $assignment->id, 'evaluator_person_id' => $this->supervisor->id, 'assessment_kind' => 'weekly', 'evaluation_week' => 2, 'score' => 9, 'max_score' => 10, 'status' => 'draft']);
+        $payload = ['key' => $slots[2]['key'], 'experience' => 4, 'supervision' => 5];
+        $this->postJson('/api/v1/public/clinical-student/participate', $payload)->assertNotFound();
+        $late->update(['status' => 'submitted']);
+        $ready = collect($service->forStudent($student))->keyBy('from_week')[2];
+        $this->assertSame('feedback_required', $ready['status']);
+        $this->assertArrayNotHasKey('mark', $ready);
+        $this->postJson('/api/v1/public/clinical-student/participate', $payload)->assertOk();
+        $visible = collect($service->forStudent($student))->keyBy('from_week')[2];
+        $this->assertSame('visible', $visible['status']);
+        $this->assertSame(9.0, $visible['mark']['score']);
+        $late->update(['status' => 'returned']);
+        $returned = collect($service->forStudent($student))->keyBy('from_week')[2];
+        $this->assertSame('not_evaluated', $returned['status']);
+        $this->assertArrayNotHasKey('mark', $returned);
+        $late->update(['status' => 'approved', 'score' => 10]);
+        $corrected = collect($service->forStudent($student))->keyBy('from_week')[2];
+        $this->assertSame(10.0, $corrected['mark']['score']);
+        $this->assertFalse($corrected['can_participate']);
+        $this->assertDatabaseCount('clinical_feedback_participations', 1);
+        $this->assertDatabaseCount('clinical_mark_releases', 0);
+        $this->assertDatabaseCount('clinical_week_publications', 12);
+    }
+
+    public function test_publication_bounds_and_start_week_are_enforced_and_unpublished_slots_cannot_accept_feedback(): void
+    {
+        $this->block->update(['to_week' => 3]);
+        $student = $this->pupil();
+        $this->actingAs($this->director);
+        $url = '/api/v1/clinical-student-feedback/windows/'.$this->window->id.'/marks';
+        $this->postJson($url, ['from_week' => 1, 'to_week' => 13])->assertUnprocessable();
+        $this->assertDatabaseCount('clinical_week_publications', 0);
+        $this->postJson($url, ['from_week' => 2, 'to_week' => 2])->assertOk();
+        $this->postJson($url, ['from_week' => 2, 'to_week' => 2])->assertOk();
+        $this->assertDatabaseCount('clinical_week_publications', 1);
+        $this->studentSession($student);
+        $this->postJson('/api/v1/public/clinical-student/marks')->assertOk()->assertJsonCount(1, 'data.slots')->assertJsonPath('data.slots.0.from_week', 2)->assertJsonPath('data.slots.0.status', 'not_evaluated');
+        $this->postJson('/api/v1/public/clinical-student/participate', ['key' => $this->key($student), 'experience' => 4, 'supervision' => 5])->assertNotFound();
+        $this->window->update(['from_week' => 3]);
+        $this->postJson($url, ['from_week' => 1, 'to_week' => 2])->assertUnprocessable();
+        $this->window->update(['is_enabled' => false]);
+        $this->postJson($url, ['from_week' => 3, 'to_week' => 3])->assertUnprocessable();
+        $this->postJson('/api/v1/public/clinical-student/marks')->assertOk()->assertJsonCount(0, 'data.slots');
+        $this->assertDatabaseCount('clinical_feedback_participations', 0);
+    }
+
+    public function test_period_metadata_groups_courses_and_cohorts_under_the_same_period_without_mixing_years(): void
+    {
+        $rotation = $this->window->rotation;
+        $period = ClinicalPeriod::create(['academic_year_id' => $rotation->academic_year_id, 'code' => 'P1', 'sequence' => 1, 'name_ar' => 'الفترة السريرية الأولى', 'name_en' => 'Clinical period one', 'start_date' => '2026-08-02', 'end_date' => '2026-10-24', 'weeks_count' => 12, 'status' => 'active']);
+        $rotation->update(['clinical_period_id' => $period->id]);
+        $second = Rotation::factory()->create(['academic_year_id' => $rotation->academic_year_id, 'clinical_period_id' => $period->id, 'academic_level' => 'fifth', 'course_id' => Course::factory()->create(['academic_level' => 'fifth'])->id]);
+        ClinicalFeedbackWindow::create(['rotation_id' => $second->id, 'is_enabled' => false, 'from_week' => 1]);
+        $otherYear = Rotation::factory()->create(['academic_level' => 'fourth', 'course_id' => $rotation->course_id]);
+        ClinicalFeedbackWindow::create(['rotation_id' => $otherYear->id, 'is_enabled' => false, 'from_week' => 1]);
+        $rows = collect($this->actingAs($this->director)->getJson('/api/v1/clinical-student-feedback/options')->assertOk()->json('data.rotations'))->keyBy('id');
+        $this->assertSame($rows[$rotation->id]['period_key'], $rows[$second->id]['period_key']);
+        $this->assertNotSame($rows[$rotation->id]['period_key'], $rows[$otherYear->id]['period_key']);
+        $this->assertSame('Clinical period one', $rows[$second->id]['period_en']);
+        $student = $this->pupil();
+        $service = app(ClinicalStudentFeedback::class);
+        $service->publishMarks($this->window->fresh(), $this->director, 1, 12);
+        $this->assertSame($rows[$rotation->id]['period_key'], $service->forStudent($student)[0]['period_key']);
     }
 }

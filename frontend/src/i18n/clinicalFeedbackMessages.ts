@@ -1,5 +1,15 @@
 // Shared, typed Arabic/English copy for student marks and confidential feedback.
 export const enClinicalFeedback = {
+  "clinical_period": "Clinical period",
+  "cohort": "Cohort",
+  "course": "Course",
+  "not_evaluated_short": "Not assessed yet",
+  "not_evaluated_by_supervisor": "Not yet assessed by the supervisor",
+  "feedback_after_assessment": "When the official assessment is available, complete the feedback form to view your mark.",
+  "waiting_for_week_end": "The assessment becomes available after the training week ends.",
+  "waiting_for_mark_release": "Awaiting assessment release by the department.",
+  "weeks_published": "Weeks {from}–{to} are published. Assessments entered later become available automatically, with student feedback required before viewing marks.",
+
   "could_not_complete_the_request_please_retry": "Could not complete the request. Please retry.",
   "hebron_university_clinical_department": "Hebron University · Clinical Department",
   "my_clinical_assessments": "My clinical assessments",
@@ -74,8 +84,8 @@ export const enClinicalFeedback = {
   "publish_student_marks": "Publish student marks",
   "from_week": "From week",
   "to_week": "To week",
-  "publication_covers_students_in_this_course_and_period_each_mark_is_v": "Publication covers students in this course and period. Each mark is visible only after that student participates. Corrections require republication, without another feedback form.",
-  "publish_selected_marks": "Publish selected marks",
+  "publication_covers_students_in_this_course_and_period_each_mark_is_v": "Publication covers students in this course and period. Each mark is visible only after that student participates. Official assessments entered later appear automatically within the published weeks.",
+  "publish_selected_marks": "Publish selected weeks",
   "release_feedback_to_reviewers": "Release feedback to reviewers",
   "available_only_after_the_training_period_ends_with_at_least_five_par": "Available only after the training period ends, with at least five participants per slot and supervisor. Late responses wait for another qualifying batch; student mark access is unaffected.",
   "release_eligible_batches": "Release eligible batches",
@@ -97,6 +107,16 @@ export const enClinicalFeedback = {
 };
 
 export const arClinicalFeedback = {
+  "clinical_period": "الفترة السريرية",
+  "cohort": "الدفعة",
+  "course": "المساق",
+  "not_evaluated_short": "لم يُقيّم بعد",
+  "not_evaluated_by_supervisor": "لم يُقيّم بعد من قبل المشرف",
+  "feedback_after_assessment": "عند إتاحة التقييم الرسمي سيظهر لك نموذج التغذية الراجعة، وبعد إرساله تظهر علامتك.",
+  "waiting_for_week_end": "يتاح التقييم بعد انتهاء أسبوع التدريب.",
+  "waiting_for_mark_release": "بانتظار إتاحة التقييم من الدائرة.",
+  "weeks_published": "تمت إتاحة الأسابيع {from}–{to}. التقييمات التي لم تدخل بعد ستظهر تلقائيًا عند جاهزيتها، بعد تغذية الطالب الراجعة.",
+
   "could_not_complete_the_request_please_retry": "تعذر إكمال الطلب. حاول مجددًا.",
   "hebron_university_clinical_department": "جامعة الخليل · الدائرة السريرية",
   "my_clinical_assessments": "تقييماتي السريرية",
@@ -171,8 +191,8 @@ export const arClinicalFeedback = {
   "publish_student_marks": "نشر العلامات للطلبة",
   "from_week": "من الأسبوع",
   "to_week": "حتى الأسبوع",
-  "publication_covers_students_in_this_course_and_period_each_mark_is_v": "ينطبق النشر على طلبة المساق ضمن الفترة المختارة. تظهر العلامة لكل طالب بعد إتمام مشاركته. التصحيح يحتاج إعادة نشر، دون إعادة تعبئة النموذج.",
-  "publish_selected_marks": "نشر العلامات المحددة",
+  "publication_covers_students_in_this_course_and_period_each_mark_is_v": "ينطبق النشر على طلبة المساق ضمن الفترة المختارة. تظهر العلامة لكل طالب بعد إتمام مشاركته. التقييمات الرسمية التي تدخل لاحقًا تظهر تلقائيًا ضمن الأسابيع المنشورة.",
+  "publish_selected_marks": "نشر الأسابيع المحددة",
   "release_feedback_to_reviewers": "إتاحة التغذية الراجعة للمراجعين",
   "available_only_after_the_training_period_ends_with_at_least_five_par": "تتاح بعد انتهاء الفترة فقط، بخمس مشاركات على الأقل لكل أسبوع ومشرف. الردود المتأخرة تُضاف لدفعة أخرى عند استيفاء الحد؛ لا تؤثر على فتح علامة الطالب.",
   "release_eligible_batches": "إتاحة الدفعات المستوفية للشروط",

@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'unassigned_period' => 'No linked clinical period',
+    'invalid_week_range' => 'The week range exceeds this training period.',
     'comment_changed' => 'Another reviewer changed this comment. Refresh the page before saving another copy.',
     'invalid_code' => 'Invalid or expired code. Request a new code if needed.',
     'enable_before_publish' => 'Enable this course in the student portal before publishing marks.',

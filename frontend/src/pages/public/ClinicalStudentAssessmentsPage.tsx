@@ -1,9 +1,9 @@
 import { formatClinicalFeedback } from '@/i18n/clinicalFeedbackMessages';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GraduationCap, LockKeyhole, LogOut, Check, ArrowLeft, RefreshCw } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nContext';
-import { clinicalPortalFetch, type ClinicalStudentSlot } from '@/api/clinicalFeedback';
+import { clinicalPortalFetch, clinicalPeriodKey, type ClinicalStudentSlot } from '@/api/clinicalFeedback';
 import { ApiError } from '@/api/client';
 import './clinicalStudentPortal.css';
 
@@ -21,27 +21,39 @@ export function ClinicalStudentAssessmentsPage() {
   const [otp, setOtp] = useState('');
   const [challenge, setChallenge] = useState<string | null>(null);
   const [remember, setRemember] = useState(false);
+  const [period, setPeriod] = useState('');
   const [course, setCourse] = useState('');
   const [chosen, setChosen] = useState('');
   const identity = useQuery({ queryKey: ['clinical-student-identity'], queryFn: () => clinicalPortalFetch<{ student: Student | null }>(`${base}/identity`), retry: false, staleTime: 0 });
   const student = identity.data?.student;
-  const marks = useQuery({ queryKey: ['clinical-student-marks', student?.university_number], queryFn: () => clinicalPortalFetch<{ slots: ClinicalStudentSlot[] }>(`${base}/marks`, { method: 'POST' }), enabled: Boolean(student), retry: false, staleTime: 0 });
+  const marks = useQuery({ queryKey: ['clinical-student-marks', student?.university_number], queryFn: () => clinicalPortalFetch<{ slots: ClinicalStudentSlot[] }>(`${base}/marks`, { method: 'POST' }), enabled: Boolean(student), retry: false, staleTime: 0, refetchInterval: 30_000 });
   const requestCode = useMutation({ mutationFn: () => clinicalPortalFetch<{ challenge: string }>(`${base}/request-otp`, { method: 'POST', body: { university_number: normalizeDigits(number) } }), onSuccess: data => { setChallenge(data.challenge); setOtp(''); } });
   const verify = useMutation({ mutationFn: () => clinicalPortalFetch(`${base}/verify-otp`, { method: 'POST', body: { challenge, otp, remember } }), onSuccess: async () => {
     client.removeQueries({ queryKey: ['clinical-student-marks'] });
-    setChosen(''); setCourse(''); setChallenge(null); setOtp(''); setNumber('');
+    setChosen(''); setCourse(''); setPeriod(''); setChallenge(null); setOtp(''); setNumber('');
     await client.invalidateQueries({ queryKey: ['clinical-student-identity'] });
   } });
   const forget = useMutation({ mutationFn: () => clinicalPortalFetch(`${base}/forget`, { method: 'POST' }), onSuccess: () => {
     client.removeQueries({ queryKey: ['clinical-student-marks'] });
     client.setQueryData(['clinical-student-identity'], { student: null });
-    setChosen(''); setCourse(''); setChallenge(null); setOtp(''); setNumber('');
+    setChosen(''); setCourse(''); setPeriod(''); setChallenge(null); setOtp(''); setNumber('');
   } });
   const slots = [...(marks.data?.slots ?? [])].sort((a, b) => b.starts_on.localeCompare(a.starts_on));
-  const courses = [...new Map(slots.map(s => [String(s.rotation_id), s])).entries()];
-  const activeCourse = courses.some(([key]) => key === course) ? course : courses[0]?.[0];
-  const visible = slots.filter(s => String(s.rotation_id) === activeCourse).sort((a, b) => b.starts_on.localeCompare(a.starts_on));
-  const selected = visible.find(s => s.key === chosen) ?? visible.find(s => s.can_participate && s.mark_ready) ?? visible.find(s => s.can_participate) ?? visible[0];
+  const today = new Date().toLocaleDateString('en-CA');
+  const preferred = slots.find(s => s.can_participate && s.mark_ready) ?? slots.find(s => s.starts_on <= today) ?? slots[0];
+  const periods = [...new Map(slots.map(s => [clinicalPeriodKey(s), s])).entries()];
+  const activePeriod = periods.some(([key]) => key === period) ? period : preferred ? clinicalPeriodKey(preferred) : '';
+  const inPeriod = slots.filter(s => clinicalPeriodKey(s) === activePeriod);
+  const courses = [...new Map(inPeriod.map(s => [String(s.rotation_id), s])).entries()];
+  const preferredCourse = inPeriod.find(s => s.can_participate && s.mark_ready) ?? inPeriod.find(s => s.starts_on <= today) ?? inPeriod[0];
+  const activeCourse = courses.some(([key]) => key === course) ? course : preferredCourse ? String(preferredCourse.rotation_id) : '';
+  const visible = inPeriod.filter(s => String(s.rotation_id) === activeCourse).sort((a, b) => b.starts_on.localeCompare(a.starts_on));
+  const selected = visible.find(s => s.key === chosen) ?? visible.find(s => s.can_participate && s.mark_ready) ?? visible.find(s => s.starts_on <= today) ?? visible[0];
+  const selectedKey = selected?.key;
+  useEffect(() => {
+    if (!selectedKey) return;
+    setPeriod(activePeriod); setCourse(activeCourse); setChosen(selectedKey);
+  }, [activePeriod, activeCourse, selectedKey]);
   const slotLabel = (s: ClinicalStudentSlot) => s.kind === 'period' ? formatClinicalFeedback(t, 'period_assessment_weeks', { from: s.from_week, to: s.to_week }) : formatClinicalFeedback(t, 'week_number', { number: s.from_week });
   const errorText = (error: unknown) => error instanceof ApiError ? error.message : t('clinicalFeedback.could_not_complete_the_request_please_retry');
 
@@ -71,13 +83,21 @@ export function ClinicalStudentAssessmentsPage() {
           {forget.isError && <p role="alert" className="mb-3 text-sm text-red-700">{errorText(forget.error)}</p>}
           {marks.isPending ? <p role="status" className="py-10 text-center text-sm">{t('clinicalFeedback.loading_your_assessments')}</p> : marks.isError ? <div className="rounded-2xl border border-slate-200 bg-white p-5"><p role="alert" className="text-sm leading-6">{errorText(marks.error)}</p><button type="button" className={`${primary} mt-4`} onClick={() => marks.error instanceof ApiError && marks.error.status === 401 ? forget.mutate() : marks.refetch()}>{t('clinicalFeedback.retry_sign_in')}</button></div> : !selected ? <p className="rounded-2xl border border-slate-200 bg-white px-5 py-10 text-center text-sm leading-7 text-slate-500">{t('clinicalFeedback.no_assessments_are_available_yet_they_will_appear_when_your_course_i')}</p> : <>
             <div className="mb-4 space-y-3 px-1">
-              {courses.length > 1 && <label className="block text-xs font-bold text-slate-500">{t('clinicalFeedback.course_and_period')}<select className={`${field} mt-1.5`} value={activeCourse} onChange={e => { setCourse(e.target.value); setChosen(''); }}>{courses.map(([key, s]) => <option key={key} value={key}>{s.academic_year} · {ar ? s.course_ar : s.course_en} · {ar ? s.period_ar : s.period_en}</option>)}</select></label>}
-              {courses.length === 1 && <p className="text-sm font-bold leading-6">{ar ? selected.course_ar : selected.course_en}<span className="block text-xs font-normal text-slate-500">{ar ? selected.period_ar : selected.period_en}</span></p>}
-              <label className="block text-xs font-bold text-slate-500">{t('clinicalFeedback.week_period')}<select className={`${field} mt-1.5`} value={selected.key} onChange={e => setChosen(e.target.value)}>{visible.map(s => <option key={s.key} value={s.key}>{slotLabel(s)}{s.feedback_done ? ' ✓' : ''}</option>)}</select></label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block min-w-0 text-xs font-bold text-slate-500">{t('clinicalFeedback.clinical_period')}<select className={`${field} mt-1.5`} value={activePeriod} onChange={e => { setPeriod(e.target.value); setCourse(''); setChosen(''); }}>{periods.map(([key, s]) => <option key={key} value={key}>{ar ? s.period_ar : s.period_en} · {s.academic_year}</option>)}</select></label>
+                <label className="block min-w-0 text-xs font-bold text-slate-500">{t('clinicalFeedback.course')}<select className={`${field} mt-1.5`} value={activeCourse} onChange={e => { setCourse(e.target.value); setChosen(''); }}>{courses.map(([key, s]) => <option key={key} value={key}>{ar ? s.course_ar : s.course_en}</option>)}</select></label>
+              </div>
+              <label className="block text-xs font-bold text-slate-500">{t('clinicalFeedback.week_period')}<select className={`${field} mt-1.5`} value={selected.key} onChange={e => setChosen(e.target.value)}>{visible.map(s => <option key={s.key} value={s.key}>{slotLabel(s)}{s.status === 'not_evaluated' ? ` · ${t('clinicalFeedback.not_evaluated_short')}` : s.feedback_done ? ' ✓' : ''}</option>)}</select></label>
             </div>
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6" aria-label={slotLabel(selected)}>
               <div className="mb-4 border-b border-slate-100 pb-3"><p className="mt-1 text-xs text-slate-500"><bdi dir="ltr">{selected.starts_on} — {selected.ends_on}</bdi></p><p className="mt-2 text-sm font-medium text-slate-600">{ar ? selected.supervisor_ar : selected.supervisor_en || selected.supervisor_ar}</p></div>
-              {selected.mark ? <div className="rounded-2xl bg-teal-50 px-4 py-8 text-center"><Check className="mx-auto mb-2 h-6 w-6 text-teal-800" /><p className="text-sm font-bold text-teal-900">{t('clinicalFeedback.your_clinical_assessment_mark')}</p><p className="mt-3 text-4xl font-black text-teal-900" dir="ltr">{selected.mark.score} <span className="text-xl font-medium text-teal-700">/ {selected.mark.max_score}</span></p>{selected.mark.revision > 1 && <p className="mt-3 text-xs text-teal-800">{t('clinicalFeedback.updated_after_review')}</p>}</div> : selected.feedback_done ? <div className="rounded-xl bg-slate-50 p-4 text-sm leading-7"><p className="font-bold text-teal-800">{t('clinicalFeedback.thank_you_your_participation_is_complete')}</p><p className="mt-2 text-slate-600">{t('clinicalFeedback.your_mark_is_awaiting_release_you_will_not_need_to_complete_the_form')}</p><button type="button" onClick={() => marks.refetch()} className="mt-3 inline-flex min-h-11 items-center gap-2 text-xs font-bold text-teal-800"><RefreshCw className="h-4 w-4" />{t('clinicalFeedback.refresh')}</button></div> : selected.can_participate ? <SlotFeedback key={selected.key} slot={selected} onSuccess={() => { setChosen(selected.key); return client.invalidateQueries({ queryKey: ['clinical-student-marks'] }); }} /> : <p className="rounded-xl bg-slate-50 p-4 text-sm leading-7 text-slate-600">{t('clinicalFeedback.participation_becomes_available_after_the_week_ends_and_the_supervis')}</p>}
+              {selected.mark ? <div className="rounded-2xl bg-teal-50 px-4 py-8 text-center"><Check className="mx-auto mb-2 h-6 w-6 text-teal-800" /><p className="text-sm font-bold text-teal-900">{t('clinicalFeedback.your_clinical_assessment_mark')}</p><p className="mt-3 text-4xl font-black text-teal-900" dir="ltr">{selected.mark.score} <span className="text-xl font-medium text-teal-700">/ {selected.mark.max_score}</span></p>{selected.mark.revision > 1 && <p className="mt-3 text-xs text-teal-800">{t('clinicalFeedback.updated_after_review')}</p>}</div> : selected.can_participate ? <SlotFeedback key={selected.key} slot={selected} onSuccess={() => { setChosen(selected.key); return client.invalidateQueries({ queryKey: ['clinical-student-marks'] }); }} /> : <div className="rounded-xl bg-slate-50 p-4 text-sm leading-7 text-slate-600">
+                <p className="font-bold">{t(selected.status === 'not_evaluated' ? 'clinicalFeedback.not_evaluated_by_supervisor' : selected.status === 'awaiting_week_end' ? 'clinicalFeedback.waiting_for_week_end' : 'clinicalFeedback.waiting_for_mark_release')}</p>
+                {selected.status === 'not_evaluated' && <p className="mt-2 text-xs leading-6">{t('clinicalFeedback.feedback_after_assessment')}</p>}
+                {selected.feedback_done && <p className="mt-2 text-xs text-teal-800">{t('clinicalFeedback.thank_you_your_participation_is_complete')}</p>}
+                <button type="button" onClick={() => marks.refetch()} className="mt-3 inline-flex min-h-11 items-center gap-2 text-xs font-bold text-teal-800"><RefreshCw className="h-4 w-4" />{t('clinicalFeedback.refresh')}</button>
+              </div>}
+
             </section>
           </>}
         </>}

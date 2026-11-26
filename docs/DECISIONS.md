@@ -493,3 +493,15 @@ that instruction fails as written on a Windows + Herd setup.
 **Validation:** Identity/cookie round trips, bypass resistance, authorization/scope, same-origin protection, hidden grade payloads, correction/republication, duplicate submissions, encrypted unlinked comments, low-count and per-question suppression, late batches, self-review denial, redaction permissions, safe deletion, credential cleanup, bulk query growth, existing grade/review and supervisor behavior, and responsive Arabic/English student journeys are checked locally. The existing schedule-cookie test harness now actually sends its cookies; production schedule code is unchanged.
 
 **Status:** Adopted by explicit owner instruction.
+
+## ADR-032 — Separate clinical feedback filters and persist week publication
+
+**Date:** 2026-11-26.
+
+**Decision:** Staff use separate clinical-period, cohort and course selectors; students use clinical-period, course and week selectors. Period keys contain academic-year and clinical-period IDs, grouping the same period across courses/cohorts without mixing years. Unlinked rotations have an explicit unassigned-period label. Dependent choices reset on parent changes and stay stable during background refreshes.
+
+**Publication:** The owner's updated instruction replaces ADR-031's snapshot-only behavior for newly published ranges. A unique window/week ledger records standing publication, even for missing or future grades. The student sees pending owned weeks, but cannot submit feedback or obtain a mark until a valid current official assessment exists and the week ends. Once ready, feedback precedes grade disclosure. Later official corrections follow standing authorization without requiring another response. Returned, draft, invalid and superseded assessments stay hidden. Existing snapshot releases retain their matching rules until staff publish their range again; no authorization is inferred by migration. Period-based assessments use their ending week; grading formulas and supervisor workflows are unchanged.
+
+**History and validation:** The additive migration retains publisher/time, uses short MySQL identifiers and refuses destructive rollback. Publication history also blocks rotation deletion. Tests cover pending/future weeks, draft-to-official entry, corrections/returns, unpublished ranges, start/duration bounds, idempotence, selector metadata and dependency resets. Existing authentication, privacy batching, scope and grade/supervisor regression checks remain in place. Deployment requires the migration and one explicit range publication to adopt the new behavior for existing courses.
+
+**Status:** Adopted by explicit owner instruction.
