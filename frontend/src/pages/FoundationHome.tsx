@@ -15,6 +15,9 @@ type Chart = {
   title_ar: string;
   title_en: string;
   items: ChartItem[];
+  route?: string | null;
+  description_ar?: string | null;
+  description_en?: string | null;
 };
 type AttentionItem = {
   key: string;
@@ -40,6 +43,8 @@ type DashboardOverview = {
     roles: string[];
     assigned_levels: string[];
     scope_student_count: number;
+    academic_year?: { id: number; code: string } | null;
+    attendance_domain?: 'clinical';
   };
   charts?: Chart[];
   attention: AttentionItem[];
@@ -73,7 +78,7 @@ const focusRole: Record<string, string> = {
 };
 
 const chartGroups: { key: GroupKey; ar: string; en: string; keys: string[] }[] = [
-  { key: 'attendance', ar: 'الحضور والغياب', en: 'Attendance', keys: ['attendance_status', 'absence_trend'] },
+  { key: 'attendance', ar: 'الحضور السريري', en: 'Clinical attendance', keys: ['attendance_status', 'university_attendance_status', 'absence_trend'] },
   { key: 'students', ar: 'الطلبة والتوزيع', en: 'Students and placements', keys: ['students_by_level', 'academic_registration', 'distribution_departments', 'registration_cycles_status'] },
   { key: 'academic', ar: 'التقييمات والعلامات', en: 'Assessments and grades', keys: ['assessment_workflow', 'grade_workflow'] },
   { key: 'operations', ar: 'العمل اليومي', en: 'Daily operations', keys: ['my_tasks_status', 'correspondence_status', 'meeting_status', 'quality_overview', 'advising_status'] },
@@ -107,15 +112,17 @@ function DashboardChart({ chart, locale }: { chart: Chart; locale: string }) {
   const items = chart.items.filter((item) => Number.isFinite(item.value) && item.value >= 0);
   const total = items.reduce((sum, item) => sum + item.value, 0);
   const title = ar ? chart.title_ar : chart.title_en;
-  if (total <= 0) return null;
-
   return <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-label={title}>
     <div className="mb-4 flex items-center justify-between gap-2">
-      <h3 className="text-sm font-black text-slate-900">{title}</h3>
+      <div>
+        <h3 className="text-sm font-black text-slate-900">{title}</h3>
+        {(ar ? chart.description_ar : chart.description_en) && <p className="mt-1 text-xs leading-5 text-slate-500">{ar ? chart.description_ar : chart.description_en}</p>}
+      </div>
     </div>
-    {chart.type === 'donut' ? <DonutChart items={items} total={total} locale={locale} title={title} />
+    {total <= 0 ? <p className="rounded-xl bg-slate-50 px-3 py-6 text-xs leading-6 text-slate-500">{ar ? 'لا توجد سجلات لهذا المؤشر ضمن النطاق المعروض.' : 'No records for this indicator in the displayed scope.'}</p> : chart.type === 'donut' ? <DonutChart items={items} total={total} locale={locale} title={title} />
       : chart.type === 'line' ? <LineChart items={items} locale={locale} title={title} />
       : <BarChart items={items} locale={locale} />}
+    {chart.route && <Link to={chart.route} className="mt-4 inline-flex min-h-10 items-center rounded-lg border border-slate-200 px-3 text-xs font-bold text-teal-800">{ar ? 'فتح السجل' : 'Open register'}</Link>}
   </article>;
 }
 
@@ -161,12 +168,11 @@ function DonutChart({ items, total, locale, title }: { items: ChartItem[]; total
 function LineChart({ items, locale, title }: { items: ChartItem[]; locale: string; title: string }) {
   const ar = locale === 'ar';
   const maximum = Math.max(...items.map((item) => item.value), 1);
-  const points = items.map((item, index) => ({
-    x: items.length === 1 ? 160 : 12 + (index / (items.length - 1)) * 296,
-    y: 94 - (item.value / maximum) * 78,
-    item,
-  }));
-  return <div>
+  const points = items.map((item, index) => {
+    const x = items.length === 1 ? 160 : 12 + (index / (items.length - 1)) * 296;
+    return { x: ar ? 320 - x : x, y: 94 - (item.value / maximum) * 78, item };
+  });
+  return <div dir={ar ? 'rtl' : 'ltr'}>
     <svg viewBox="0 0 320 112" className="h-32 w-full" preserveAspectRatio="none" role="img" aria-label={`${title}: ${items.map((item) => `${ar ? item.label_ar : item.label_en} ${formatNumber(item.value, locale)}`).join('، ')}`}>
       <path d="M12 94 H308" stroke="#e2e8f0" strokeWidth="1" />
       <polyline points={points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#0f766e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
@@ -183,6 +189,7 @@ export function FoundationHome() {
   const { locale } = useI18n();
   const ar = locale === 'ar';
   const tr = (arabic: string, english: string) => ar ? arabic : english;
+  const [showAllAttention, setShowAllAttention] = useState(false);
   const [activeGroup, setActiveGroup] = useState<GroupKey | null>(null);
   const dashboardQuery = useQuery({
     queryKey: ['role-dashboard-overview', user?.id],
@@ -199,11 +206,14 @@ export function FoundationHome() {
     ? preferredRole
     : dashboard.profile.roles.find((role) => roleLabels[role] && role !== 'CLINICAL_SUPERVISOR') || dashboard.profile.roles[0];
   const role = roleLabels[primaryRole];
-  const availableCharts = (dashboard.charts ?? []).filter((chart) => chart.items.some((item) => Number.isFinite(item.value) && item.value > 0));
+  const levelName=(level:string)=>(({fourth:ar?'السنة الرابعة':'Fourth year',fifth:ar?'السنة الخامسة':'Fifth year',sixth:ar?'السنة السادسة':'Sixth year'} as Record<string,string>)[level]??level);
+  const attention = [...dashboard.attention].sort((a, b) => ({ urgent: 0, review: 1, notice: 2 }[a.severity] - { urgent: 0, review: 1, notice: 2 }[b.severity]));
+  const availableCharts = (dashboard.charts ?? []).filter((chart) => chart.items.some((item) => Number.isFinite(item.value) && item.value >= 0));
   const availableGroups = chartGroups.filter((group) => availableCharts.some((chart) => group.keys.includes(chart.key)));
   const preferredGroups = focusOrder[dashboard.profile.focus] ?? focusOrder.clinical_leadership;
   availableGroups.sort((a, b) => preferredGroups.indexOf(a.key) - preferredGroups.indexOf(b.key));
   const currentGroup = availableGroups.find((group) => group.key === activeGroup) ?? availableGroups[0];
+  const hasAcademicArea = availableGroups.some((group) => ['attendance', 'students', 'academic'].includes(group.key)) || availableCharts.some((chart) => chart.key === 'advising_status');
   const displayedCharts = currentGroup ? availableCharts.filter((chart) => currentGroup.keys.includes(chart.key)) : [];
 
   return <main aria-label={tr('مساحة العمل اليومية', 'Daily workspace')} className="mx-auto w-full min-w-0 max-w-[1380px] space-y-4 pb-10 sm:space-y-5">
@@ -216,8 +226,9 @@ export function FoundationHome() {
           <h1 className="mt-4 break-words text-2xl font-black tracking-tight sm:text-3xl">{tr('مرحباً،', 'Welcome,')} {dashboard.profile.name}</h1>
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-300">
             <time>{localizedDate(dashboard.generated_at, locale, true)}</time>
-            {dashboard.profile.assigned_levels.length > 0 && <span>{tr('دفعاتك:', 'Cohorts:')} {dashboard.profile.assigned_levels.join('، ')}</span>}
+            {dashboard.profile.assigned_levels.length > 0 && <span>{tr('دفعاتك:', 'Cohorts:')} {dashboard.profile.assigned_levels.map(levelName).join(ar?'، ':', ')}</span>}
           </div>
+          {hasAcademicArea&&dashboard.profile.attendance_domain==='clinical'&&<p className="mt-3 text-xs leading-6 text-slate-300">{dashboard.profile.academic_year?tr(`البيانات الأكاديمية السريرية للعام ${dashboard.profile.academic_year.code}، والمتابعة التشغيلية حسب حالتها الحالية.`,`Clinical academic data for ${dashboard.profile.academic_year.code}; operational follow-up reflects its current state.`):tr('لم يحدد عام أكاديمي حالي؛ الإحصائيات الأكاديمية غير متاحة بعد.','No current academic year is set; academic statistics are not available yet.')}</p>}
         </div>
         <button type="button" onClick={() => dashboardQuery.refetch()} disabled={dashboardQuery.isFetching} aria-label={tr('تحديث البيانات', 'Refresh dashboard')} className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-bold text-white transition hover:bg-white/20 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${dashboardQuery.isFetching ? 'animate-spin' : ''}`} />{tr('تحديث', 'Refresh')}</button>
       </div>
@@ -236,8 +247,9 @@ export function FoundationHome() {
     <div className="grid gap-4 pt-1 lg:grid-cols-2">
       <section aria-label={tr('ما يحتاج متابعتك', 'Needs your attention')} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="mb-3 flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-50 text-amber-700"><CheckCircle2 className="h-4 w-4" /></span><h2 className="text-sm font-black text-slate-900">{tr('ما يحتاج متابعتك', 'Needs your attention')}</h2></div>
-        {dashboard.attention.length > 0 ? <div className="divide-y divide-slate-100">{dashboard.attention.slice(0, 4).map((item) => <Link key={item.key} to={item.route} className="flex min-w-0 items-center gap-3 py-3 text-xs transition hover:text-teal-800"><span className={`grid h-7 min-w-7 place-items-center rounded-lg px-1.5 font-black ${item.severity === 'urgent' ? 'bg-red-100 text-red-700' : item.severity === 'review' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-700'}`}>{formatNumber(item.count, locale)}</span><span className="min-w-0 flex-1 font-bold text-slate-700">{ar ? item.label_ar : item.label_en}</span></Link>)}</div>
+        {dashboard.attention.length > 0 ? <div className="divide-y divide-slate-100">{attention.slice(0,showAllAttention?attention.length:4).map((item) => <Link key={item.key} to={item.route} className="flex min-w-0 items-center gap-3 py-3 text-xs transition hover:text-teal-800"><span className={`grid h-7 min-w-7 place-items-center rounded-lg px-1.5 font-black ${item.severity === 'urgent' ? 'bg-red-100 text-red-700' : item.severity === 'review' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-700'}`}>{formatNumber(item.count, locale)}</span><span className="min-w-0 flex-1 font-bold text-slate-700">{ar ? item.label_ar : item.label_en}</span></Link>)}</div>
           : <p className="rounded-xl bg-emerald-50 px-3 py-4 text-xs font-medium text-emerald-800">{tr('لا توجد أعمال معلقة ضمن نطاقك الآن.', 'Nothing in your scope needs action right now.')}</p>}
+        {attention.length>4&&<button type="button" onClick={()=>setShowAllAttention(value=>!value)} className="mt-3 min-h-10 text-xs font-bold text-teal-800">{showAllAttention?tr('عرض أقل','Show less'):tr('عرض كل المتابعات','Show all follow-ups')}</button>}
       </section>
       <section aria-label={tr('آخر التحديثات', 'Recent updates')} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <h2 className="mb-3 flex items-center gap-2 text-sm font-black text-slate-900"><span className="grid h-8 w-8 place-items-center rounded-lg bg-teal-50 text-teal-700"><Clock3 className="h-4 w-4" /></span>{tr('آخر التحديثات', 'Recent updates')}</h2>

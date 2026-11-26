@@ -67,6 +67,7 @@ class DashboardOverviewTest extends TestCase
     {
         $admin = User::factory()->create(['is_active' => true]);
         $admin->roles()->attach(Role::where('code', 'SYS_ADMIN')->firstOrFail(), ['scope_type' => 'global']);
+        $admin->directPermissions()->attach(Permission::whereIn('code', ['users.manage', 'settings.manage', 'audit.view'])->pluck('id')->all());
 
         $response = $this->actingAs($admin)->getJson('/api/v1/dashboard/overview')
             ->assertOk()

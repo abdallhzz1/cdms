@@ -3,20 +3,21 @@
 namespace App\Services\Distribution;
 
 use App\DTOs\DashboardSummaryDTO;
+use App\Models\AcademicYear;
 use App\Models\Department;
 use App\Models\DistributionVersion;
-use App\Models\Person;
 use App\Models\Rotation;
-use App\Models\RotationBlock;
 use App\Models\SiteCapacityRule;
 use App\Models\Student;
 use App\Models\StudentClinicalAssignment;
-use App\Models\TrainingSite;
+use App\Services\DepartmentHeadCourseScope;
+use App\Traits\ScopesByDepartmentAndLevel;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class OperationalDashboardService
 {
+    use ScopesByDepartmentAndLevel;
+
     public function __construct(
         private CurrentDistributionResolver $currentResolver
     ) {}
@@ -24,17 +25,31 @@ class OperationalDashboardService
     /**
      * Aggregates operational metrics exclusively from the current published distribution(s).
      * Guaranteed to execute <= 15 SQL queries using database-side aggregations.
-     *
-     * @param Request $request
-     * @return array
      */
     public function getSummary(Request $request): array
     {
+        $yearId = $request->filled('academic_year_id') ? $request->integer('academic_year_id') : (AcademicYear::where('is_current', true)->orderByDesc('start_date')->value('id')
+            ?? AcademicYear::whereDate('start_date', '<=', today())->whereDate('end_date', '>=', today())->orderByDesc('start_date')->value('id'));
+        $visibleStudents = $this->applyStudentAccessScope(Student::query())->where('registration_status', 'active')->whereIn('academic_level', ['fourth', 'fifth', 'sixth'])
+            ->when($request->filled('academic_level'), fn ($query) => $query->where('academic_level', $request->input('academic_level')));
+        if ($request->filled('rotation_id')) {
+            $rotationLevel = Rotation::whereKey($request->integer('rotation_id'))->value('academic_level');
+            $visibleStudents->where('academic_level', $rotationLevel ?? 'none');
+        }
+        $totalActiveStudents = (clone $visibleStudents)->count();
+        $levelScope = $this->getEffectiveAcademicLevelScope();
         // 1. Fetch IDs of all active current published distribution versions
         $versionQuery = DistributionVersion::query()
             ->where('status', 'published')
-            ->where('is_current', true);
-        app(\App\Services\DepartmentHeadCourseScope::class)->throughRotation($versionQuery, 'rotation');
+            ->where('is_current', true)
+            ->whereHas('rotation', function ($rotation) use ($yearId, $levelScope) {
+                $rotation->whereIn('academic_level', ['fourth', 'fifth', 'sixth']);
+                $rotation->where('academic_year_id', $yearId ?? 0);
+                if ($levelScope !== null) {
+                    $rotation->whereIn('academic_level', $levelScope ?: ['none']);
+                }
+            });
+        app(DepartmentHeadCourseScope::class)->throughRotation($versionQuery, 'rotation');
 
         if ($request->filled('rotation_id')) {
             $versionQuery->where('rotation_id', (int) $request->input('rotation_id'));
@@ -42,7 +57,7 @@ class OperationalDashboardService
 
         if ($request->filled('academic_level')) {
             $level = $request->input('academic_level');
-            $versionQuery->whereHas('rotation', fn($q) => $q->where('academic_level', $level));
+            $versionQuery->whereHas('rotation', fn ($q) => $q->where('academic_level', $level));
         }
 
         $activeVersions = $versionQuery->get();
@@ -51,9 +66,9 @@ class OperationalDashboardService
         // Handle case where no distribution is currently published
         if (empty($versionIds)) {
             return DashboardSummaryDTO::toArray(
-                coverage: ['total_active_students' => 0, 'assigned_students' => 0, 'unassigned_students' => 0, 'coverage_percentage' => 0.0],
+                coverage: ['total_active_students' => $totalActiveStudents, 'assigned_students' => 0, 'unassigned_students' => $totalActiveStudents, 'coverage_percentage' => 0.0],
                 overview: ['active_rotations_count' => 0, 'active_blocks_count' => 0, 'total_placements_count' => 0, 'published_at' => null],
-                alerts: ['unassigned_students_count' => 0, 'sites_near_capacity_count' => 0, 'sites_over_capacity_count' => 0, 'unsupervised_assignments_count' => 0, 'inactive_supervisor_assignments_count' => 0],
+                alerts: ['unassigned_students_count' => $totalActiveStudents, 'sites_near_capacity_count' => 0, 'sites_over_capacity_count' => 0, 'unsupervised_assignments_count' => 0, 'inactive_supervisor_assignments_count' => 0],
                 departmentDist: [],
                 siteCapacity: [],
                 supervisorWorkload: []
@@ -62,8 +77,9 @@ class OperationalDashboardService
 
         // 2. Base Query for Current Published Assignments
         $assignmentQuery = StudentClinicalAssignment::query()
-            ->whereIn('student_clinical_assignments.distribution_version_id', $versionIds);
-        app(\App\Services\DepartmentHeadCourseScope::class)->assignments($assignmentQuery);
+            ->whereIn('student_clinical_assignments.distribution_version_id', $versionIds)
+            ->whereIn('student_clinical_assignments.student_id', (clone $visibleStudents)->select('students.id'));
+        app(DepartmentHeadCourseScope::class)->assignments($assignmentQuery);
 
         // Apply filters
         if ($request->filled('rotation_block_id')) {
@@ -80,9 +96,6 @@ class OperationalDashboardService
         }
 
         // 3. Student Coverage Calculations
-        $totalActiveStudents = app(\App\Services\DepartmentHeadCourseScope::class)->students(Student::query())
-            ->where('registration_status', 'active')
-            ->count();
 
         $assignmentRows = (clone $assignmentQuery)
             ->leftJoin('departments', 'student_clinical_assignments.department_id', '=', 'departments.id')
@@ -108,7 +121,7 @@ class OperationalDashboardService
         // 4. Distribution Overview Metrics
         $totalPlacementsCount = $assignmentRows->count();
         $activeRotationsCount = count(array_unique($activeVersions->pluck('rotation_id')->toArray()));
-        
+
         $activeBlocksCount = $assignmentRows->pluck('rotation_block_id')->unique()->count();
 
         $latestPublishedAt = $activeVersions->max('updated_at')?->toIso8601String();
@@ -122,10 +135,10 @@ class OperationalDashboardService
                 : 0.0;
 
             $departmentDist[] = [
-                'department_id'    => (int) $departmentId,
-                'name_ar'          => $row->department_name_ar,
-                'name_en'          => $row->department_name_en,
-                'assigned_count'   => $rows->count(),
+                'department_id' => (int) $departmentId,
+                'name_ar' => $row->department_name_ar,
+                'name_en' => $row->department_name_en,
+                'assigned_count' => $rows->count(),
                 'share_percentage' => $sharePct,
             ];
         }
@@ -147,7 +160,7 @@ class OperationalDashboardService
         foreach ($siteRows as $siteId => $rows) {
             $row = $rows->first();
             $assigned = $rows->count();
-            
+
             // Sum max capacity limit across active rotations for this site
             $siteRules = $capacityRules->get($siteId);
             $capacityLimit = $siteRules ? $siteRules->sum('max_students') : null;
@@ -161,14 +174,14 @@ class OperationalDashboardService
             }
 
             $siteCapacity[] = [
-                'site_id'                => (int) $siteId,
-                'name_ar'                => $row->site_name_ar,
-                'name_en'                => $row->site_name_en,
-                'capacity_limit'         => $capacityLimit,
-                'assigned_count'         => $assigned,
-                'available_capacity'     => $statusData['available'],
+                'site_id' => (int) $siteId,
+                'name_ar' => $row->site_name_ar,
+                'name_en' => $row->site_name_en,
+                'capacity_limit' => $capacityLimit,
+                'assigned_count' => $assigned,
+                'available_capacity' => $statusData['available'],
                 'utilization_percentage' => $statusData['percentage'],
-                'status'                 => $statusData['status'],
+                'status' => $statusData['status'],
             ];
         }
 
@@ -187,11 +200,11 @@ class OperationalDashboardService
             }
 
             $supervisorWorkload[] = [
-                'supervisor_id'    => (int) $supervisorId,
-                'full_name_ar'     => $row->supervisor_name_ar,
-                'full_name_en'     => $row->supervisor_name_en,
-                'assigned_count'   => $assigned,
-                'max_students'     => $maxStudents,
+                'supervisor_id' => (int) $supervisorId,
+                'full_name_ar' => $row->supervisor_name_ar,
+                'full_name_en' => $row->supervisor_name_en,
+                'assigned_count' => $assigned,
+                'max_students' => $maxStudents,
                 'workload_warning' => $workloadWarning,
             ];
         }
@@ -203,21 +216,21 @@ class OperationalDashboardService
         return DashboardSummaryDTO::toArray(
             coverage: [
                 'total_active_students' => $totalActiveStudents,
-                'assigned_students'     => $assignedStudentsCount,
-                'unassigned_students'   => $unassignedStudentsCount,
-                'coverage_percentage'   => $coveragePercentage,
+                'assigned_students' => $assignedStudentsCount,
+                'unassigned_students' => $unassignedStudentsCount,
+                'coverage_percentage' => $coveragePercentage,
             ],
             overview: [
                 'active_rotations_count' => $activeRotationsCount,
-                'active_blocks_count'    => $activeBlocksCount,
+                'active_blocks_count' => $activeBlocksCount,
                 'total_placements_count' => $totalPlacementsCount,
-                'published_at'           => $latestPublishedAt,
+                'published_at' => $latestPublishedAt,
             ],
             alerts: [
-                'unassigned_students_count'             => $unassignedStudentsCount,
-                'sites_near_capacity_count'             => $sitesNearCapacity,
-                'sites_over_capacity_count'             => $sitesOverCapacity,
-                'unsupervised_assignments_count'        => $unsupervisedCount,
+                'unassigned_students_count' => $unassignedStudentsCount,
+                'sites_near_capacity_count' => $sitesNearCapacity,
+                'sites_over_capacity_count' => $sitesOverCapacity,
+                'unsupervised_assignments_count' => $unsupervisedCount,
                 'inactive_supervisor_assignments_count' => $inactiveSupervisorAssignments,
             ],
             departmentDist: $departmentDist,
@@ -233,17 +246,17 @@ class OperationalDashboardService
     {
         if ($capacityLimit === null) {
             return [
-                'available'  => null,
+                'available' => null,
                 'percentage' => null,
-                'status'     => 'NO_RULE',
+                'status' => 'NO_RULE',
             ];
         }
 
         if ($capacityLimit === 0) {
             return [
-                'available'  => 0,
+                'available' => 0,
                 'percentage' => null,
-                'status'     => 'NO_CAPACITY',
+                'status' => 'NO_CAPACITY',
             ];
         }
 
@@ -260,9 +273,9 @@ class OperationalDashboardService
         }
 
         return [
-            'available'  => $available,
+            'available' => $available,
             'percentage' => $percentage,
-            'status'     => $status,
+            'status' => $status,
         ];
     }
 }

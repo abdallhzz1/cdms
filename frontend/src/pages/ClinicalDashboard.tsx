@@ -43,7 +43,7 @@ export function ClinicalDashboard() {
     );
   }
 
-  if (!dashboard || dashboard.distribution_overview.active_rotations_count === 0) {
+  if (!dashboard || (dashboard.distribution_overview.active_rotations_count === 0 && dashboard.student_coverage.total_active_students === 0)) {
     return <EmptyState />;
   }
 

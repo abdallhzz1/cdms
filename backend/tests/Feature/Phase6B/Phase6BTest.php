@@ -60,7 +60,7 @@ class Phase6BTest extends TestCase
         $this->unauthorizedUser = User::factory()->create();
 
         // Setup domain structure
-        $academicYear = AcademicYear::factory()->create();
+        $academicYear = AcademicYear::factory()->create(['is_current' => true]);
         $this->rotation = Rotation::factory()->create([
             'academic_year_id' => $academicYear->id,
             'academic_level'   => 'fourth'

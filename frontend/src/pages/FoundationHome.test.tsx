@@ -19,6 +19,68 @@ afterEach(() => {
 });
 
 describe("FoundationHome", () => {
+  it.each(['ar', 'en'])('aligns trend points with the month labels in %s', async (locale) => {
+    localStorage.setItem('cdms.locale', locale);
+    vi.spyOn(window, 'fetch').mockImplementation(async (input) => {
+      if (String(input).includes('/auth/me')) return envelope({ id: 8, name: 'Director', roles: ['CLINICAL_DIRECTOR'], permissions: [] });
+      return envelope({
+        profile: { name: 'Director', focus: 'clinical_leadership', roles: ['CLINICAL_DIRECTOR'], assigned_levels: [], scope_student_count: 1 },
+        charts: [{ key: 'absence_trend', type: 'line', title_ar: 'اتجاه الغياب السريري', title_en: 'Clinical absence trend', items: [
+          { label_ar: 'تشرين الأول', label_en: 'October', value: 1 },
+          { label_ar: 'تشرين الثاني', label_en: 'November', value: 2 },
+        ] }], attention: [], activity: [], generated_at: '2026-11-26T10:00:00+02:00',
+      });
+    });
+    renderWithProviders(<FoundationHome />);
+    const title = locale === 'ar' ? 'اتجاه الغياب السريري' : 'Clinical absence trend';
+    const plot = await screen.findByRole('img', { name: new RegExp(title) });
+    const points = plot.querySelectorAll('circle');
+    expect(points[0]).toHaveAttribute('cx', locale === 'ar' ? '308' : '12');
+    expect(points[1]).toHaveAttribute('cx', locale === 'ar' ? '12' : '308');
+    expect(plot.parentElement).toHaveAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
+  });
+
+  it('keeps zero clinical charts visible, labels the year and cohort, and offers only supplied record links', async () => {
+    localStorage.setItem('cdms.locale', 'ar');
+    vi.spyOn(window, 'fetch').mockImplementation(async (input) => {
+      if (String(input).includes('/auth/me')) return envelope({ id: 3, name: 'مساعد', roles: ['RTA'], permissions: [] });
+      return envelope({
+        profile: { name: 'مساعد', focus: 'cohort', roles: ['RTA'], assigned_levels: ['fourth'], scope_student_count: 0, attendance_domain: 'clinical', academic_year: { id: 1, code: '2026/2027' } },
+        charts: [{ key: 'attendance_status', type: 'donut', title_ar: 'حضور التدريب السريري بالمراكز', title_en: 'Clinical training attendance at sites', description_ar: 'عدد سجلات الحضور والغياب، وليس عدد الطلبة المختلفين.', items: [{ label_ar: 'حاضر', label_en: 'Present', value: 0 }], route: '/attendance' }],
+        attention: [], activity: [], generated_at: '2026-11-26T10:00:00+02:00',
+      });
+    });
+    renderWithProviders(<FoundationHome />);
+    expect(await screen.findByRole('tab', { name: 'الحضور السريري' })).toBeVisible();
+    expect(screen.getByText(/البيانات الأكاديمية السريرية للعام 2026\/2027/)).toBeVisible();
+    expect(screen.getByText(/دفعاتك: السنة الرابعة/)).toBeVisible();
+    expect(screen.getByText('لا توجد سجلات لهذا المؤشر ضمن النطاق المعروض.')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'فتح السجل' })).toHaveAttribute('href', '/attendance');
+  });
+
+  it('prioritizes urgent follow-ups and allows the remaining actions to be expanded', async () => {
+    localStorage.setItem('cdms.locale', 'en');
+    vi.spyOn(window, 'fetch').mockImplementation(async (input) => {
+      if (String(input).includes('/auth/me')) return envelope({ id: 4, name: 'Director', roles: ['CLINICAL_DIRECTOR'], permissions: [] });
+      return envelope({
+        profile: { name: 'Director', focus: 'clinical_leadership', roles: ['CLINICAL_DIRECTOR'], assigned_levels: [], scope_student_count: 0 },
+        charts: [], activity: [], generated_at: '2026-11-26T10:00:00+02:00',
+        attention: [
+          ...[1, 2, 3, 4].map((key) => ({ key: `notice-${key}`, label_ar: `مراجعة ${key}`, label_en: `Notice ${key}`, count: 1, route: '/tasks', severity: 'notice' })),
+          { key: 'urgent', label_ar: 'عاجل', label_en: 'Urgent action', count: 2, route: '/tasks', severity: 'urgent' },
+        ],
+      });
+    });
+    renderWithProviders(<FoundationHome />);
+    const section = await screen.findByRole('region', { name: 'Needs your attention' });
+    expect(within(section).getAllByRole('link')[0]).toHaveTextContent('Urgent action');
+    expect(within(section).queryByText('Notice 4')).not.toBeInTheDocument();
+    await userEvent.click(within(section).getByRole('button', { name: 'Show all follow-ups' }));
+    expect(within(section).getByText('Notice 4')).toBeVisible();
+    await userEvent.click(within(section).getByRole('button', { name: 'Show less' }));
+    expect(within(section).queryByText('Notice 4')).not.toBeInTheDocument();
+  });
+
   it("places role-scoped charts immediately after the welcome and removes the KPI cards", async () => {
     localStorage.setItem("cdms.locale", "en");
     vi.spyOn(window, "fetch").mockImplementation(async (input) => {
@@ -89,10 +151,10 @@ describe("FoundationHome", () => {
     expect(screen.getByRole('region', { name: 'Needs your attention' })).toHaveTextContent('Nothing in your scope needs action right now.');
     expect(screen.getByRole('region', { name: 'Recent updates' })).toHaveTextContent('There are no recent updates in your scope.');
     const tabs = screen.getByRole('tablist', { name: 'Chart areas' });
-    expect(within(tabs).getByRole('tab', { name: 'Attendance' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(tabs).getByRole('tab', { name: 'Clinical attendance' })).toHaveAttribute('aria-selected', 'true');
     expect(within(tabs).queryByRole('tab', { name: 'Assessments and grades' })).not.toBeInTheDocument();
-    expect(screen.getByRole('tabpanel', { name: 'Attendance' })).toHaveTextContent('Attendance status');
-    expect(screen.getByRole('tabpanel', { name: 'Attendance' })).toHaveTextContent('Absence trend');
+    expect(screen.getByRole('tabpanel', { name: 'Clinical attendance' })).toHaveTextContent('Attendance status');
+    expect(screen.getByRole('tabpanel', { name: 'Clinical attendance' })).toHaveTextContent('Absence trend');
     await userEvent.click(within(tabs).getByRole('tab', { name: 'Students and placements' }));
     expect(screen.getByRole('tabpanel', { name: 'Students and placements' })).toHaveTextContent('Students by cohort');
     expect(screen.queryByText('Absence trend')).not.toBeInTheDocument();
@@ -120,7 +182,7 @@ describe("FoundationHome", () => {
     renderWithProviders(<FoundationHome />);
     expect(await screen.findByText('Administrative assistant')).toBeVisible();
     expect(screen.getByRole('tab', { name: 'Students and placements' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.queryByRole('tab', { name: 'Attendance' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Clinical attendance' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: 'Daily operations' }));
     expect(screen.getByRole('tabpanel', { name: 'Daily operations' })).toHaveTextContent('Mail status');
     expect(screen.getByRole('region', { name: 'Needs your attention' })).toHaveTextContent('Minutes awaiting approval');

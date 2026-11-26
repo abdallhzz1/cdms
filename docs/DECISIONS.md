@@ -455,3 +455,21 @@ that instruction fails as written on a Windows + Herd setup.
 **Migration impact:** No schema or permission changes. Adds bulk-loaded group metadata and `photo_url` to the existing scoped grade roster API.
 
 **Status:** Adopted 2026-11-24 by explicit owner direction.
+
+## ADR-030 — Clinical dashboards use scoped current-year records and actionable follow-ups
+
+**Date:** 2026-11-26.
+
+**Decision:** At the owner's request, the general role dashboard and the distribution operations dashboard report clinical students (fourth, fifth and sixth years) only. Basic attendance retains its separate workspace and tables. The clinical supervisor portal, its routing, queries and interface are unchanged.
+
+**Academic scope:** Resolve the explicitly current academic year, falling back to the year covering today's date; when neither exists, do not silently sum historical records. Hospital attendance requires a clinical course and rotation in that year, dates through today, and students visible to the user. Clinical university attendance is a separate chart and includes approved registers and historical sealed registers, not open QR registers; its own viewing permissions apply. Excused absence is not presence in the attendance rate. Risk notices explicitly describe field-training absence cases for review, not previously issued official warnings. Grade charts count saved student grade records for the year, not complete course sheets. Assessments and placements use current published distributions in that year. Distribution coverage uses the same active, visible clinical-student population as its denominator and shows unassigned students even before publication; an explicit year filter is respected.
+
+**Permissions and operations:** Dashboard permission resolution includes direct user grants. Technical data requires the matching technical permission. Advising respects student scope and year. Mail totals and activity exclude the user's archived/deleted items, while unread replies to sent mail are counted. Overdue tasks include created and assigned work; upcoming meetings are scheduled meetings only. Approval follow-ups respect the current step, requester separation and distinct-approver rules. Existing operational histories remain all-time status summaries; academic-year scope is stated separately.
+
+**UI:** Zero values stay visible with an empty state. Clinical labels distinguish the two attendance sources, chart notes identify record counts, permitted links open their registers, and urgent follow-ups appear first with expansion for remaining actions. Arabic cohort names are localized, and Arabic trend coordinates follow the same direction as month labels.
+
+**Migration impact:** No schema, permissions, source records, grading formulas or approval transitions change. Production frontend assets are committed for cPanel deployment without server-side npm.
+
+**Validation:** Regression tests cover mixed basic/clinical roles, direct permissions, inactive accounts, cohort/year/course boundaries, open versus sealed university registers, historical distributions and grades, operation counts, approval separation, empty distribution coverage, zero-valued charts and Arabic/English trend direction. Existing supervisor portal tests are retained. Responsive browser checks use synthetic data on phone, tablet and desktop.
+
+**Status:** Adopted 2026-11-26 by explicit owner direction.

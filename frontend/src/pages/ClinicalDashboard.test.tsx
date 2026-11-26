@@ -82,4 +82,19 @@ describe('ClinicalDashboard', () => {
       expect(screen.getAllByText('95')[0]).toBeInTheDocument();
     });
   });
+
+  it('shows unassigned students even before a distribution is published', async () => {
+    vi.mocked(distributionApi.getDashboardSummary).mockResolvedValue({
+      success: true,
+      data: {
+        student_coverage: { total_active_students: 24, assigned_students: 0, unassigned_students: 24, coverage_percentage: 0 },
+        distribution_overview: { active_rotations_count: 0, active_blocks_count: 0, total_placements_count: 0, published_at: null },
+        alerts: { unassigned_students_count: 24, sites_near_capacity_count: 0, sites_over_capacity_count: 0, unsupervised_assignments_count: 0, inactive_supervisor_assignments_count: 0 },
+        department_distribution: [], site_capacity_utilization: [], supervisor_workload_summary: [],
+      },
+    });
+    renderComponent();
+    await waitFor(() => expect(screen.getAllByText('24').length).toBeGreaterThan(0));
+    expect(screen.queryByText(/^No Data$/i)).not.toBeInTheDocument();
+  });
 });
