@@ -530,4 +530,16 @@ that instruction fails as written on a Windows + Herd setup.
 
 **Validation and deployment:** Tests cover migration grants/idempotence, permission revocation, ownership, expiry, scope, unpublished/ungraded/foreign slot rejection, feedback-before-mark, duplicate submissions, encryption, exclusion from reports, reply/full-run deletion and preservation of real student records. The shared public student journey and grade/supervisor regressions remain checked. Run the additive migration before deploying built assets; no production test records or student data are created by deployment.
 
+**Status:** Withdrawn by the owner; removed by ADR-035.
+
+## ADR-035 — Remove staff student testing entirely
+
+**Date:** 2026-11-26.
+
+**Decision:** The owner cancels the complete staff testing feature. Remove its tab, preview dialog, permissions, navigation access, staff APIs, controller, UI strings and shared-portal test parameters. The public student portal and immediate real feedback reporting retain their prior behavior.
+
+**Deployment:** Retain migration 190000 as deployed history. Forward migration 200000 removes only the two disposable testing tables and their two permission records, cascading role and individual grants. It is idempotent for servers that never created test data. Real grades, publication decisions, student sessions, confidential answers and participation are preserved. Historical staff audit actions remain audit history; deleted test replies are not restored by rollback.
+
+**Validation:** Regression checks exercise removed routes, clean-install schema, removal of existing test data/grants, repeat cleanup and preservation of real student feedback and marks. Rebuild and publish the frontend after running the cleanup migration.
+
 **Status:** Adopted by explicit owner instruction.

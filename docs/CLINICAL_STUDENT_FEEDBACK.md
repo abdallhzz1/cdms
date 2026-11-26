@@ -2,16 +2,6 @@
 
 Student link: `/portal/clinical-assessments`. Staff workspace: `/clinical-student-feedback`.
 
-## Testing an existing student on the live installation
-
-Administrative assistants receive two configurable permissions by default: `clinical_feedback.test` (open an existing clinical student's assessment portal in staff test mode) and `clinical_feedback.delete_test` (delete their own test replies or complete test runs). Both appear in the administrator's permission matrix. These permissions do not grant access to students' real feedback or report publication controls.
-
-Open **Student Feedback → Test student portal**, search by student name/number, and start a test. The shared student screen uses the real current published assignments, week release decisions, official grades and readiness rules. An ungraded/unpublished week stays ungraded/unavailable; a test does not fabricate assessments or publish marks. Submit a clearly labeled test response to reveal the student's official mark in that test. Its saved ratings/comment are shown as a test response. Delete the reply to reset that test's mark gate, or close it and choose **Delete test** under **My tests** to remove the run and all of its replies.
-
-Test runs use the authenticated staff session, never the student's cookie or OTP. They require permission, creator ownership, current student/course/cohort scope and an eight-hour expiry on every read/write. Expired runs remain deletable by their creator with cleanup permission. The test tables are separate from real participation and anonymous answers: an existing genuine reply is neither disclosed nor reused, test replies do not appear in feedback reports, and cleanup cannot delete real feedback. Comments are encrypted; audits record the staff actor, test-run UUID and action without comment content. Test records cascade on student deletion and cannot add academic-history deletion blocks. Test caches and modal state are separate from the public student session.
-
-Deploy `2026_11_26_190000_add_clinical_feedback_testing` before using the feature. It creates two test-only tables and grants both permissions to existing administrative-assistant roles; seeders provide the same defaults on a fresh installation. No live student data is backfilled. This checks the deployed grade/feedback flow with an existing student; email-code delivery remains part of the real student login flow.
-
 ## Enabling a course
 
 The clinical director initially has configuration, publication, summary, comment and moderation permissions. Dean/Vice Dean have summary and redacted-comment access. Quality has summary, redacted-comment and moderation access. Technical administrators receive no automatic feedback access. The administrator can change these grants under **Clinical Student Feedback** in the permission matrix, including individual permissions through the existing user tools. Permission revocation is enforced on every API request.

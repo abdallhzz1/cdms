@@ -125,7 +125,6 @@ class RolePermissionSeeder extends Seeder
         }
         $defaultGrants['CLINICAL_DIRECTOR'] = array_merge($defaultGrants['CLINICAL_DIRECTOR'], ['clinical_feedback.manage', 'clinical_feedback.publish_marks', 'clinical_feedback.moderate']);
         $defaultGrants['QUALITY'] = array_merge($defaultGrants['QUALITY'], ['clinical_feedback.moderate']);
-        $defaultGrants['ADMIN_ASSISTANT'] = array_merge($defaultGrants['ADMIN_ASSISTANT'], ['clinical_feedback.test', 'clinical_feedback.delete_test']);
         foreach ($defaultGrants as $roleCode => $codes) {
             $role = Role::where('code', $roleCode)->first();
             if (! $role) {
